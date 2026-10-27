@@ -1,0 +1,49 @@
+{
+  "name": "magpie-jet-hub",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "把 deepseek-harness-codearts 插件本体（24 个 provider 的路由中枢）原样装进 magpie：内嵌 cordis 容器运行本体，复用其账号池、静默续期、积分选号与本地 OpenAI 兼容网关，凭据直接共用 DSH 的 .credentials.yaml，不依赖 DSH 进程",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "src",
+    "vendor",
+    "page",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "magpie",
+    "deepseek-harness",
+    "dsh",
+    "providers-hub",
+    "plugin"
+  ],
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/cosmokit": "^1.8.5",
+    "@deepseek-ai/dsh-commands": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "license": "MIT",
+  "magpie": {
+    "maxConcurrency": 8,
+    "page": {
+      "title": "Jet Hub",
+      "titles": {
+        "zh": "Jet Hub（本体直装）"
+      },
+      "file": "page/index.html",
+      "icon": "page/icon.svg"
+    },
+    "permissions": [
+      "providers:list",
+      "usage:summary"
+    ]
+  }
+}
