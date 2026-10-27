@@ -250,3 +250,16 @@ button.corner { position: absolute; top: 8px; right: 8px; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* 控制台地址卡片 */
+.field input.wide {
+  width: 320px;
+  font: inherit;
+  font-size: 12px;
+  font-family: var(--jh-code);
+  padding: 4px 7px;
+  border: 1px solid var(--jh-line);
+  border-radius: 6px;
+  background: var(--jh-sunk);
+  color: var(--jh-fg);
+}

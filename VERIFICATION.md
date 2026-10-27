@@ -452,3 +452,49 @@ $ magpie-bun tests/t-writerefs.mjs    → 全部通过
 `page/index.html`、`page/page.css`、`page/page.js`、`page/models.js`（自动生成）、
 `page/icon.svg`、`scripts/snapshot-models.mjs`、`scripts/test-all.mjs`、
 `tests/ui-check.cjs`。
+
+## 十二、接上本体的完整管理 RPC：控制台（2026-10-28）
+
+### 背景：页面这一层做不到
+用户要求「我需要全部功能」（m06256）。查官方 `docs/subsystems/plugin-runtime.md` 确认受管页面
+是 `sandbox allow-scripts` + 自有 CSP `connect-src 'none'` + `frame-src 'none'`，只能读
+`providers:list` / `usage:summary`，且 `magpie.actions` 只是往页面 postMessage 菜单事件、
+不是调用插件的写入口。⇒ **任何写操作（登录/换号/续期/积分/备份）都不可能从侧栏页面发起。**
+实测印证：用 iframe 指向 `http://127.0.0.1:18500/` 会被 CSP 直接拦掉 ——
+`Framing 'http://127.0.0.1:18500/' violates ... "frame-src 'none'"`。
+
+### 做法：控制台 = 插件自己的本地 HTTP 服务
+- `src/connection.mjs` — `ConnectionSeam extends Service('connection')`，把 RPC 信封转给容器。
+- `src/hub-server.mjs` — 用 `node:http` 起 `127.0.0.1` 服务：静态页 + `GET /__meta` + `POST /api/jet-hub`。
+  端口从 `18500` 起、被占用则 +1，实际 `url` 写进 `~/.config/magpie/jet-hub-console.json`。
+- `console/` — 六个标签的管理界面（账号 / 登录 / 积分 / 模型 / 路由 / 备份）。
+
+> 关键前提：本体的 `jet-hub-rpc.js` 只有在 `ctx.connection` 可用时才注册端点
+> （`vendor/lib/jet-hub-rpc.js` 里 `if (!ctx.connection) ctx.logger.warn('...RPC endpoints not registered')`）。
+> 所以必须在容器里补一个 `connection` 服务，并把 `fetch` 方法接上。
+
+### RPC 契约（实测确认）
+请求：`POST /api/jet-hub`，体 `{type:"client-request", rpcId, method:"jet-hub", payload:{method, payload}}`
+响应：`{type:"server-response", rpcId, result:{ok:true, value}}` 或 `result:{ok:false, error:{code,message}}`
+
+实测通过的方法与返回要点（真实数据）：
+
+| 方法 | 参数 | 实测结果 |
+|---|---|---|
+| `account.list` | `{provider}` | `ok:true`，返回该 provider 的账号（含 `refreshable` / `expiresAt` / `modelRateLimits`）；不带 `provider` 返回空数组 |
+| `model.list` | `{provider:"codearts"}` | `ok:true` 268ms，返回模型含 `{id,name,disabled,dead}` |
+| `credits.status` | `{provider:"codearts"}` | `ok:true`，按账号列积分状态 |
+| `credits.balances` | `{provider:"workbuddy"}` | `ok:true`，`{accountId,nickname,balance,error}` |
+| `account.test` | `{accountId}` | `ok:true` 1542ms，真发一次请求：`{modelId:"deepseek-v4.1-flash", ok:true}` |
+| `account.update` | `{accountId, patch:{enabled}}` | `ok:true`（`patch` 白名单只认 `nickname/enabled/expiresAt/refreshable`，多余字段被丢弃并 warn） |
+| `backup.status` | `{}` | `ok:true`，`{accounts:56, withoutExpiry:6, accountList:[...]}` |
+| `backup.export` | `{}` | `ok:true`，`{payload:{format:"dsh-codearts-auth/backup", version:1, exportedAt, credentials:{...}}}` |
+| `gateway.getEnabled` | `{}` | `ok:true`，`{enabled:true, running:true, address:{host:"127.0.0.1",port:18391}, apiKey:{value:"jethub-…"}}` |
+
+### 侧栏页面调整
+控制台标签改为**地址卡片**（复制地址 + 功能清单 + 解释为什么不能内嵌），去掉 iframe。
+改后 `node tests/ui-check.cjs` 页面无任何 JS 报错，六个标签全部渲染正常。
+
+### 测试
+`node scripts/test-all.mjs --all` → **7 通过 / 0 失败 / 0 跳过**
+（新增 `tests/t-console.mjs`：真起容器 → 起控制台 → 校验 `/__meta` 与 `account.list`）。

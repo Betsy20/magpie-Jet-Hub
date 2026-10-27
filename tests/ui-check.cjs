@@ -109,12 +109,12 @@ function makeClient(wsUrl, problems) {
     console.log('  截图', path.basename(p), fs.statSync(p).size, 'bytes')
   }
 
-  const tabs = ['start', 'models', 'usage', 'providers', 'settings']
+  const tabs = ['start', 'models', 'usage', 'providers', 'settings', 'console']
   const report = []
   for (const name of tabs) {
     const r = await evalIn(`(()=>{const b=[...document.querySelectorAll('#tabs button')].find(x=>x.dataset.tab==='${name}');if(!b)return 'no tab ${name}';b.click();return 'ok'})()`)
     if (r !== 'ok') throw new Error(r)
-    await sleep(name === 'usage' ? 2500 : 900)
+    await sleep(name === 'usage' ? 2500 : name === 'console' ? 6000 : 900)
     await shot(name)
     const probe = await evalIn(`(()=>{
       const p=document.querySelector('.panel:not([hidden])');

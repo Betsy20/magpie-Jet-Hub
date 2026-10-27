@@ -23,6 +23,7 @@
 <nav class="tabs" id="tabs" role="tablist">
   <button type="button" data-tab="start" aria-selected="true">接入</button>
   <button type="button" data-tab="models">模型</button>
+  <button type="button" data-tab="console">控制台</button>
   <button type="button" data-tab="usage">用量</button>
   <button type="button" data-tab="providers">供应商</button>
   <button type="button" data-tab="settings">设置</button>
@@ -120,6 +121,45 @@
     <h2>本体带来的 provider</h2>
     <p class="hint">登录、账号池、额度与续期都在「供应商 → Jet Hub」里管理；这里只列出来了哪些。</p>
     <div class="provs" id="provs"></div>
+  </div>
+</section>
+
+<!-- ───────────── 控制台 ───────────── -->
+<section class="panel" data-panel="console" hidden>
+  <div class="card">
+    <h2>完整控制台</h2>
+    <p class="hint">
+      登录 / 换号 / 静默续期 / 积分领取 / 模型开关 / 账号池 / 备份导入导出 ——
+      全部由插件自己的本地服务提供，在<strong>浏览器</strong>里打开这个地址即可用。
+    </p>
+    <p class="hint">
+      <strong>为什么不能直接嵌在这个页面里：</strong>magpie 的插件页被沙箱成
+      <code>sandbox allow-scripts</code>，策略里写死 <code>connect-src 'none'</code> 与
+      <code>frame-src 'none'</code> —— 页面既发不出请求，也嵌不进框架。这是 magpie 的安全设计，
+      页面只能读 <code>providers:list</code> 和 <code>usage:summary</code> 两项。
+      所以「全部功能」走本地控制台，本页负责把地址给你。
+    </p>
+    <div class="field">
+      <label for="conUrlBox">控制台地址</label>
+      <input class="wide" id="conUrlBox" readonly value="http://127.0.0.1:18500/" />
+      <button type="button" data-copy="#conUrlBox">复制地址</button>
+    </div>
+    <p class="hint">
+      端口默认 <code>18500</code>，被占用时会自动 +1。准确端口见
+      <code>~/.config/magpie/jet-hub-console.json</code> 的 <code>url</code> 字段。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>控制台里能做什么</h2>
+    <ul class="reads">
+      <li><code>账号</code><span>— 每个 provider 的账号池：增删、启用/停用、看有效期与续期状态</span></li>
+      <li><code>登录</code><span>— 起设备码/浏览器登录取凭据，直接落进账号池</span></li>
+      <li><code>积分</code><span>— 查每个账号的积分余额、每日领取、领取记录</span></li>
+      <li><code>模型</code><span>— 模型开关、禁用列表、按账号的限流</span></li>
+      <li><code>路由</code><span>— 聚合路由顺序、auto 选路、拒绝记录</span></li>
+      <li><code>备份</code><span>— 账号池导出 / 导入，换机器搬运用</span></li>
+    </ul>
   </div>
 </section>
 

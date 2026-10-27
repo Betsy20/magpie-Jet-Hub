@@ -13,7 +13,12 @@ import { Context } from '@deepseek-ai/cordis'
 import { createServer } from 'node:net'
 import { randomBytes } from 'node:crypto'
 import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { FileCredentialProvider } from './credentials.mjs'
+import { ConnectionSeam } from './connection.mjs'
+import { startHubServer } from './hub-server.mjs'
 
 /** 找可用端口：先 bind 试探再释放（网关自己还会 bind，窗口极小但可接受）。 */
 async function findFreePort(from = 18390, tries = 60) {
@@ -49,6 +54,9 @@ export class JetHubContainer {
     this.apiKey = `jethub-${randomBytes(12).toString('hex')}`
     this.ctx = undefined
     this.ready = undefined
+    this.seam = undefined
+    this.console = undefined
+    this.version = undefined
     this.models = []      // 最近一次拉到的模型 id（不带 provider 前缀）
     this.ownerOf = new Map() // modelId -> provider id
   }
@@ -78,10 +86,21 @@ export class JetHubContainer {
     const ctx = new Context()
     this.ctx = ctx
 
+    // 读本体版本（vendor/package.json），只用于控制台展示；读不到不影响运行。
+    try {
+      this.version = JSON.parse(readFileSync(join(dirname(this.entryPath), '..', 'package.json'), 'utf8')).version
+    } catch {
+      this.version = undefined
+    }
+
     // 1) credentials 服务：桥到 DSH 的 .credentials.yaml
     ctx.plugin(FileCredentialProvider, { home: this.home })
 
-    // 2) 本体依赖的两个 seam
+    // 2) 本体依赖的三个 seam
+    //    ⚠️ `connection` 必须在 `ctx.plugin(mod)` **之前**装好：本体的 apply() 里
+    //    `registerJetHubRpc` 会 `ctx.get('connection')`，拿不到就只 warn 一句、
+    //    一条管理路由都不注册（账号/登录/积分/模型/备份全部消失，只剩转发）。
+    ctx.plugin(ConnectionSeam)
     for (const spec of ['@deepseek-ai/dsh-commands', '@deepseek-ai/dsh-llm']) {
       const m = await import(spec)
       ctx.plugin(m.default ?? m)
@@ -138,7 +157,61 @@ export class JetHubContainer {
     // 判据刻意保守：只有「明确标了不可续期」**且**「有效期已过」才算死号。
     // 缺 `expiresAt` 的、或 refreshable 为 true 的一律放行（可能还能刷成功）。
     this._filterDeadAccounts(ctx)
+
+    // 6) 本地控制台：对外暴露本体注册的管理 API（/api/jet-hub）与 console/ 界面。
+    //    放在网关就绪之后，`/__meta` 里的 provider 目录才是拉全的。
+    this.seam = ctx.get('connection')
+    if (this.seam === undefined || this.seam.routes.size === 0) {
+      // 走到这里说明本体的 RPC 注册链路变了（版本升级），必须暴露出来而不是静默降级。
+      throw new Error(
+        'magpie-jet-hub: 本体没有注册任何 Jet Hub 管理路由（connection 接缝失效）。' +
+          '管理功能会全部不可用，请检查 vendor/lib/jet-hub-rpc.js 的 registerJetHubRpc 是否仍在用 ctx.get("connection").fetch.register。',
+      )
+    }
+    this.console = await startHubServer({
+      seam: this.seam,
+      log: this.log,
+      meta: () => this.meta(),
+      // 控制台与内部网关分两段端口：网关从 18390 起，控制台从 18500 起，
+      // 各自向上找空位，互不抢。magpie 插件页里的默认端口也是 18500。
+      from: 18500,
+    })
+    this.log(`控制台就绪 ${this.console.url}｜管理路由 ${this.seam.routes.size} 条：${this.seam.list().join(' | ')}`)
+    // 落一份地址文件：magpie 的插件页 CSP 是 connect-src 'none'，页面拿不到端口，
+    // 只能由用户/文档从这里取；同时便于 `magpie plugin list` 之后排查。
+    try {
+      const p = join(homedir(), '.config', 'magpie', 'jet-hub-console.json')
+      mkdirSync(dirname(p), { recursive: true })
+      writeFileSync(p, JSON.stringify({ url: this.console.url, port: this.console.port, at: new Date().toISOString() }, null, 2))
+    } catch { /* 写不了不影响服务 */ }
     return this
+  }
+
+  /** 控制台地址（未启动时 undefined）。 */
+  get consoleUrl() {
+    return this.console?.url
+  }
+
+  /** 给控制台 `/__meta` 用的现场快照：provider → 模型，外加网关地址。 */
+  meta() {
+    /** @type {Map<string, string[]>} */
+    const byProvider = new Map()
+    for (const fullId of this.models) {
+      const owner = this.ownerOf.get(fullId)
+      if (!owner) continue
+      if (!byProvider.has(owner)) byProvider.set(owner, [])
+      const bare = fullId.startsWith(`${owner}/`) ? fullId.slice(owner.length + 1) : fullId
+      byProvider.get(owner).push(bare)
+    }
+    return {
+      providers: [...byProvider.entries()]
+        .map(([id, models]) => ({ id, name: id, models }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      models: this.models.length,
+      gateway: { baseURL: this.baseURL, port: this.port },
+      version: this.version,
+      generatedAt: new Date().toISOString(),
+    }
   }
 
   /** 判断账号是否「死号」：明确不可续期且有效期已过。 */
