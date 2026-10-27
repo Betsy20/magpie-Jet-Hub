@@ -565,3 +565,64 @@ codearts 各 2），其它插件 24 条记录一字未动。
 `node scripts/test-all.mjs` → **5 通过 / 0 失败**（新增 `tests/t-seed-auth.mjs`：
 dry-run 不改文件、19 个 id 齐全、路由组文案正确、多账号摊平）。
 `node tests/ui-check.cjs` → 六个标签全渲染、无 JS 报错、37 个模型 / 19 组。
+
+## 十三、模型目录改成上游全量（m06921）
+
+### 问题
+magpie 里 `Jet Hub · AStudio（讯飞）` 的模型区只显示 1 个 `xopdsv4flash0731in`。
+用户要的是供应商上游全部模型。
+
+### 根因（实测对比）
+`provider.models()` 与 `config().models` 都在读网关 `/v1/models`，而那份只列
+**当前账号此刻能用**的：
+
+| provider | 网关 `/v1/models` | 本体 `model.list` RPC |
+|---|---|---|
+| astudio | 1 | 9 |
+| cline | 1 | 540 |
+| workbuddy | 2 | 32 |
+| codearts | 6 | 12 |
+| **合计** | 35 | **861 / 19 家** |
+
+`model.list` 是本体自己注册的管理 RPC，只在容器进程里可用（走 `connection`
+接缝），magpie 宿主读不到 —— 所以必须由插件进程取数并落盘。
+
+### 实现
+1. `src/container.mjs` 新增 `async rpc(method, payload)`：走
+   `seam.routes.get('/api/jet-hub')`，请求体
+   `{type:'client-request', rpcId, method:'jet-hub', payload:{method,payload}}`，
+   响应包络 `{ok:true, value}`。
+2. 新增 `async refreshFullCatalog(providers)`：逐家 `model.list`，返回
+   `[{id:'<provider>/<model>', name, disabled, dead}]`。路由组
+   （`jet-hub-auto` / `aggregate`）没有自己的目录，失败属正常。
+3. `src/plugin.mjs`：`allModels`（可用）+ `fullModels`（全量）两份状态；
+   `modelsOfFull()` 生成 magpie 的 models 形状，`disabled` 的模型名后缀
+   `· 已在 Jet Hub 关闭` 但**照样列出**。
+4. `provider.models()` 优先级改成 **全量 > 可用 > 静态兜底**；
+   `config().models` 也改用 `currentModels(p)`（此前写死 `fallbackFor`，
+   所以供应商详情页永远只有 1 个模型 —— 这就是用户看到的症状）。
+5. `scripts/snapshot-models.mjs` 改为读 `~/.config/magpie/jet-hub-models.json`
+   的 `full`，并把本体形态 id（`codearts/GLM-5.2`）转成 magpie 形态
+   （`jet-hub-codearts/GLM-5.2`）。
+
+### 踩到的两个坑（都已修）
+1. **`writeCache` 用 `full: undefined` 覆盖了上一次的全量** —— 实时目录先到
+   （20 秒），全量后到（40 秒），先写的那次把 861 条抹成 35 条。改成
+   `full: fullModels ?? prev.full`。
+2. **快照按 `jet-hub` 前缀过滤，把 861 条全滤成 1 条** —— 全量缓存里的 id 是
+   本体形态、没有 `jet-hub-` 前缀。改成不按前缀过滤、而是按 `<provider>/` 拆分后
+   用 `idOf()` 重新拼。
+
+### 验证（Observed）
+```
+node -e 冒烟 → jet-hub-astudio 9 / jet-hub-cline 540 / jet-hub-workbuddy 32 / jet-hub-codearts 12
+node scripts/snapshot-models.mjs → ✓ 861 个模型 / 19 个 provider（来源：plugin-cache（上游全量））
+node scripts/test-all.mjs --all  → 8 通过 / 0 失败 / 0 跳过
+页面（ui-check.cjs）→ 「上游全量 861 个模型 / 19 个供应商，目录取自 2026/10/28 02:49:14」，826 个灰
+```
+
+### 顺带修掉的测试脆弱性
+`tests/t-plugin.mjs` 原先只试 workbuddy 一个渠道；它的账号池偶发
+「余额查询未能全部完成」502，导致测试红过一次（**不是**桥接层缺陷）。
+改成按 workbuddy → codearts → trae 顺序试、任一 200 即通过；三个都挂才算失败。
+

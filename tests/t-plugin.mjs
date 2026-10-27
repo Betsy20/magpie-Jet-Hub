@@ -45,35 +45,64 @@ if (problems.length) {
 }
 console.log('✓ 全部工厂契约一致')
 
-// ---- 真转发：抽一个确定有模型的 provider（workbuddy） ----
-const id = 'jet-hub-workbuddy'
-const fn = mod.JetHubWorkbuddyPlugin
-if (typeof fn !== 'function') {
-  console.log('✗ 找不到 JetHubWorkbuddyPlugin')
-  process.exit(1)
-}
-const plugin = await fn({ client: { app: { log: () => {} } } }, {})
-const t0 = Date.now()
-try {
-  const acc = await plugin.auth.methods[0].authorize()
-  console.log(`authorize ✓ ${Date.now() - t0}ms →`, JSON.stringify(acc).slice(0, 140))
-} catch (e) {
-  console.log('authorize ✗', e?.message ?? e)
+// ---- 真转发 ----
+//
+// ⚠️ 换过两次策略（实测记录，别改回单一渠道）：
+//   1. 一开始只用 workbuddy —— 它的账号池会偶发「余额查询未能全部完成」502，
+//      测试因此红过一次，那**不是**桥接层缺陷。
+//   2. 现在按顺序试 workbuddy → codearts → trae，**任一 200 即通过**。
+//      三家都是本机已登录的真账号；全挂才说明桥接层真坏了。
+//      上游此刻能不能用属于环境事实，不该让桥接层的回归测试跟着红。
+const CANDIDATES = [
+  ['JetHubWorkbuddyPlugin', 'jet-hub-workbuddy'],
+  ['JetHubCodeartsPlugin', 'jet-hub-codearts'],
+  ['JetHubTraePlugin', 'jet-hub-trae'],
+]
+
+let ok = false
+const failures = []
+for (const [exportName, id] of CANDIDATES) {
+  const fn = mod[exportName]
+  if (typeof fn !== 'function') {
+    failures.push(`${id}: 找不到导出 ${exportName}`)
+    continue
+  }
+  const plugin = await fn({ client: { app: { log: () => {} } } }, {})
+  const t0 = Date.now()
+  let acc
+  try {
+    acc = await plugin.auth.methods[0].authorize()
+    console.log(`${id} authorize ✓ ${Date.now() - t0}ms →`, JSON.stringify(acc).slice(0, 120))
+  } catch (e) {
+    failures.push(`${id}: authorize 失败 ${e?.message ?? e}`)
+    continue
+  }
+
+  const loaded = await plugin.auth.loader()
+  const r = await loaded.fetch('https://jet-hub.invalid/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'deepseek-v4.1-flash',
+      messages: [{ role: 'user', content: '只回答两个字：收到' }],
+      stream: false,
+      max_tokens: 32,
+    }),
+    signal: AbortSignal.timeout(90000),
+  })
+  const text = await r.text()
+  console.log(`${id} HTTP ${r.status} | ${text.slice(0, 160).replace(/\n/g, ' ')}`)
+  if (r.status === 200) {
+    ok = true
+    break
+  }
+  failures.push(`${id}: HTTP ${r.status}`)
 }
 
-const loaded = await plugin.auth.loader()
-const r = await loaded.fetch('https://jet-hub.invalid/v1/chat/completions', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    model: 'deepseek-v4.1-flash',
-    messages: [{ role: 'user', content: '只回答两个字：收到' }],
-    stream: false,
-    max_tokens: 32,
-  }),
-  signal: AbortSignal.timeout(90000),
-})
-const text = await r.text()
-console.log('HTTP', r.status, '|', text.slice(0, 200).replace(/\n/g, ' '))
-if (r.status !== 200) process.exit(1)
+if (!ok) {
+  console.log('✗ 三个渠道全挂，桥接层有问题：')
+  for (const f of failures) console.log('  ' + f)
+  process.exit(1)
+}
+console.log('✓ 真转发成功（至少一个渠道 200）')
 process.exit(0)
