@@ -1,0 +1,170 @@
+# magpie-jet-hub
+
+把 **deepseek-harness-codearts 插件本体**装进 magpie。
+
+不是"重写一份 CodeArts 能力"（那样只搬一家），而是把本体「路由中枢」原样跑起来：
+内嵌一个 cordis 容器加载 `deepseek-harness-codearts`（= `dsh-providers-hub`，24 个 provider），
+让它自己开一个只监听回环的 OpenAI 兼容网关，magpie 侧只把请求转发进去。
+
+```
+magpie 网关 (3425)
+  └─ provider `jet-hub`            ← 本插件
+       └─ auth.loader().fetch       ← 只改这一层：剥 provider 前缀 + 转发
+            └─ JetHubContainer（内嵌 cordis + 本体 lib/index.js）
+                 └─ 本体自带网关 127.0.0.1:<动态端口>
+                      └─ 24 家 provider 的真实上游
+```
+
+## 为什么这么做
+
+| 做法 | 结果 |
+|---|---|
+| 重写一份 CodeArts | 只能覆盖一家；本体的账号池、续期、选号、目录全丢 |
+| 桥接 DSH 网关 8326 | 要先起 DSH 进程；本插件不依赖 DSH |
+| **本插件：装本体** | 本体 24 家全在，升级跟着走，**不依赖 DSH 进程** |
+
+代价：本体以 npm 包形式随 `vendor/` 分发（17 MB）。
+
+## 安装
+
+```bash
+# 1) 先装运行时依赖（vendor/ 里的本体靠根 node_modules 解析 @deepseek-ai/*）
+npm install          # 或 bun install
+
+# 2) 装进 magpie 并登录
+magpie plugin add D:/dsh-build/magpie-Jet-Hub
+magpie plugin login jet-hub
+```
+
+> ⚠️ **必须用目录路径**，不要写包名。npm 上同名包可能是别人的 cordis 插件，
+> 装上会报 `TypeError: undefined is not an object (evaluating 'self.ctx.reflect.provide')`。
+>
+> 换机器时把 `magpie-Jet-Hub` 换成自己的绝对路径即可。目录式安装是**直接引用**
+> （不复制、不建软链），所以改完代码 `magpie plugin list` 重载即生效。
+
+## 凭据：不需要再登一次
+
+本插件**不向用户要任何凭据**。DSH 已经把账号写在
+`~/.dsh/.credentials.yaml` 的 `refs:` 段里，`src/credentials.mjs` 用一个
+`FileCredentialProvider` 把它桥成容器的 `credentials` 服务 —— 本体读到的
+就是它平时读的那份。
+
+⇒ 在 DSH 里登录过的账号，在 magpie 里立刻可用；反之，本体刷新出的新 token
+也会写回同一个文件（`src/credentials.mjs` 的 `set()` 走原子替换 + `.bak`）。
+
+三个踩过的坑（都在 `src/credentials.mjs` 头部注释里）：
+
+1. `resolve()` 必须返回 `{ value }` 包装对象 —— 返回裸字符串会让所有账号被判"未配置"，chat 全 502
+2. `.credentials.yaml` 的值可能是跨多行的单引号标量，必须做 YAML 折行折叠
+3. 写入必须落回 `.credentials.yaml`，否则 refresh 出的新 token 只活在内存里
+
+## 模型名
+
+magpie 侧看到的 id 是 `jet-hub/<provider>/<model>`，两层前缀：
+
+```
+jet-hub/workbuddy/deepseek-v4.1-flash
+jet-hub/zcode/GLM-5.3
+jet-hub/jet-hub-auto/auto        ← 本体的自动选号路由组
+```
+
+`auth.loader().fetch` 只剥掉外层 `jet-hub/`，内层 `<provider>/<model>` 原样
+交给本体 —— 本体按这个前缀分派到对应上游。
+
+## 冷启动与目录
+
+本体冷启动要建容器、拉账号凭据链、预热目录，实测 **3–30 秒**。
+而 magpie 给 `provider.models` 的超时只有 **20 秒** —— 在 `models()` 里
+`await` 必然超时（日志刷 `the plugin's model list didn't finish in 20s`）。
+
+故 `models()` 分三档（`src/plugin.mjs` 的 `currentModels()`）：
+
+1. 内存缓存命中 → 立刻返回，后台刷新
+2. 磁盘缓存（`~/.config/magpie/jet-hub-models.json`）→ 立刻返回真实目录
+3. 都没有 → 返回静态表（16 条），启动甩到后台
+
+`authorize()` 与 `usage()` 由用户点击/后台触发，允许长时间，走 `liveModels()` 真等。
+
+## 侧栏页面
+
+`package.json` 的 `magpie.page` 声明页面，`magpie.permissions` 声明只读数据：
+
+```json
+"permissions": ["providers:list", "usage:summary"]
+```
+
+> ⚠️ **必须是字符串数组**。写成对象（`{reads:[...]}`）会让页面注册静默失败，
+> 侧栏根本不出现 —— 这个坑实际卡过两轮。
+
+页面在沙箱 iframe 里跑，只能通过 `_magpie/bridge.js` 拿声明过的数据，不联网、
+不碰 magpie 的 `/api`。
+
+## 入口只导出插件契约
+
+`index.mjs` 只导出 `JetHubPlugin` + `PROVIDER` + `DISPLAY_NAME`。
+
+> ⚠️ **绝不能多导出工具函数**。magpie 宿主加载插件时遍历**全部导出**并
+> 探测性调用，任何一个非插件工厂的导出都会让它抛错、整个插件加载失败
+> （`plugin list` 报 failed）。需要单测内部函数请直接 import `src/*.mjs`。
+
+## 测试
+
+```bash
+# 插件契约全链路（模拟宿主探测 → config → authorize → models → 真转发）
+"C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-plugin.mjs
+
+# models() 不阻塞（必须 < 2s，否则会被 magpie 的 20s 超时打断）
+"C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-models-nowait.mjs
+
+# 死号过滤判据（13 条断言，不联网）
+"C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-dead-account.mjs
+
+# .credentials.yaml 写回不吞行（14 条断言，不联网）
+"C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-writerefs.mjs
+
+# 经 magpie 网关 3425 真转发（非流式 / 流式 / 工具调用 / 路由组）
+python tests/t-gateway.py
+
+# 界面实拍（CDP 驱动 Edge，注入 cookie 后点侧栏截插件页）
+node tests/shot.cjs
+```
+
+测试用 magpie 自带的 bun（`~/.cache/magpie/bun/*/magpie-bun.exe`），因为宿主就是 bun。
+
+## 已知限制
+
+- 账号自身的额度/refresh token 过期与本插件无关：`officeace` 等会报
+  `STS5.1806 invalid refresh token: 'the refresh token has been used'`，
+  需要在 DSH 里重新登录（refresh token 是一次性的，这是上游设计）。
+- **死号会拖垮整个渠道**：本体的选号只看 `enabled` 与限流，不看 `expiresAt` /
+  `refreshable`，所以「已过期且不可续期」的账号一旦排在手动顺序前面，每次请求
+  都会撞 502，而健康账号其实可用。本插件在容器层过滤掉这类死号
+  （`src/container.mjs` 的 `_filterDeadAccounts`，详见 `VERIFICATION.md` 第七点五节）。
+  注意：过滤只让死号不参与选号，**不会删除**它 —— 彻底清掉请去 DSH 的 Jet Hub 删账号。
+- `zcode` 可能报"上游并发限流"：本体自带退避，属上游限流，非插件缺陷。
+- 本体的 Jet Hub **设置界面**（`lib/client/jet-hub.js`）是本插件搬不过来的部分 ——
+  它是 DSH 前端 UI，magpie 里由本插件自己的侧栏页替代；账号登录/续期仍在 DSH 侧做。
+
+## 目录
+
+```
+index.mjs              入口，只导插件契约
+src/plugin.mjs         插件工厂：config / auth / provider
+src/container.mjs      内嵌 cordis 容器，加载本体并转发
+src/credentials.mjs    把 .credentials.yaml 桥成 credentials 服务
+vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/）
+page/                  侧栏页面（index.html / page.js / page.css / icon.svg）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-gateway）
+docs/screenshot.png    侧栏页面实拍
+```
+
+## 实现细节补充
+
+- 内部网关端口**动态探测**（从 18390 起向上找一个空闲端口）—— magpie 会给每个
+  插件开独立 bun 进程，固定端口会撞。
+- 凭据桥是 **双向** 的：本体 refresh 出的新 token 会原子写回
+  `~/.dsh/.credentials.yaml`（临时文件 + `rename` + `.bak`），所以在 magpie 里
+  用过之后，DSH 侧也是最新的。
+- 内部网关带随机 API key（`jethub-<24 hex>`），并只监听 `127.0.0.1`，
+  不对外暴露。
+

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jet Hub</title>
+<link rel="stylesheet" href="page.css">
+</head>
+<body>
+<header class="head">
+  <img class="mark" src="icon.svg" alt="" width="28" height="28">
+  <div class="who">
+    <h1>Jet Hub</h1>
+    <p class="sub">deepseek-harness-codearts 插件<b>本体</b>装在 magpie 里跑：24 家的账号池、静默续期、积分选号、模型目录与路由组全部原样复用。</p>
+  </div>
+  <span class="badge" id="state" data-tone="wait">连接窗口…</span>
+</header>
+
+<section class="card">
+  <h2>怎么用</h2>
+  <p>在任意一个接 magpie 网关的客户端里，模型选下面任意一个。前缀 <code id="prefix">jet-hub/</code>。</p>
+  <div class="row">
+    <span class="lab">网关</span>
+    <code id="gateway">http://127.0.0.1:3425</code>
+    <button class="mini" id="copy" type="button">复制</button>
+  </div>
+  <p class="hint">凭据直接用 DSH 里已经登录过的那些账号（<code>~/.dsh/.credentials.yaml</code>），在 magpie 这边不需要再登一次。</p>
+</section>
+
+<section class="card">
+  <h2>模型</h2>
+  <p class="hint">按账号真实目录拉取，随 DSH 那边登录的账号变化。完整清单见「供应商 → Jet Hub」，或 <code>curl 127.0.0.1:3425/v1/models</code>。</p>
+  <ul class="models" id="models"><li class="wait">读取中…</li></ul>
+</section>
+
+<section class="card">
+  <h2>本体带来的能力</h2>
+  <ul class="feats">
+    <li><b>24 个 provider</b>：workbuddy / workbuddy-ai、qoder / qoder-cn、zcode、codearts、trae-cn / trae-global、autoclaw-cn、officeace、astudio、buddy、loomy、lobsterai、modelscope、raccoon、opencode、cline、codely、gemini、accio、minimax、providers-hub 等。</li>
+    <li><b>账号池</b>：同一家多个账号自动轮换，配额用尽的自动跳过。</li>
+    <li><b>静默续期</b>：OAuth / refresh_token 到期前自动换新，并写回凭据文件，重启不丢。</li>
+    <li><b>路由组</b>：<code>group/never-stuck</code> 按顺序兜底，<code>auto/&lt;model&gt;</code> 按额度择优。</li>
+    <li><b>模型目录</b>：每家按自己账号实时拉，不写死。</li>
+    <li><b>积分与签到</b>：本体自带的额度查询与每日领取。</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>用量</h2>
+  <p class="hint">整个 magpie 网关今天走过我这边模型的量。</p>
+  <div class="stats" id="stats"><span class="wait">读取中…</span></div>
+</section>
+
+<section class="card">
+  <h2>这个面板能读到什么</h2>
+  <p class="hint">页面在沙箱里：不许联网，不许碰 magpie 的接口，只拿得到 package.json 里声明过的这几种只读数据。</p>
+  <ul class="reads" id="reads"></ul>
+</section>
+
+<footer class="foot">
+  <span id="ver"></span>
+  <span id="lang"></span>
+</footer>
+
+<script src="_magpie/bridge.js"></script>
+<script src="page.js"></script>
+</body>
+</html>

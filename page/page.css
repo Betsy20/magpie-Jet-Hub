@@ -1,0 +1,158 @@
+/* 这个面板的样式。窗口的 pagebridge 会先铺一层 :where() 的基础规则（字体、颜色、
+   按钮、字段、表格），权重为零，所以这里的任何一条都会盖过它；没有写到的部分就跟着
+   窗口自己的主题走。颜色一律用窗口给的 CSS 变量，浅色深色自动跟着变。 */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 18px 20px 28px;
+  font-family: var(--magpie-font, system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--magpie-fg, CanvasText);
+  background: var(--magpie-bg, Canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.mark { flex: none; border-radius: 6px; }
+.who { min-width: 0; flex: 1; }
+.head h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.sub {
+  margin: 2px 0 0;
+  color: var(--magpie-muted);
+  font-size: 12px;
+}
+
+.badge {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--magpie-line);
+  color: var(--magpie-muted);
+  background: var(--magpie-card);
+  white-space: nowrap;
+}
+.badge[data-tone="ok"] { color: var(--magpie-green); border-color: color-mix(in srgb, var(--magpie-green) 40%, transparent); }
+.badge[data-tone="bad"] { color: var(--magpie-red); border-color: color-mix(in srgb, var(--magpie-red) 40%, transparent); }
+
+.card {
+  border: 1px solid var(--magpie-line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: var(--magpie-card);
+}
+.card h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--magpie-fg-2);
+}
+.card p { margin: 0 0 8px; }
+.card p:last-child { margin-bottom: 0; }
+
+.hint { color: var(--magpie-muted); font-size: 12px; }
+
+code {
+  font-family: var(--magpie-code, ui-monospace, monospace);
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--magpie-fg) 7%, transparent);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lab {
+  color: var(--magpie-muted);
+  font-size: 12px;
+  min-width: 60px;
+}
+.row code { padding: 2px 6px; }
+
+button.mini {
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--magpie-line);
+  background: var(--magpie-bg, Canvas);
+  color: var(--magpie-fg-2);
+  cursor: pointer;
+}
+button.mini:hover { border-color: var(--magpie-accent); color: var(--magpie-accent); }
+button.mini[data-done="1"] { color: var(--magpie-green); border-color: color-mix(in srgb, var(--magpie-green) 40%, transparent); }
+
+.models {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.models li {
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--magpie-line);
+  background: var(--magpie-bg, Canvas);
+  font-family: var(--magpie-code, ui-monospace, monospace);
+  font-size: 11.5px;
+  color: var(--magpie-fg-2);
+}
+.models li .id { color: var(--magpie-muted); }
+
+.feats { margin: 0; padding-left: 18px; }
+.feats li { margin-bottom: 4px; }
+.feats li:last-child { margin-bottom: 0; }
+.feats b { font-weight: 600; }
+
+.reads { margin: 0; padding-left: 18px; font-size: 12px; }
+.reads li { margin-bottom: 2px; }
+.reads .none { color: var(--magpie-muted); }
+
+.foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--magpie-faint);
+  font-size: 11px;
+  padding: 2px 2px 0;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 12px;
+  border: 1px solid var(--magpie-line, ButtonBorder);
+  border-radius: 8px;
+  background: var(--magpie-bg, Canvas);
+  min-width: 78px;
+}
+.stat .k { color: var(--magpie-muted, GrayText); font-size: 11px; }
+.stat .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.wait { color: var(--magpie-muted, GrayText); }
