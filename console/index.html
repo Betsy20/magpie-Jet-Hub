@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jet Hub 控制台</title>
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+<div id="boot" class="boot">正在连上插件本体…</div>
+
+<div id="app" class="app" hidden>
+  <aside class="rail">
+    <div class="brand">
+      <span class="dot" id="health"></span>
+      <span>Jet Hub</span>
+      <small>控制台</small>
+    </div>
+    <nav id="nav">
+      <button data-tab="overview" class="on">概览</button>
+      <button data-tab="accounts">账号</button>
+      <button data-tab="credits">积分</button>
+      <button data-tab="models">模型</button>
+      <button data-tab="backup">备份</button>
+      <button data-tab="settings">设置</button>
+    </nav>
+    <div class="rail-foot">
+      <div id="gw" class="gw"></div>
+      <div class="hint">本页由插件本体的本地服务提供，不经 magpie 网关。</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <!-- 概览 -->
+    <section id="tab-overview" class="tab on">
+      <h1>概览</h1>
+      <div class="cards" id="cards"></div>
+      <h2>本体带来的 provider</h2>
+      <div id="provList" class="chips"></div>
+      <h2>接入方式</h2>
+      <div class="code" id="gwCode"></div>
+    </section>
+
+    <!-- 账号 -->
+    <section id="tab-accounts" class="tab">
+      <h1>账号池 <span class="sub">登录 / 续期 / 换号 / 测试</span></h1>
+      <div class="bar">
+        <label>provider <select id="accProvider"></select></label>
+        <button id="accReload">刷新列表</button>
+        <button id="accAdd" class="primary">添加账号</button>
+        <span id="accMsg" class="msg"></span>
+      </div>
+      <div class="tablewrap"><table id="accTable"></table></div>
+    </section>
+
+    <!-- 积分 -->
+    <section id="tab-credits" class="tab">
+      <h1>积分 <span class="sub">状态 / 余额 / 领取</span></h1>
+      <div class="bar">
+        <label>provider <select id="credProvider"></select></label>
+        <button id="credLoad">查询状态</button>
+        <button id="credBalances">查余额</button>
+        <button id="credClaim" class="primary">全部领取</button>
+        <span id="credMsg" class="msg"></span>
+      </div>
+      <div id="credOut"></div>
+    </section>
+
+    <!-- 模型 -->
+    <section id="tab-models" class="tab">
+      <h1>模型开关 <span class="sub">关掉的模型不会出现在 /v1/models</span></h1>
+      <div class="bar">
+        <label>provider <select id="modProvider"></select></label>
+        <button id="modLoad">列出模型</button>
+        <span id="modMsg" class="msg"></span>
+      </div>
+      <div class="tablewrap"><table id="modTable"></table></div>
+    </section>
+
+    <!-- 备份 -->
+    <section id="tab-backup" class="tab">
+      <h1>备份 <span class="sub">账号池 + 凭据，可导出 / 导入</span></h1>
+      <div class="cards" id="bkCards"></div>
+      <div class="bar">
+        <button id="bkExport" class="primary">导出备份（下载 JSON）</button>
+        <label class="file">选择备份文件<input type="file" id="bkFile" accept="application/json,.json"></label>
+        <select id="bkMode"><option value="merge">合并（merge）</option><option value="replace">覆盖（replace）</option></select>
+        <button id="bkImport">导入</button>
+        <span id="bkMsg" class="msg"></span>
+      </div>
+      <div id="bkOut"></div>
+    </section>
+
+    <!-- 设置 -->
+    <section id="tab-settings" class="tab">
+      <h1>设置</h1>
+      <div class="rows">
+        <div class="row"><div><b>网关启用</b><p>关掉后本体不再对外提供 /v1 转发。</p></div><label class="sw"><input type="checkbox" id="setGateway"><i></i></label></div>
+        <div class="row"><div><b>渠道原生搜索</b><p>让上游自己做联网检索（不是 magpie 的 web_search）。</p></div><label class="sw"><input type="checkbox" id="setSearch"><i></i></label></div>
+        <div class="row"><div><b>面板入口</b><p>在 DSH 里这个面板挂在侧栏还是设置页。</p></div><select id="setPanel"><option value="sidebar">sidebar</option><option value="settings">settings</option></select></div>
+      </div>
+      <div id="setMsg" class="msg"></div>
+    </section>
+  </main>
+</div>
+
+<!-- 登录流程 -->
+<div id="loginModal" class="modal" hidden>
+  <div class="modal-box">
+    <h2>登录 <span id="lmProvider"></span></h2>
+    <p>浏览器没自动打开时，复制下面的地址手动访问，授权完成后本页会自动继续。</p>
+    <div class="code" id="lmUrl"></div>
+    <div class="bar">
+      <button id="lmCopy">复制地址</button>
+      <a id="lmOpen" class="btn" href="#" target="_blank" rel="noreferrer">在新窗口打开</a>
+      <span id="lmState" class="msg">等待授权…</span>
+    </div>
+    <div class="bar"><button id="lmClose">关闭</button></div>
+  </div>
+</div>
+
+<script src="console.js"></script>
+</body>
+</html>

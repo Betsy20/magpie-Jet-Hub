@@ -15,6 +15,7 @@ const TESTS = path.join(ROOT, 'tests')
 
 const UNIT = ['t-writerefs.mjs', 't-dead-account.mjs', 't-plugin.mjs', 't-models-nowait.mjs']
 const ENV = [
+  { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
   { file: 't-gateway.py', cmd: process.env.PYTHON || 'python', label: '网关（需 magpie 3425）' },
   { file: 'ui-check.cjs', cmd: process.execPath, label: '页面 UI（需 web 3456）' },
 ]

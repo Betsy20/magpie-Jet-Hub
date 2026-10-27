@@ -101,7 +101,7 @@ jet-hub/jet-hub-auto/auto        ← 本体的自动选号路由组
 页面在沙箱 iframe 里跑，只能通过 `_magpie/bridge.js` 拿声明过的数据，不联网、
 不碰 magpie 的 `/api`。
 
-### 五个标签
+### 六个标签
 
 | 标签 | 内容 | 数据来源 |
 |---|---|---|
@@ -110,6 +110,37 @@ jet-hub/jet-hub-auto/auto        ← 本体的自动选号路由组
 | 用量 | 今天 / 近 7 天 / 近 30 天的请求、失败、输入输出 token、缓存命中、费用，及前 20 个模型明细 | `magpie.read('usage:summary')` 实时 |
 | 供应商 | 本体带来的全部 provider，标出哪些有模型、各几个 | 快照 + `providers:list` 实时 |
 | 设置 | 默认模型、用量默认周期、复制是否带前缀（存 `plugins.json`，只属本插件） | `magpie.options` |
+| 控制台 | 本地控制台地址（一键复制）+ 能在里面做什么的清单 | 本地常量 |
+
+### 控制台：完整功能走本地服务
+
+页面只能**只读**（`providers:list` + `usage:summary`），这是 magpie 写死的：
+受管页面的 CSP 是 `sandbox allow-scripts` + `connect-src 'none'` + `frame-src 'none'`
+（见官方 `docs/subsystems/plugin-runtime.md`），页面既发不出请求，也嵌不进 iframe，
+更没有调用插件的写入口（`magpie.actions` 只是往页面里 `postMessage` 菜单事件）。
+
+所以**登录 / 换号 / 续期 / 积分领取 / 模型开关 / 账号池 / 备份导入导出**都在插件自己的
+本地控制台里做 —— 那是一个真 HTTP 服务，浏览器打开即可：
+
+```
+http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
+```
+
+准确地址写在 `~/.config/magpie/jet-hub-console.json` 的 `url` 字段（每次宿主启动时更新）。
+侧栏页面的「控制台」标签就是把这个地址摆出来，附一键复制。
+
+控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
+响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）实测可用的方法：
+
+| 方法 | 作用 |
+|---|---|
+| `account.list` / `account.create` / `account.update` / `account.delete` | 账号池增删改查（`account.update` 的 `patch` 只认 `nickname/enabled/expiresAt/refreshable`） |
+| `account.refresh` / `account.test` / `account.reset` / `account.reorder` | 强制续期、真发一次请求验证、重置、排序 |
+| `login.poll` | 轮询登录流程状态（`account.create` 起流程） |
+| `credits.status` / `credits.balances` / `credits.claimAll` | 积分状态、余额、一键领取 |
+| `model.list` / `model.setDisabled` | 模型列表（带 disabled/dead 标记）、开关 |
+| `backup.status` / `backup.export` / `backup.import` | 账号池备份与迁移 |
+| `gateway.getEnabled` / `gateway.setEnabled` | 内嵌网关开关与状态（含 apiKey） |
 
 ### 两个必须记住的渲染事实
 
@@ -190,11 +221,14 @@ index.mjs              入口，只导插件契约
 src/plugin.mjs         插件工厂：config / auth / provider
 src/container.mjs      内嵌 cordis 容器，加载本体并转发
 src/credentials.mjs    把 .credentials.yaml 桥成 credentials 服务
+src/connection.mjs     补 connection 服务，让本体的 jet-hub-rpc 端点注册起来
+src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
 vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
+console/               完整控制台界面（账号 / 登录 / 积分 / 模型 / 路由 / 备份）
 scripts/snapshot-models.mjs  重新生成 page/models.js
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-gateway / ui-check）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-console / t-gateway / ui-check）
 docs/screenshot.png    侧栏页面实拍
 ```
 
@@ -207,4 +241,6 @@ docs/screenshot.png    侧栏页面实拍
   用过之后，DSH 侧也是最新的。
 - 内部网关带随机 API key（`jethub-<24 hex>`），并只监听 `127.0.0.1`，
   不对外暴露。
+- 控制台端口从 `18500` 起动态探测，实际 `url` 写入
+  `~/.config/magpie/jet-hub-console.json`；控制台与内嵌网关都只监听回环地址。
 

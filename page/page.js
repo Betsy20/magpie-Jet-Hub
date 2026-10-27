@@ -331,10 +331,24 @@ async function saveSettings() {
 
 /* ── tabs ─────────────────────────────── */
 
+/* 控制台地址：页面拿不到插件运行时端口（沙箱，connect-src 'none'），
+   所以只能显示默认值，并指路 ~/.config/magpie/jet-hub-console.json。 */
+const CON_PORT_DEFAULT = '18500'
+
+function conUrl() {
+  return `http://127.0.0.1:${CON_PORT_DEFAULT}/`
+}
+
+function fillConsole() {
+  const box = $('#conUrlBox')
+  if (box) box.value = conUrl()
+}
+
 function showTab(name) {
   for (const b of $$('#tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name))
   for (const p of $$('.panel')) p.hidden = p.dataset.panel !== name
   if (name === 'usage') drawUsage()
+  if (name === 'console') fillConsole()
 }
 
 /* ── 启动 ─────────────────────────────── */
@@ -402,6 +416,8 @@ async function main() {
 
   /* 事件 */
   for (const b of $$('#tabs button')) b.onclick = () => showTab(b.dataset.tab)
+
+  fillConsole()
 
   for (const b of $$('#langs button')) b.onclick = () => { state.snippet = b.dataset.snippet; drawSnippet() }
 
