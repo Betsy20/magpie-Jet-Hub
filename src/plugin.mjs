@@ -237,47 +237,84 @@ function containerFor(options, log) {
 /** 模型缓存文件（落盘，下次启动首屏就是真实目录）。 */
 const cacheFile = join(homedir(), '.config', 'magpie', 'jet-hub-models.json')
 
-/** 最近一次拿到的全量模型 id（`<provider>/<model>` 形态）。 */
+/** 最近一次拿到的**实时可用**模型 id（`<provider>/<model>`，来自网关 `/v1/models`）。 */
 let allModels = undefined
+
+/**
+ * 最近一次拿到的**上游全量**目录（来自本体 `model.list` RPC）。
+ *
+ * ⚠️ 与 `allModels` 的区别（实测数据，别混用）：
+ *   - `allModels` = 此刻**能用**的 —— astudio 1 / cline 1 / workbuddy 2
+ *   - `fullModels` = 上游**全量** —— astudio 9 / cline 540 / workbuddy 32
+ * 用户要的是后者出现在 magpie 的模型列表里（m06921）。
+ */
+let fullModels = undefined
 
 function readCache() {
   try {
     const j = JSON.parse(readFileSync(cacheFile, 'utf8'))
-    if (Array.isArray(j?.models) && j.models.length > 0) return j.models
+    const out = {}
+    if (Array.isArray(j?.models) && j.models.length > 0) out.live = j.models
+    if (Array.isArray(j?.full) && j.full.length > 0) out.full = j.full
+    return out
   } catch { /* 没有缓存是正常情况 */ }
-  return undefined
+  return {}
 }
 
-function writeCache(list, log) {
+function writeCache(log) {
   try {
     mkdirSync(dirname(cacheFile), { recursive: true })
-    writeFileSync(cacheFile, JSON.stringify({ at: new Date().toISOString(), models: list }, null, 2))
+    // ⚠️ 只写**有值**的那份：全量目录要 20+ 秒才拉得到，先到的实时目录
+    //    若把 `full: undefined` 写进去，会把上一次落盘的全量覆盖掉 ——
+    //    实测踩过（缓存被写成只剩 models，861 条全量丢失）。
+    const prev = (() => {
+      try {
+        return JSON.parse(readFileSync(cacheFile, 'utf8'))
+      } catch {
+        return {}
+      }
+    })()
+    const out = {
+      at: new Date().toISOString(),
+      models: allModels ?? prev.models,
+      full: fullModels ?? prev.full,
+    }
+    writeFileSync(cacheFile, JSON.stringify(out, null, 2))
   } catch (e) {
     log?.(`写模型缓存失败（不影响使用）：${e?.message ?? e}`)
   }
 }
 
+/** 后台把两个目录都刷一遍（实时可用 + 上游全量）。 */
+function refreshInBackground(container, log) {
+  container
+    .start()
+    .then(() => container.refreshModels())
+    .then((list) => {
+      if (Array.isArray(list) && list.length > 0) allModels = list.slice()
+      return container.refreshFullCatalog(DSH_PROVIDERS)
+    })
+    .then((rows) => {
+      if (Array.isArray(rows) && rows.length > 0) fullModels = rows
+      writeCache(log)
+    })
+    .catch((e) => log?.(`后台刷新模型目录失败：${e?.message ?? e}`))
+}
+
 /**
- * 拿全量目录，**绝不阻塞**。
+ * 拿目录，**绝不阻塞**。
  *
  * magpie 给 `provider.models` 的超时是 20 秒，而本体冷启动要 20–30 秒；
  * 直接 await 必然超时。故：有缓存立刻给，同时后台刷新；冷启动只预热。
  */
 function currentAll(container, log) {
-  if (allModels === undefined) {
-    container.start()
-      .then(() => container.refreshModels())
-      .then((list) => {
-        if (Array.isArray(list) && list.length > 0) {
-          allModels = list.slice()
-          writeCache(allModels, log)
-        }
-      })
-      .catch((e) => log?.(`后台启动容器失败：${e?.message ?? e}`))
+  if (allModels === undefined || fullModels === undefined) {
+    refreshInBackground(container, log)
     const seed = readCache()
-    if (seed !== undefined) allModels = seed
+    if (allModels === undefined && seed.live !== undefined) allModels = seed.live
+    if (fullModels === undefined && seed.full !== undefined) fullModels = seed.full
   }
-  return allModels
+  return { live: allModels, full: fullModels }
 }
 
 /** 允许长时间等待的路径（authorize / usage）用这个。 */
@@ -285,12 +322,28 @@ async function liveAll(container, log) {
   const list = await container.refreshModels()
   if (Array.isArray(list) && list.length > 0) {
     allModels = list.slice()
-    writeCache(allModels, log)
+    writeCache(log)
   }
   return allModels ?? []
 }
 
-/** 从全量目录里取某个 provider 的部分，返回 magpie 的 models 形状。 */
+/** 全量目录里属于某个 provider 的那些，返回 magpie 的 models 形状。 */
+function modelsOfFull(dshProvider, rows) {
+  const out = {}
+  const prefix = `${dshProvider}/`
+  for (const row of rows ?? []) {
+    const id = String(row?.id ?? '')
+    if (!id.startsWith(prefix)) continue
+    const bare = id.slice(prefix.length)
+    const base = row?.name ?? bare
+    // 已在上游关掉的模型照样列出（用户要全量），但把状态写进名字，
+    // 免得选中后打不通却不知道为什么。
+    out[bare] = modelEntry(row?.disabled === true ? `${base} · 已在 Jet Hub 关闭` : base, undefined)
+  }
+  return out
+}
+
+/** 实时可用目录里属于某个 provider 的那些（`list` 是 id 数组）。 */
 function modelsOf(dshProvider, list) {
   const out = {}
   const prefix = `${dshProvider}/`
@@ -320,10 +373,18 @@ export function makePlugin(dshProvider) {
     }
     const container = containerFor(options, log)
 
-    /** 本 provider 的模型表（不阻塞）。 */
+    /**
+     * 本 provider 的模型表（不阻塞）。
+     *
+     * 优先级：**上游全量** > 实时可用 > 静态兜底。
+     * 用户要的是「供应商上游全部模型」（m06921），所以全量排第一；
+     * 全量还没拉到时退回实时可用，保证首屏至少有东西可选。
+     */
     function currentModels(provider) {
-      const all = currentAll(container, log)
-      const got = modelsOf(dshProvider, all)
+      const { live, full } = currentAll(container, log)
+      const wide = modelsOfFull(dshProvider, full)
+      if (Object.keys(wide).length > 0) return wide
+      const got = modelsOf(dshProvider, live)
       if (Object.keys(got).length > 0) return got
       return provider?.models ?? fallbackFor(dshProvider)
     }
@@ -336,8 +397,10 @@ export function makePlugin(dshProvider) {
         p.name = `${DISPLAY_NAME} · ${NAMES[dshProvider] ?? dshProvider}`
         p.npm = '@ai-sdk/openai-compatible'
         p.api = PLACEHOLDER_BASE
-        // 静态目录：让卡片先有内容，不显示「0 models」
-        p.models = fallbackFor(dshProvider)
+        // 目录：优先用**上游全量**缓存（同步读盘，不阻塞），没有缓存才退回静态表。
+        // ⚠️ 别只写 fallbackFor：那样 magpie 的供应商详情页永远只显示 1 个模型，
+        //    用户要的上游全量（cline 540 / workbuddy 32）看不到。
+        p.models = currentModels(p)
       },
 
       auth: {
@@ -359,10 +422,16 @@ export function makePlugin(dshProvider) {
             keyless: true,
             label: `连接本机 DSH 账号（${dshProvider}，无需输入）`,
             async authorize() {
+              // 这里可以等（用户点了按钮），所以把两个目录都拉全。
               const all = await liveAll(container, log)
-              const mine = modelsOf(dshProvider, all)
-              const n = Object.keys(mine).length
-              if (n === 0) {
+              const n = Object.keys(modelsOf(dshProvider, all)).length
+              let wide = 0
+              try {
+                fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+                wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
+                writeCache(log)
+              } catch { /* 全量拉不到不影响签入，退回实时可用 */ }
+              if (n === 0 && wide === 0) {
                 throw new Error(
                   `本体里的 ${dshProvider} 没有可用模型：确认这个账号在 DSH 里已登录，或先在 /v1/models 里看它是否有模型`,
                 )
@@ -371,7 +440,7 @@ export function makePlugin(dshProvider) {
                 type: 'success',
                 // magpie 的 api 型账号要存一个 key；真正发请求用的是容器自己的 apiKey。
                 key: `jet-hub-local:${dshProvider}:${container.port ?? 'pending'}`,
-                accountId: `DSH · ${dshProvider} · ${n} 个模型`,
+                accountId: `DSH · ${dshProvider} · 上游 ${wide} 个模型（当前可用 ${n}）`,
                 metadata: { via: 'jet-hub', provider: dshProvider },
               }
             },
@@ -402,18 +471,19 @@ export function makePlugin(dshProvider) {
           }
         },
 
-        /** 用量卡：只报本 provider 的模型数（不伪造积分数字）。 */
+        /** 用量卡：报本 provider 的全量模型数（不伪造积分数字）。 */
         async usage() {
           try {
-            const all = await liveAll(container, log)
-            const n = Object.keys(modelsOf(dshProvider, all)).length
+            const { live, full } = currentAll(container, log)
+            const wide = Object.keys(modelsOfFull(dshProvider, full)).length
+            const n = Object.keys(modelsOf(dshProvider, live)).length
             return {
               plan: `${DISPLAY_NAME} · ${dshProvider}`,
               windows: [
                 {
-                  name: '可用模型',
+                  name: '上游模型 / 当前可用',
                   used: 0,
-                  display: `${n} 个模型 · 容器 127.0.0.1:${container.port}`,
+                  display: `${wide} / ${n} 个 · 容器 127.0.0.1:${container.port}`,
                 },
               ],
             }

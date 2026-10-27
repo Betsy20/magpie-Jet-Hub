@@ -263,3 +263,7 @@ button.corner { position: absolute; top: 8px; right: 8px; }
   background: var(--jh-sunk);
   color: var(--jh-fg);
 }
+
+/* 上游目录里「已在 Jet Hub 关闭」的模型：列出来但明显变灰，避免误选后打不通 */
+.mid[data-off='1'] { opacity: .45; }
+.mid[data-off='1']:hover { opacity: .8; }

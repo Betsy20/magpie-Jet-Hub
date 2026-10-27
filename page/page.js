@@ -174,6 +174,7 @@ function drawModels() {
 
   const rows = [...groups.entries()].sort((a, b) => b[1].length - a[1].length)
   let shown = 0
+  let closed = 0
 
   for (const [seg, list] of rows) {
     const hit = q ? list.filter((m) => m.toLowerCase().includes(q) || seg.includes(q)) : list
@@ -183,19 +184,24 @@ function drawModels() {
     shown += hit.length || list.length
 
     const detail = el('details', 'group')
-    detail.open = state.allOpen || Boolean(q)
+    // ⚠️ 全量目录可能一家 540 条（cline 实测）。默认全展开会把页面撑爆，
+    //    所以只在搜索时自动展开；点「全部展开」才全开。
+    detail.open = Boolean(q) || state.allOpen
     const sum = el('summary')
     sum.append(el('span', '', name), el('span', 'pid', seg), el('span', 'n', `${list.length}`))
     detail.append(sum)
     const wrap = el('div', 'mlist')
     for (const m of (hit.length ? hit : list)) {
+      const info = CATALOG.detail?.[m]
+      if (info?.disabled) closed += 1
       const chip = el('button', 'mid')
       chip.type = 'button'
-      chip.title = '点一下复制 ' + modelId(m)
-      const shown = state.options.prefix ? m : bare(m)
-      chip.append(document.createTextNode(shown))
+      chip.title = '点一下复制 ' + modelId(m) + (info?.disabled ? '（已在 Jet Hub 关闭，需在控制台打开才能用）' : '')
+      if (info?.disabled) chip.dataset.off = '1'
+      const label = state.options.prefix ? m : bare(m)
+      chip.append(document.createTextNode(label))
       chip.onclick = () => copy(modelId(m), chip).then((ok) => {
-        if (ok) { chip.dataset.done = '1'; chip.textContent = '已复制 ' + modelId(m); setTimeout(() => { chip.replaceChildren(document.createTextNode(shown)); delete chip.dataset.done }, 1400) }
+        if (ok) { chip.dataset.done = '1'; chip.textContent = '已复制 ' + modelId(m); setTimeout(() => { chip.replaceChildren(document.createTextNode(label)); delete chip.dataset.done }, 1400) }
       })
       wrap.append(chip)
     }
@@ -205,8 +211,11 @@ function drawModels() {
 
   if (!shown) box.append(el('p', 'wait', `没有匹配「${state.query}」的模型`))
 
-  const when = CATALOG.generatedAt ? new Date(CATALOG.generatedAt).toLocaleString('zh-CN', { hour12: false }) : '未知'
-  $('#modelsHint').textContent = `已知 ${models.length} 个模型，快照于 ${when}。账号变动后跑 node scripts/snapshot-models.mjs 刷新；实时列表以「供应商 → Jet Hub」为准。`
+  const when = CATALOG.catalogAt ? new Date(CATALOG.catalogAt).toLocaleString('zh-CN', { hour12: false }) : '未知'
+  $('#modelsHint').textContent =
+    `上游全量 ${models.length} 个模型 / ${rows.length} 个供应商，目录取自 ${when}（${CATALOG.source || '快照'}）。` +
+    (closed ? `其中 ${closed} 个在 Jet Hub 里是关闭状态（灰的），要先去控制台打开。` : '') +
+    ' 上游新上模型后跑 node scripts/snapshot-models.mjs 刷新。'
 }
 
 /* ── 用量 ─────────────────────────────── */

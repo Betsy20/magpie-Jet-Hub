@@ -5,17 +5,47 @@
 把 **deepseek-harness-codearts 插件本体**装进 magpie。
 
 不是"重写一份 CodeArts 能力"（那样只搬一家），而是把本体「路由中枢」原样跑起来：
-内嵌一个 cordis 容器加载 `deepseek-harness-codearts`（= `dsh-providers-hub`，24 个 provider），
+内嵌一个 cordis 容器加载 `deepseek-harness-codearts`（= `dsh-providers-hub`，其中 19 个 provider），
 让它自己开一个只监听回环的 OpenAI 兼容网关，magpie 侧只把请求转发进去。
 
 ```
 magpie 网关 (3425)
-  └─ provider `jet-hub`            ← 本插件
+  └─ provider `jet-hub-*` ×19      ← 本插件（每家一个供应商）
        └─ auth.loader().fetch       ← 只改这一层：剥 provider 前缀 + 转发
             └─ JetHubContainer（内嵌 cordis + 本体 lib/index.js）
                  └─ 本体自带网关 127.0.0.1:<动态端口>
-                      └─ 24 家 provider 的真实上游
+                      └─ 19 家 provider 的真实上游
 ```
+
+## 模型目录：上游全量，不是「当前可用」
+
+这里有两套目录，**不要混用**（实测数据）：
+
+| 来源 | 含义 | astudio | cline | workbuddy |
+|---|---|---|---|---|
+| 网关 `/v1/models` | 此刻**能用**的 | 1 | 1 | 2 |
+| 本体 `model.list` RPC | 上游**全量** | 9 | 540 | 32 |
+
+magpie 里 `jet-hub-*` 每个 provider 的模型列表用的是**后者**（全量 861 个 / 19 家），
+因为用户要的是「供应商上游全部模型」。全量里已在 Jet Hub 关闭的模型照样列出，
+名字后缀 `· 已在 Jet Hub 关闭`、页面里显示为灰，提示你先去控制台打开。
+
+取数链路：
+
+```
+插件进程（bun）  容器启动 → 网关 /v1/models（可用）+ model.list RPC（全量）
+                 ↓ 落盘 ~/.config/magpie/jet-hub-models.json  { at, models, full }
+magpie 宿主      provider.models() / config().models 同步读盘 → 立刻返回，不阻塞
+页面            node scripts/snapshot-models.mjs 读同一份盘 → page/models.js
+```
+
+为什么要落盘：magpie 给 `provider.models` 的超时是 20 秒，而本体冷启动 + 拉全量
+要 20–40 秒；直接 await 必然超时，只能「先给上次的、后台再刷」。
+
+⚠️ `writeCache` 只写**有值**的那一份。全量要 20+ 秒才到，若先到的实时目录把
+`full: undefined` 写进去，会把上一次落盘的全量覆盖掉（踩过：缓存被写成只剩 35 条）。
+
+刷新：`node scripts/snapshot-models.mjs`；上游上新模型后跑一次即可。
 
 ## 为什么这么做
 

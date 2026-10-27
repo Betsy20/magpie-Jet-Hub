@@ -294,6 +294,72 @@ export class JetHubContainer {
     return this.models
   }
 
+  /**
+   * 调一次本体自己注册的管理 RPC（走 connection 接缝，不是网关）。
+   *
+   * 为什么需要：网关 `/v1/models` 只列**当前账号此刻能用**的模型
+   * （实测 astudio 只给 1 个、cline 1 个、workbuddy 2 个），而本体的
+   * `model.list` 给的是**上游全量目录**（同三个渠道分别 9 / 540 / 32 个）。
+   * 用户要的是后者。
+   */
+  async rpc(method, payload) {
+    await this.start()
+    const route = this.seam?.routes?.get('/api/jet-hub')
+    if (!route) throw new Error('本体管理路由未注册，拿不到全量目录')
+    const body = JSON.stringify({
+      type: 'client-request',
+      rpcId: 'catalog',
+      method: 'jet-hub',
+      payload: { method, payload },
+    })
+    const req = new Request('http://127.0.0.1/api/jet-hub', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    })
+    const resp = await route.fetch(req)
+    const json = await resp.json()
+    const r = json?.result
+    if (!r?.ok) throw new Error(r?.error?.message ?? `${method} 失败`)
+    return r.value
+  }
+
+  /**
+   * 拉每个 provider 的**上游全量目录**，返回 `<provider>/<model>` 数组。
+   *
+   * ⚠️ 与 `refreshModels()` 的区别（实测数据，别混用）：
+   *   - `refreshModels()` = 网关 `/v1/models` = 此刻**能用**的（会漏掉没登录账号的、
+   *     被限流的、以及上游有但账号没开通的）
+   *   - 本方法 = 本体 `model.list` RPC = **上游全量**（含 `disabled` 与 `dead` 标记）
+   *
+   * 全量里可能含打不通的模型，所以调用方要自己决定显示哪些。这里把
+   * `disabled` / `dead` 标记一起带出去，不做静默过滤。
+   */
+  async refreshFullCatalog(providers) {
+    await this.start()
+    /** @type {{id:string, name:string, disabled:boolean, dead:boolean}[]} */
+    const out = []
+    for (const p of providers ?? []) {
+      try {
+        const v = await this.rpc('model.list', { provider: p })
+        for (const m of v?.models ?? []) {
+          const id = String(m?.id ?? '')
+          if (!id) continue
+          out.push({
+            id: `${p}/${id}`,
+            name: typeof m?.name === 'string' && m.name !== '' ? m.name : id,
+            disabled: m?.disabled === true,
+            dead: m?.dead === true,
+          })
+        }
+      } catch (e) {
+        // 路由组（jet-hub-auto / aggregate）本体里没有自己的目录，失败是正常的
+        this.log(`拉 ${p} 的全量目录失败：${e?.message ?? e}`)
+      }
+    }
+    return out
+  }
+
   /** 转发一次 chat/completions。model 必须是带 provider 前缀的 id。 */
   async forward(pathname, init) {
     await this.start()
