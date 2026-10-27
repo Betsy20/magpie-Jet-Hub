@@ -7,55 +7,157 @@
 <link rel="stylesheet" href="page.css">
 </head>
 <body>
-<header class="head">
-  <img class="mark" src="icon.svg" alt="" width="28" height="28">
+
+<header class="hero">
+  <img class="mark" src="icon.svg" alt="" width="34" height="34">
   <div class="who">
     <h1>Jet Hub</h1>
-    <p class="sub">deepseek-harness-codearts 插件<b>本体</b>装在 magpie 里跑：24 家的账号池、静默续期、积分选号、模型目录与路由组全部原样复用。</p>
+    <p class="sub">deepseek-harness-codearts 插件<b>本体</b>在 magpie 里跑 —— <b id="provCount">—</b> 家 provider 的账号池、静默续期、积分选号、模型目录与路由组原样复用。</p>
   </div>
-  <span class="badge" id="state" data-tone="wait">连接窗口…</span>
+  <div class="badges">
+    <span class="badge" id="state" data-tone="wait">连接窗口…</span>
+    <span class="badge ghost" id="count">— 个模型</span>
+  </div>
 </header>
 
-<section class="card">
-  <h2>怎么用</h2>
-  <p>在任意一个接 magpie 网关的客户端里，模型选下面任意一个。前缀 <code id="prefix">jet-hub/</code>。</p>
-  <div class="row">
-    <span class="lab">网关</span>
-    <code id="gateway">http://127.0.0.1:3425</code>
-    <button class="mini" id="copy" type="button">复制</button>
+<nav class="tabs" id="tabs" role="tablist">
+  <button type="button" data-tab="start" aria-selected="true">接入</button>
+  <button type="button" data-tab="models">模型</button>
+  <button type="button" data-tab="usage">用量</button>
+  <button type="button" data-tab="providers">供应商</button>
+  <button type="button" data-tab="settings">设置</button>
+</nav>
+
+<main>
+
+<!-- ───────────── 接入 ───────────── -->
+<section class="panel" data-panel="start">
+  <div class="card">
+    <h2>接入点</h2>
+    <div class="kv">
+      <span class="k">网关</span>
+      <code id="gateway">http://127.0.0.1:3425</code>
+      <button class="mini" type="button" data-copy="#gateway">复制</button>
+    </div>
+    <div class="kv">
+      <span class="k">模型前缀</span>
+      <code id="prefix">jet-hub/</code>
+      <button class="mini" type="button" data-copy="#prefix">复制</button>
+    </div>
+    <div class="kv">
+      <span class="k">鉴权</span>
+      <span class="val">无需 API key（本机回环网关）</span>
+    </div>
+    <p class="hint">凭据直接用 DSH 里已经登录过的那些账号（<code>~/.dsh/.credentials.yaml</code>），在 magpie 这边不需要再登一次。</p>
   </div>
-  <p class="hint">凭据直接用 DSH 里已经登录过的那些账号（<code>~/.dsh/.credentials.yaml</code>），在 magpie 这边不需要再登一次。</p>
+
+  <div class="card">
+    <h2>客户端怎么填</h2>
+    <div class="chips" id="langs">
+      <button type="button" data-snippet="curl" aria-selected="true">curl</button>
+      <button type="button" data-snippet="python">Python</button>
+      <button type="button" data-snippet="node">Node</button>
+      <button type="button" data-snippet="dsh">DSH</button>
+    </div>
+    <div class="snip">
+      <button class="mini corner" type="button" data-copy="#snippet">复制</button>
+      <pre id="snippet"></pre>
+    </div>
+    <p class="hint">把 <code>jet-hub/workbuddy/deepseek-v4.1-flash</code> 换成「模型」页里任意一个即可。</p>
+  </div>
+
+  <div class="card">
+    <h2>它替你做了什么</h2>
+    <ul class="feats">
+      <li><b>账号池</b>：同一家多个账号自动轮换，配额用尽的、已过期且不可续期的自动跳过。</li>
+      <li><b>静默续期</b>：OAuth / refresh_token 到期前自动换新，并写回凭据文件，重启不丢。</li>
+      <li><b>路由组</b>：<code>group/never-stuck</code> 按顺序兜底，<code>auto/&lt;model&gt;</code> 按额度择优。</li>
+      <li><b>模型目录</b>：每家按自己账号实时拉，不写死。</li>
+      <li><b>积分与签到</b>：本体自带的额度查询与每日领取。</li>
+    </ul>
+  </div>
 </section>
 
-<section class="card">
-  <h2>模型</h2>
-  <p class="hint">按账号真实目录拉取，随 DSH 那边登录的账号变化。完整清单见「供应商 → Jet Hub」，或 <code>curl 127.0.0.1:3425/v1/models</code>。</p>
-  <ul class="models" id="models"><li class="wait">读取中…</li></ul>
+<!-- ───────────── 模型 ───────────── -->
+<section class="panel" data-panel="models" hidden>
+  <div class="card">
+    <h2>模型目录</h2>
+    <div class="toolbar">
+      <input id="q" type="search" placeholder="搜索模型 / 供应商…" autocomplete="off">
+      <button class="mini" type="button" id="expand">全部展开</button>
+      <button class="mini" type="button" id="copyAll">复制全部 ID</button>
+    </div>
+    <p class="hint" id="modelsHint">读取中…</p>
+    <div class="groups" id="groups"></div>
+  </div>
 </section>
 
-<section class="card">
-  <h2>本体带来的能力</h2>
-  <ul class="feats">
-    <li><b>24 个 provider</b>：workbuddy / workbuddy-ai、qoder / qoder-cn、zcode、codearts、trae-cn / trae-global、autoclaw-cn、officeace、astudio、buddy、loomy、lobsterai、modelscope、raccoon、opencode、cline、codely、gemini、accio、minimax、providers-hub 等。</li>
-    <li><b>账号池</b>：同一家多个账号自动轮换，配额用尽的自动跳过。</li>
-    <li><b>静默续期</b>：OAuth / refresh_token 到期前自动换新，并写回凭据文件，重启不丢。</li>
-    <li><b>路由组</b>：<code>group/never-stuck</code> 按顺序兜底，<code>auto/&lt;model&gt;</code> 按额度择优。</li>
-    <li><b>模型目录</b>：每家按自己账号实时拉，不写死。</li>
-    <li><b>积分与签到</b>：本体自带的额度查询与每日领取。</li>
-  </ul>
+<!-- ───────────── 用量 ───────────── -->
+<section class="panel" data-panel="usage" hidden>
+  <div class="card">
+    <div class="toolbar">
+      <div class="chips" id="periods">
+        <button type="button" data-period="today" aria-selected="true">今天</button>
+        <button type="button" data-period="7d">近 7 天</button>
+        <button type="button" data-period="30d">近 30 天</button>
+      </div>
+      <label class="check"><input type="checkbox" id="onlyMine" checked> 只看 Jet Hub 的模型</label>
+    </div>
+    <div class="tiles" id="tiles"><span class="wait">读取中…</span></div>
+    <table class="tbl" id="utable" hidden>
+      <thead>
+        <tr><th>模型</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">费用</th><th class="bar-col"></th></tr>
+      </thead>
+      <tbody id="ubody"></tbody>
+    </table>
+    <p class="hint" id="usageHint"></p>
+  </div>
 </section>
 
-<section class="card">
-  <h2>用量</h2>
-  <p class="hint">整个 magpie 网关今天走过我这边模型的量。</p>
-  <div class="stats" id="stats"><span class="wait">读取中…</span></div>
+<!-- ───────────── 供应商 ───────────── -->
+<section class="panel" data-panel="providers" hidden>
+  <div class="card">
+    <h2>本体带来的 provider</h2>
+    <p class="hint">登录、账号池、额度与续期都在「供应商 → Jet Hub」里管理；这里只列出来了哪些。</p>
+    <div class="provs" id="provs"></div>
+  </div>
 </section>
 
-<section class="card">
-  <h2>这个面板能读到什么</h2>
-  <p class="hint">页面在沙箱里：不许联网，不许碰 magpie 的接口，只拿得到 package.json 里声明过的这几种只读数据。</p>
-  <ul class="reads" id="reads"></ul>
+<!-- ───────────── 设置 ───────────── -->
+<section class="panel" data-panel="settings" hidden>
+  <div class="card">
+    <h2>这个页面的选项</h2>
+    <p class="hint">存在 <code>plugins.json</code> 里，只属于本插件，改完立刻生效。</p>
+
+    <div class="field">
+      <label for="optModel">默认模型</label>
+      <select id="optModel"><option value="">（不设置）</option></select>
+    </div>
+    <div class="field">
+      <label for="optPeriod">用量默认周期</label>
+      <select id="optPeriod">
+        <option value="today">今天</option>
+        <option value="7d">近 7 天</option>
+        <option value="30d">近 30 天</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="check"><input type="checkbox" id="optPrefix"> 复制模型时带 <code>jet-hub/</code> 前缀</label>
+    </div>
+    <div class="actions">
+      <button type="button" id="save" class="primary">保存</button>
+      <span class="hint" id="saveState"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>这个面板能读到什么</h2>
+    <p class="hint">页面在沙箱里：不许联网，不许碰 magpie 的接口，只拿得到 <code>package.json</code> 里声明过的这几种只读数据，外加自己的选项。</p>
+    <ul class="reads" id="reads"></ul>
+  </div>
 </section>
+
+</main>
 
 <footer class="foot">
   <span id="ver"></span>
@@ -63,6 +165,7 @@
 </footer>
 
 <script src="_magpie/bridge.js"></script>
+<script src="models.js"></script>
 <script src="page.js"></script>
 </body>
 </html>

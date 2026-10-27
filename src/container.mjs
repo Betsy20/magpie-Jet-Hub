@@ -8,6 +8,7 @@
 //
 // ⚠️ 端口必须动态探测：magpie 可能同时开多个插件宿主（每个插件一个 bun 进程），
 // 固定端口会撞。这里从 18390 往上找一个空端口。
+import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import { createServer } from 'node:net'
 import { randomBytes } from 'node:crypto'
@@ -88,7 +89,9 @@ export class JetHubContainer {
     await new Promise((r) => setTimeout(r, 300))
 
     // 3) 本体
-    const mod = await import(this.entryPath)
+    // 必须转成 file:// URL：Node 的 ESM loader 拒绝裸 Windows 路径（'d:' 被当协议），
+    // bun 虽然能接受裸路径，但写成 URL 两边都成立。
+    const mod = await import(pathToFileURL(this.entryPath).href)
     ctx.plugin(mod)
 
     // 4) 等网关真的起来（最长 40s；本体要拉账号池、预热模型目录）

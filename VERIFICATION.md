@@ -393,3 +393,62 @@ $ magpie-bun tests/t-writerefs.mjs    → 全部通过
 （client_id 73 字符 / client_secret 35 字符，实测与原始 npm 包逐字相等），
 运行时行为不变 —— 这两项本就是上游公开的 Cloud Code 客户端凭据，
 且已有 `CMDC_PAK_GOOGLE_CLIENT_ID` / `CMDC_PAK_GOOGLE_CLIENT_SECRET` 环境变量可覆盖。
+
+## 十一、侧栏页面做成控制台 UI（2026-10-28）
+
+### 界面
+五个标签：**接入 / 模型 / 用量 / 供应商 / 设置**。实拍见 `docs/screenshot.png`
+与 `%TEMP%/jethub-ui/tab-*.png`（由 `node tests/ui-check.cjs` 生成）。
+
+### 自检结果（Observed，真实运行）
+
+```
+侧栏: clicked Jet Hub（本体直装）
+页面 iframe: http://127.0.0.1:3456/_magpie/plugin/0e7ddb5fcbe50ac129e2b63bbb97d3f4/index.html
+  {"tab":"start","panelTitle":"接入点","state":"已连上 magpie","count":"24 个模型",...}
+  {"tab":"models","panelTitle":"模型目录",...}
+  {"tab":"usage","panelTitle":"","tiles":["请求=365","失败=8","输入 token=567.9k","输出 token=190.6k","缓存命中=47.31M","费用=$0"],"rows":8}
+  {"tab":"providers","panelTitle":"本体带来的 provider","provs":31}
+  {"tab":"settings","panelTitle":"这个页面的选项"}
+页面无 JS 报错
+✓ 五个标签均渲染正常
+```
+
+### 期间修掉的真缺陷
+
+1. **容器入口 `import()` 不能吃裸 Windows 绝对路径**。
+   `src/container.mjs:91` 原为 `await import(this.entryPath)`，`entryPath` 形如
+   `D:/dsh-build/magpie-Jet-Hub/vendor/lib/index.js`。bun 能接受，**Node 不行**：
+   `Error [ERR_UNSUPPORTED_ESM_URL_SCHEME]: Only URLs with a scheme in: file, data,
+   and node are supported by the default ESM loader. On Windows, absolute paths
+   must be valid file:// URLs. Received protocol 'd:'`。
+   表现：`authorize()` 直接抛错、`loader().fetch` 转发失败 —— 也就是说这个插件
+   **只在 bun 下活着**，用 `node` 跑任何测试/自检都过不去，CI 里会一直红。
+   修法：`await import(pathToFileURL(this.entryPath).href)`（两边都成立）。
+   修完 `tests/t-plugin.mjs` 从 exit 1 变 exit 0，真转发 `HTTP 200`、`content:"收到"`。
+
+2. **页面在 CDP 里抓不到 DOM**。页面是 `sandbox="allow-scripts"`（无
+   `allow-same-origin`）⇒ opaque origin ⇒ **OOPIF 独立进程**。主 target 的
+   `Runtime.executionContextCreated` 永远只报 2 个上下文（`1:://` 与主文档），
+   在里面 `document.querySelector('#tabs')` 拿不到；`Target.setAutoAttach` 也没有
+   `attachedToTarget` 事件。可行解：`/json/list` 里那个 `type=iframe` 的目标有
+   自己的 `webSocketDebuggerUrl`，**直连它**即可读 DOM、点标签。
+
+3. **对比度**：原先次要文字用 `--magpie-muted`（`#85858d`），12px 下只有 4.0:1，
+   整页发灰。改用 `--magpie-fg-2`（`#4b4b53`，8.5:1），另加 `--jh-faint` 只给
+   纯装饰（页脚、单位）。同时把卡片底从 `bg` 改成 `card`（白），卡片内小面板用
+   `color-mix(in srgb, fg 4%, card)` 压深一档 —— 卡片层次才立起来。
+
+> 顺带核实：`providers` 页下半部分在截图里看着更淡，是 `captureBeyondViewport`
+> 拼接的渲染伪影，实测 `getComputedStyle` 两者颜色完全相同（`rgb(28,28,33)`），
+> 不是样式问题。
+
+### 测试
+`node scripts/test-all.mjs` → `4 通过 / 0 失败 / 0 跳过`
+（t-writerefs / t-dead-account / t-plugin / t-models-nowait）。
+`node tests/ui-check.cjs` → 退出码 0。
+
+### 目录新增
+`page/index.html`、`page/page.css`、`page/page.js`、`page/models.js`（自动生成）、
+`page/icon.svg`、`scripts/snapshot-models.mjs`、`scripts/test-all.mjs`、
+`tests/ui-check.cjs`。
