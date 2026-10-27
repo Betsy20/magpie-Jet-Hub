@@ -101,6 +101,28 @@ jet-hub/jet-hub-auto/auto        ← 本体的自动选号路由组
 页面在沙箱 iframe 里跑，只能通过 `_magpie/bridge.js` 拿声明过的数据，不联网、
 不碰 magpie 的 `/api`。
 
+### 五个标签
+
+| 标签 | 内容 | 数据来源 |
+|---|---|---|
+| 接入 | 网关地址、模型前缀、curl/Python/Node/DSH 四种客户端片段（可复制） | 快照 + 本地常量 |
+| 模型 | 按 provider 分组的全部模型 ID，可搜索 / 全部展开 / 复制全部 | `page/models.js` 快照 |
+| 用量 | 今天 / 近 7 天 / 近 30 天的请求、失败、输入输出 token、缓存命中、费用，及前 20 个模型明细 | `magpie.read('usage:summary')` 实时 |
+| 供应商 | 本体带来的全部 provider，标出哪些有模型、各几个 | 快照 + `providers:list` 实时 |
+| 设置 | 默认模型、用量默认周期、复制是否带前缀（存 `plugins.json`，只属本插件） | `magpie.options` |
+
+### 两个必须记住的渲染事实
+
+1. **模型目录拿不到实时值**。页面 `connect-src 'none'`，`providers:list` 只给
+   `{id, name}` 不给模型。所以模型清单是**快照**：`scripts/snapshot-models.mjs`
+   读一次内嵌网关的 `/v1/models` 写成 `page/models.js`。换账号/加模型后重跑一次
+   即可（页面上会显示快照时间，不假装实时）。
+2. **页面是 OOPIF，主文档读不到它的 DOM**。`sandbox="allow-scripts"`（没有
+   `allow-same-origin`）⇒ opaque origin ⇒ 独立进程。所以 `ui-check.cjs`
+   不能从主窗口 `contentWindow` 进去，而是从 `/json/list` 里找 `type=iframe`
+   那个目标、直连它自己的 `webSocketDebuggerUrl`。这一点踩过：在主 target 的
+   `Runtime.executionContextCreated` 里永远只看得到 2 个上下文，抓不到页面。
+
 ## 入口只导出插件契约
 
 `index.mjs` 只导出 `JetHubPlugin` + `PROVIDER` + `DISPLAY_NAME`。
@@ -110,6 +132,16 @@ jet-hub/jet-hub-auto/auto        ← 本体的自动选号路由组
 > （`plugin list` 报 failed）。需要单测内部函数请直接 import `src/*.mjs`。
 
 ## 测试
+
+```bash
+# 一把梭：跑全部不需要环境的单测（退出码即结论）
+node scripts/test-all.mjs
+
+# 连环境的一起跑（要 magpie 3425 与 web 3456 都在）
+node scripts/test-all.mjs --all
+```
+
+逐项：
 
 ```bash
 # 插件契约全链路（模拟宿主探测 → config → authorize → models → 真转发）
@@ -127,8 +159,9 @@ jet-hub/jet-hub-auto/auto        ← 本体的自动选号路由组
 # 经 magpie 网关 3425 真转发（非流式 / 流式 / 工具调用 / 路由组）
 python tests/t-gateway.py
 
-# 界面实拍（CDP 驱动 Edge，注入 cookie 后点侧栏截插件页）
-node tests/shot.cjs
+# 界面自检（CDP 驱动 Edge → 点侧栏 → 连进页面 OOPIF → 五个标签逐个截图 + DOM 断言 + 收集 JS 报错）
+node tests/ui-check.cjs
+# 截图落在 %TEMP%/jethub-ui/tab-*.png；有 JS 报错或标签没渲染就退出码非 0
 ```
 
 测试用 magpie 自带的 bun（`~/.cache/magpie/bun/*/magpie-bun.exe`），因为宿主就是 bun。
@@ -146,6 +179,9 @@ node tests/shot.cjs
 - `zcode` 可能报"上游并发限流"：本体自带退避，属上游限流，非插件缺陷。
 - 本体的 Jet Hub **设置界面**（`lib/client/jet-hub.js`）是本插件搬不过来的部分 ——
   它是 DSH 前端 UI，magpie 里由本插件自己的侧栏页替代；账号登录/续期仍在 DSH 侧做。
+- 侧栏「模型」页是**快照**，不随账号变化自动更新；页面里显示的也是快照时间。
+- 页面能读的只有 `providers:list` 与 `usage:summary` 两项（magpie 的白名单），
+  所以做不出「点一下就登录/换号」的按钮 —— 那需要写接口，magpie 没给。
 
 ## 目录
 
@@ -155,8 +191,10 @@ src/plugin.mjs         插件工厂：config / auth / provider
 src/container.mjs      内嵌 cordis 容器，加载本体并转发
 src/credentials.mjs    把 .credentials.yaml 桥成 credentials 服务
 vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/）
-page/                  侧栏页面（index.html / page.js / page.css / icon.svg）
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-gateway）
+page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
+scripts/snapshot-models.mjs  重新生成 page/models.js
+scripts/test-all.mjs   测试总入口
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-gateway / ui-check）
 docs/screenshot.png    侧栏页面实拍
 ```
 
