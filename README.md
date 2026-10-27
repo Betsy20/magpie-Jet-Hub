@@ -1,5 +1,7 @@
 # magpie-jet-hub
 
+[![repo](https://img.shields.io/badge/github-Betsy20/magpie--Jet--Hub-blue)](https://github.com/Betsy20/magpie-Jet-Hub)
+
 把 **deepseek-harness-codearts 插件本体**装进 magpie。
 
 不是"重写一份 CodeArts 能力"（那样只搬一家），而是把本体「路由中枢」原样跑起来：

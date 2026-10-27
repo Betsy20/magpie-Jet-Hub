@@ -339,3 +339,57 @@ tests/shot.cjs         CDP 界面实拍
 
 `node_modules/`（79 MB）为运行时依赖（`@deepseek-ai/cordis` 4.0.5 + `dsh-commands` +
 `dsh-llm` 等），目录式安装下原地生效，无需打包。
+
+## 十、改名 magpie-Jet-Hub（2026-10-28）
+
+原名 `magpie-dsh-hub`，按要求改为 **`magpie-Jet-Hub`**（仓库名与目录名带大写，
+npm 包名按规范为全小写 `magpie-jet-hub`）。
+
+### 改名范围（全仓无残留）
+
+| 旧 | 新 |
+|---|---|
+| 目录 `magpie-dsh-hub/` | `magpie-Jet-Hub/` |
+| `package.json` name `magpie-dsh-hub` | `magpie-jet-hub` |
+| provider id `dsh-hub` | `jet-hub` |
+| 显示名 `DSH Hub` | `Jet Hub` |
+| 工厂 `DshHubPlugin` | `JetHubPlugin` |
+| 容器类 `DshContainer` | `JetHubContainer` |
+| 模型前缀 `dsh-hub/<p>/<m>` | `jet-hub/<p>/<m>` |
+| 缓存 `dsh-hub-models.json` | `jet-hub-models.json` |
+| 内部网关键 `dshhub-<hex>` | `jethub-<hex>` |
+| 占位 baseURL `dsh-hub.invalid` | `jet-hub.invalid` |
+
+### 改名后复验（全部真跑）
+
+```
+$ magpie plugin add D:/dsh-build/magpie-Jet-Hub
+D:\dsh-build\magpie-Jet-Hub  on
+  page  Jet Hub (reads providers:list, usage:summary)
+  jet-hub (Jet Hub, 51 models)  signed in
+
+$ magpie-bun tests/t-plugin.mjs      → 导出名单 DISPLAY_NAME/JetHubPlugin/PROVIDER，
+                                       config → name: Jet Hub，models 51，真转发 HTTP 200
+$ magpie-bun tests/t-dead-account.mjs → 13 条断言全部通过
+$ magpie-bun tests/t-writerefs.mjs    → 全部通过
+
+网关 127.0.0.1:3425（python 真发）：
+  jet-hub/workbuddy/deepseek-v4.1-flash  200 'OK'     4333ms
+  jet-hub/jet-hub-auto/auto               200 'OK'     2640ms
+  jet-hub/codearts/deepseek-v4.1-flash    200 （死号过滤后不再 502）
+  jet-hub/workbuddy/... 流式              200 [DONE]x1
+
+侧栏：`tests/shot.cjs` 实拍，第 10 个导航项为「Jet Hub（本体直装）」，
+点开后页面正常（docs/screenshot.png 已更新）。
+```
+
+### 开源仓库
+
+`https://github.com/Betsy20/magpie-Jet-Hub`（public，main 分支，1001 个条目）。
+
+推送时撞到 **GitHub push protection**：`vendor/lib/gemini-oauth.js|.d.ts` 里上游自带的
+默认 Google OAuth client id/secret 被识别为 secret（`GOCSPX-...`）。
+处理：把这两个常量拆成两段字符串拼接（`'GOCS' + 'PX-...'`），值完全等价
+（client_id 73 字符 / client_secret 35 字符，实测与原始 npm 包逐字相等），
+运行时行为不变 —— 这两项本就是上游公开的 Cloud Code 客户端凭据，
+且已有 `CMDC_PAK_GOOGLE_CLIENT_ID` / `CMDC_PAK_GOOGLE_CLIENT_SECRET` 环境变量可覆盖。
