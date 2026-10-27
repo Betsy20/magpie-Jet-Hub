@@ -45,7 +45,12 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 ⚠️ `writeCache` 只写**有值**的那一份。全量要 20+ 秒才到，若先到的实时目录把
 `full: undefined` 写进去，会把上一次落盘的全量覆盖掉（踩过：缓存被写成只剩 35 条）。
 
-刷新：`node scripts/snapshot-models.mjs`；上游上新模型后跑一次即可。
+⚠️ 进程内缓存有 **60 秒 TTL**（`src/plugin.mjs` 的 `CACHE_TTL_MS`）。插件进程是常驻的，
+若 `allModels` / `fullModels` 一旦有值就永不重读，你在别的进程刷新了盘上缓存，
+常驻宿主仍报旧数字，直到 magpie 重启（踩过：`plugin list` 显示 cline 540，界面里仍是 1）。
+
+刷新：`node scripts/snapshot-models.mjs`；上游上新模型后跑一次即可（页面与
+`provider.models()` 会在 60 秒内跟上）。
 
 ## 为什么这么做
 

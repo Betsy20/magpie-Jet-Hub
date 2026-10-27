@@ -302,17 +302,30 @@ function refreshInBackground(container, log) {
 }
 
 /**
+ * 目录的**重读间隔**。
+ *
+ * ⚠️ 必须有 TTL（实测踩过）：插件进程是常驻的，`allModels` / `fullModels`
+ * 一旦有值就永不重读 —— 在别的进程里刷新了盘上缓存（`node scripts/snapshot-models.mjs`
+ * 或另一次容器启动），这个进程仍然报旧数字，直到 magpie 重启。
+ * 表现：`plugin list`（新进程）显示 cline 540，界面（常驻进程）仍显示 1。
+ */
+const CACHE_TTL_MS = 60_000
+let lastReadAt = 0
+
+/**
  * 拿目录，**绝不阻塞**。
  *
  * magpie 给 `provider.models` 的超时是 20 秒，而本体冷启动要 20–30 秒；
  * 直接 await 必然超时。故：有缓存立刻给，同时后台刷新；冷启动只预热。
  */
 function currentAll(container, log) {
-  if (allModels === undefined || fullModels === undefined) {
+  const stale = Date.now() - lastReadAt > CACHE_TTL_MS
+  if (allModels === undefined || fullModels === undefined || stale) {
+    lastReadAt = Date.now()
     refreshInBackground(container, log)
     const seed = readCache()
-    if (allModels === undefined && seed.live !== undefined) allModels = seed.live
-    if (fullModels === undefined && seed.full !== undefined) fullModels = seed.full
+    if (seed.live !== undefined) allModels = seed.live
+    if (seed.full !== undefined) fullModels = seed.full
   }
   return { live: allModels, full: fullModels }
 }
