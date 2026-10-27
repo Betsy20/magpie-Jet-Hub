@@ -129,6 +129,8 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 准确地址写在 `~/.config/magpie/jet-hub-console.json` 的 `url` 字段（每次宿主启动时更新）。
 侧栏页面的「控制台」标签就是把这个地址摆出来，附一键复制。
 
+![控制台](docs/screenshot-console.png)
+
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
 响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）实测可用的方法：
 
