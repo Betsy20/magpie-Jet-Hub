@@ -17,7 +17,7 @@ def post(payload, stream=False):
 print("=" * 60)
 print("1) 非流式普通对话")
 j = post({
-    "model": "jet-hub/workbuddy/deepseek-v4.1-flash",
+    "model": "jet-hub-workbuddy/deepseek-v4.1-flash",
     "messages": [{"role": "user", "content": "只回答两个字：收到"}],
     "max_tokens": 300,
 })
@@ -29,7 +29,7 @@ print("  finish:", ch["finish_reason"], "| usage:", j["usage"]["total_tokens"])
 print("=" * 60)
 print("2) 流式：帧类型统计 + [DONE] 次数")
 r = post({
-    "model": "jet-hub/workbuddy/deepseek-v4.1-flash",
+    "model": "jet-hub-workbuddy/deepseek-v4.1-flash",
     "messages": [{"role": "user", "content": "数到三"}],
     "max_tokens": 300,
     "stream": True,
@@ -58,7 +58,7 @@ print("  思考前 60:", repr("".join(reasoning)[:60]))
 print("=" * 60)
 print("3) 工具调用（OpenAI 原生 tools）")
 j = post({
-    "model": "jet-hub/workbuddy/deepseek-v4.1-flash",
+    "model": "jet-hub-workbuddy/deepseek-v4.1-flash",
     "messages": [{"role": "user", "content": "上海天气怎么样？用工具查。"}],
     "max_tokens": 500,
     "tools": [{

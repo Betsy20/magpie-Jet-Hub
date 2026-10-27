@@ -1,160 +1,124 @@
 // 自动生成：node scripts/snapshot-models.mjs —— 别手改。
-// 快照时间 2026-10-27T17:21:35.668Z
+// 快照时间 2026-10-27T18:34:04.986Z
 window.JET_HUB_CATALOG = {
-  "generatedAt": "2026-10-27T17:21:35.668Z",
+  "generatedAt": "2026-10-27T18:34:04.986Z",
   "gateway": "http://127.0.0.1:3425",
-  "prefix": "jet-hub/",
-  "totalOnGateway": 51,
+  "totalOnGateway": 54,
   "models": [
-    "autoclaw/zai_glm-5.3-flash",
-    "buddy/deepseek-v4.1-flash",
-    "cline/liquid/lfm-2.5-2.6b",
-    "cline/openai/gpt-6.1-terra",
-    "cline/openai/gpt-6.1-terra-pro",
-    "cline/openai/gpt-6.1-terra-pro:batch",
-    "cline/openai/gpt-6.1-terra:batch",
-    "codearts/GLM-5",
-    "codearts/GLM-5.1",
-    "codearts/deepseek-v4-flash",
-    "codearts/deepseek-v4-pro",
-    "codearts/deepseek-v4.1-flash",
-    "codearts/glm-5.3-flash",
-    "lobsterai/deepseek-flash",
-    "loomy/DeepSeek-V4.1-Flash",
-    "minimaxintl/MiniMax-M2.7",
-    "minimaxintl/MiniMax-M2.7-highspeed",
-    "minimaxintl/MiniMax-M3.1-Flash-Preview",
-    "qoder/dfmodel",
-    "qodercn/dfmodel",
-    "raccoon/sn-deepseek-v4-1-flash-1017",
-    "trae/deepseek-v4.1-flash",
-    "workbuddy/deepseek-v4.1-flash",
-    "workbuddy/deepseek-v4.1-flash-sg"
+    "jet-hub-aggregate/auto",
+    "jet-hub-aggregate/deepseek-flash",
+    "jet-hub-aggregate/deepseek-v4-1-flash",
+    "jet-hub-aggregate/deepseek-v4-1-flash-1017",
+    "jet-hub-aggregate/deepseek-v4-1-flash-sg",
+    "jet-hub-aggregate/deepseek-v4-flash",
+    "jet-hub-aggregate/deepseek-v4-pro",
+    "jet-hub-aggregate/glm-5",
+    "jet-hub-aggregate/glm-5-1",
+    "jet-hub-astudio/xopdsv4flash0731in",
+    "jet-hub-autoclaw/zai_glm-5.3-flash",
+    "jet-hub-buddy/deepseek-v4.1-flash",
+    "jet-hub-cline/deepseek-v4.1-flash",
+    "jet-hub-codearts/GLM-5",
+    "jet-hub-codearts/GLM-5.1",
+    "jet-hub-codearts/deepseek-v4-flash",
+    "jet-hub-codearts/deepseek-v4-pro",
+    "jet-hub-codearts/deepseek-v4.1-flash",
+    "jet-hub-codearts/glm-5.3-flash",
+    "jet-hub-lobsterai/deepseek-flash",
+    "jet-hub-loomy/DeepSeek-V4.1-Flash",
+    "jet-hub-minimaxintl/MiniMax-M2",
+    "jet-hub-modelscope/deepseek-ai/DeepSeek-V4.1-Flash",
+    "jet-hub-modelscope/deepseek-ai/DeepSeek-V4.1-Flash-1017",
+    "jet-hub-officeace/deepseek-v4.1-flash",
+    "jet-hub-opencode/beam-free",
+    "jet-hub-opencode/deepseek-v4.1-flash-free",
+    "jet-hub-opencode/flint-40b-free",
+    "jet-hub-qoder/dfmodel",
+    "jet-hub-qodercn/dfmodel",
+    "jet-hub-raccoon/sn-deepseek-v4-1-flash-1017",
+    "jet-hub-trae/deepseek-v4.1-flash",
+    "jet-hub-workbuddy/deepseek-v4.1-flash",
+    "jet-hub-workbuddy/deepseek-v4.1-flash-sg",
+    "jet-hub-zcode/GLM-5.3",
+    "jet-hub-zcode/GLM-5.3-Flash",
+    "jet-hub/auto"
   ],
   "providers": {
-    "workbuddy": {
-      "name": "WorkBuddy",
-      "desc": "WorkBuddy 主账号池"
+    "jet-hub-aggregate": {
+      "name": "Jet Hub · 聚合",
+      "desc": "本体内部的聚合路由组"
     },
-    "workbuddy-ai": {
-      "name": "WorkBuddy AI",
-      "desc": "WorkBuddy AI 渠道"
-    },
-    "zcode": {
-      "name": "ZCode",
-      "desc": "ZCode（GLM 系列）"
-    },
-    "qoder": {
-      "name": "Qoder",
-      "desc": "Qoder"
-    },
-    "qodercn": {
-      "name": "Qoder CN",
-      "desc": "Qoder 国内站"
-    },
-    "qoder-cn": {
-      "name": "Qoder CN",
-      "desc": "Qoder 国内站"
-    },
-    "codearts": {
-      "name": "CodeArts",
-      "desc": "华为云 CodeArts（STS 临时凭据）"
-    },
-    "trae-cn": {
-      "name": "Trae CN",
-      "desc": "Trae 国内站"
-    },
-    "trae": {
-      "name": "Trae",
-      "desc": "Trae 国际站"
-    },
-    "traeglobal": {
-      "name": "Trae Global",
-      "desc": "Trae 国际站"
-    },
-    "autoclaw-cn": {
-      "name": "AutoClaw 国内",
-      "desc": "智谱 AutoClaw 国内站"
-    },
-    "autoclaw": {
-      "name": "AutoClaw",
-      "desc": "智谱 AutoClaw"
-    },
-    "autoclawintl": {
-      "name": "AutoClaw 国际",
-      "desc": "智谱 AutoClaw 国际站"
-    },
-    "officeace": {
-      "name": "OfficeAce",
-      "desc": "华为云 OfficeAce"
-    },
-    "astudio": {
-      "name": "AStudio",
+    "jet-hub-astudio": {
+      "name": "Jet Hub · AStudio",
       "desc": "讯飞 AStudio"
     },
-    "buddy": {
-      "name": "Buddy",
+    "jet-hub-autoclaw": {
+      "name": "Jet Hub · AutoClaw",
+      "desc": "智谱 AutoClaw"
+    },
+    "jet-hub-buddy": {
+      "name": "Jet Hub · Buddy",
       "desc": "Buddy"
     },
-    "loomy": {
-      "name": "Loomy",
-      "desc": "Loomy"
-    },
-    "lobsterai": {
-      "name": "LobsterAI",
-      "desc": "LobsterAI"
-    },
-    "modelscope": {
-      "name": "ModelScope",
-      "desc": "魔搭社区"
-    },
-    "raccoon": {
-      "name": "Raccoon",
-      "desc": "Raccoon"
-    },
-    "opencode": {
-      "name": "OpenCode",
-      "desc": "OpenCode"
-    },
-    "cline": {
-      "name": "Cline",
+    "jet-hub-cline": {
+      "name": "Jet Hub · Cline",
       "desc": "Cline"
     },
-    "codely": {
-      "name": "Codely",
-      "desc": "Codely"
+    "jet-hub-codearts": {
+      "name": "Jet Hub · CodeArts",
+      "desc": "华为云 CodeArts（STS 临时凭据）"
     },
-    "gemini": {
-      "name": "Gemini",
-      "desc": "Gemini（Cloud Code 客户端）"
+    "jet-hub-lobsterai": {
+      "name": "Jet Hub · LobsterAI",
+      "desc": "LobsterAI"
     },
-    "accio": {
-      "name": "Accio",
-      "desc": "阿里 Accio"
+    "jet-hub-loomy": {
+      "name": "Jet Hub · Loomy",
+      "desc": "Loomy"
     },
-    "minimax": {
-      "name": "MiniMax",
-      "desc": "MiniMax"
-    },
-    "minimaxintl": {
-      "name": "MiniMax 国际",
+    "jet-hub-minimaxintl": {
+      "name": "Jet Hub · MiniMax 国际",
       "desc": "MiniMax 国际版"
     },
-    "providers-hub": {
-      "name": "Providers Hub",
-      "desc": "聚合渠道（池路由）"
+    "jet-hub-modelscope": {
+      "name": "Jet Hub · ModelScope",
+      "desc": "魔搭社区"
     },
-    "jet-hub-auto": {
-      "name": "Jet Hub Auto",
-      "desc": "按额度自动择优的路由组"
+    "jet-hub-officeace": {
+      "name": "Jet Hub · OfficeAce",
+      "desc": "华为云 OfficeAce"
     },
-    "auto": {
-      "name": "Auto",
-      "desc": "按额度自动择优"
+    "jet-hub-opencode": {
+      "name": "Jet Hub · OpenCode",
+      "desc": "OpenCode"
     },
-    "group": {
-      "name": "Group",
-      "desc": "按顺序兜底的路由组"
+    "jet-hub-qoder": {
+      "name": "Jet Hub · Qoder",
+      "desc": "Qoder"
+    },
+    "jet-hub-qodercn": {
+      "name": "Jet Hub · Qoder CN",
+      "desc": "Qoder 国内站"
+    },
+    "jet-hub-raccoon": {
+      "name": "Jet Hub · Raccoon",
+      "desc": "Raccoon"
+    },
+    "jet-hub-trae": {
+      "name": "Jet Hub · Trae",
+      "desc": "Trae"
+    },
+    "jet-hub-workbuddy": {
+      "name": "Jet Hub · WorkBuddy",
+      "desc": "WorkBuddy 账号池"
+    },
+    "jet-hub-zcode": {
+      "name": "Jet Hub · ZCode",
+      "desc": "ZCode（GLM 系列）"
+    },
+    "jet-hub": {
+      "name": "Jet Hub · 自动选号",
+      "desc": "本体自带的按额度自动择优路由"
     }
   }
 };
