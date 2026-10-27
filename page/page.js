@@ -15,9 +15,12 @@
 // 模型目录读不到（页面不能联网，providers:list 也不给模型），所以用
 // page/models.js 里的快照，由 scripts/snapshot-models.mjs 生成。
 
-const PROVIDER = 'jet-hub'
-const PREFIX = PROVIDER + '/'
 const CATALOG = window.JET_HUB_CATALOG || { models: [], providers: {}, generatedAt: '', gateway: 'http://127.0.0.1:3425' }
+
+/* 每个本体 provider 都是独立的 magpie provider：jet-hub / jet-hub-codearts / …
+   模型 id 形如 `jet-hub-codearts/deepseek-v4.1-flash`（第一段是 provider id）。 */
+const isOurs = (seg) => seg === 'jet-hub' || String(seg).startsWith('jet-hub-')
+const providerSeg = (id) => String(id || '').split('/')[0]
 
 const state = {
   options: { model: '', period: 'today', prefix: true },
@@ -71,22 +74,24 @@ async function copy(text, btn) {
   }
 }
 
-// jet-hub/workbuddy/x → workbuddy/x
+/* `jet-hub-codearts/deepseek-v4.1-flash` → `codearts/deepseek-v4.1-flash`
+   （直接打插件内部网关时才用得上；走 magpie 必须用完整 id）。 */
 function bare(id) {
   const s = String(id || '')
-  return s.startsWith(PREFIX) ? s.slice(PREFIX.length) : s
+  const seg = s.split('/')[0]
+  if (!isOurs(seg)) return s
+  const magpieId = seg === 'jet-hub' ? 'jet-hub' : seg.slice('jet-hub-'.length)
+  const upstream = magpieId === 'jet-hub' ? 'jet-hub-auto' : magpieId
+  return `${upstream}/${s.slice(seg.length + 1)}`
 }
 
-// 复制时用不用带前缀，看设置
 function modelId(m) {
   const id = String(m || '')
-  if (id.startsWith(PREFIX)) return state.options.prefix ? id : bare(id)
-  return state.options.prefix ? PREFIX + id : id
+  return state.options.prefix ? id : bare(id)
 }
 
 function providerOf(model) {
-  const seg = String(model || '').split('/')[0]
-  return CATALOG.providers?.[seg] || null
+  return CATALOG.providers?.[providerSeg(model)] || null
 }
 
 const providerName = (model) => providerOf(model)?.name || String(model || '').split('/')[0]
@@ -187,10 +192,10 @@ function drawModels() {
       const chip = el('button', 'mid')
       chip.type = 'button'
       chip.title = '点一下复制 ' + modelId(m)
-      const pfx = el('span', 'pfx', state.options.prefix ? PREFIX : '')
-      chip.append(pfx, document.createTextNode(m))
+      const shown = state.options.prefix ? m : bare(m)
+      chip.append(document.createTextNode(shown))
       chip.onclick = () => copy(modelId(m), chip).then((ok) => {
-        if (ok) { const old = chip.textContent; chip.dataset.done = '1'; chip.textContent = '已复制 ' + modelId(m); setTimeout(() => { chip.replaceChildren(pfx, document.createTextNode(m)); delete chip.dataset.done }, 1400) }
+        if (ok) { chip.dataset.done = '1'; chip.textContent = '已复制 ' + modelId(m); setTimeout(() => { chip.replaceChildren(document.createTextNode(shown)); delete chip.dataset.done }, 1400) }
       })
       wrap.append(chip)
     }
@@ -258,7 +263,7 @@ async function drawUsage() {
   for (const m of list) {
     const tr = el('tr')
     const name = el('td', 'mname', m.model)
-    if (isMine(m.model)) name.append(el('span', 'tag', 'jet-hub'))
+    if (isMine(m.model)) name.append(el('span', 'tag', providerSeg(m.model)))
     tr.append(name)
     tr.append(el('td', 'num', comma(m.calls)))
     tr.append(el('td', 'num', num(m.input)))
@@ -381,9 +386,8 @@ async function main() {
   // 供应商在不在
   try {
     const list = await magpie.read('providers:list')
-    const mine = (Array.isArray(list) ? list : []).find((p) => String(p?.id) === PROVIDER)
-    if (!mine) setState('网关里还没有这个供应商', 'bad')
-    else if (mine.name && mine.name !== 'Jet Hub') $('.hero h1').textContent = mine.name
+    const mine = (Array.isArray(list) ? list : []).filter((p) => isOurs(String(p?.id)))
+    if (mine.length === 0) setState('网关里还没有 Jet Hub 的供应商', 'bad')
   } catch { /* 只影响这一行提示 */ }
 
   // 模型数 / 供应商数
@@ -411,7 +415,7 @@ async function main() {
   }
 
   $('#gateway').textContent = CATALOG.gateway || 'http://127.0.0.1:3425'
-  $('#prefix').textContent = PREFIX
+  $('#prefix').textContent = 'jet-hub-<provider>/'
   $('#ver').textContent = 'magpie-jet-hub'
 
   /* 事件 */

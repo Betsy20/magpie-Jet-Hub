@@ -498,3 +498,70 @@ $ magpie-bun tests/t-writerefs.mjs    → 全部通过
 ### 测试
 `node scripts/test-all.mjs --all` → **7 通过 / 0 失败 / 0 跳过**
 （新增 `tests/t-console.mjs`：真起容器 → 起控制台 → 校验 `/__meta` 与 `account.list`）。
+
+## 十三、拆成 19 个供应商 + 账号按 provider 摊平（2026-10-28）
+
+### 用户要求
+User said (m06575): 「既然不能放进侧栏页，把每个供应商都加入模型/供应商呢」
+User said (m06821): 「既然已经拆成多个provider了，账号也应该改成显示每个provider名下的账号」
+
+### 做法
+- `src/plugin.mjs` 的 `makePlugin(dshProvider)` 为 19 个本体 provider 各生成一个
+  插件工厂；`index.mjs` 只导出这 19 个函数（**不再导出任何常量对象** ——
+  宿主会遍历全部导出做无参探测调用，多导出常量会让整个插件加载失败）。
+- 容器改**模块级单例**（`shared`）：19 个工厂共用一个 cordis 容器与一个内部网关。
+  各起一个会拉 19 个网关端口。
+- `toUpstreamModel(model, dshProvider)`：把 magpie 的 `<magpie id>/<model>` 换成
+  本体要的 `<dsh provider>/<model>`；已知前缀按**长度降序**匹配，否则 `jet-hub/`
+  会抢掉 `jet-hub-auto/`。
+- `scripts/seed-auth.mjs`：读 `~/.dsh/jet-hub/state.json` 的账号池，按 provider
+  摊平写进 `plugin-auth.json`（首个用裸 id，其余 `#<稳定短后缀>`），写前备份、
+  只动本插件自己的键。
+
+### 实测（Observed，全部真跑）
+`magpie plugin list` 19 行，各自的账号与模型数：
+
+```
+jet-hub-aggregate  (Jet Hub · 聚合路由, 9 models)      signed in as （路由组 · 请求由池内其它渠道承接）
+jet-hub-astudio    (Jet Hub · AStudio（讯飞）, 1)      signed in as 134******03
+jet-hub-autoclaw   (Jet Hub · AutoClaw（智谱）, 1)     signed in as 134****8503
+jet-hub-buddy      (Jet Hub · Buddy, 1)                signed in as Betsy
+jet-hub-cline      (Jet Hub · Cline, 1)                signed in as 1765502914@qq.com
+jet-hub-codearts   (Jet Hub · CodeArts（华为云）, 6)    signed in as codearts-8e65da6c
+jet-hub            (Jet Hub · 自动选号, 1)             signed in as （路由组 · 请求由池内其它渠道承接）
+jet-hub-lobsterai  (Jet Hub · LobsterAI, 1)            signed in as 134******03
+jet-hub-loomy      (Jet Hub · Loomy, 1)                signed in as Spring🐻
+jet-hub-minimaxintl(Jet Hub · MiniMax 国际, 1)         signed in as 83mgg
+jet-hub-modelscope (Jet Hub · ModelScope（魔搭）, 2)    signed in as ModelScope 0a7b82
+jet-hub-officeace  (Jet Hub · OfficeAce（华为云）, 1)   signed in as OfficeAce 5c2eddfe
+jet-hub-opencode   (Jet Hub · OpenCode, 3)             signed in as 匿名通道
+jet-hub-qoder      (Jet Hub · Qoder, 1)                signed in as Betsy20
+jet-hub-qodercn    (Jet Hub · Qoder 国内, 1)           signed in as nick3872630311
+jet-hub-raccoon    (Jet Hub · Raccoon, 1)              signed in as RaccoonDaniel (8503)
+jet-hub-trae       (Jet Hub · Trae, 1)                 signed in as 147******19
+jet-hub-workbuddy  (Jet Hub · WorkBuddy, 2)            signed in as betsy54
+jet-hub-zcode      (Jet Hub · ZCode（GLM）, 2)          signed in as ZCode jjmny481
+```
+
+`plugin-auth.json`：本插件 55 条键（19 个 provider，workbuddy 20 个账号、cline 6、
+buddy 3、astudio/lobsterai/loomy/minimaxintl/officeace/qoder/qodercn/trae/zcode/
+codearts 各 2），其它插件 24 条记录一字未动。
+
+网关 `127.0.0.1:3425` 的 `/v1/models`：`jet-hub*` 共 37 个模型 / 19 个 provider
+（容器预热程度不同会有 24–51 的波动，属正常）。
+
+真转发（非流式，带 `reasoning_content`）：
+- `jet-hub-workbuddy/deepseek-v4.1-flash` → HTTP 200，`model: workbuddy/deepseek-v4.1-flash`
+- `jet-hub-codearts/deepseek-v4.1-flash` → HTTP 200，`model: codearts/deepseek-v4.1-flash`
+
+### 一个必须说清的限制
+本体自己的 HTTP 网关**没有按请求指定账号的入口** —— 账号由适配器内部
+`getAvailableAccount(provider, model)` 按 `enabled` 与 `modelRateLimits` 现选
+（`vendor/lib/account-pool.js:2249`）。所以 magpie 里那些账号行是**看得见**
+（与 DSH / 控制台账号池一致、能看停用状态），但**选某一行不改变实际用哪个账号**。
+写进 README 与本文档，不装作可切换。
+
+### 测试
+`node scripts/test-all.mjs` → **5 通过 / 0 失败**（新增 `tests/t-seed-auth.mjs`：
+dry-run 不改文件、19 个 id 齐全、路由组文案正确、多账号摊平）。
+`node tests/ui-check.cjs` → 六个标签全渲染、无 JS 报错、37 个模型 / 19 组。

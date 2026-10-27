@@ -1,13 +1,16 @@
 // 从正在跑的 magpie 网关拉一份 Jet Hub 的模型目录快照，写进 page/models.js。
 //
 // 页面在沙箱里联网被 CSP 挡住（connect-src 'none'），读不到网关，所以模型目录
-// 只能是快照。这份快照跟着本插件的账号登录状态走，账号变了就重跑一次：
+// 只能是快照。账号变了就重跑一次：
 //
 //   node scripts/snapshot-models.mjs
-//   node scripts/snapshot-models.mjs http://127.0.0.1:3425 jet-hub/
+//   node scripts/snapshot-models.mjs http://127.0.0.1:3425
 //
 // 只写 page/models.js，不动别的文件。
-
+//
+// ⚠️ 现在每个本体 provider 都是**独立的 magpie provider**，所以网关上的模型 id
+// 形如 `jet-hub-codearts/deepseek-v4.1-flash`。快照保留完整 id（页面要能直接
+// 复制去用），分组时按第一段（= magpie provider id）来。
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,70 +19,54 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const OUT = path.join(HERE, '..', 'page', 'models.js')
 
 const gateway = (process.argv[2] || 'http://127.0.0.1:3425').replace(/\/+$/, '')
-const prefix = process.argv[3] || 'jet-hub/'
 
-// 本体里这些 provider 的名字与一句话说明（写死，来自 deepseek-harness-codearts
-// 的 provider 列表；id 用模型 id 的前缀段）
-export const PROVIDERS = {
-  workbuddy:      ['WorkBuddy',        'WorkBuddy 主账号池'],
-  'workbuddy-ai': ['WorkBuddy AI',     'WorkBuddy AI 渠道'],
-  zcode:          ['ZCode',            'ZCode（GLM 系列）'],
-  qoder:          ['Qoder',            'Qoder'],
-  qodercn:        ['Qoder CN',         'Qoder 国内站'],
-  'qoder-cn':     ['Qoder CN',         'Qoder 国内站'],
-  codearts:       ['CodeArts',         '华为云 CodeArts（STS 临时凭据）'],
-  'trae-cn':      ['Trae CN',          'Trae 国内站'],
-  trae:           ['Trae',             'Trae 国际站'],
-  traeglobal:     ['Trae Global',      'Trae 国际站'],
-  'autoclaw-cn':  ['AutoClaw 国内',    '智谱 AutoClaw 国内站'],
-  autoclaw:       ['AutoClaw',         '智谱 AutoClaw'],
-  autoclawintl:   ['AutoClaw 国际',    '智谱 AutoClaw 国际站'],
-  officeace:      ['OfficeAce',        '华为云 OfficeAce'],
-  astudio:        ['AStudio',          '讯飞 AStudio'],
-  buddy:          ['Buddy',            'Buddy'],
-  loomy:          ['Loomy',            'Loomy'],
-  lobsterai:      ['LobsterAI',        'LobsterAI'],
-  modelscope:     ['ModelScope',       '魔搭社区'],
-  raccoon:        ['Raccoon',          'Raccoon'],
-  opencode:       ['OpenCode',         'OpenCode'],
-  cline:          ['Cline',            'Cline'],
-  codely:         ['Codely',           'Codely'],
-  gemini:         ['Gemini',           'Gemini（Cloud Code 客户端）'],
-  accio:          ['Accio',            '阿里 Accio'],
-  minimax:        ['MiniMax',          'MiniMax'],
-  minimaxintl:    ['MiniMax 国际',     'MiniMax 国际版'],
-  'providers-hub':['Providers Hub',    '聚合渠道（池路由）'],
-  'jet-hub-auto': ['Jet Hub Auto',     '按额度自动择优的路由组'],
-  auto:           ['Auto',             '按额度自动择优'],
-  group:          ['Group',            '按顺序兜底的路由组'],
+/** magpie provider id 前缀（`jet-hub` 是本体自己的自动选号路由）。 */
+const isOurs = (seg) => seg === 'jet-hub' || seg.startsWith('jet-hub-')
+
+/** magpie provider id → [显示名, 一句话说明]。 */
+const NAMES = {
+  'jet-hub':        ['Jet Hub · 自动选号', '本体自带的按额度自动择优路由'],
+  'jet-hub-aggregate': ['Jet Hub · 聚合', '本体内部的聚合路由组'],
+  'jet-hub-codearts': ['Jet Hub · CodeArts', '华为云 CodeArts（STS 临时凭据）'],
+  'jet-hub-workbuddy': ['Jet Hub · WorkBuddy', 'WorkBuddy 账号池'],
+  'jet-hub-qoder':  ['Jet Hub · Qoder', 'Qoder'],
+  'jet-hub-qodercn': ['Jet Hub · Qoder CN', 'Qoder 国内站'],
+  'jet-hub-zcode':  ['Jet Hub · ZCode', 'ZCode（GLM 系列）'],
+  'jet-hub-trae':   ['Jet Hub · Trae', 'Trae'],
+  'jet-hub-autoclaw': ['Jet Hub · AutoClaw', '智谱 AutoClaw'],
+  'jet-hub-buddy':  ['Jet Hub · Buddy', 'Buddy'],
+  'jet-hub-cline':  ['Jet Hub · Cline', 'Cline'],
+  'jet-hub-loomy':  ['Jet Hub · Loomy', 'Loomy'],
+  'jet-hub-lobsterai': ['Jet Hub · LobsterAI', 'LobsterAI'],
+  'jet-hub-modelscope': ['Jet Hub · ModelScope', '魔搭社区'],
+  'jet-hub-officeace': ['Jet Hub · OfficeAce', '华为云 OfficeAce'],
+  'jet-hub-astudio': ['Jet Hub · AStudio', '讯飞 AStudio'],
+  'jet-hub-opencode': ['Jet Hub · OpenCode', 'OpenCode'],
+  'jet-hub-raccoon': ['Jet Hub · Raccoon', 'Raccoon'],
+  'jet-hub-minimaxintl': ['Jet Hub · MiniMax 国际', 'MiniMax 国际版'],
 }
-
-const PROVIDERS_JSON = Object.fromEntries(
-  Object.entries(PROVIDERS).map(([id, [name, desc]]) => [id, { name, desc }]),
-)
 
 async function main() {
   const res = await fetch(`${gateway}/v1/models`, { signal: AbortSignal.timeout(20000) })
   if (!res.ok) throw new Error(`GET ${gateway}/v1/models → HTTP ${res.status}`)
   const body = await res.json()
   const all = Array.isArray(body?.data) ? body.data.map((m) => String(m?.id || '')) : []
-  const mine = all
-    .filter((id) => id.startsWith(prefix))
-    .map((id) => id.slice(prefix.length))
-    .filter(Boolean)
-    .sort()
 
-  const models = [...new Set(mine)]
-  const seen = new Set(models.map((m) => m.split('/')[0]))
-  const unknown = [...seen].filter((p) => !(p in PROVIDERS_JSON)).sort()
+  const models = [...new Set(all.filter((id) => isOurs(String(id).split('/')[0])))].sort()
+
+  const providers = {}
+  for (const id of models) {
+    const seg = id.split('/')[0]
+    const [name, desc] = NAMES[seg] ?? [seg, '本体带来的 provider']
+    providers[seg] = { name, desc }
+  }
 
   const payload = {
     generatedAt: new Date().toISOString(),
     gateway,
-    prefix,
     totalOnGateway: all.length,
     models,
-    providers: PROVIDERS_JSON,
+    providers,
   }
 
   const js = `// 自动生成：node scripts/snapshot-models.mjs —— 别手改。
@@ -87,9 +74,11 @@ async function main() {
 window.JET_HUB_CATALOG = ${JSON.stringify(payload, null, 2)};
 `
   fs.writeFileSync(OUT, js, 'utf8')
-  console.log(`✓ ${models.length} 个模型（网关共 ${all.length} 个）→ ${path.relative(process.cwd(), OUT) || OUT}`)
-  if (unknown.length) console.log(`  未登记名字的 provider 前缀：${unknown.join(', ')}（请在 scripts/snapshot-models.mjs 的 PROVIDERS 里补上）`)
-  if (!models.length) console.log(`  ⚠ 一个 jet-hub 模型都没有：网关可能还没登录任何账号，或插件没加载`)
+  const groups = new Set(models.map((m) => m.split('/')[0]))
+  console.log(`✓ ${models.length} 个模型 / ${groups.size} 个 provider（网关共 ${all.length} 个）→ ${path.relative(process.cwd(), OUT) || OUT}`)
+  const unknown = [...groups].filter((g) => !(g in NAMES))
+  if (unknown.length) console.log(`  未登记名字的 provider：${unknown.join(', ')}（请在 NAMES 里补上）`)
+  if (!models.length) console.log('  ⚠ 一个 jet-hub 模型都没有：网关可能没登录任何账号，或插件没加载')
 }
 
 main().catch((err) => {

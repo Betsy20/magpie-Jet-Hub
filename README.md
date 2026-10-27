@@ -44,6 +44,57 @@ magpie plugin login jet-hub
 > 换机器时把 `magpie-Jet-Hub` 换成自己的绝对路径即可。目录式安装是**直接引用**
 > （不复制、不建软链），所以改完代码 `magpie plugin list` 重载即生效。
 
+## 19 个供应商，不是一个
+
+本体里有 19 个 provider。本插件把它们**各注册成 magpie 的一个供应商**，
+而不是塞进一个 `jet-hub` 里：
+
+| magpie provider id | 显示名 | 本体 provider |
+|---|---|---|
+| `jet-hub` | Jet Hub · 自动选号 | `jet-hub-auto` |
+| `jet-hub-codearts` | Jet Hub · CodeArts（华为云） | `codearts` |
+| `jet-hub-workbuddy` | Jet Hub · WorkBuddy | `workbuddy` |
+| …（共 19 个） | | |
+
+模型 id 就是 `<provider>/<model>`，例如：
+
+```
+jet-hub-codearts/deepseek-v4.1-flash
+jet-hub-workbuddy/deepseek-v4.1-flash
+jet-hub-qoder/qfmodel
+```
+
+> **为什么能这么做**：magpie 宿主 `servers(mod)` 取模块导出的**每一个函数**，
+> `auths()` 再按 `hooks.auth.provider` 建映射 —— 所以一个插件包导出 19 个
+> 插件工厂，就能注册 19 个 provider id。`index.mjs` 正好导出 19 个
+> `JetHub*Plugin`。
+>
+> ⚠️ 容器是**模块级单例**：19 个工厂共用一个 cordis 容器与一个内部网关。
+> 各起一个的话会拉 19 个网关端口，冷启动直接炸。
+
+### 账号也按 provider 分开
+
+`plugin-auth.json` 里的键决定 magpie 显示哪些账号：
+
+```
+jet-hub-workbuddy            → betsy024
+jet-hub-workbuddy#a1b2c3     → betsy54
+jet-hub-codearts             → codearts-8e65da6c
+jet-hub-codearts#d4e5f6      → codearts-a40ab885
+```
+
+`node scripts/seed-auth.mjs` 把本体账号池（`~/.dsh/jet-hub/state.json`，实测
+56 个账号 / 19 个 provider）按 provider 摊平写进 magpie，写入前自动备份，
+只动本插件自己的键。
+
+> ⚠️ **一句实话**：本体自己的 HTTP 网关没有「按请求指定账号」的入口 ——
+> 账号是适配器内部用 `getAvailableAccount(provider, model)` 按启用状态与限流
+> 现选的。所以这些行在 magpie 里是**看得见**（与 DSH / 控制台里的账号池一致、
+> 能看停用状态），但挑某一行**不会**改变本体实际用哪个账号。
+
+路由组（`jet-hub` 自动选号、`jet-hub-aggregate` 聚合）本体里没有自己的账号，
+请求由池里其它渠道承接，所以它们那行写的是「路由组 · 请求由池内其它渠道承接」。
+
 ## 凭据：不需要再登一次
 
 本插件**不向用户要任何凭据**。DSH 已经把账号写在
@@ -62,16 +113,17 @@ magpie plugin login jet-hub
 
 ## 模型名
 
-magpie 侧看到的 id 是 `jet-hub/<provider>/<model>`，两层前缀：
+magpie 侧看到的 id 是 `<magpie provider>/<model>`，一层前缀：
 
 ```
-jet-hub/workbuddy/deepseek-v4.1-flash
-jet-hub/zcode/GLM-5.3
-jet-hub/jet-hub-auto/auto        ← 本体的自动选号路由组
+jet-hub-workbuddy/deepseek-v4.1-flash
+jet-hub-zcode/GLM-5.3
+jet-hub/auto                     ← 本体的自动选号路由组
 ```
 
-`auth.loader().fetch` 只剥掉外层 `jet-hub/`，内层 `<provider>/<model>` 原样
-交给本体 —— 本体按这个前缀分派到对应上游。
+`auth.loader().fetch` 把 magpie 的 provider 前缀换成本体要的
+`<dsh provider>/<model>` 再交给本体 —— 本体按这个前缀分派到对应上游。
+已知前缀按长度降序匹配，避免 `jet-hub/` 抢掉 `jet-hub-auto/`。
 
 ## 冷启动与目录
 
@@ -156,13 +208,15 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
    那个目标、直连它自己的 `webSocketDebuggerUrl`。这一点踩过：在主 target 的
    `Runtime.executionContextCreated` 里永远只看得到 2 个上下文，抓不到页面。
 
-## 入口只导出插件契约
+## 入口只导出插件工厂
 
-`index.mjs` 只导出 `JetHubPlugin` + `PROVIDER` + `DISPLAY_NAME`。
+`index.mjs` 只导出 19 个 `JetHub*Plugin`，一个都不多。
 
-> ⚠️ **绝不能多导出工具函数**。magpie 宿主加载插件时遍历**全部导出**并
+> ⚠️ **绝不能多导出常量/工具函数**。magpie 宿主加载插件时遍历**全部导出**并
 > 探测性调用，任何一个非插件工厂的导出都会让它抛错、整个插件加载失败
-> （`plugin list` 报 failed）。需要单测内部函数请直接 import `src/*.mjs`。
+> （`plugin list` 报 failed）—— 实测过一次：多导出 `DISPLAY_NAME` /
+> `PROVIDER_IDS` 之类的常量对象就会炸。所以常量表都留在 `src/plugin.mjs`，
+> 需要单测内部函数请直接 import 那里。
 
 ## 测试
 
@@ -228,9 +282,10 @@ src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/
 vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
 console/               完整控制台界面（账号 / 登录 / 积分 / 模型 / 路由 / 备份）
+scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
 scripts/snapshot-models.mjs  重新生成 page/models.js
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-console / t-gateway / ui-check）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-seed-auth / t-console / t-gateway / ui-check）
 docs/screenshot.png    侧栏页面实拍
 ```
 
