@@ -272,13 +272,19 @@ export class JetHubContainer {
     // 服务的号一起被判死。实测（2026-10-28）：两个 loomy 号寿命正好 336.00 小时，
     // 全被判死，而账本里 `loomy-dd2c0ebd` 当日 91 次请求 0 错误。
     //
-    // 与「同属无 refreshableOf 判据的另 6 家」（astudio / codely / modelscope /
+    // 与「同样没有登记 refreshableOf 的另 6 家」（astudio / codely / modelscope /
     // officeace / opencode / zcode）**不能**一并豁免：它们各有第三条退路，判据
-    // 对它们不会恒真，留着是有效保护（codearts 的死号正是靠它挡住 502）：
-    //  - astudio：`refreshable` 由凭据如实判定（astudio.js:95 isAstudioRefreshable），
-    //    false 只在终态错误时写（astudio-auth.js:584/600）；而第二腿**恒不成立**
-    //    ——`astudio.js:91 astudioCredentialExpiresAtMs` 恒 undefined，
-    //    astudio-auth.js:617-620 把「绝不写 expiresAt」列成了硬规矩。
+    // 对它们不会恒真，留着是有效保护（codearts 的死号正是靠它挡住 502）。
+    // 但注意：这 6 家「不会被误杀」的原因**各不相同**，下面逐家点明真正的那条腿
+    // —— 安全原因写错腿比不写更糟，下一个人会顺着错因去「修」一个没坏的东西。
+    //  - astudio：**只靠第二腿**保住 —— `astudio.js:91 astudioCredentialExpiresAtMs`
+    //    恒 undefined，astudio-auth.js:617-620 把「绝不写 expiresAt」列成硬规矩，
+    //    所以判据的第二腿（`expiresAt` 是有限正数且已过）**永不成真**。
+    //    它的第一腿**是会过的**：`refreshable` 由凭据如实判定（astudio.js:95
+    //    isAstudioRefreshable，astudio-auth.js:631 用它回写账号池），凭据缺
+    //    access_token（astudio-auth.js:582-584）或续期到终态错误（:597-600）
+    //    时就写 false。⇒ 别拿「无 refreshableOf」当它的安全原因，那是一条错腿
+    //    （2026-10-28 更正）。
     //  - officeace：登录成功即回填 `refreshable: true`（jet-hub-rpc.js:2551）
     //    ⇒ 第一腿就不过；占位条目虽写 false（:4032），但它不带 expiresAt。
     //  - codely：`refreshable` 恒 false（续期未接线，jet-hub-rpc.js:4371），
