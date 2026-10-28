@@ -275,6 +275,30 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 断言表格行数/卡片数/按钮数/错误消息，并把每页截到 `docs/console-<tab>.png`。
 `node scripts/run-console.mjs` 则单独起一个容器 + 控制台（不重启 magpie），打印 `CONSOLE_URL`。
 
+#### 两家 Key 型渠道加账号走各自的 `*.addAccount`
+
+`modelscope` 和 `opencode` 没有浏览器授权流程，**本体不接受 `account.create`** ——
+传 `provider:'modelscope'` / `'opencode'` 会回 `unknown provider: xxx`
+（`vendor/lib/jet-hub-rpc.js:4384`）。本体官方客户端自己也是这么处理的：
+`vendor/lib/client/jet-hub.js:8073`（opencode）与 `:8077`（modelscope）在
+`createAccount()` 里提前弹 Key 输入框然后 `return`，根本走不到 `account.create`。
+
+所以控制台对这两家换了入口（`console/console.js:357` 的 `KEY_CHANNELS`）：
+
+| 渠道 | 走的 RPC | Key 形状（与本体报错文案同源） | 取 Key 的地方 |
+|---|---|---|---|
+| modelscope | `modelscope.addAccount` | 以 `ms-` 开头、至少 20 位（`vendor/lib/modelscope-rpc.js:88`） | https://modelscope.cn/my/myaccesstoken |
+| opencode | `opencode.addAccount` | 20 位以上、不含空格的密钥串（`vendor/lib/opencode-rpc.js:251`） | https://opencode.ai/console/account |
+
+同一把 Key 重复添加会复用同一条账号，不会建出两条（modelscope 在
+`vendor/lib/modelscope-rpc.js:95` / opencode 在 `vendor/lib/opencode-rpc.js:276`
+回 `existed: true`）。控制台只填自己的入口，没去改 `src/` 给 `account.create`
+长一个没有轮询的 create 分支 —— 那要把两份 `KEY_PATTERN` 校验也复制一遍
+（理由写在 `console/console.js:343-356` 的注释里）。
+
+![加账号 · modelscope 的 Key 输入框](docs/console-keymodal-modelscope.png)
+![加账号 · opencode 的 Key 输入框](docs/console-keymodal-opencode.png)
+
 ### 两个必须记住的渲染事实
 
 1. **模型目录拿不到实时值**。页面 `connect-src 'none'`，`providers:list` 只给
