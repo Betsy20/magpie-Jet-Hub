@@ -239,7 +239,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 `scripts/snapshot-models.mjs` 一起写进 `page/models.js` 的 `console` 字段 ——
 端口变了要重跑一次快照，否则页面还显示旧端口（会连到别的实例上）。
 
-![控制台](docs/screenshot-console.png)
+![控制台 · 概览](docs/console-overview.png)
 
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
 响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）。
@@ -401,9 +401,10 @@ scripts/snapshot-models.mjs  重新生成 page/models.js
 scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headless + CDP）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-seed-auth / t-console / t-gateway / ui-check）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-seed-auth / t-console / t-gateway / t-rpc-cover / ui-check）
 docs/screenshot.png    侧栏页面实拍
-docs/console-*.png     控制台八个标签实拍
+docs/console-*.png     控制台八标签实拍（`scripts/shot-console.cjs` 直接覆盖写）
+docs/archive/          不再被 README 引用的旧截图留档
 ```
 
 ## 实现细节补充
