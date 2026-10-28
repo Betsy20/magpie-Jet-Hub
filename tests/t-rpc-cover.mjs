@@ -32,8 +32,15 @@
 //   node tests/t-rpc-cover.mjs --no-probe      强制关（env JET_HUB_PROBE=0 同义）
 //   scripts/test-all.mjs --all                 会给本测试补 --probe（与 --all 语义对齐）
 // 为什么默认关：探活是 N 次网络往返，串行跑 5 分钟零输出（2026-10-28 实测被
-// 控制台 job_kill），在 CI 里等于挂住。开着时也**并发化 + 每请求单独超时**，
-// 失败计入「探活失败」并判红，而不是把进程挂在那里。
+// 控制台 job_kill），在 CI 里等于挂住。开着时每请求单独超时，失败计入
+// 「探活失败」并判红，而不是把进程挂在那里。
+//
+// ⚠️ 探活的两阶段（2026-10-28 的教训）：阶段一并发扫描，只断言「没有 unknown
+// method」「没有请求异常」；副作用归因放到阶段二，只在阶段一真的探测到内容变化
+// 时才启动，且**串行、逐方法、两次独立命中才坐实**。最初让并发扫描顺便做前后
+// 整体比对，结果把 aggregate.clearRejected、credits.permanentLock 这两个空载荷下
+// 内容一字未变的只读方法误判成「真写用户状态」（_tmp-diff-attr.mjs 复核实测：
+// 三次调用前后指纹 0116a85d2638|0a963f18dd28|263d00e235ee 始终不变）。
 //
 // 还有一个口径：**本测试只认「解析得到字面量」的方法名**（详见第 4 节开头）。
 //
@@ -165,6 +172,10 @@ const METHOD_SHAPE = /^[A-Za-z][A-Za-z]*\.[A-Za-z][A-Za-z]*$/
 const literalsIn = (line) => [...line.matchAll(/'([^'\\\n]{3,80})'|"([^"\\\n]{3,80})"/g)]
   .map((m) => m[1] ?? m[2])
   .filter((s) => METHOD_SHAPE.test(s))
+// 拼正则前必须先转义标识符；同一条也适用于模板串里的 `\s`
+// —— `\s` 写进模板串会被 JS 吃成 `s`，正则变成 `consts`，绑定永远匹配不上，
+//    于是整个「实参回溯」静默失效、误报「解析不出」。这坑真踩过（13:35 那轮）。
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** 解析 `rpc(...)` 的实参表达式 → { names: [], why } 或 { names: [], unresolved: '原因' } */
 function resolveArg(arg, atLine) {
@@ -174,12 +185,26 @@ function resolveArg(arg, atLine) {
   if (lit) return { names: [lit[1] ?? lit[2]] }
   // (b) 标识符：回溯 const/let/var 绑定（含三元两条臂）
   if (/^[A-Za-z_$][\w$]*$/.test(expr)) {
-    // b1) 直接绑定
-    const names = []
-    let isParam = false
-    for (const l of consoleLines) {
-      if (new RegExp(`(?:const|let|var)\\s+${expr}\\s*=`).test(l)) names.push(...literalsIn(l))
+    // b1) 直接绑定 —— **按调用点可见性取最近的同名绑定**，不是取第一个。
+    //     踩过的坑（2026-10-28）：`cfg` 在 console.js 里有 5 个绑定
+    //     （:386/:405 是 KEY_CHANNELS，:509/:516/:536/:563 是 PROXY_CHANNELS），
+    //     旧实现从头扫一遍、撞上第一条就返回，于是 `rpc(cfg.testProxy)`
+    //     被解析成 APIKEY 的字段、报「解析不出」—— 这是测试自己误报，
+    //     控制台那边的写法是对的（同名的局部变量在不同函数里各有含义）。
+    const bindRe = new RegExp(`(?:const|let|var)\\s+${expr}\\s*=`)
+    let boundAt = -1
+    for (let i = 0; i < Math.min(atLine - 1, consoleLines.length); i++) {
+      if (bindRe.test(consoleLines[i])) boundAt = i
     }
+    const names = []
+    if (boundAt >= 0) names.push(...literalsIn(consoleLines[boundAt]))
+    if (!names.length) {
+      // 没有前序绑定（可能是提升/函数作用域写法）→ 退回旧行为：全文第一个
+      for (const l of consoleLines.slice(atLine - 1)) {
+        if (bindRe.test(l)) { names.push(...literalsIn(l)); break }
+      }
+    }
+    let isParam = false
     if (names.length) return { names }
     // b2) 是某个函数的形参 → 找全部调用点，取同位置的字面量实参
     for (const l of consoleLines) {
@@ -211,7 +236,7 @@ function resolveArg(arg, atLine) {
   const member = expr.match(/^([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)$/)
   if (member) {
     const [, obj, field] = member
-    const names = fieldLiterals(obj, field, 0)
+    const names = fieldLiterals(obj, field, 0, undefined, atLine)
     if (names.length) return { names: [...new Set(names)] }
     return { names: [], unresolved: `成员表达式 ${expr} 回溯不到对象字面量里的字面量字段` }
   }
@@ -221,13 +246,23 @@ function resolveArg(arg, atLine) {
 // 在对象字面量里找某字段的字面量值；obj 本身也可能是「从另一个对象字面量里按 key 取」
 // （`const cfg = KEY_CHANNELS[provider]`），那就先顺着 key 回到那张表再取字段。
 // depth 限 2 层，够用且不会在互相引用的表之间绕圈。
-function fieldLiterals(obj, field, depth, viaKey) {
+function fieldLiterals(obj, field, depth, viaKey, atLine) {
   if (depth > 2) return []
-  // 1) 直接绑定：const <obj> = { ... }（整块）或 = <TABLE>[k]（从表里取一层）
   let derivedFrom = null
-  const start = consoleLines.findIndex((l) => new RegExp(`(?:const|let|var)\\s+${obj}\\s*=\\s*(.+)$`).test(l))
+  // 1) 直接绑定：const <obj> = { ... }（整块）或 = <TABLE>[k]（从表里取一层）
+  // ⚠️ 模板字符串里写 `\s` 会被 JS 当成转义序列吃掉（`\s` → `s`），
+  //    正则于是变成 `consts`，永远匹配不到绑定 —— 一处复发式误报的根因。
+  //    统一走 escapeRe() 拼正则。
+  const id = escapeRe(obj)
+  const bindRe2 = new RegExp(`(?:const|let|var)\\s+${id}\\s*=\\s*(.+)$`)
+  const limit2 = atLine ? Math.min(atLine - 1, consoleLines.length) : consoleLines.length
+  let start = -1
+  for (let i = 0; i < limit2; i++) if (bindRe2.test(consoleLines[i])) start = i
+  if (start < 0 && atLine) {
+    for (let i = 0; i < consoleLines.length; i++) if (bindRe2.test(consoleLines[i])) { start = i; break }
+  }
   if (start >= 0) {
-    const rhs = consoleLines[start].match(new RegExp(`(?:const|let|var)\\s+${obj}\\s*=\\s*(.+)$`))[1].trim()
+    const rhs = consoleLines[start].match(bindRe2)[1].trim()
     const fromTable = rhs.match(/^([A-Za-z_$][\w$]*)\[.+\]$/)
     if (fromTable) derivedFrom = fromTable[1]
   }
@@ -494,6 +529,8 @@ if (!PROBE) {
     const quiet1 = fingerprint()
     if (quiet0 !== quiet1) console.log('  ⚠ 静默期内容就变了：有并发写方在改这些文件，下面的副作用判定可能归错帐')
     const before = fingerprint()
+    // 阶段一：并发扫描，只负责「能调通」——unknown method / 请求异常。
+    // 副作用**不在这里判**（并发下整体前后比对归不了因，见文件头）。
     await pool(probeAll, CONCURRENCY, async (m) => {
       try {
         const text = await callOne(base, m)
@@ -505,34 +542,43 @@ if (!PROBE) {
       }
     })
     const after = fingerprint()
+    // 阶段二：副作用归因。阶段一真的改了内容才进（正常情况下永远不进）。
+    // 串行、逐方法：先等一个内容稳定的窗口，调一次，再比对；同一方法**两次独立
+    // 命中**才坐实 —— 单次命中很容易被「恰好此时别的写方落盘」冒充。
     const mutated = after !== before
-    if (mutated) {
-      // 慢路径（只在真的探测到变化时走一次）：串行隔离复验，逐个方法找真凶。
-      console.log('  ⚠ 探活期间状态文件内容变了，进入隔离复验（串行，逐个方法等静默窗口）')
-    }
-    const suspects = mutated ? probeAll : []
-    const confirmed = []
+    let confirmed = []
     const noise = []
-    for (const m of suspects) {
-      let quiet = ''
-      for (let i = 0; i < 6; i++) { // 最多等 3s 找一个内容稳定的窗口
-        const a = fingerprint()
-        await sleep(500)
-        if (fingerprint() === a) { quiet = a; break }
-      }
-      if (!quiet) { noise.push(`${m}（等不到静默窗口，无法归因）`); continue }
-      await callOne(base, m).catch(() => {})
-      await sleep(300)
-      if (fingerprint() !== quiet) confirmed.push(m); else noise.push(m)
-    }
     if (mutated) {
-      console.log(`  副作用归因：嫌疑 ${suspects.length}，坐实 ${confirmed.length}，并发写方噪声 ${noise.length}`
+      console.log('  ⚠ 探活期间状态文件内容变了，进入隔离复验（串行，逐个方法等静默窗口、两次命中才算）')
+      const suspects = probeAll
+      for (const m of suspects) {
+        let hits = 0
+        let unattributed = false
+        for (let round = 0; round < 2 && hits < 2; round++) {
+          let quiet = ''
+          for (let i = 0; i < 10; i++) { // 最多等 5s 找一个内容稳定的窗口
+            const a = fingerprint()
+            await sleep(500)
+            if (fingerprint() === a) { quiet = a; break }
+          }
+          if (!quiet) { unattributed = true; break }
+          await callOne(base, m).catch(() => {})
+          await sleep(400)
+          if (fingerprint() !== quiet) hits += 1
+        }
+        if (hits >= 2) confirmed.push(m)
+        else noise.push(unattributed ? `${m}（等不到静默窗口，无法归因）` : m)
+      }
+      console.log(`  副作用归因：嫌疑 ${suspects.length}，坐实 ${confirmed.length}，判为并发写方噪声 ${noise.length}`
         + (noise.length ? `（噪声: ${noise.join(', ')}）` : ''))
     }
-    ok(confirmed.length === 0,
-      confirmed.length === 0
-        ? '探活后 state.json / permanent-locks.json / auto-checkin.json 内容未变（并发调用，前后整体比对）'
-        : `这些方法的空载荷会真写用户状态：${confirmed.join(', ')}（需补进 SIDE_EFFECTS 或给实现补「空载荷即拒绝」的闸）`)
+    const missing = confirmed.filter((m) => !SIDE_EFFECTS.has(m))
+    ok(missing.length === 0,
+      missing.length === 0
+        ? (mutated
+          ? '探活后状态文件内容变了，但两次隔离复验都无法把改动归给任何单个方法（判定为外部并发写方）'
+          : '探活前后 state.json / permanent-locks.json / auto-checkin.json 内容未变')
+        : `这些方法的空载荷会真写用户状态：${missing.join(', ')}（需补进 SIDE_EFFECTS 或给实现补「空载荷即拒绝」的闸）`)
     ok(callable.unknown.length === 0,
       `${callable.checked} 个方法真发请求，均未回 unknown method${callable.unknown.length ? '；异常 ' + callable.unknown.slice(0, 6).join(', ') : ''}`)
     ok(callable.errors.length === 0,
