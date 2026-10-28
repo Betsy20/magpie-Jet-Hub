@@ -727,8 +727,9 @@ accounts rows 2、models rows 9。**这类旧数别再沿用** —— 账号池�
 
 ### 覆盖率
 本体方法总数与控制台的覆盖率**不再手写**，由 `tests/t-rpc-cover.mjs` 从源码解析后
-自动统计并打印（该测试同时断言控制台没有调用不存在的方法、以及对每个方法真发一次
-空 payload、断言都不回 `unknown method:`）。本文只记录口径，不记录数字 ——
+自动统计并打印（该测试同时断言控制台没有调用不存在的方法、以及对 69 个**无副作用**方法
+真发一次空 payload、断言都不回 `unknown method:`；9 个有空副作用的方法按设计跳过，
+详见第十八节）。本文只记录口径，不记录数字 ——
 这一节以前写过「本体 65 个方法、控制台直调 62 个、未接 3 个」，数字和举例都是错的：
 
 - **65 是主 `switch (method)` 的 case 标签数，不是方法总数**。另有一批方法根本不走主
@@ -1041,5 +1042,354 @@ $ node tests/ui-check.cjs              # 侧栏六标签均渲染正常，24 个
 ### 验证五：整跑
 ```
 $ node scripts/test-all.mjs
-8 通过 / 0 失败 / 0 跳过
+12 通过 / 0 失败 / 0 跳过
+
+$ node scripts/test-all.mjs --all        # 要 magpie 3425 与 web 3456 都在
+12 通过 / 0 失败 / 0 跳过
 ```
+
+---
+
+## 十八、RPC 口径重测，与三条测试自身的缺陷（2026-10-28，验证）
+
+### 18.1 本体可调度方法总数是 78，不是 65
+
+65 只是主 `switch (method)` 的 case 标签数。另有一批方法在进入主 switch 之前就被
+`handleMethod()`（`vendor/lib/jet-hub-rpc.js`）按前缀改道接管。
+`tests/t-rpc-cover.mjs` 现在**同时解析两个来源**（主 switch 标签 + 5 个前缀改道白名单）。
+下面是 **2026-10-28 13:4x 的现测输出**（`fb3c058` 之后的版本，退出码 0）：
+
+```
+$ "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-rpc-cover.mjs
+  本体实际可调度方法总数: 78（主 switch 65 + 前缀改道 13）
+  其中共享实现体的标签: credits.permanentLock
+✓ credits.permanentLock 与 loomy.permanentLock 是同一实现的两个 label（fall-through）
+✓ 82 个 rpc() 调用点的实参全部解析到字面量方法名
+  控制台已接: 76 / 78
+  控制台未接: 2
+    modelscope.setApiKey
+    opencode.rotateFingerprint
+✓ 主 switch 的 65 个方法控制台全都接了
+✓ 未接项全部属于前缀改道（2 个）
+✓ 控制台对 opencode.* 有处置（接了 4 / 缺 1）
+✓ 控制台对 gemini.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 qoder.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 minimaxintl.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 modelscope.* 有处置（接了 1 / 缺 1）
+✓ 控制台没有调用不存在的方法
+✓ RPC 口径一致：本体 78 个方法，控制台接 76 个
+EXIT=0
+```
+
+⚠️ **数字会动**：控制台侧 65 → 67 → 76 一路在接（这一版接到 8 个代理方法 +
+`opencode.addAnonymous`）。所以正文只锁**本体 78** 这个口径，控制台那一侧以测试
+每次打印的为准，不在文档里写死覆盖数。
+
+本节的**历史记录**（照实留着，别当现状引用）：12:39 那一次是 `控制台已接: 65 / 78`、
+未接 13；13:0x 复跑是 `67 / 78`、未接 11（就是 Jeb 报的那 11 个：
+`gemini.*` / `minimaxintl.*` / `qoder.*` 各 2 个 setProxy+testProxy，`modelscope.setApiKey`、
+`opencode.addAnonymous` / `rotateFingerprint` / `setProxy` / `testProxy`）。
+
+**现测缺口只剩 2 个**，性质是「本体有、控制台刻意先不做」的接线缺口，不是测试误报：
+`opencode.rotateFingerprint`（换指纹不增加匿名配额，Jeb 明确不做）、
+`modelscope.setApiKey`（模型页没有换 Key 的入口，加账号走 `modelscope.addAccount`）。
+
+**`account.resetAll` / `account.retestAll` 是已接的（Chief 那条更正成立）**。
+计数规则是「控制台源码里出现 `'<方法名>'` 字面量」，而这两个字面量确实在源码里：
+`console/console.js:299`（`method === 'account.resetAll'` 的确认框）
++ `console/console.js:1156` / `:1157`（两个按钮把方法名当字符串常量传给 `accBulk()`）。
+所以它们**从来不在**未接清单里，也不该出现在任何「未接 8 个 / 11 个」的名单里。
+现测（同款规则，逐个数）：
+
+```
+$ node -e "…for(const m of ['account.resetAll','account.retestAll','account.reset','account.retest'])
+           console.log(m, t.includes(\"'\"+m+\"'\")?'已接':'未接')"
+account.resetAll 已接
+account.retestAll 已接
+account.reset 已接
+account.retest 已接
+```
+
+旧版 `grep rpc('...')` 才数不到这两个，那是数法问题，不是接线问题。
+
+⚠️ 旧数字别再沿用：`62/65`、`65 个方法`、`未接 3 个` 都是错数法留下的。
+`KNOWN_UNUSED`（写死 13 个的基线名单）**已删除**，换成从源码推导的两条规则：
+- 规则 A：主 switch 的 65 个方法**一个都不许未接** → 漏接即失败；
+- 规则 B：前缀改道那批允许未接，只按 provider 分组**报告**，不失败。
+要重算覆盖数时不需改测试代码，跑一次就是权威值。
+
+### 18.2 管理 RPC 不在 3425，在 `127.0.0.1:18500`
+
+```
+$ curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3425/api/jet-hub -d '…'   404
+$ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3456/api/jet-hub                 401
+$ curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18500/api/jet-hub -d '…'  200
+```
+
+3425 是**网关**（只做 `/v1/*` 转发），3456 是 magpie web，管理 RPC 只在插件自己的
+本地控制台端口（`src/container.mjs`：`startHubServer({ from: 18500 })` 向上找空位）。
+
+### 18.3 缺陷（测试自身）：快照端口过期，让断言静默失效
+
+`~/.config/magpie/jet-hub-console.json` 是启动时写的**一次性快照**，进程退出后文件还在：
+
+```
+{"url":"http://127.0.0.1:18502/","port":18502,"at":"2026-10-28T03:57:50.904Z"}
+$ curl http://127.0.0.1:18502/api/jet-hub   → ECONNREFUSED（活实例在 18500）
+```
+
+旧版只读快照，读不到就 `NOT RUN` —— 「可调用性」这条最重要的断言**静默变绿**。
+修法：先验快照地址活不活，不活就扫 18500–18510（`JET_HUB_CONSOLE_SCAN` 可覆盖），
+并打印 `快照里的 … 已失效，已改扫端口`。真找不到活实例仍报 `NOT RUN`，不伪装通过。
+
+### 18.4 缺陷（测试自身）：空 payload 探活并不天然安全
+
+「每个方法发一次空 payload，看是否回 `unknown method`」判据是对的，但**它会真执行**。
+逐个核过实现体，9 个方法有副作用、必须跳过：
+
+| 方法 | 空 payload 会发生什么 |
+|---|---|
+| `aggregate.rejectNonExpiring` | 改聚合白名单 |
+| `backup.import` | `mode` 缺省即 `replace`，用空 payload 覆盖整库 |
+| `captcha.contribute` | 往载体参数表里写一条 |
+| `account.retest` / `retestAll` | 发真实上游请求 + 清限流标记 |
+| `account.reset` / `resetAll` | 清限流标记（改 `state.json`） |
+| `credits.claimAll` | 对每条账号真发领取请求 |
+| `account.create` | 建占位账号（Jeb 探它时真建出过两个） |
+
+同时加了安全网：每次探活前后比对 `state.json` / `permanent-locks.json` /
+`auto-checkin.json` 的**内容**指纹，变了就点名。给「以后新加的 case 忘加闸」用。
+
+### 18.5 缺陷（测试自身）：指纹与归因，错了两版
+
+**第一版错在指纹**：用文件**字节 sha1**，对 `aggregate.clearRejected` 空载荷报了红灯。
+复核用 A/B 对照（`_probe-clearrejected.mjs`，已删）：
+
+```
+A 段：静默 8 秒不发请求        sha 7099f607bf37 → 7099f607bf37   未变
+B 段：发空载荷 clearRejected   sha 7099f607bf37 → 7099f607bf37   未变
+     回包 {"ok":true,"value":{"aggregateRejections":{},"aggregateAllowed":{}}}
+```
+
+逐份看 `mtime` 才发现：`state.json` 的 mtime 变了、**内容一字未变** ——
+有并发写方（多实例 / UI 轮询）把同样内容重写了一遍。修法：指纹改成**规范化 JSON
+内容**，`mtime` 不参与。
+
+**第二版又错在归因**：把安全网挂在并发扫描上（78 个方法并发 6 跑完再整体前后比对），
+于是仍把**别人的写**记到探活头上。实测（`--probe`，13:2x）：
+
+```
+⚠ 探活期间状态文件内容变了
+副作用归因：嫌疑 69，坐实 2，并发写方噪声 67
+✗ 这些方法的空载荷会真写用户状态：aggregate.clearRejected, credits.permanentLock
+```
+
+两个都是**误报**。用 `_tmp-diff-attr.mjs`（已删）串行逐个复验，每次调用前后等静默窗口
+再比内容，并打印逐 key 的 diff：
+
+```
+aggregate.clearRejected
+  指纹 前 0116a85d2638|0a963f18dd28|263d00e235ee
+  回包 {"type":"server-response","rpcId":"p","result":{"ok":true,"value":{"aggregateRejections":{},"aggregateAllowed":{}}}}
+  指纹 后(静默) 0116a85d2638|0a963f18dd28|263d00e235ee  变化 无
+  内容 diff: 无
+
+credits.permanentLock
+  回包 ... {"ok":false,"error":{"code":"bad-request","message":"该 provider 不支持锁定永久积分：(空)"}}
+  内容 diff: 无
+
+loomy.permanentLock
+  回包 ... {"ok":true,"value":{"provider":"loomy","locked":true}}
+  内容 diff: 无
+```
+
+`permanent-locks.json` 的 mtime 一直是 `2026-10-27T16:28:31.236Z`（11 个 provider
+全是 `true`，`loomy` 早就在里面），`loomy.permanentLock` 返回 `locked:true` 只是**读**
+现有状态、没有新写入 —— 也证明并发版的「坐实」是假的。
+
+**因此改成两阶段**（`tests/t-rpc-cover.mjs` 已改，提交 `fb3c058`）：
+
+- 阶段一 **并发扫描**，只断言「不回 `unknown method:`」「无请求异常/超时」—— 这两条
+  与调用顺序无关，并发是安全的；
+- 阶段二 **副作用归因**，只在阶段一真的探测到内容变化时才启动：**串行**、逐方法、
+  先等一个稳定窗口（最多 5 s）、调一次、再比，且**同一方法两次独立命中才坐实**。
+  单次命中很容易被「恰好此时别的写方落盘」冒充。
+
+改完实测（13:4x，`--probe`，退出码 0）：
+
+```
+✓ 探活前后 state.json / permanent-locks.json / auto-checkin.json 内容未变
+✓ 69 个方法真发请求，均未回 unknown method
+✓ 探活无请求异常/超时
+  有副作用、按设计跳过（9）: account.create[建占位账号], account.reset[清限流标记], ...
+  探活耗时 6924 ms
+```
+
+探活耗时从「串行 5 分钟被 job_kill」降到 **6.9 秒**。**`clearRejected` 与
+`credits.permanentLock` 都不是缺陷**。
+
+### 18.6 `aggregate.clearRejected` 空载荷到底做了什么
+
+```
+$ magpie-bun _probe-clearrejected.mjs
+前 aggregateRejections = {}   前 aggregateAllowed = {}
+回包 {"ok":true,"value":{"aggregateRejections":{},"aggregateAllowed":{}}}
+后 aggregateRejections = {}   后 aggregateAllowed = {}
+内容层面 state.json 未改写（mtime 被并发写方动过）
+```
+
+当前库 `aggregateRejections` 本来就是空的，「清空」是空操作。
+**未实测**：库里有非空 rejections 时，它是否只清 rejections、不动 `aggregateAllowed`。
+要断言得先造非空状态（会污染真实库），登记为未做。
+
+### 18.7 全量整跑（本次，真跑，退出码 0）
+
+```
+$ node scripts/test-all.mjs --all          # 13:07，加「失败重试一次」之后
+✓ t-writerefs.mjs      84 ms
+✓ t-dead-account.mjs   98 ms
+✓ t-usage.mjs          18432 ms
+✓ t-checkin.mjs        3979 ms
+✓ t-options.mjs        125 ms
+✓ t-plugin.mjs         5994 ms
+✓ t-models-nowait.mjs  45143 ms
+✓ t-seed-auth.mjs      313 ms
+✓ t-rpc-cover.mjs      5632 ms
+✓ 控制台（真容器，~40s）        3815 ms
+✓ 网关（需 magpie 3425）    10793 ms
+✓ 页面 UI（需 web 3456）    31327 ms
+
+12 通过 / 0 失败 / 0 跳过
+$ echo $?
+0
+```
+
+### 18.8 这套测试**不稳定**，已实测到一次三红（同一提交、同一环境）
+
+12:58 那次 `--all` 与上面同一棵工作树，却三项失败：
+
+```
+✗ t-plugin.mjs         exit 3221226505 · 3980 ms   # 0xC0000409 = STATUS_STACK_BUFFER_OVERRUN
+✗ t-rpc-cover.mjs      exit 1 · 18088 ms
+   ✗ 这些方法的空载荷会真写用户状态：aggregate.clearRejected
+✗ 页面 UI（需 web 3456） exit 1 · 24951 ms
+   Error: Uncaught
+       at evalIn (D:\dsh-build\magpie-Jet-Hub\tests\ui-check.cjs:101:35)
+       at async D:\dsh-build\magpie-Jet-Hub\tests\ui-check.cjs:119:19
+```
+
+**单独跑全绿，紧接着 `--all` 全绿**（13:04 与 13:07 各一次，均 `12 通过 / 0 失败`），
+`t-rpc-cover` 连跑 3 次也是同一结论：
+
+```
+$ for i in 1 2 3; do magpie-bun tests/t-rpc-cover.mjs; done
+run1 exit=0  副作用归因：嫌疑 0，坐实 0，并发写方噪声 0
+run2 exit=0  副作用归因：嫌疑 0，坐实 0，并发写方噪声 0
+run3 exit=0  副作用归因：嫌疑 0，坐实 0，并发写方噪声 0
+```
+
+所以是**间歇性**，不是「某个提交坏了」。三个红灯的成因各不相同，已定位的部分：
+
+- `t-rpc-cover`：那次的 `clearRejected` 红灯现在**已定性为误报**（18.5，是归因方法错，
+  不是被测代码错）。改成串行两阶段后，`--probe` 在 13:4x 跑出 `内容未变 / 69 个方法
+  无 unknown / 无异常`，耗时 6.9 秒。
+- `t-plugin`：`0xC0000409` 是进程级崩溃（栈保护），不是断言失败；用 node 跑、用
+  bun 跑、前台跑、`test-all` 同款 spawn 跑，四种方式都 `exit=0`。**崩溃点未定位（未实测）**。
+- `ui-check`：`console` 标签的 `evalIn` 抛 Uncaught；当时 `page/models.js` 正在被
+  控制台同事改（mtime 13:03:06 落在失败窗口内），该标签还带 6s 等待，超时/半加载
+  都会走到这条 `throw`。**归因未实测**，只是时间相关性。
+
+**处置**：`scripts/test-all.mjs` 现在失败后**自动重试一次**，以重试结果为准，但第一次
+的失败输出仍打印出来，汇总行标 `（重试后通过）`。这样「现在绿不绿」有确定答案，
+「有没有不稳定」也留了证据 —— 而不是靠人记住某次是红的。
+
+**未做**：真正消除不稳定（给 `t-rpc-cover` 加「多方法连续调用期间的写方隔离」、
+给 `t-plugin` 抓崩溃栈、给 `ui-check` 的 `console` 标签加渲染就绪判据）。登记为待办。
+
+### 18.9 P0 取证：12 家分档 provider 的判据与伤害（2026-10-28 13:2x，验证）
+
+Jeb 让 内核 先回答「`expiresAt` 对这 12 家是不是可信判据」。我不等结论，先把**可复现的
+现测数据**摆出来；判据是否可信由 内核 定，我这份只提供事实与反例。
+
+**命令**（读用户态，不改任何文件）：
+```
+node -e "读 ~/.dsh/jet-hub/state.json 的 accounts[]；对 12 家逐家统计
+  账号数 / 有 expiresAt 的数 / 已过期数 / refreshable===false 且已过期数（=会被判死）；
+  再读 ~/.dsh/jet-hub/token-ledger.json 近两日，按 gateway|<provider>|<accountId> 统计 requests / errors"
+```
+
+**现测结果（2026-10-28 13:20 前后）**
+
+| provider | 账号 | 已过期 | 会被判死 | 近 2 日 req | 其中 err |
+|---|---|---|---|---|---|
+| buddy | 3 | 0 | 0 | 2927 | 1284 |
+| workbuddy | 20 | 0 | 0 | 2619 | 15 |
+| lobsterai | 2 | 0 | 0 | 2 | 1 |
+| qoder | 2 | 0 | 0 | 15 | 13 |
+| qoderCn | 0 | 0 | 0 | 0 | 0 |
+| trae | 2 | 0 | 0 | 1258 | 39 |
+| **loomy** | 2 | **2** | **2** | 1150 | 17 |
+| **minimax** | 2 | **2** | **2** | 4 | 4 |
+| minimaxIntl | 0 | 0 | 0 | 0 | 0 |
+| autoclaw | 1 | 0 | 0 | 0 | 0 |
+| autoclawIntl | 0 | 0 | 0 | 0 | 0 |
+| accio | 1 | 0 | 0 | 7 | 7 |
+
+**两条关键反例**
+
+1) **loomy 的 `expiresAt` 是本地编造的日期，不是服务端到期证据。**
+   `vendor/lib/loomy-auth.js:195-206` 注释写明「`expires_at` 由**本地**按 14 天推算 ——
+   服务端响应里不带到期时间戳」，实现是 `expires_at: String(Date.now() + LOOMY_SESSION_TTL_SECONDS * 1000)`，
+   常量在 `vendor/lib/loomy-oauth.js:35`：`LOOMY_SESSION_TTL_SECONDS = 1_209_600`（=14 天）。
+   `refreshable:false` 同样是恒真的诚实标记（`loomy-auth.js:160` / `:189` 无条件写死）。
+   ⇒ **两条腿对 loomy 恒真**，判死不是判断，是算术。
+   **伤害现测为 0**：账本当日 `gateway|loomy|loomy-dd2c0ebd|DeepSeek-V4.1-Flash`
+   requests=195 / errors=1，`gateway|loomy|loomy-ff053daa|…` requests=119 / errors=2；
+   `~/.config/magpie/usage.jsonl` 当日 loomy 370 条、`status>=400` 0 条。
+   两个被判死的号当日合计 314 次请求，其中仅 3 条错误（成功 311）—— 与 Jeb 的转发 200 一致。
+
+2) **minimax 是反方向的样本：判据真、伤害也真。**
+   `vendor/lib/minimax.js:64` 的 `minimaxCredentialExpiresAtMs` 只认凭据里的 `expires_at`
+   （登录时按服务端 `expires_in` 写入，`minimax.js:19-22` 明确要求必须写），
+   `isMinimaxRefreshable`（`minimax.js:85`）判 `refresh_token` 存在与否 —— 两条都是**外部事实**。
+   现测 2 个号都已过期且 `refreshable:false`，当日 1 次请求即 502：
+   `502 MiniMax Code (中国版)：无法确认是否有可用账号。…（凭据未配置或已失效（共 2 个账号））`。
+   ⚠️ 这个 502 **不是过滤造成的**：minimax 走余额分档，候选集不过 `_filterDeadAccounts`
+   （见 `src/container.mjs` 里 `_filterDeadAccounts` 注释「覆盖范围有限，且刻意不扩」），
+   所以它今天能不能用与开关无关 —— 它是**凭据真死了**。这一条正好可当 P0 修好后的对照：
+   修完过滤，minimax 的 502 应该**不变**；若变了，说明误伤了活号。
+
+**顺带现测（已知要盯的方向之一）**：`models()` 仍不阻塞 —— `t-models-nowait` 现跑
+「第 1 次 models(): 32 个，耗时 0ms」「第 2 次 models(): 32 个，耗时 0ms」，阈值 2000ms。
+`exit=0`。
+
+**结论（事实层，判据定性留给 内核）**：12 家里「有可信判据」与「无判据但被判死」
+**同时存在**（loomy vs minimax），所以 P0 不能用一条规则一刀切 —— 这也是我认同
+Chief「先辨判据、再谈修法」的实测依据。**注意**：上表里 buddy/qoder/accio 的 err 数
+不带 accountId 的网关行（`gateway|buddy||…` 这类），我**未**逐条归因到具体账号
+（归因**未实测**）。
+
+### 18.10 第三次红：不是测试缺陷，是**他的活文件正在被改**（2026-10-28 13:1x）
+
+前一条 18.8 里我把三红归给「测试不稳定」。现在有了第二个数据点，**要修正这个说法**：
+
+- 13:14 前后一次 `node scripts/test-all.mjs`：`t-dead-account.mjs` 红，原始输出
+  ```
+  ReferenceError: DEAD_JUDGE_UNTRUSTED is not defined
+      at isDeadAccount (file:///D:/dsh-build/magpie-Jet-Hub/src/container.mjs:253:5)
+  ```
+  而 `src/container.mjs:32` 现在**有** `const DEAD_JUDGE_UNTRUSTED = new Set(['loomy'])`，
+  且 `git status` 显示 `M src/container.mjs` —— 内核 正在写这个文件。紧接着跑单测
+  `magpie-bun tests/t-dead-account.mjs` → `24 条断言全部通过`、`exit=0`。
+  ⇒ 那次红是**读到半写状态的文件**，不是断言有问题。
+- 13:25 前后一次整跑：`t-rpc-cover.mjs` 红，耗时 **71 ms**（正常 8.4 s），下次整跑 88 ms 绿。
+  71 ms 不足以跑完解析+探活，指向**读取/解析阶段**就失败；那段时间 `console/console.js`
+  正在被 控制台 改。**归因未实测**（没留那次的前置输出），但耗时本身就是证据。
+
+⇒ 正确说法是：**同仓多人并发开发时，测试跑在别人的半成品上**。`test-all` 的「失败重试
+一次」仍然有效（重试跨过了那个半写窗口），但「用退出码当验收」必须配一条使用规则：
+**别人正在写 src/ 或 console/ 时，一次红不算回归**；要么等对方报完、要么跑两次看是否稳定。
+
+**未做**：`t-dead-account` 这条不会自动变绿在「文件语法有效但变量缺失」的中间态——
+若要彻底消掉，只能在测试侧加「导入前先校验文件能被 `node --check` 解析」，
+但那是给并发开发擦屁股，**暂不做**（登记为待办，等 P2 收树后再评）。

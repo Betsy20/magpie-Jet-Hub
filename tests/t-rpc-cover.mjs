@@ -18,8 +18,14 @@
 //
 // ⚠️ 量 B 时**不能**只读 jet-hub-rpc.js：那 5 个分支只写 `method.startsWith('opencode.')`，
 // 方法名在各自的 handler 文件里。而且前缀和文件名**不是**一一对应 —— `minimaxintl.`
-// 的 handler 也在 `minimax-rpc.js` 里，不在 minimaxintl-*.js。所以这里从
-// `import { handle*Rpc } from './x.js'` 反查文件名，不按前缀猜。
+// 的 handler 也在 `minimax-rpc.js` 里，**`vendor/lib/minimaxintl-rpc.js` 根本不存在**。
+// 实测（2026-10-28，项目经理独立复算时踩到）：按前缀推文件名会算出「全集 76、
+// 控制台接 74」—— 推出来的文件读不到，minimaxintl 的 setProxy/testProxy 直接消失。
+//
+// ⇒ **别从前缀推文件名，按 import 映射找**。这里从 jet-hub-rpc.js:184 那句
+//    `import { handleMinimaxIntlRpc } from './minimax-rpc.js'` 反查真实文件名，
+//    再把改道分支（:2945 `if (method.startsWith('minimaxintl.'))`、:2946 调
+//    `handleMinimaxIntlRpc`）和处理器对上。
 //
 // 另加一条**可调用性**断言：对每个方法真发一次空 payload，断言回包不含
 // `unknown method:` —— 这条能防住「case 标签存在但根本没接进调度」的错觉。
