@@ -2,12 +2,49 @@
 //
 // 只断言「结构与非空」，不依赖具体账号数量 —— 那是用户数据，会变。
 // 退出码即结论。
-import { homedir } from 'node:os'
+//
+// ⚠️ 这个用例会**真起容器**，于是必须对「容器的落盘副作用」做隔离，否则跑一次测试就
+// 把用户真实 `~/.config/magpie/jet-hub-console.json` 写成测试实例的端口（2026-10-28
+// 事故：被写成 18502 而 18502 上无人监听，控制台的快照脚本照着它连不上）。
+//
+// 隔离是两条腿，缺一不可，且都不是「凭感觉」：
+//  ① `JET_HUB_NO_ADDR_FILE=1`：插件侧的正式开关（`src/container.mjs:211`），设了就完全不写。
+//  ② `USERPROFILE` / `HOME` 改到临时目录：`src/container.mjs:214` 用的是 `os.homedir()`，
+//     即使开关失效、或以后有人加了别的家目录写盘，落点也在临时目录里 —— 兜底而非主修。
+//
+// 两个洞必须分清（先前被混为一谈）：写地址文件的是 `homedir()`（`:214`），**不是**
+// 构造函数里的 `home` 选项。`home` 只喂给 `FileCredentialProvider`（`:110`），
+// 而本用例要读真实账号池（`account.list` 要有账号），所以 `home` 仍传真实家目录 ——
+// 传临时目录会让「有账号」这条断言变成永假。副作用因此由上面两条腿挡住，另加
+// 「真配置内容指纹跑前跑后一致」这条硬断言，任何漏写都会变红。
+import { homedir, tmpdir } from 'node:os'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JetHubContainer } from '../src/container.mjs'
 
 const entryPath = fileURLToPath(new URL('../vendor/lib/index.js', import.meta.url))
 const log = (m) => console.log('  ·', m)
+
+// —— 隔离装置（在容器构造之前生效）——
+const realHome = homedir()
+const tempHome = mkdtempSync(join(tmpdir(), 'jet-hub-t-console-'))
+const REAL_ADDR_FILE = join(realHome, '.config', 'magpie', 'jet-hub-console.json')
+const fingerprint = (p) => {
+  if (!existsSync(p)) return 'ABSENT'
+  // 用内容指纹而不是 mtime/字节 sha1：mtime 会被并发写方刷新，字节级 sha1 与
+  // 前面的指纹不可比。canon 化后取 sha1，读的是「写没写进去」而不是「何时写的」。
+  const text = readFileSync(p, 'utf8')
+  let canon = text
+  try { canon = JSON.stringify(JSON.parse(text)) } catch {}
+  return createHash('sha1').update(canon).digest('hex')
+}
+const addrBefore = fingerprint(REAL_ADDR_FILE)
+const savedEnv = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME, JET_HUB_NO_ADDR_FILE: process.env.JET_HUB_NO_ADDR_FILE }
+process.env.USERPROFILE = tempHome
+process.env.HOME = tempHome
+process.env.JET_HUB_NO_ADDR_FILE = '1'
 
 let failed = 0
 function ok(name, cond, extra = '') {
@@ -18,7 +55,7 @@ function ok(name, cond, extra = '') {
   }
 }
 
-const container = new JetHubContainer({ home: homedir(), entryPath, log })
+const container = new JetHubContainer({ home: realHome, entryPath, log })
 let consoleUrl
 
 try {
@@ -26,6 +63,14 @@ try {
   await container.start()
   consoleUrl = container.consoleUrl
   ok('控制台已启动', typeof consoleUrl === 'string' && consoleUrl.startsWith('http://127.0.0.1:'), consoleUrl)
+
+  // 0) 副作用断言：这一条是「跑测试不许写用户家目录」的判据本身，不是附带检查。
+  //    它故意放在最前面 —— 越早断言，越不会因为后面的用例崩掉而漏检。
+  const addrAfter = fingerprint(REAL_ADDR_FILE)
+  ok('未改写用户真实 jet-hub-console.json', addrAfter === addrBefore, `${addrBefore === 'ABSENT' ? 'ABSENT' : addrBefore.slice(0, 8)} → ${addrAfter === 'ABSENT' ? 'ABSENT' : addrAfter.slice(0, 8)}`)
+  const tempAddrFile = join(tempHome, '.config', 'magpie', 'jet-hub-console.json')
+  ok('临时家目录里也没有落地址文件（JET_HUB_NO_ADDR_FILE 生效）', !existsSync(tempAddrFile), tempAddrFile)
+  ok('环境隔离确实生效（homedir() 已改道临时目录）', homedir() === tempHome, `homedir()=${homedir()}`)
 
   // 1) /__meta
   const metaRes = await fetch(`${consoleUrl}__meta`)
@@ -98,6 +143,15 @@ try {
   failed += 1
 } finally {
   await container.console?.close?.()
+  // 收尾：还原环境变量，删掉临时家目录；最后再核一次真实配置指纹（进程被杀也不影响这条，
+  // 它读的是「此刻文件内容」，不是「有没有收到信号」）。
+  for (const [k, v] of Object.entries(savedEnv)) {
+    if (v === undefined) delete process.env[k]
+    else process.env[k] = v
+  }
+  try { rmSync(tempHome, { recursive: true, force: true }) } catch {}
+  const addrFinal = fingerprint(REAL_ADDR_FILE)
+  ok('收尾后用户真实配置仍未变', addrFinal === addrBefore, addrFinal === 'ABSENT' ? 'ABSENT' : addrFinal.slice(0, 8))
 }
 
 process.exit(failed === 0 ? 0 : 1)

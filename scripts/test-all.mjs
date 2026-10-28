@@ -64,13 +64,24 @@ for (const c of cases) {
   }
   // 沙箱下管道 stdio 被禁（spawnSync 直接 EPERM，status=null），改用文件描述符
   // 重定向抓输出：退出码语义不变，且能同时拿到 stdout+stderr。
+  //
+  // `JET_HUB_NO_ADDR_FILE=1`：真起容器的用例（t-console）会在
+  // `src/container.mjs:214` 写 `~/.config/magpie/jet-hub-console.json`。测试实例跑完就退，
+  // 它绝不是这个文件的所有者；带这个开关让所有子用例彻底闭嘴（插件侧的正式开关，
+  // 由内核在 2026-10-28 加）。t-console 自己也设了，这里是第二道闸：以后再加真起
+  // 容器的用例，不用记得逐个人工设。
   const runOnce = (attempt) => {
     const capPath = path.join(ROOT, `.tmp-test-all-${process.pid}-${c.file}-${attempt}.log`)
     const capFd = fs.openSync(capPath, 'w')
     const t0 = Date.now()
     let r
     try {
-      r = spawnSync(c.cmd, [file, ...(c.args ?? [])], { cwd: ROOT, stdio: ['ignore', capFd, capFd], timeout: 600_000 })
+      r = spawnSync(c.cmd, [file, ...(c.args ?? [])], {
+        cwd: ROOT,
+        stdio: ['ignore', capFd, capFd],
+        timeout: 600_000,
+        env: { ...process.env, JET_HUB_NO_ADDR_FILE: '1' },
+      })
     } finally {
       fs.closeSync(capFd)
     }
