@@ -11,9 +11,13 @@ const OUT = path.join(__dirname, '..', 'docs')
 
 /**
  * 控制台真实地址。只读 `jet-hub-console.json` 不够：那个文件是**最后写入者**
- * 留下的，宿主被强杀后会留一个死端口（实测文件写 18502，活着的是 18500/18501）。
- * 所以读完必须连 `/__meta` 验证，连不上就按 18500..18509 逐个探。
- * 与 scripts/snapshot-models.mjs 的 readConsoleUrl 同一套判断。
+ * 留下的，宿主被强杀、或测试套件起的临时容器退出后都会留一个死端口（实测：
+ * 文件写 18502，而 18502 活了不到 60 秒；同时 18500/18501 一直在跑）。
+ *
+ * 所以顺序是 **端口升序 18500..18509**（端口从 18500 起按占用 +1 分配，最小端口
+ * = 默认宿主 = 用户长期开着的那台），文件里的地址只当补充候选；活不活一律由
+ * `/__meta` 验。与 page/models.js 的取法一致（scripts/snapshot-models.mjs），
+ * 这样侧栏页显示的端口和这里截的图保证是同一台宿主。
  */
 const probe = (url) =>
   new Promise((resolve) => {
@@ -30,16 +34,26 @@ const probe = (url) =>
 
 async function readConsoleUrl() {
   const cands = []
+  for (let port = 18500; port < 18510; port += 1) cands.push(`http://127.0.0.1:${port}/`)
   try {
     const p = path.join(process.env.USERPROFILE, '.config/magpie/jet-hub-console.json')
     const j = JSON.parse(fs.readFileSync(p, 'utf8'))
-    if (typeof j?.url === 'string' && j.url) cands.push(j.url)
+    if (typeof j?.url === 'string' && j.url) {
+      const u = j.url.endsWith('/') ? j.url : `${j.url}/`
+      if (!cands.includes(u)) cands.push(u)
+    }
   } catch {
-    /* 文件不在或坏了就只探默认端口 */
+    /* 文件不在或坏了就只探默认区间 */
   }
-  for (let port = 18500; port < 18510; port += 1) cands.push(`http://127.0.0.1:${port}/`)
-  for (const url of cands) if (await probe(url)) return url
-  return 'http://127.0.0.1:18500/'
+  let live = 0
+  let hit = ''
+  for (const url of cands) {
+    if (!(await probe(url))) continue
+    live += 1
+    if (!hit) hit = url
+  }
+  if (live > 1) console.log(`⚠ 检测到 ${live} 个控制台宿主同时在跑；本脚本只用端口最小的 ${hit}`)
+  return hit || 'http://127.0.0.1:18500/'
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -104,6 +118,44 @@ async function main() {
   })()`)
   console.log('启动状态:', JSON.stringify(health))
   if (!health.appShown) { console.log('页面没起来，boot 文本:', health.bootText) }
+
+  // ---- P1 回归断言：侧栏页快照里的模型数 / 控制台地址，必须就是这一台宿主 --------
+  // 侧栏页读的是 page/models.js 快照（sandbox 发不出请求），控制台地址也在同一份
+  // 快照里。历史故障是「模型取自 18501、地址指向 18500（第三台又写 18502）」，
+  // 所以要断言：快照 total === 这台宿主的 /__meta models，且快照 console === 本站。
+  {
+    const snapPath = path.join(__dirname, '..', 'page', 'models.js')
+    let snap = null
+    try {
+      const src = fs.readFileSync(snapPath, 'utf8')
+      snap = JSON.parse(src.slice(src.indexOf('{'), src.lastIndexOf('}') + 1))
+    } catch (e) {
+      console.log('✗ 读不出 page/models.js 快照：' + (e?.message || e))
+      errors.push('快照不可读')
+    }
+    if (snap) {
+      const here = String(health.meta?.models ?? '')
+      const snapTotal = String(snap.total ?? '')
+      const sameModels = here === snapTotal
+      const sameUrl = String(snap.console || '').replace(/\/+$/, '') + '/' === URL_BASE
+      const samePort = String(snap.consolePort || '') === (URL_BASE.match(/:(\d+)\//)?.[1] ?? '')
+      console.log(
+        `快照对齐: 模型 ${snapTotal} vs 本站 ${here} ${sameModels ? '✓' : '✗'}｜` +
+        `控制台 ${snap.console} vs ${URL_BASE} ${sameUrl ? '✓' : '✗'}｜端口 ${snap.consolePort} ${samePort ? '✓' : '✗'}`,
+      )
+      if (!sameModels) {
+        console.log(`✗ 快照的模型数(${snapTotal})不是这台宿主(:${new URL(URL_BASE).port})的(${here})，快照过期或指向别的宿主 —— 重跑 node scripts/snapshot-models.mjs`)
+        errors.push('快照模型数与宿主不一致')
+      }
+      if (!sameUrl || !samePort) {
+        console.log('✗ 快照里的控制台地址不是这台宿主 —— 重跑 node scripts/snapshot-models.mjs')
+        errors.push('快照控制台地址不一致')
+      }
+      if (Array.isArray(snap.hosts) && snap.hosts.length > 1) {
+        console.log(`⚠ 快照时还有 ${snap.hosts.length - 1} 个别的宿主在跑：${snap.hosts.map((h) => ':' + h.port).join('、')}（不影响本断言）`)
+      }
+    }
+  }
 
   for (const t of want) {
     await ev(`document.querySelector('#nav button[data-tab="${t}"]').click()`)

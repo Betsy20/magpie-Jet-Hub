@@ -212,8 +212,14 @@ function drawModels() {
   if (!shown) box.append(el('p', 'wait', `没有匹配「${state.query}」的模型`))
 
   const when = CATALOG.catalogAt ? new Date(CATALOG.catalogAt).toLocaleString('zh-CN', { hour12: false }) : '未知'
+  // 报清楚「这份目录是从哪台宿主的哪个端口取的」——P1 就是模型和地址错配到两个宿主上，
+  // 所以端口必须写出来，且和「控制台」标签里的地址是同一个端口。
+  const port = String(CATALOG.consolePort || '').trim()
+  const others = otherHosts()
   $('#modelsHint').textContent =
     `上游全量 ${models.length} 个模型 / ${rows.length} 个供应商，目录取自 ${when}（${CATALOG.source || '快照'}）。` +
+    (port ? ` 这份目录属 :${port} 那台宿主，和「控制台」标签里的地址同一台。` : '') +
+    (others.length ? ` ⚠ 另有 ${others.length} 个宿主在跑（:${others.map((h) => h.port).join('、:')}），它们的模型数和开关状态可能不同。` : '') +
     (closed ? `其中 ${closed} 个在 Jet Hub 里是关闭状态（灰的），要先去控制台打开。` : '') +
     ' 上游新上模型后跑 node scripts/snapshot-models.mjs 刷新。'
 }
@@ -347,28 +353,53 @@ async function saveSettings() {
 
 /* 控制台地址：页面拿不到插件运行时端口（沙箱，connect-src 'none'），
    所以地址由快照脚本一并写进 models.js（`JET_HUB_CATALOG.console`）；
-   快照里没有时才退回默认 18500。 */
+   快照里没有时才退回默认 18500。
+   
+   ⚠️ 快照里**模型目录和控制台地址出自同一个宿主**（脚本从活宿主的 /__meta 一次性
+   取），所以这里的端口就是模型数对应那台的端口。页面别再自己猜端口：猜必错，
+   实测有两个宿主同时在跑、地址文件指向第三台死端口的情况。 */
 const CON_PORT_DEFAULT = '18500'
 
+function catalog() {
+  return (typeof window.JET_HUB_CATALOG === 'object' && window.JET_HUB_CATALOG) ? window.JET_HUB_CATALOG : {}
+}
+
 function conUrl() {
-  const fromSnap = (typeof window.JET_HUB_CATALOG === 'object' && window.JET_HUB_CATALOG)
-    ? window.JET_HUB_CATALOG.console
-    : undefined
+  const fromSnap = catalog().console
   if (typeof fromSnap === 'string' && /^https?:\/\//.test(fromSnap)) return fromSnap
   return `http://127.0.0.1:${CON_PORT_DEFAULT}/`
 }
 
+/** 快照里除控制台宿主外还有别的宿主在跑时，返回它们的端口列表（没有就是空）。 */
+function otherHosts() {
+  const c = catalog()
+  const mine = String(c.consolePort || '')
+  return (Array.isArray(c.hosts) ? c.hosts : []).filter((h) => String(h?.port || '') && String(h.port) !== mine)
+}
+
 function fillConsole() {
   const box = $('#conUrlBox')
-  if (box) box.value = conUrl()
+  const url = conUrl()
+  if (box) box.value = url
   // 快照里的地址可能不是 18500，提示文案要跟着走，别让用户以为写死了
   const note = $('#conUrlNote')
-  if (note) {
-    const snapAt = (window.JET_HUB_CATALOG || {}).generatedAt
-    note.textContent = snapAt
-      ? `地址来自 ${String(snapAt).slice(0, 19).replace('T', ' ')} 的快照（端口随占用自动变，重跑 snapshot-models 更新）`
-      : `端口默认 18500，被占用时会自动 +1。准确端口见 ~/.config/magpie/jet-hub-console.json 的 url 字段。`
-  }
+  if (!note) return
+  const c = catalog()
+  const at = c.generatedAt ? String(c.generatedAt).slice(0, 19).replace('T', ' ') : ''
+  const port = String(c.consolePort || '').trim()
+  const where = port ? `端口 ${port}` : '端口未知'
+  const how = c.consoleFrom === 'probe'
+    ? '这台是实测在跑的宿主'
+    : c.consoleFrom === 'file'
+      ? '⚠ 一个宿主都没探通，地址退回 jet-hub-console.json（可能是死端口）'
+      : '⚠ 快照里没有地址，退回默认值'
+  const others = otherHosts()
+  const extra = others.length
+    ? ` ⚠ 另有 ${others.length} 个宿主在跑（:${others.map((h) => h.port).join('、:')}）—— 本页的模型数属 :${port}，连另一台看到的账号会不同。`
+    : ''
+  note.textContent = at
+    ? `${where}（${how}）；模型目录与这个地址出自同一宿主，快照时间 ${at}。${extra}`
+    : `${where}（${how}）。模型目录与这个地址出自同一宿主。${extra}`
 }
 
 function showTab(name) {
