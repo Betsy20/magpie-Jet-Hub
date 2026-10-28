@@ -75,6 +75,25 @@ const read = (p) => fs.readFileSync(p, 'utf8')
 const linesOf = (p) => read(p).split(/\r?\n/)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// ---- 0) 解析器自检：正则拼装的转义必须是对的 --------------------------------
+// 2026-10-28 踩过的坑：模板串里写 `\s`，JS 字符串字面量先把未知转义当字面字符
+// 消费掉（`\s` → `s`），拼出的正则是 `(?:const|let|var)s+cfgs*=s*(.+)$`，
+// 永远匹配不到 `const cfg = …`。表现是「实参解析不出」「覆盖率突然变差」，
+// 看起来像产品代码退步，实际是测试自己坏了。这里把它钉成断言：
+// 坏掉时第一时间在这里响，而不是在几十行之后的统计数字上响。
+{
+  const B = '\\' // 一个反斜杠
+  const sample = 'const cfg = PROXY_CHANNELS[provider]'
+  const eaten = new RegExp(`(?:const|let|var)\s+cfg\s*=\s*(.+)$`).source
+  const proper = new RegExp(`(?:const|let|var)${B}s+cfg${B}s*=${B}s*(.+)$`).source
+  ok(eaten === '(?:const|let|var)s+cfgs*=s*(.+)$',
+    `自检：模板串里的单个反斜杠+s 被吃成 s（正则 = ${eaten}）`)
+  ok(new RegExp(proper).test(sample),
+    `自检：双反斜杠拼出的正则能命中 \`const cfg = …\`（正则 = ${proper}）`)
+  ok(!new RegExp(eaten).test(sample),
+    '自检：被吃掉反斜杠的正则命中不了 —— 这就是「解析不出实参」的根因')
+}
+
 // ---- 1) A：主 switch (method) 块里的 case 标签 ---------------------------------
 const rpcLines = linesOf(RPC_JS)
 const switchLine = rpcLines.findIndex((l) => /switch\s*\(\s*method\s*\)/.test(l))
@@ -554,35 +573,75 @@ if (!PROBE) {
     const mutated = after !== before
     let confirmed = []
     const noise = []
-    if (mutated) {
-      console.log('  ⚠ 探活期间状态文件内容变了，进入隔离复验（串行，逐个方法等静默窗口、两次命中才算）')
-      const suspects = probeAll
-      for (const m of suspects) {
-        let hits = 0
-        let unattributed = false
-        for (let round = 0; round < 2 && hits < 2; round++) {
-          let quiet = ''
-          for (let i = 0; i < 10; i++) { // 最多等 5s 找一个内容稳定的窗口
-            const a = fingerprint()
-            await sleep(500)
-            if (fingerprint() === a) { quiet = a; break }
-          }
-          if (!quiet) { unattributed = true; break }
-          await callOne(base, m).catch(() => {})
-          await sleep(400)
-          if (fingerprint() !== quiet) hits += 1
+    let ctlHits = 0
+
+    // 对照组：**不调用任何方法**，只走一遍和归因完全相同的「等静默窗口 → 等 400ms → 比对」。
+    // 为什么必须有：多实例 + UI 轮询会持续重写这些文件，若基线噪声不为零，
+    // 「同一方法两次命中」的判据本身就有假阳性率 —— 69 个嫌疑 × 2 轮里
+    // 总会撞上一个。实测（2026-10-28 14:1x）：首跑把 `model.setDisabled` 判成
+    // 「坐实 1」，而它空载荷直接 `bad-request: provider 与 modelId 必填`、
+    // 6/6 次隔离复验一次都没改内容（`.tmp-probe-setdisabled.cjs`）。
+    // 那一次整段归因跑了 144 秒（正常探活 6 秒），时间几乎全花在等静默窗口上。
+    const controlRounds = 3
+    const controlHits = async () => {
+      let hits = 0
+      let quietable = 0
+      for (let r = 0; r < controlRounds; r++) {
+        let quiet = ''
+        for (let i = 0; i < 10; i++) {
+          const a = fingerprint()
+          await sleep(500)
+          if (fingerprint() === a) { quiet = a; break }
         }
-        if (hits >= 2) confirmed.push(m)
-        else noise.push(unattributed ? `${m}（等不到静默窗口，无法归因）` : m)
+        if (!quiet) continue
+        quietable += 1
+        await sleep(400) // 与归因里「调用后等待」等长，不加调用
+        if (fingerprint() !== quiet) hits += 1
       }
-      console.log(`  副作用归因：嫌疑 ${suspects.length}，坐实 ${confirmed.length}，判为并发写方噪声 ${noise.length}`
-        + (noise.length ? `（噪声: ${noise.join(', ')}）` : ''))
+      return { hits, quietable }
+    }
+
+    if (mutated) {
+      const ctl = await controlHits()
+      ctlHits = ctl.hits
+      console.log(`  归因对照组（不调用任何方法，同样的等待协议 ${controlRounds} 轮）：`
+        + `${ctl.hits}/${ctl.quietable} 次内容自己变了`)
+      if (ctl.hits > 0) {
+        // 基线噪声非零 ⇒ 这套归因在本环境下没有分辨力，直接放弃归因、判为外部写方。
+        // 不做 69 个方法的串行复验（那要 2 分钟以上，且结论不可信）。
+        console.log('  ⇒ 基线噪声非零，本轮放弃副作用归因（判为外部并发写方，不判任何方法有副作用）')
+      } else {
+        console.log('  ⚠ 探活期间状态文件内容变了，进入隔离复验（串行，逐个方法等静默窗口、两次命中才算）')
+        const suspects = probeAll
+        for (const m of suspects) {
+          let hits = 0
+          let unattributed = false
+          for (let round = 0; round < 2 && hits < 2; round++) {
+            let quiet = ''
+            for (let i = 0; i < 10; i++) { // 最多等 5s 找一个内容稳定的窗口
+              const a = fingerprint()
+              await sleep(500)
+              if (fingerprint() === a) { quiet = a; break }
+            }
+            if (!quiet) { unattributed = true; break }
+            await callOne(base, m).catch(() => {})
+            await sleep(400)
+            if (fingerprint() !== quiet) hits += 1
+          }
+          if (hits >= 2) confirmed.push(m)
+          else noise.push(unattributed ? `${m}（等不到静默窗口，无法归因）` : m)
+        }
+        console.log(`  副作用归因：嫌疑 ${suspects.length}，坐实 ${confirmed.length}，判为并发写方噪声 ${noise.length}`
+          + (noise.length ? `（噪声: ${noise.join(', ')}）` : ''))
+      }
     }
     const missing = confirmed.filter((m) => !SIDE_EFFECTS.has(m))
     ok(missing.length === 0,
       missing.length === 0
         ? (mutated
-          ? '探活后状态文件内容变了，但两次隔离复验都无法把改动归给任何单个方法（判定为外部并发写方）'
+          ? (confirmed.length === 0
+            ? `探活后状态文件内容变了，但归因没坐实任何单个方法（对照组命中 ${ctlHits} 次，69 个嫌疑串行两轮全判噪声 ⇒ 外部并发写方）`
+            : '探活后状态文件内容变了，坐实的方法都已在 SIDE_EFFECTS 白名单里')
           : '探活前后 state.json / permanent-locks.json / auto-checkin.json 内容未变')
         : `这些方法的空载荷会真写用户状态：${missing.join(', ')}（需补进 SIDE_EFFECTS 或给实现补「空载荷即拒绝」的闸）`)
     ok(callable.unknown.length === 0,

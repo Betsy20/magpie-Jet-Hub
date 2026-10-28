@@ -907,9 +907,24 @@ container.deadSkipCheck = (p) => (DEAD_SKIP.get(p) ?? (() => true))()
 ✓ auth.icon 不超过 1 MB
   全量开 → 32 个；全量关 → 2 个
 ✓ 全量开时有模型
-✓ 全量开的模型数不少于全量关（关掉不该多出模型）
+✓ 关掉 prefer_full 后模型数真的变少（32 → 2）
+✓ 关掉后列出的模型是「全量」的子集（只筛掉，不凭空多出）
+✓ 插件对象暴露了容器实例（_internal.container）
+✓ 容器上挂了 deadSkipCheck 回调
+✓ 开关拨到 false 时 deadSkipCheck('codearts') === false（实测 false）
+✓ 其它 provider 仍跳过死号（deadSkipCheck('qoder') = true）
+✓ 拨回 true 后立即恢复过滤（实测 true）
 ✓ 没有 input.magpie 时 models() 仍返回对象（不抛错）
+
+✓ auth.options / auth.icon / 开关生效 全部通过
+EXIT=0
 ```
+> 这段是 2026-10-28 14:3x 由验证 重跑的**现行输出**
+> （`magpie-bun tests/t-options.mjs`，EXIT=0）。
+> 本小节最初记录的是弱断言版「全量开的模型数不少于全量关」—— 弱到**开关完全没被读
+> 也能通过**，且当时**没有** `dead_account_skip` 的接线断言。两处已在 `03b3edc` 收紧
+> （`na > nb` + 子集断言 + 2b 段），所以旧输出不再代表这个测试。
+
 关键在**用两份不同的 `input.magpie` 各建一次插件实例**（模拟用户拨开关），
 而不是只断言字段存在 —— 否则开关可能声明了却没人读。
 
@@ -928,9 +943,11 @@ $ curl -s http://127.0.0.1:3456/api/providers -H 'Cookie: magpie_web_3456=…'
 注：`/api/providers` 顶层的 `providers[]` 里 `options` 恒为 `null` —— 那是给 GUI
 主列表用的精简行，开关在 `plugins[]` 里（前端 `pluginSubs()` 从
 `providers.plugins` 取，`pluginOptionsField(sub)` 读 `sub.plugin.options`）。
-`settings.json` 的 `pluginOptions` 目前是 `null`，因为用户还没改过默认值 ——
+`settings.json` 里**没有 `pluginOptions` 这个键**（现测：`~/.config/magpie/settings.json` 顶层
+25 个键里查不到它，`$j.pluginOptions` 为空），因为用户从没改过这两个开关 ——
 `on: true` 来自插件声明的 `default: true`，符合 `optionValues()` 的
-「用户值 → 否则插件默认」语义。
+「用户值 → 否则插件默认」语义。**更正**：本节早先写的是「`pluginOptions` 目前是 `null`」，
+实测是键不存在、不是 `null` 值（2026-10-28 14:3x 现查）。
 
 ### 验证三：整跑
 ```
@@ -1057,42 +1074,67 @@ $ node scripts/test-all.mjs --all        # 要 magpie 3425 与 web 3456 都在
 65 只是主 `switch (method)` 的 case 标签数。另有一批方法在进入主 switch 之前就被
 `handleMethod()`（`vendor/lib/jet-hub-rpc.js`）按前缀改道接管。
 `tests/t-rpc-cover.mjs` 现在**同时解析两个来源**（主 switch 标签 + 5 个前缀改道白名单）。
-下面是 **2026-10-28 13:4x 的现测输出**（`fb3c058` 之后的版本，退出码 0）：
+下面是 **2026-10-28 14:2x 的现测输出**（工作树版，退出码 0）：
 
 ```
 $ "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-rpc-cover.mjs
+✓ 自检：模板串里的单个反斜杠+s 被吃成 s（正则 = (?:const|let|var)s+cfgs*=s*(.+)$）
+✓ 自检：双反斜杠拼出的正则能命中 `const cfg = …`
+✓ 自检：被吃掉反斜杠的正则命中不了 —— 这就是「解析不出实参」的根因
+✓ 找到主 switch (method)（第 2964 行）
+✓ 主 switch 里 case 标签无重复（65 个标签 / 65 个唯一）
+  A) 主 switch 方法数: 65
+✓ 找到 handleMethod()（第 2920 行）
+✓ handleMethod() 里识别到 5 个前缀改道分支
+     opencode.* → handleOpencodeRpc（第 2921 行）
+     gemini.* → handleGeminiRpc（第 2928 行）
+     qoder.* → handleQoderRpc（第 2936 行）
+     minimaxintl.* → handleMinimaxIntlRpc（第 2945 行）
+     modelscope.* → handleModelscopeRpc（第 2959 行）
+✓ 解析到 5 个处理器 import
+✓ opencode-rpc.js 里认出 5 个 opencode.* 方法
+✓ gemini-rpc.js 里认出 2 个 gemini.* 方法
+✓ qoder-rpc.js 里认出 2 个 qoder.* 方法
+✓ minimax-rpc.js 里认出 2 个 minimaxintl.* 方法
+✓ modelscope-rpc.js 里认出 2 个 modelscope.* 方法
+  B) 前缀改道方法数: 13
+✓ 前缀改道与主 switch 无重叠
+
   本体实际可调度方法总数: 78（主 switch 65 + 前缀改道 13）
   其中共享实现体的标签: credits.permanentLock
 ✓ credits.permanentLock 与 loomy.permanentLock 是同一实现的两个 label（fall-through）
-✓ 82 个 rpc() 调用点的实参全部解析到字面量方法名
-  控制台已接: 76 / 78
-  控制台未接: 2
-    modelscope.setApiKey
-    opencode.rotateFingerprint
+✓ 84 个 rpc() 调用点的实参全部解析到字面量方法名
+  控制台已接: 78 / 78
+  控制台未接: 0
 ✓ 主 switch 的 65 个方法控制台全都接了
-✓ 未接项全部属于前缀改道（2 个）
-✓ 控制台对 opencode.* 有处置（接了 4 / 缺 1）
+✓ 未接项全部属于前缀改道（0 个）
+✓ loomy.permanentLock 已由控制台接通（经 lockMethod 变量，不是未接项）
+✓ 控制台对 opencode.* 有处置（接了 5 / 缺 0）
 ✓ 控制台对 gemini.* 有处置（接了 2 / 缺 0）
 ✓ 控制台对 qoder.* 有处置（接了 2 / 缺 0）
 ✓ 控制台对 minimaxintl.* 有处置（接了 2 / 缺 0）
-✓ 控制台对 modelscope.* 有处置（接了 1 / 缺 1）
+✓ 控制台对 modelscope.* 有处置（接了 2 / 缺 0）
 ✓ 控制台没有调用不存在的方法
-✓ RPC 口径一致：本体 78 个方法，控制台接 76 个
+  探活未启用（默认关：全量网络往返不该绑在每次单测里）。要跑可调用性断言：加 --probe / JET_HUB_PROBE=1，或跑 scripts/test-all.mjs --all。
+
+✓ RPC 口径一致：本体 78 个方法，控制台接 78 个
 EXIT=0
 ```
 
-⚠️ **数字会动**：控制台侧 65 → 67 → 76 一路在接（这一版接到 8 个代理方法 +
-`opencode.addAnonymous`）。所以正文只锁**本体 78** 这个口径，控制台那一侧以测试
+⚠️ **数字会动**：控制台侧 65 → 67 → 76 → 78 一路在接（`701ecdc` 补 9 个、
+`dc0141d` 补最后 2 个）。所以正文只锁**本体 78** 这个口径，控制台那一侧以测试
 每次打印的为准，不在文档里写死覆盖数。
 
 本节的**历史记录**（照实留着，别当现状引用）：12:39 那一次是 `控制台已接: 65 / 78`、
 未接 13；13:0x 复跑是 `67 / 78`、未接 11（就是 Jeb 报的那 11 个：
 `gemini.*` / `minimaxintl.*` / `qoder.*` 各 2 个 setProxy+testProxy，`modelscope.setApiKey`、
-`opencode.addAnonymous` / `rotateFingerprint` / `setProxy` / `testProxy`）。
+`opencode.addAnonymous` / `rotateFingerprint` / `setProxy` / `testProxy`）；
+13:4x 是 `76 / 78`，当时还差 `opencode.rotateFingerprint` 与 `modelscope.setApiKey`。
 
-**现测缺口只剩 2 个**，性质是「本体有、控制台刻意先不做」的接线缺口，不是测试误报：
-`opencode.rotateFingerprint`（换指纹不增加匿名配额，Jeb 明确不做）、
-`modelscope.setApiKey`（模型页没有换 Key 的入口，加账号走 `modelscope.addAccount`）。
+`opencode.rotateFingerprint`（换指纹不增加匿名配额）与 `modelscope.setApiKey`
+（模型页没有换 Key 的入口，加账号走 `modelscope.addAccount`）曾经是「本体有、
+控制台刻意不做」的两个缺口，**`dc0141d` 之后都已接上，未接 = 0** —— 这一句
+写于 14:2x 现测，别再引用「缺口只剩 2 个」那个中间态。
 
 **`account.resetAll` / `account.retestAll` 是已接的（Chief 那条更正成立）**。
 计数规则是「控制台源码里出现 `'<方法名>'` 字面量」，而这两个字面量确实在源码里：
@@ -1393,3 +1435,209 @@ Chief「先辨判据、再谈修法」的实测依据。**注意**：上表里 b
 **未做**：`t-dead-account` 这条不会自动变绿在「文件语法有效但变量缺失」的中间态——
 若要彻底消掉，只能在测试侧加「导入前先校验文件能被 `node --check` 解析」，
 但那是给并发开发擦屁股，**暂不做**（登记为待办，等 P2 收树后再评）。
+
+### 18.11 那条「控制台 67/78」也是测试的错：模板串里的 `\s` 被 JS 吃掉（13:4x → 14:1x 更正）
+
+Jeb 13:2x 报的 11 个未接里，有 8 个（`gemini/minimaxintl/opencode/qoder` 各 2 个
+`setProxy`+`testProxy`）当时**已经接进控制台了**，是我数错。控制台随后自己补完了
+剩下的（`701ecdc` 补 9 个、`dc0141d` 补最后 2 个），**现测 78/78、未接 0**。
+
+**机制**：模板字符串里写 `\s`，JS 的字符串字面量先把 `\s` 解析成 `s`（未知转义按
+字面字符处理），拼出来的正则于是成了 `consts`，永远匹配不到 `const cfg = …`。
+同一个 bug 也让 `KEY_CHANNELS[provider].method` 这一路回溯读不到字段
+（`console/console.js:421 rpc(cfg.method)` 一度被判「解析不出实参」）。
+
+**最小复现**（`node`，不依赖本仓库任何文件，直接粘进 PowerShell/bash 都能跑）：
+
+```
+$ node -e 'const src="const cfg = PROXY[provider]";
+  const b=new RegExp("(?:const|let|var)\s+cfg\s*=\s*(.+)$");
+  console.log("修前 regex:", b.source, "命中:", b.test(src));
+  const f=new RegExp("(?:const|let|var)\\s+cfg\\s*=\\s*(.+)$");
+  console.log("修后 regex:", f.source, "命中:", f.test(src));'
+修前 regex : (?:const|let|var)s+cfgs*=s*(.+)$ 命中: false
+修后 regex : (?:const|let|var)\s+cfg\s*=\s*(.+)$ 命中: true
+EXIT=0
+```
+
+> ⚠️ 上面这段**必须在 bash 里跑**（外层单引号保护内层双引号）。同一个命令
+> 在 PowerShell 里外层单引号不成组，`\s` 会被再吃一层，修后那行也会显示成
+> `(?:const|let|var)s+cfgs*=s*(.+)$` —— 这不是复现失败，是 shell 引号问题。
+> 我 14:0x 就被这个绊了一次，两次输出都在 `VERIFICATION.md` 的历史里。
+
+**修法**：`tests/t-rpc-cover.mjs:256-257` 走 `escapeRe()`（在 `:184`）拼正则，
+模板串里写双反斜杠 `\\s`。**只有这一处**需要改；`:273` / `:295` 的字段扫描正则早已是
+双反斜杠，不受影响。
+
+**治本：把它钉成测试自己的断言**（`tests/t-rpc-cover.mjs:79-95`，本次新加）
+——「被测解析器」自己也要有断言，否则它坏掉时只会表现为「某个数字变差」，
+让人去查产品代码：
+
+```
+$ "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-rpc-cover.mjs
+✓ 自检：模板串里的单个反斜杠+s 被吃成 s（正则 = (?:const|let|var)s+cfgs*=s*(.+)$）
+✓ 自检：双反斜杠拼出的正则能命中 `const cfg = …`（正则 = (?:const|let|var)\s+cfg\s*=\s*(.+)$）
+✓ 自检：被吃掉反斜杠的正则命中不了 —— 这就是「解析不出实参」的根因
+✓ 找到主 switch (method)（第 2964 行）
+✓ 主 switch 里 case 标签无重复（65 个标签 / 65 个唯一）
+…
+✓ 控制台没有调用不存在的方法
+  控制台未接: 0
+✓ 未接项全部属于前缀改道（0 个）
+✓ loomy.permanentLock 已由控制台接通（经 lockMethod 变量，不是未接项）
+✓ RPC 口径一致：本体 78 个方法，控制台接 78 个
+EXIT=0
+```
+
+**修前 / 修后（同一台机器、同一个 `console/console.js`）**
+
+| 指标 | 11:1x 修前 | 13:4x 修后 | 14:2x 现测 |
+|---|---|---|---|
+| `rpc() 调用点的实参全部解析到字面量方法名` | ✗ 3 个解析不出（共 82 个调用点） | ✓ 全解析 | ✓ 全解析（共 **84** 个调用点 —— 控制台后又加了 2 处） |
+| 控制台已接 / 本体可调度 | 62 / 65（旧口径） | 76 / 78 | **78 / 78** |
+| 未接 | 11（Jeb 那份） | 2 | **0** |
+| 退出码 | 1 | 0 | 0 |
+
+⚠️ `76 / 78` 那格（`fb3c058`）当场是对的，**但现在已经过期**：控制台 `dc0141d`
+接了最后 2 个（`modelscope.setApiKey`、`opencode.rotateFingerprint`），
+所以**别引用 76/78，也别引用 67/78**——只锁「本体 78、控制台 78、未接 0」。
+
+⇒ 教训：**我自己的正则拼装也是被测对象**。凡是「某个数字突然变差」，
+先怀疑解析器的转义/正则，再怀疑产品代码。
+
+### 18.12 `test-all.mjs --all` 从来没有真的打开过探活（14:1x，已修）
+
+`tests/t-rpc-cover.mjs` 头部注释和 `scripts/test-all.mjs:9` 都写着
+「`--all` 会给本测试补 `--probe`」，但 `scripts/test-all.mjs:25` 生成用例时
+**只传文件路径、不传任何实参**，而 `--all` 只被 `test-all.mjs` 自己消费，
+从来不会传给子进程。结果：`t-rpc-cover` 用 `ARGV.includes('--all')` 判探活，
+**永远判不到**，那 69 个方法「真发请求、不回 unknown」的断言在全量整跑里
+一直是空跑，只在手动带 `--probe` 时跑过。
+
+**最小复现（修前）**：`node scripts/test-all.mjs --all` 的 t-rpc-cover 只花 ~100 ms
+（探活实测 6426 ms），输出里没有 `控制台探活:` 那一行。
+
+**修法**（`scripts/test-all.mjs:23-33`、`:48`）：给用例挂 `args`，
+`t-rpc-cover.mjs` 在 `--all` 下补 `--probe`；`spawnSync(c.cmd, [file, ...(c.args ?? [])])`。
+
+**修后实测**（`"C:/…/magpie-bun.exe" tests/t-rpc-cover.mjs --probe`，端口 18500，14:2x 复跑）：
+
+```
+  控制台探活: http://127.0.0.1:18500（快照里的 http://127.0.0.1:18502 已失效，已改扫端口）（并发 6，单请求超时 5000 ms）
+✓ 探活前后 state.json / permanent-locks.json / auto-checkin.json 内容未变
+✓ 69 个方法真发请求，均未回 unknown method
+✓ 探活无请求异常/超时
+  有副作用、按设计跳过（9）: account.create[建占位账号], account.reset[清限流标记],
+    account.resetAll[同上，且遍历全部账号], account.retest[发真实上游请求 + 清限流标记],
+    account.retestAll[同上，且遍历全部账号], aggregate.rejectNonExpiring[改聚合白名单],
+    backup.import[缺省 mode='replace'，会覆盖整库], captcha.contribute[写载体参数表],
+    credits.claimAll[对每条账号真发领取]
+  探活耗时 2258 ms
+EXIT=0
+```
+
+⚠️ 别把上面这个 `2258 ms` 当成「探活很快」的定论：这一版在**探测到状态文件变化时**
+会退回串行、逐方法独立复验（见 18.5），最坏情况仍会慢；`2258 ms` 是这一次**没有**
+触发隔离复验的数。
+
+⇒ 这条是「注释说有、代码没做」的典型：**判断工具的注释也是断言对象**。
+以后凡是注释里承诺的行为，要么有断言，要么改成「未实测」。
+
+Jeb 13:2x 报的 11 个未接里，有 8 个（`gemini/minimaxintl/opencode/qoder` 各 2 个
+`setProxy`+`testProxy`）当时**已经接进控制台了**，是我数错。控制台随后自己补完了
+（`701ecdc` 补 9 个、`dc0141d` 补最后 2 个），**现测 78/78、未接 0**。
+
+**最小复现**（`node`，与本仓库无依赖）：
+
+```
+$ node .tmp-repro-escape.mjs
+修前 regex source : (?:const|let|var)s+cfgs*=s*(.+)$
+修前 能匹配到绑定吗 : false
+修后 regex source : (?:const|let|var)\s+cfg\s*=\s*(.+)$
+修后 能匹配到绑定吗 : true
+EXIT=0
+```
+
+**机制**：模板字符串里写 `\s`，JS 的字符串字面量先把 `\s` 解析成 `s`（未知转义按
+字面字符处理），拼出来的正则于是成了 `consts`，永远匹配不到 `const cfg = …`。
+同一个 bug 也让 `KEY_CHANNELS[provider].method` 这一路回溯读不到字段
+（`console/console.js:421 rpc(cfg.method)` 一度被判「解析不出实参」）。
+
+**修法**：`tests/t-rpc-cover.mjs:256-257` 走 `escapeRe()`（在 `:184`）拼正则，
+模板串里写双反斜杠 `\\s`。**只有这一处**需要改；`:273` / `:295` 的字段扫描正则早已是
+双反斜杠，不受影响。
+
+⇒ 教训：**我自己的正则拼装也是被测对象**。凡是「某个数字突然变差」，
+先怀疑解析器的转义/正则，再怀疑产品代码。
+
+**附：这一轮端口事实（P1 未修好，所有结论标明端口）**
+
+```
+$ curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18500/api/jet-hub -d '…'  200
+$ curl … 18501  200      18502  13:44 回 200，13:47 起 ECONNREFUSED（进程在抖）
+$ cat ~/.config/magpie/jet-hub-console.json
+  {"url":"http://127.0.0.1:18503/","port":18503,"at":"…05:45:10Z"}   ← 18503 无人监听
+  {"url":"http://127.0.0.1:18502/","port":18502,"at":"…05:47:43Z"}   ← 18502 已死
+```
+
+**本节所有 RPC 结论都是在 `http://127.0.0.1:18500` 上测的**（`t-rpc-cover.mjs --probe`
+打印的就是这个地址）。快照文件在半小时内从 18502 换成 18503、又换回 18502，
+说明它还活着、但也说明**不能信它**。
+
+**整跑（14:1x，`node scripts/test-all.mjs --all`，退出码 0）**
+
+```
+✓ t-writerefs.mjs      88 ms
+✓ t-dead-account.mjs   94 ms
+✓ t-usage.mjs          24122 ms
+✓ t-checkin.mjs        4131 ms
+✓ t-options.mjs        100 ms
+✓ t-plugin.mjs         5190 ms
+✓ t-models-nowait.mjs  45117 ms
+✓ t-seed-auth.mjs      355 ms
+✓ t-rpc-cover.mjs      136537 ms
+✓ 控制台（真容器，~40s）        4354 ms
+✓ 网关（需 magpie 3425）    9939 ms
+✓ 页面 UI（需 web 3456）    31151 ms
+
+12 通过 / 0 失败 / 0 跳过
+EXIT=0
+```
+
+**这一版 `t-rpc-cover.mjs` 是 136537 ms，正是 18.12 修好的证据**：修前它在整跑里只花
+~100 ms（探活空跑），现在它真跑了探活。所以「t-rpc-cover 从 0.1 s 变成 2 分 16 秒」
+不是变慢，是**终于做了它一直声称在做的事**。同一个测试手动带 `--probe` 单独跑是
+2.3 s / 4.1 s / 4.3 s（三次实测，端口都 18500）；整跑那次 136 s，说明它中途**触发了隔离复验**
+（探测到状态文件变化 → 退回串行逐方法、两次独立命中才坐实，见 18.5）——这正是那条
+设计的行为，不是挂死。⚠️ 那次整跑的分项（嫌疑几个、坐实几个）**没留证**
+（`test-all` 只在失败时打印尾部 12 行、成功时不留子进程输出），所以
+「136 s 由隔离复验导致」是**推断、未实测**。
+
+**对照：修前那次整跑（13:5x，同一个 `--all`，退出码 0）**，`--probe` 还没被传下去，
+`t-rpc-cover.mjs` 只花 102 ms：
+
+```
+--- t-models-nowait.mjs 第 1 次失败、重试通过（不稳定，需查） ---
+第 1 次 models(): 32 个，耗时 0ms（必须 < 2000ms）
+✓ t-writerefs.mjs      97 ms
+✓ t-dead-account.mjs   101 ms
+✓ t-usage.mjs          19422 ms
+✓ t-checkin.mjs        4395 ms
+✓ t-options.mjs        109 ms
+✓ t-plugin.mjs         6027 ms
+✓ t-models-nowait.mjs  45127 ms（重试后通过）
+✓ t-seed-auth.mjs      391 ms
+✓ t-rpc-cover.mjs      102 ms
+✓ 控制台（真容器，~40s）        3596 ms
+✓ 网关（需 magpie 3425）    11197 ms
+✓ 页面 UI（需 web 3456）    31270 ms
+
+12 通过 / 0 失败 / 0 跳过
+EXIT=0
+```
+
+⚠️ 这条又给 18.8 加了一个数据点：**`t-models-nowait` 第一次跑失败、重试通过**，
+而它自己的失败输出是「32 个，耗时 0ms」—— 0 ms 满足 < 2000ms 的阈值，
+说明那次失败不在 models() 的耗时断言上（在它前面的某条断言），
+**具体是哪条未实测**（`test-all` 只留失败输出的尾部 8 行，被截掉了）。
+这条列进待办，等 P2 收树后单独复跑取证。

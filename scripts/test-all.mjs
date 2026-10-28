@@ -21,9 +21,16 @@ const ENV = [
 ]
 
 const all = process.argv.includes('--all')
+// `--all` 不只是「多加几条测试」：对 t-rpc-cover 还意味着打开探活。
+// t-rpc-cover 自己认 `--all` 这个参数来开探活，但它只收到自己的文件路径，
+// 收不到本脚本的命令行 —— 所以必须在这里显式补 `--probe`。
+// 踩过的坑（2026-10-28）：本文件注释写着「--all 会补 --probe」，代码却没补，
+// 于是 `test-all.mjs --all` 里那条最关键的「78 个方法真发请求都不回 unknown」
+// 从来没跑过，探活那条一直是空跑。注释和代码对不上就是缺陷。
+const extraArgs = (f) => (all && f === 't-rpc-cover.mjs' ? ['--probe'] : [])
 const cases = all
-  ? [...UNIT.map((f) => ({ file: f, cmd: process.execPath, label: f })), ...ENV]
-  : UNIT.map((f) => ({ file: f, cmd: process.execPath, label: f }))
+  ? [...UNIT.map((f) => ({ file: f, cmd: process.execPath, label: f, args: extraArgs(f) })), ...ENV]
+  : UNIT.map((f) => ({ file: f, cmd: process.execPath, label: f, args: [] }))
 
 let pass = 0
 let fail = 0
@@ -45,7 +52,7 @@ for (const c of cases) {
     const t0 = Date.now()
     let r
     try {
-      r = spawnSync(c.cmd, [file], { cwd: ROOT, stdio: ['ignore', capFd, capFd], timeout: 600_000 })
+      r = spawnSync(c.cmd, [file, ...(c.args ?? [])], { cwd: ROOT, stdio: ['ignore', capFd, capFd], timeout: 600_000 })
     } finally {
       fs.closeSync(capFd)
     }
