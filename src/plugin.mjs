@@ -21,12 +21,16 @@
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
  *   └─ …（24 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
- *             └─ 本体自带网关 127.0.0.1:<动态端口>
+ *             └─ 直连本体 llm：ctx.llm.stream()（src/llm-bridge.mjs）
  *                  └─ 各 provider 的真实上游
  * ```
  *
+ * ⚠️ **没有内嵌 HTTP 网关**：本体自己也开一个 OpenAI 兼容网关，但那层只是
+ * `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以
+ * `container.forward()` 在进程内就完成了整件事 —— 不占端口、不需要 apiKey。
+ *
  * ⚠️ 容器**必须模块级共享**：24 个插件工厂各自 new 一个容器的话，会拉起 24 个
- * cordis + 24 个网关端口，冷启动直接炸。
+ * cordis（24 份账号池 + 24 份模型目录），冷启动直接炸。
  *
  * ## 凭据从哪来
  *
@@ -277,7 +281,7 @@ const DEAD_SKIP = new Map()
 /** 模型缓存文件（落盘，下次启动首屏就是真实目录）。 */
 const cacheFile = join(homedir(), '.config', 'magpie', 'jet-hub-models.json')
 
-/** 最近一次拿到的**实时可用**模型 id（`<provider>/<model>`，来自网关 `/v1/models`）。 */
+/** 最近一次拿到的**实时可用**模型 id（`<provider>/<model>`，从 `ctx.llm` 现采）。 */
 let allModels = undefined
 
 /**
@@ -664,7 +668,7 @@ export function makePlugin(dshProvider) {
           {
             key: 'prefer_full',
             label: '模型列表用上游全量',
-            description: '打开：列出上游全量模型（含已关闭）；关闭：只列网关此刻可用的模型。',
+            description: '打开：列出上游全量模型（含已关闭）；关闭：只列此刻真正可用的模型。',
             default: true,
           },
           {
@@ -707,8 +711,9 @@ export function makePlugin(dshProvider) {
               }
               return {
                 type: 'success',
-                // magpie 的 api 型账号要存一个 key；真正发请求用的是容器自己的 apiKey。
-                key: `jet-hub-local:${dshProvider}:${container.port ?? 'pending'}`,
+                // magpie 的 api 型账号要存一个 key；直连模式下它只是个标记，
+                // 发请求时不带它、也不校验它（进程内调用，没有 HTTP 边界）。
+                key: `jet-hub-local:${dshProvider}:direct`,
                 accountId: `DSH · ${dshProvider} · 上游 ${wide} 个模型（当前可用 ${n}）`,
                 metadata: { via: 'jet-hub', provider: dshProvider },
               }
@@ -716,7 +721,15 @@ export function makePlugin(dshProvider) {
           },
         ],
 
-        /** 发请求：把 magpie 转来的 OpenAI 请求投给容器网关，只改模型名。 */
+        /**
+         * 发请求：把 magpie 转来的 OpenAI 请求**进程内**直连投给本体 llm 服务，
+         * 只改模型名。
+         *
+         * 直连模式下 `container.forward()` 不再发 HTTP —— 它直接调本体的
+         * `ctx.llm.stream()`，所以这里不需要 baseURL、不需要 apiKey，
+         * 也没有本机端口要探活。（`PLACEHOLDER_BASE` 仍然要留：magpie 会拿它判
+         * 「这个 provider 有没有地方可发」，空串会被判成 `nowhere to send`。）
+         */
         async loader() {
           return {
             baseURL: PLACEHOLDER_BASE,
@@ -728,7 +741,7 @@ export function makePlugin(dshProvider) {
 
               await container.start()
 
-              // 非 chat 或解析不了：原样投给容器（容器网关有 /v1/models 等）
+              // 非 chat 或解析不了（`/v1/models` 等）：交给直连层按路径分发
               if (parsed === undefined) {
                 const path = url.replace(/^https?:\/\/[^/]+/i, '') || '/v1/chat/completions'
                 return container.forward(path, init)

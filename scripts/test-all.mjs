@@ -16,6 +16,9 @@ const TESTS = path.join(ROOT, 'tests')
 const UNIT = ['t-writerefs.mjs', 't-dead-account.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-rpc-cover.mjs']
 const ENV = [
   { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
+  // 直连层回归：真起容器跑一次 chat（流式 + 非流式）。取代了原来「内嵌网关端口」
+  // 那条断言 —— 现在没有端口了，契约变成「进程内直连仍出得出内容」。
+  { file: 't-direct.mjs', cmd: process.execPath, label: '直连链路（真容器 + 真 chat，~40s）' },
   { file: 't-gateway.py', cmd: process.env.PYTHON || 'python', label: '网关（需 magpie 3425）' },
   { file: 'ui-check.cjs', cmd: process.execPath, label: '页面 UI（需 web 3456）' },
 ]

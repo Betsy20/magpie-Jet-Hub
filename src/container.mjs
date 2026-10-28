@@ -1,17 +1,19 @@
 // cordis 容器宿主：把 deepseek-harness-codearts 插件本体（npm 包
-// `deepseek-harness-codearts` / 仓库 dsh-providers-hub）原样装进一个 cordis 容器，
-// 让它自己开一个只监听回环的 OpenAI 兼容网关。
+// `deepseek-harness-codearts` / 仓库 dsh-providers-hub）原样装进一个 cordis 容器。
 //
-// 为什么这样做：本体自带 17 个 provider、账号池、静默续期、积分选号、模型目录、
-// Jet Hub 的登录流程 —— 这些全部原样复用，一行都不重写。magpie 侧只需要把请求
-// 转发到本容器自己的网关。
+// 为什么这样做：本体自带 24 个 provider、账号池、静默续期、积分选号、模型目录、
+// Jet Hub 的登录流程 —— 这些全部原样复用，一行都不重写。
 //
-// ⚠️ 端口必须动态探测：magpie 可能同时开多个插件宿主（每个插件一个 bun 进程），
-// 固定端口会撞。这里从 18390 往上找一个空端口。
+// ⚠️ **不开 HTTP 网关**（本次改动）：本体的 OpenAI 兼容网关
+// （`vendor/lib/openai-gateway/`）只是 `ctx.llm` 的一层 HTTP 外壳
+// —— 它做的全部工作是「解析 body → `ctx.llm.stream()` → 转回 SSE/JSON」。
+// 插件在**本进程内**已经握着同一个 `ctx.llm`，再走一遍
+// `fetch(http://127.0.0.1:1839x/v1/...)` 只是多一次回环序列化。
+//
+// 所以这里显式 `DSH_OPENAI_GATEWAY_ENABLED=0`：不占端口、不需要随机 apiKey、
+// 不需要 40 秒就绪轮询。请求由 `src/llm-bridge.mjs` 直接投给本体 llm 服务。
 import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { createServer } from 'node:net'
-import { randomBytes } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -19,6 +21,7 @@ import { homedir } from 'node:os'
 import { FileCredentialProvider } from './credentials.mjs'
 import { ConnectionSeam } from './connection.mjs'
 import { startHubServer } from './hub-server.mjs'
+import { chatCompletion, modelsPayload, llmReady, jsonResponse, errorResponse } from './llm-bridge.mjs'
 
 /**
  * 「死号判据对本家不可信」的 provider 名单 —— 命中即**不判死**。
@@ -30,20 +33,6 @@ import { startHubServer } from './hub-server.mjs'
  * 当前只有 loomy —— 具体理由见 `isDeadAccount` 内注释。
  */
 const DEAD_JUDGE_UNTRUSTED = new Set(['loomy'])
-
-/** 找可用端口：先 bind 试探再释放（网关自己还会 bind，窗口极小但可接受）。 */
-async function findFreePort(from = 18390, tries = 60) {
-  for (let p = from; p < from + tries; p++) {
-    const free = await new Promise((res) => {
-      const s = createServer()
-      s.once('error', () => res(false))
-      s.once('listening', () => s.close(() => res(true)))
-      s.listen(p, '127.0.0.1')
-    })
-    if (free) return p
-  }
-  throw new Error(`magpie-jet-hub: ${from}–${from + tries} 全是占用端口，无法为内部网关找位`)
-}
 
 export class JetHubContainer {
   constructor(options = {}) {
@@ -61,8 +50,6 @@ export class JetHubContainer {
     })()
     this.entryPath = options.entryPath // 本体 lib/index.js 的绝对路径
     this.log = options.log ?? (() => {})
-    this.port = undefined
-    this.apiKey = `jethub-${randomBytes(12).toString('hex')}`
     this.ctx = undefined
     this.ready = undefined
     this.seam = undefined
@@ -74,8 +61,14 @@ export class JetHubContainer {
     this.fullCatalogAt = undefined
   }
 
-  get baseURL() {
-    return `http://127.0.0.1:${this.port}/v1`
+  /**
+   * 本体的 llm 服务（`ctx.llm`）。直连层的唯一入口。
+   *
+   * 只在 `start()` 之后可用；`_start()` 的第三步 `ctx.plugin(mod)` 是异步排期，
+   * 所以取用一律走 `await this.start()` 之后的 `this.llm`。
+   */
+  get llm() {
+    return this.ctx?.get('llm')
   }
 
   /** 幂等启动。并发调用共享同一个 promise。 */
@@ -89,12 +82,11 @@ export class JetHubContainer {
   }
 
   async _start() {
-    this.port = await findFreePort()
     // 本体网关读这些环境变量。必须在 import 本体之前设好。
     process.env.DSH_HOME = this.dshHome
-    process.env.DSH_OPENAI_GATEWAY_PORT = String(this.port)
-    process.env.DSH_OPENAI_GATEWAY_ENABLED = '1'
-    process.env.DSH_OPENAI_GATEWAY_API_KEY = this.apiKey
+    // ⚠️ 显式**关掉**本体自带的 HTTP 网关：本插件直接调 `ctx.llm`
+    // （见文件头注释），不需要那个端口，也就不设 PORT / API_KEY。
+    process.env.DSH_OPENAI_GATEWAY_ENABLED = '0'
 
     const ctx = new Context()
     this.ctx = ctx
@@ -126,23 +118,48 @@ export class JetHubContainer {
     const mod = await import(pathToFileURL(this.entryPath).href)
     ctx.plugin(mod)
 
-    // 4) 等网关真的起来（最长 40s；本体要拉账号池、预热模型目录）
-    const deadline = Date.now() + 40_000
+    // 4) 等本体的 llm 服务可用（最长 40s；本体要拉账号池、预热模型目录）
+    //
+    //    不走 HTTP：`ctx.get('llm')` 要等本体的 `apply()` 把服务 provide 出来
+    //    才非空，`ctx.plugin(mod)` 只是排期。这里轮询同一个判据，模型目录
+    //    也从 `ctx.llm` 直接采（`collectGatewayModels` 已逐个 provider 兜错）。
+    //
+    //    ⚠️ **「llm 存在」≠「目录已填」**（实测踩过）：`ctx.get('llm')` 一
+    //    provide 就非空，但账号池加载与 provider 注册都还在异步进行，此刻采到
+    //    的目录是 **0 条**。原来走 HTTP 时这个时间差被网关的首个 200 挡掉了；
+    //    直连后必须自己等，否则控制台与 magpie 都会看到「没有模型」。
+    //    判据因此是「采到模型」，而不是「llm 非空」。
+    const hardDeadline = Date.now() + 40_000
+    // 目录为空时的等待上限：未登录（真的没模型）是合法状态，不能死等到 40s
+    // 才放行 —— 那会让插件宿主启动白等 40 秒。
+    const emptyDeadline = Date.now() + 15_000
+    let lastError
     for (;;) {
-      try {
-        const r = await fetch(`${this.baseURL}/models`, {
-          headers: { Authorization: `Bearer ${this.apiKey}` },
-          signal: AbortSignal.timeout(3000),
-        })
-        if (r.ok) {
-          const j = await r.json()
-          this._absorbModels(j)
-          this.log(`内部网关就绪 :${this.port}，模型 ${this.models.length} 个`)
+      const llm = this.llm
+      if (llmReady(llm)) {
+        try {
+          this._absorbModels(await modelsPayload(llm))
+          lastError = undefined
+        } catch (error) {
+          lastError = error
+        }
+        if (this.models.length > 0) {
+          this.log(`本体 llm 服务就绪（直连，无网关端口），模型 ${this.models.length} 个`)
           break
         }
-      } catch {}
-      if (Date.now() > deadline) {
-        throw new Error(`magpie-jet-hub: 内部网关 40s 内未就绪（端口 ${this.port}）`)
+        if (Date.now() > emptyDeadline) {
+          // 等够了还是没有：可能是所有渠道都未登录，也可能 provider 注册慢。
+          // 两种情况都不该让插件起不来 —— 记一行日志、继续（模型登录后会刷新）。
+          this.log('本体 llm 服务就绪，但模型目录仍为空（各渠道可能都未登录）')
+          break
+        }
+      }
+      if (Date.now() > hardDeadline) {
+        if (!llmReady(this.llm)) {
+          throw new Error('magpie-jet-hub: 本体 llm 服务 40s 内未就绪（直连模式，无网关端口）')
+        }
+        // llm 就绪但采集一直抛错：这是真故障（不是「没登录」），必须暴露。
+        throw new Error(`magpie-jet-hub: 本体 llm 模型目录采集失败：${lastError?.message ?? lastError}`)
       }
       await new Promise((r) => setTimeout(r, 700))
     }
@@ -185,8 +202,8 @@ export class JetHubContainer {
       seam: this.seam,
       log: this.log,
       meta: () => this.meta(),
-      // 控制台与内部网关分两段端口：网关从 18390 起，控制台从 18500 起，
-      // 各自向上找空位，互不抢。magpie 插件页里的默认端口也是 18500。
+      // 控制台端口从 18500 起向上找空位（直连后已经没有内部网关要分端口了，
+      // 这段历史注释留在这里是为了说明 18500 这个起点的来历）。
       from: 18500,
     })
     this.log(`控制台就绪 ${this.console.url}｜管理路由 ${this.seam.routes.size} 条：${this.seam.list().join(' | ')}`)
@@ -248,7 +265,10 @@ export class JetHubContainer {
       models: source.length,
       liveModels: this.models.length,
       fullCatalogAt: this.fullCatalogAt ?? undefined,
-      gateway: { baseURL: this.baseURL, port: this.port },
+      // 直连模式：**没有**本地网关端口了。`mode: 'direct'` 是给控制台/插件页
+      // 判文案的判据 —— 它们读 `gateway.port` 有值才显示「本地网关 :1839x」，
+      // 读到 null 就显示「直连本体 llm 服务（无本地端口）」。
+      gateway: { mode: 'direct', baseURL: null, port: null },
       version: this.version,
       generatedAt: new Date().toISOString(),
     }
@@ -378,15 +398,16 @@ export class JetHubContainer {
     }
   }
 
-  /** 刷新模型目录（本体有新账号登录后会变）。 */
+  /**
+   * 刷新模型目录（本体有新账号登录后会变）。
+   *
+   * 直连模式：从 `ctx.llm` 现采，不再打 `/v1/models` HTTP。
+   * 采集器 `collectGatewayModels` 对每个 provider 单独兜错 —— 未登录的家跳过，
+   * 不会因为一家失败就整份目录报错。
+   */
   async refreshModels() {
     await this.start()
-    const r = await fetch(`${this.baseURL}/models`, {
-      headers: { Authorization: `Bearer ${this.apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    })
-    if (!r.ok) throw new Error(`刷新模型目录失败 HTTP ${r.status}`)
-    this._absorbModels(await r.json())
+    this._absorbModels(await modelsPayload(this.llm))
     return this.models
   }
 
@@ -458,12 +479,52 @@ export class JetHubContainer {
     return out
   }
 
-  /** 转发一次 chat/completions。model 必须是带 provider 前缀的 id。 */
+  /**
+   * 处理一次 OpenAI 协议请求 —— **进程内**直连本体 llm 服务。
+   *
+   * @param {string} pathname  `/v1/chat/completions` 或 `/v1/models`
+   * @param {RequestInit} init `body` 是 JSON 字符串或 Uint8Array
+   * @returns {Promise<Response>} 流式时是 `text/event-stream`
+   */
   async forward(pathname, init) {
     await this.start()
-    const url = `${this.baseURL}${pathname}`
-    const headers = new Headers(init?.headers)
-    headers.set('Authorization', `Bearer ${this.apiKey}`)
-    return fetch(url, { ...init, headers })
+    const path = String(pathname ?? '').replace(/^\/v1(?=\/|$)/, '') || '/'
+
+    if (path === '/models' || path === '/models/') {
+      try {
+        return jsonResponse(200, await modelsPayload(this.llm))
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+
+    if (path === '/chat/completions' || path === '/chat/completions/') {
+      let body
+      try {
+        body = parseJsonBody(init?.body)
+      } catch (error) {
+        return jsonResponse(400, {
+          error: { message: `请求体不是合法 JSON：${error?.message ?? error}`, type: 'invalid_request_error' },
+        })
+      }
+      try {
+        return await chatCompletion(this.llm, body, init?.signal)
+      } catch (error) {
+        return errorResponse(error)
+      }
+    }
+
+    return jsonResponse(404, {
+      error: { message: `magpie-jet-hub: 不支持的路径 ${pathname}`, type: 'invalid_request_error', code: 'unsupported_path' },
+    })
   }
+}
+
+/** 把 `RequestInit.body` 解成对象（字符串 / Uint8Array / 已是对象三种都收）。 */
+function parseJsonBody(raw) {
+  if (raw === undefined || raw === null) return {}
+  if (typeof raw === 'object' && !(raw instanceof Uint8Array) && !(raw instanceof ArrayBuffer)) return raw
+  const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw)
+  if (text.trim() === '') return {}
+  return JSON.parse(text)
 }

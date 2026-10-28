@@ -192,7 +192,9 @@ async function main() {
       port: portOf(got.url),
       models: rows.length,
       providers: Array.isArray(got.meta.providers) ? got.meta.providers.length : 0,
-      internalGateway: String(got.meta.gateway?.baseURL ?? ''),
+      // 直连模式下没有本地网关地址（`meta.gateway.baseURL` 为 null）；
+      // 字段保留是为了让下游「有没有内嵌网关」的判断继续成立，值改报模式。
+      internalGateway: got.meta.gateway?.mode === 'direct' ? 'direct' : String(got.meta.gateway?.baseURL ?? ''),
       fullCatalogAt: String(got.meta.fullCatalogAt ?? ''),
       version: String(got.meta.version ?? ''),
     })

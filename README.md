@@ -143,8 +143,8 @@ jet-hub-qoder/qfmodel
 > 插件工厂，就能注册 24 个 provider id。`index.mjs` 正好导出 24 个
 > `JetHub*Plugin`。
 >
-> ⚠️ 容器是**模块级单例**：24 个工厂共用一个 cordis 容器与一个内部网关。
-> 各起一个的话会拉 24 个网关端口，冷启动直接炸。
+> ⚠️ 容器是**模块级单例**：24 个工厂共用一个 cordis 容器。
+> 各起一个的话会建 24 份账号池与模型目录，冷启动直接炸。
 
 ### 账号也按 provider 分开
 
@@ -388,7 +388,8 @@ MiniMax 国际站用 `redirect:'manual'` 看 307 那一跳判有没有被分流�
 
 1. **模型目录拿不到实时值**。页面 `connect-src 'none'`，`providers:list` 只给
    `{id, name}` 不给模型。所以模型清单是**快照**：`scripts/snapshot-models.mjs`
-   读一次内嵌网关的 `/v1/models` 写成 `page/models.js`。换账号/加模型后重跑一次
+   从 magpie 网关 `http://127.0.0.1:3425/v1/models`（或运行中控制台的
+   `getCachedCatalog`）读一次，写成 `page/models.js`。换账号/加模型后重跑一次
    即可（页面上会显示快照时间，不假装实时）。
 2. **页面是 OOPIF，主文档读不到它的 DOM**。`sandbox="allow-scripts"`（没有
    `allow-same-origin`）⇒ opaque origin ⇒ 独立进程。所以 `ui-check.cjs`
@@ -536,7 +537,7 @@ scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headle
 scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-seed-auth / t-console / t-gateway / t-rpc-cover / ui-check）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-seed-auth / t-console / t-direct / t-gateway / t-rpc-cover / ui-check）
 LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
 vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
 docs/screenshot.png    侧栏页面实拍（`tests/ui-check.cjs` 的截图）
@@ -546,14 +547,14 @@ docs/archive/          不再被 README 引用的旧截图留档
 
 ## 实现细节补充
 
-- 内部网关端口**动态探测**（从 18390 起向上找一个空闲端口）—— magpie 会给每个
-  插件开独立 bun 进程，固定端口会撞。
+- **没有内嵌网关**（本次改动）：本体的 OpenAI 兼容网关只是 `ctx.llm` 的一层
+  HTTP 外壳，而插件在同一个进程里已经握着 `ctx.llm`。所以容器显式
+  `DSH_OPENAI_GATEWAY_ENABLED=0`，请求由 `src/llm-bridge.mjs` 在**进程内**直接
+  交给本体 llm 服务 —— 不占端口、不需要随机 apiKey、不需要等网关就绪。
 - 凭据桥是 **双向** 的：本体 refresh 出的新 token 会原子写回
   `~/.dsh/.credentials.yaml`（临时文件 + `rename` + `.bak`），所以在 magpie 里
   用过之后，DSH 侧也是最新的。
-- 内部网关带随机 API key（`jethub-<24 hex>`），并只监听 `127.0.0.1`，
-  不对外暴露。
 - 控制台端口从 `18500` 起动态探测，只有拿到首发端口 18500 的那个宿主会把实际 `url`
-  写入 `~/.config/magpie/jet-hub-console.json`（漂移过的实例不写）；控制台与内嵌网关
-  都只监听回环地址。
+  写入 `~/.config/magpie/jet-hub-console.json`（漂移过的实例不写）；控制台只监听
+  回环地址。magpie 侧的对外入口统一是它的网关 `http://127.0.0.1:3425/v1`。
 

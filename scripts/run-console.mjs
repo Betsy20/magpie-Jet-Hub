@@ -7,5 +7,7 @@ const c = new JetHubContainer({
 })
 await c.start()
 console.log('CONSOLE_URL=' + c.consoleUrl)
-console.log('GATEWAY=' + c.baseURL)
+// 直连模式：没有本地网关端口。对外入口是 magpie 自己的网关。
+console.log('GATEWAY=direct（无本地端口，走 magpie 3425）')
+console.log('MODELS=' + c.models.length)
 setInterval(() => {}, 1 << 30)

@@ -114,7 +114,7 @@ function renderOverview() {
   const cards = [
     ['provider', META.providers.length, '本体带来的渠道数'],
     ['模型', full, live > 0 && live !== full ? `上游全量（网关可用 ${live}）` : '上游全量目录'],
-    ['网关端口', META.gateway?.port ?? '—', '只监听回环'],
+    ['连接方式', META.gateway?.mode === 'direct' ? '直连本体' : (META.gateway?.port ?? '—'), META.gateway?.mode === 'direct' ? '进程内调 ctx.llm，无本地端口' : '只监听回环'],
     ['本体版本', META.version ?? '—', 'deepseek-harness-codearts'],
   ]
   $('#cards').innerHTML = cards
@@ -124,14 +124,27 @@ function renderOverview() {
     .map((p) => `<span class="chip" title="${esc(p.name ?? p.id)}"><b>${esc(p.id)}</b><i>${p.models?.length ?? 0}</i></span>`)
     .join('')
   const base = META.gateway?.baseURL ?? '—'
-  $('#gwCode').textContent = [
-    `OpenAI 兼容地址（magpie 内部使用）：${base}`,
-    `模型 id 前缀：jet-hub/<provider>/<model>`,
-    ``,
-    `# 直接验证`,
-    `curl -s ${base}/models -H "Authorization: Bearer <插件内部 key>" | head -c 400`,
-  ].join('\n')
-  $('#gw').textContent = base
+  // 直连模式下**没有**本地网关端口，别再让用户去找 1839x（那是老版本的事）。
+  const direct = META.gateway?.mode === 'direct'
+  $('#gwCode').textContent = direct
+    ? [
+        '直连模式：本插件不开本地 OpenAI 网关端口，',
+        '请求在进程内直接交给本体 llm 服务（ctx.llm）。',
+        '',
+        '对外统一走 magpie 网关（模型 id 前缀 jet-hub/<provider>/<model>）：',
+        '  http://127.0.0.1:3425/v1',
+        '',
+        '# 直接验证（需 magpie 在跑）',
+        'curl -s http://127.0.0.1:3425/v1/models | head -c 400',
+      ].join('\n')
+    : [
+        `OpenAI 兼容地址（magpie 内部使用）：${base}`,
+        `模型 id 前缀：jet-hub/<provider>/<model>`,
+        ``,
+        `# 直接验证`,
+        `curl -s ${base}/models -H "Authorization: Bearer <插件内部 key>" | head -c 400`,
+      ].join('\n')
+  $('#gw').textContent = direct ? 'http://127.0.0.1:3425/v1' : base
   loadGatewayCards()
   loadAutoCheckin($('#acOut'))
 }
@@ -1285,6 +1298,13 @@ async function loadSettings() {
 
 async function saveSetting(what, value) {
   try {
+    // 直连模式下本体自带网关被 `DSH_OPENAI_GATEWAY_ENABLED=0` 关掉，
+    // 插件根本不经过它。此时改这个开关**不会**改变转发路径，
+    // 必须当场说清，否则用户点了没反应还以为保存失败。
+    if (what === 'gateway' && META.gateway?.mode === 'direct') {
+      say('#setMsg', '直连模式：插件进程内直接调本体 llm 服务，不走本体网关，这个开关不生效', 'err')
+      return
+    }
     if (what === 'gateway') await rpc('gateway.setEnabled', { enabled: value })
     if (what === 'allowLan') await rpc('gateway.setAllowLan', { allowLan: value })
     if (what === 'search') await rpc('nativeSearch.setEnabled', { enabled: value })

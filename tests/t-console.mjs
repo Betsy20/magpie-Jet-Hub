@@ -78,7 +78,9 @@ try {
   ok('/__meta 200', metaRes.status === 200)
   ok('/__meta 有 provider', Array.isArray(meta.providers) && meta.providers.length > 0, `${meta.providers?.length} 个`)
   ok('/__meta 有模型', meta.models > 0, `${meta.models} 个`)
-  ok('/__meta 带网关地址', typeof meta.gateway?.baseURL === 'string', meta.gateway?.baseURL)
+  // 直连模式：没有本地网关端口，`gateway` 字段据实说明这一点
+  // （老契约要求 `baseURL` 是字符串 —— 那条断言随内嵌网关一起废掉了）
+  ok('/__meta 标了直连模式', meta.gateway?.mode === 'direct' && meta.gateway?.port === null, JSON.stringify(meta.gateway))
   ok('/__meta 带版本', typeof meta.version === 'string', meta.version)
 
   // 2) 静态界面
@@ -131,11 +133,12 @@ try {
   const bad = await rpcCall('__no_such_method__', {})
   ok('未知方法回 ok:false', bad.result?.ok === false && bad.status === 200, `${bad.status} ${bad.result?.error?.code ?? ''}`)
 
-  // 7) 网关仍在
-  const gw = await fetch(`http://127.0.0.1:${container.port}/v1/models`, {
-    headers: { Authorization: `Bearer ${container.apiKey}` },
-  })
-  ok('内部网关 /v1/models 200', gw.status === 200)
+  // 7) 直连层仍能出模型目录（原来这条打的是内嵌网关的 HTTP 端口；
+  //    直连后 `forward()` 进程内调 `ctx.llm`，语义不变、不再有端口）
+  const gwRes = await container.forward('/v1/models', {})
+  const gwJson = await gwRes.json()
+  ok('直连 /v1/models 200', gwRes.status === 200, `HTTP ${gwRes.status}`)
+  ok('直连 /v1/models 有 data 数组', Array.isArray(gwJson?.data), `${gwJson?.data?.length ?? '—'} 条`)
 
   console.log(failed === 0 ? '\n结论：✓ 控制台链路正常' : `\n结论：✗ ${failed} 项失败`)
 } catch (e) {

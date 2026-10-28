@@ -58,12 +58,12 @@ async function toWebRequest(req, host) {
  * @param {object} opts
  * @param {{routes: Map<string, any>}} opts.seam  connection 接缝（提供 routes）
  * @param {(msg:string)=>void} [opts.log]
- * @param {()=>object} [opts.meta]  /__meta 的内容（provider 目录、网关地址等）
+ * @param {()=>object} [opts.meta]  /__meta 的内容（provider 目录、连接方式等）
  * @param {string} [opts.host]
- * @param {number} [opts.from] 起始端口
+ * @param {number} [opts.from] 起始端口（默认 18500；直连后已无内部网关要避让）
  * @param {number} [opts.tries] 最多向上试几个端口
  */
-export async function startHubServer({ seam, log = () => {}, meta = () => ({}), host = '127.0.0.1', from = 18390, tries = 60 }) {
+export async function startHubServer({ seam, log = () => {}, meta = () => ({}), host = '127.0.0.1', from = 18500, tries = 60 }) {
   const server = createServer((req, res) => {
     void (async () => {
       try {
