@@ -1,21 +1,45 @@
 // 控制台截图 + DOM 断言（Node 24 内置 WebSocket）。
-// 用法: node _shot-console.cjs [tab1 tab2 ...]
+// 用法: node scripts/shot-console.cjs [tab1 tab2 ...]
 const { spawn } = require('node:child_process')
 const fs = require('node:fs')
+const http = require('node:http')
 const path = require('node:path')
 
 const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
 const PORT = 9341
-const URL_BASE = process.env.CONSOLE_URL || readConsoleUrl()
 const OUT = path.join(__dirname, '..', 'docs')
 
-function readConsoleUrl() {
+/**
+ * 控制台真实地址。只读 `jet-hub-console.json` 不够：那个文件是**最后写入者**
+ * 留下的，宿主被强杀后会留一个死端口（实测文件写 18502，活着的是 18500/18501）。
+ * 所以读完必须连 `/__meta` 验证，连不上就按 18500..18509 逐个探。
+ * 与 scripts/snapshot-models.mjs 的 readConsoleUrl 同一套判断。
+ */
+const probe = (url) =>
+  new Promise((resolve) => {
+    const req = http.get(`${url}__meta`, { timeout: 1500 }, (res) => {
+      res.resume()
+      resolve(res.statusCode === 200)
+    })
+    req.on('error', () => resolve(false))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve(false)
+    })
+  })
+
+async function readConsoleUrl() {
+  const cands = []
   try {
     const p = path.join(process.env.USERPROFILE, '.config/magpie/jet-hub-console.json')
-    return JSON.parse(fs.readFileSync(p, 'utf8')).url
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'))
+    if (typeof j?.url === 'string' && j.url) cands.push(j.url)
   } catch {
-    return 'http://127.0.0.1:18500/'
+    /* 文件不在或坏了就只探默认端口 */
   }
+  for (let port = 18500; port < 18510; port += 1) cands.push(`http://127.0.0.1:${port}/`)
+  for (const url of cands) if (await probe(url)) return url
+  return 'http://127.0.0.1:18500/'
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -23,6 +47,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 async function main() {
   const tabs = process.argv.slice(2)
   const want = tabs.length ? tabs : ['overview', 'accounts', 'credits', 'models', 'providers', 'usage', 'settings', 'backup']
+  const URL_BASE = process.env.CONSOLE_URL || (await readConsoleUrl())
+  console.log(`控制台: ${URL_BASE}`)
   fs.mkdirSync(OUT, { recursive: true })
   const prof = path.join(require('node:os').tmpdir(), 'edge-console-' + Date.now())
   const proc = spawn(EDGE, [
