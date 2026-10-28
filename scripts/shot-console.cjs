@@ -123,6 +123,47 @@ async function main() {
   }
 
   console.log('页面 JS 报错:', errors.length ? errors.slice(0, 6) : '（无）')
+
+  // ---- Key 型渠道的添加弹窗（modelscope / opencode）--------------------------
+  // 这两家不吃 account.create（回 unknown provider），必须走各自的 *.addAccount。
+  // 断言只用**形状非法的 Key**：错误路径不落任何账号，跑多少遍都不污染账号池。
+  const keyChecks = []
+  for (const provider of ['modelscope', 'opencode']) {
+    const r = await ev(`(async () => {
+      document.querySelector('#nav button[data-tab="accounts"]').click()
+      await new Promise(r => setTimeout(r, 300))
+      const sel = document.querySelector('#accProvider')
+      sel.value = ${JSON.stringify(provider)}
+      sel.dispatchEvent(new Event('change'))
+      await new Promise(r => setTimeout(r, 600))
+      await startLogin(${JSON.stringify(provider)})
+      const modal = document.querySelector('#keyModal')
+      const opened = modal?.hidden === false
+      const shown = {
+        provider: document.querySelector('#kmProvider')?.textContent,
+        hint: document.querySelector('#kmHint')?.textContent,
+        where: document.querySelector('#kmWhere')?.getAttribute('href'),
+      }
+      // 形状非法的 Key：断言错误消息真的落进弹窗，而不是静默吞掉
+      document.querySelector('#kmKey').value = 'not-a-valid-key'
+      await submitKeyAccount(document.querySelector('#kmAdd'))
+      await new Promise(r => setTimeout(r, 900))
+      const msg = document.querySelector('#kmMsg')
+      const out = { provider: ${JSON.stringify(provider)}, opened, shown, msgText: msg?.textContent, msgErr: msg?.className?.includes('err') === true, stillOpen: modal?.hidden === false }
+      closeKeyModal()
+      return out
+    })()`)
+    keyChecks.push(r)
+    console.log(`[keyModal:${provider}]`, JSON.stringify(r))
+    const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+    fs.writeFileSync(path.join(OUT, `console-keymodal-${provider}.png`), Buffer.from(shot.result.data, 'base64'))
+    const okOpen = r?.opened === true && r?.shown?.provider === provider && !!r?.shown?.where
+    const okErr = r?.msgErr === true && /形状不对/.test(r?.msgText ?? '')
+    if (!okOpen) { console.log(`✗ keyModal ${provider}: 弹窗没打开或字段没填`); errors.push(`keyModal ${provider} 未就绪`) }
+    if (!okErr) { console.log(`✗ keyModal ${provider}: 非法 Key 没显示本体错误消息`); errors.push(`keyModal ${provider} 错误未显示`) }
+  }
+  console.log('Key 弹窗断言:', keyChecks.every((r) => r?.opened) && keyChecks.every((r) => r?.msgErr) ? '通过' : '失败')
+
   ws.close()
   proc.kill()
   try { fs.rmSync(prof, { recursive: true, force: true }) } catch {}

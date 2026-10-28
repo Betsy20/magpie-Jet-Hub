@@ -340,7 +340,83 @@ function closeLogin() {
   $('#loginModal').hidden = true
 }
 
+/**
+ * Key 型渠道：没有浏览器授权流程，本体不接受 `account.create`
+ * （实测传 provider:'modelscope' / 'opencode' 回 `unknown provider: xxx`），
+ * 只能走各自的前缀改道方法 `*.addAccount`。
+ *
+ * 官方客户端也这么选：vendor/lib/client/jet-hub.js 的 createAccount() 在第 8072
+ * 行（opencode）和第 8076 行（modelscope）都提前 `setKeyModal(...)` 然后 return，
+ * 根本不到 account.create —— 补 create 分支等于让一个「建占位号 + 回 loginUrl +
+ * login.poll 轮询」的方法再长出两套没有 poll 的语义，还得把两份 KEY_PATTERN
+ * 校验复制一遍。控制台自己的入口自己的坑自己填，不动 src/。
+ *
+ * `hint` / `where` 与本体报错文案逐字对齐（vendor/lib/modelscope-rpc.js:88、
+ * vendor/lib/opencode-rpc.js:251），用户看到的提示与后端判据同源。
+ */
+const KEY_CHANNELS = {
+  modelscope: {
+    method: 'modelscope.addAccount',
+    hint: '魔搭的访问令牌，以 ms- 开头、至少 20 位。同一把 Key 重复添加会复用同一条账号。',
+    where: 'https://modelscope.cn/my/myaccesstoken',
+  },
+  opencode: {
+    method: 'opencode.addAccount',
+    hint: 'OpenCode Zen 的 Key，20 位以上、不含空格。同一把 Key 重复添加会复用同一条账号。',
+    where: 'https://opencode.ai/console/account',
+  },
+}
+
+/** 弹 Key 输入框（替代 startLogin 的授权流程）。 */
+function openKeyModal(provider) {
+  const cfg = KEY_CHANNELS[provider]
+  if (!cfg) throw new Error(`没有 Key 型渠道的配置：${provider}`)
+  $('#kmProvider').textContent = provider
+  $('#kmHint').textContent = cfg.hint
+  $('#kmWhere').href = cfg.where
+  $('#kmKey').value = ''
+  $('#kmNick').value = ''
+  say('#kmMsg', '')
+  $('#keyModal').hidden = false
+  $('#kmKey').focus()
+}
+
+function closeKeyModal() {
+  $('#keyModal').hidden = true
+  say('#kmMsg', '')
+}
+
+async function submitKeyAccount(btn) {
+  const provider = $('#kmProvider').textContent
+  const cfg = KEY_CHANNELS[provider]
+  if (!cfg) return
+  const apiKey = $('#kmKey').value.trim()
+  if (!apiKey) {
+    say('#kmMsg', '请先粘贴 API Key', 'err')
+    return
+  }
+  const nickname = $('#kmNick').value.trim()
+  try {
+    await busy(btn, async () => {
+      const v = await rpc(cfg.method, nickname ? { apiKey, nickname } : { apiKey })
+      // 本体如实回报 existed：同 Key 复用 / 坏槽覆盖都会落到这里，
+      // 只有 created 才是真的新建了一条（文案别把覆盖说成新建）。
+      say('#kmMsg', v?.existed === true ? `已存在，复用了 ${v.accountId}` : `已添加 ${v?.accountId ?? ''}`, 'ok')
+      setTimeout(() => {
+        closeKeyModal()
+        loadAccounts()
+      }, 700)
+    })
+  } catch (e) {
+    say('#kmMsg', String(e.message ?? e), 'err')
+  }
+}
+
 async function startLogin(provider) {
+  if (KEY_CHANNELS[provider]) {
+    openKeyModal(provider)
+    return
+  }
   const v = await rpc('account.create', { provider })
   const { accountId, loginUrl } = v ?? {}
   $('#lmProvider').textContent = provider
@@ -1086,6 +1162,13 @@ async function boot() {
     } catch (e) {
       say('#accMsg', String(e.message ?? e), 'err')
     }
+  })
+
+  // Key 型渠道弹窗
+  $('#kmAdd').addEventListener('click', (e) => submitKeyAccount(e.currentTarget))
+  $('#kmClose').addEventListener('click', closeKeyModal)
+  $('#kmKey').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitKeyAccount($('#kmAdd'))
   })
 
   // 登录弹窗
