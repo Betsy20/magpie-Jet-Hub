@@ -924,7 +924,7 @@ EXIT=0
 > 这段是 2026-10-28 14:3x 由验证 重跑的**现行输出**
 > （`magpie-bun tests/t-options.mjs`，EXIT=0）。
 > 本小节最初记录的是弱断言版「全量开的模型数不少于全量关」—— 弱到**开关完全没被读
-> 也能通过**，且当时**没有** `dead_account_skip` 的接线断言。两处已在 `03b3edc` 收紧
+> 也能通过**，且当时**没有** `dead_account_skip` 的接线断言。两处已在 `2e34f0a` 收紧
 > （`na > nb` + 子集断言 + 2b 段），所以旧输出不再代表这个测试。
 
 关键在**用两份不同的 `input.magpie` 各建一次插件实例**（模拟用户拨开关），
@@ -1123,8 +1123,8 @@ $ "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-rpc-cover.mjs
 EXIT=0
 ```
 
-⚠️ **数字会动**：控制台侧 65 → 67 → 76 → 78 一路在接（`701ecdc` 补 9 个、
-`dc0141d` 补最后 2 个）。所以正文只锁**本体 78** 这个口径，控制台那一侧以测试
+⚠️ **数字会动**：控制台侧 65 → 67 → 76 → 78 一路在接（`6689fbf` 补 9 个、
+`1c54082` 补最后 2 个）。所以正文只锁**本体 78** 这个口径，控制台那一侧以测试
 每次打印的为准，不在文档里写死覆盖数。
 
 本节的**历史记录**（照实留着，别当现状引用）：12:39 那一次是 `控制台已接: 65 / 78`、
@@ -1135,26 +1135,35 @@ EXIT=0
 
 `opencode.rotateFingerprint`（换指纹不增加匿名配额）与 `modelscope.setApiKey`
 （模型页没有换 Key 的入口，加账号走 `modelscope.addAccount`）曾经是「本体有、
-控制台刻意不做」的两个缺口，**`dc0141d` 之后都已接上，未接 = 0** —— 这一句
+控制台刻意不做」的两个缺口，**`1c54082` 之后都已接上，未接 = 0** —— 这一句
 写于 14:2x 现测，别再引用「缺口只剩 2 个」那个中间态。
 
-**`account.resetAll` / `account.retestAll` 是已接的（Chief 那条更正成立）**。
-计数规则是「控制台源码里出现 `'<方法名>'` 字面量」，而这两个字面量确实在源码里：
-`console/console.js:299`（`method === 'account.resetAll'` 的确认框）
-+ `console/console.js:1156` / `:1157`（两个按钮把方法名当字符串常量传给 `accBulk()`）。
-所以它们**从来不在**未接清单里，也不该出现在任何「未接 8 个 / 11 个」的名单里。
-现测（同款规则，逐个数）：
+**`account.resetAll` / `account.retestAll` 是已接的（Chief 那条更正成立，
+两个都接，不是「接了一个」）**。方法是先字面量、再经转发函数传进去的：
+`console/console.js:330` 是唯一间接调用点 `const v = await rpc(method, { provider })`，
+`method` 是 `accBulk(btn, method)`（`:325`）的形参，两个调用点
+`:1451` `'account.retestAll'` / `:1452` `'account.resetAll'` 传的都是字面量。
+测试就是靠「形参 → 回溯全部调用点的同位置字面量实参」把这两个解析出来的。
+（行号按 `console/console.js` = `1c54082`（13:58）核过；更早引用的 `:299` / `:1156` /
+`:1157` 是 13:4x 前的行号，文件长过了，别再用。）
+
+现测（`14:5x`，[18.1](#181-本体可调度方法总数是-78不是-65) 那条同一次跑的完整输出）：
 
 ```
-$ node -e "…for(const m of ['account.resetAll','account.retestAll','account.reset','account.retest'])
-           console.log(m, t.includes(\"'\"+m+\"'\")?'已接':'未接')"
-account.resetAll 已接
-account.retestAll 已接
-account.reset 已接
-account.retest 已接
+$ "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-rpc-cover.mjs
+✓ 84 个 rpc() 调用点的实参全部解析到字面量方法名
+  控制台已接: 78 / 78
+  控制台未接: 0
+✓ 主 switch 的 65 个方法控制台全都接了
+✓ 未接项全部属于前缀改道（0 个）
+✓ RPC 口径一致：本体 78 个方法，控制台接 78 个
+EXIT=0
 ```
 
-旧版 `grep rpc('...')` 才数不到这两个，那是数法问题，不是接线问题。
+未接 = 0 意味着这两个必然在已接集合里（它们又确实是本体主 switch 的方法，
+`vendor/lib/jet-hub-rpc.js:5050` `account.retestAll` / `:5118` `account.resetAll`）。
+旧版 `grep rpc('...')` 数不到它们，是数法问题，不是接线问题；
+Jeb 离线算出的「resetAll/retestAll 有一个已接」也是数法造成的单边缺失，不是产品状态。
 
 ⚠️ 旧数字别再沿用：`62/65`、`65 个方法`、`未接 3 个` 都是错数法留下的。
 `KNOWN_UNUSED`（写死 13 个的基线名单）**已删除**，换成从源码推导的两条规则：
@@ -1251,7 +1260,7 @@ loomy.permanentLock
 全是 `true`，`loomy` 早就在里面），`loomy.permanentLock` 返回 `locked:true` 只是**读**
 现有状态、没有新写入 —— 也证明并发版的「坐实」是假的。
 
-**因此改成两阶段**（`tests/t-rpc-cover.mjs` 已改，提交 `fb3c058`）：
+**因此改成两阶段**（`tests/t-rpc-cover.mjs` 已改，提交 `de9e7b4`）：
 
 - 阶段一 **并发扫描**，只断言「不回 `unknown method:`」「无请求异常/超时」—— 这两条
   与调用顺序无关，并发是安全的；
@@ -1442,7 +1451,7 @@ Chief「先辨判据、再谈修法」的实测依据。**注意**：上表里 b
 
 Jeb 13:2x 报的 11 个未接里，有 8 个（`gemini/minimaxintl/opencode/qoder` 各 2 个
 `setProxy`+`testProxy`）当时**已经接进控制台了**，是我数错。控制台随后自己补完了
-剩下的（`701ecdc` 补 9 个、`dc0141d` 补最后 2 个），**现测 78/78、未接 0**。
+剩下的（`6689fbf` 补 9 个、`1c54082` 补最后 2 个），**现测 78/78、未接 0**。
 
 **机制**：模板字符串里写 `\s`，JS 的字符串字面量先把 `\s` 解析成 `s`（未知转义按
 字面字符处理），拼出来的正则于是成了 `consts`，永远匹配不到 `const cfg = …`。
@@ -1500,7 +1509,7 @@ EXIT=0
 | 未接 | 11（Jeb 那份） | 2 | **0** |
 | 退出码 | 1 | 0 | 0 |
 
-⚠️ `76 / 78` 那格（`fb3c058`）当场是对的，**但现在已经过期**：控制台 `dc0141d`
+⚠️ `76 / 78` 那格（`de9e7b4`）当场是对的，**但现在已经过期**：控制台 `1c54082`
 接了最后 2 个（`modelscope.setApiKey`、`opencode.rotateFingerprint`），
 所以**别引用 76/78，也别引用 67/78**——只锁「本体 78、控制台 78、未接 0」。
 
@@ -1562,7 +1571,9 @@ EXIT=0
 连 `pool.setModelDisabled` 都到不了。
 
 **再实测**（`.tmp-probe-setdisabled.cjs`，与 `t-rpc-cover` 同一套判据：
-规范化 JSON 指纹、等静默窗口 → 调用 → 等 400 ms → 比对，跑 6 轮）：
+规范化 JSON 指纹、等静默窗口 → 调用 → 等 400 ms → 比对，跑 6 轮）。
+⚠️ 这个临时脚本**已经删了**（不在工作树、不在任何 commit 里），下面是当时的原始输出；
+要复跑用 `tests/t-rpc-cover.mjs --probe` 走同一套判据，或按上述四步自己重写一遍：
 
 ```
 $ node .tmp-probe-setdisabled.cjs 6
@@ -1732,6 +1743,11 @@ $ git log --all --oneline -S'MAGPIE_WEB_KEY_REDACTED_SEE_README'
 
 - **没有换 key**。用户拍板时选的是「改写历史」，不是「换 key」；旧 key 现仍在用，
   只是不再出现在仓库里。要彻底解决得换个新 `MAGPIE_WEB_KEY` 重启 web 实例。
+  ⚠️ **但「不再出现在仓库里」这句 14:4x 被推翻了**：key 仍可从**三处**匿名读到（PR#1 ref、
+  公开 fork `iJetLi/magpie-Jet-Hub`、按 40 位 SHA 直接取的老 commit），见
+  [20.3](#203-十九说的不再出现在仓库里是错的key-仍可从公开仓库匿名读到14x-实测)。
+  **改写历史在这件事上是无效的**：它改的是 ref，旧 commit 对象只要还被别人的 ref 或
+  fork 指住就取得到；唯一能真正关掉的是换 key。
 - **没有删 `.map`**（482 个 / 4.3 MB）：它们是 source map，运行时用不到，但删了
   `vendor/` 就不再是上游包的逐字节副本，`diff` 校验会失效。体积换一致性，选了后者。
 
@@ -1741,3 +1757,473 @@ $ git log --all --oneline -S'MAGPIE_WEB_KEY_REDACTED_SEE_README'
 （`Copyright (c) 2026 Jet`），但仓库里原本**没有这份许可声明**。已放
 `vendor/LICENSE`（与上游包里的逐字节一致，`cmp` 验过），README 补「`vendor/` 的
 来源与许可」一节说明两份 LICENSE 的关系。
+
+## 二十、"缺环境"不再记成"失败"，以及改写后失效的 commit hash（2026-10-28 14:2x–14:3x）
+
+### 20.1 环境前置检查缺凭据时，记「跳过」不记「失败」
+
+**症状**：`--all` 报 `11 通过 / 1 失败`，失败的只有 `tests/ui-check.cjs`，
+但它其实没有失败——是缺 `MAGPIE_WEB_KEY`（`magpie web` 的登录 key，`tests/ui-check.cjs`
+改成必须从环境变量取之后就不再带默认值了）。而 3456 当时是活的：
+
+```
+$ curl -s -o /dev/null -w '%{http_code}\n' --max-time 3 http://127.0.0.1:3456/
+401
+```
+
+401 不是拒连。所以「测试要的环境不具备」和「被测的东西坏了」被混成了同一个红。
+
+**修法**（`scripts/test-all.mjs`，本项归我）：新增 `PRECONDITION` 表（`:40`，
+键为环境变量名）与调用（`:59`）；`ui-check.cjs` 这一项在缺 `MAGPIE_WEB_KEY` 时
+记 `跳过` 并说明原因，不计入失败。（`tests/ui-check.cjs` 本身归控制台，我只在
+`test-all` 里加前置判断，没动它。）
+
+**实测（14:3x，命令与原始输出）**：
+
+```
+$ node scripts/test-all.mjs --all
+✓ t-writerefs.mjs      83 ms
+✓ t-dead-account.mjs   92 ms
+✓ t-usage.mjs          23454 ms
+✓ t-checkin.mjs        5374 ms
+✓ t-options.mjs        102 ms
+✓ t-plugin.mjs         6713 ms
+✓ t-models-nowait.mjs  45115 ms
+✓ t-seed-auth.mjs      318 ms
+✓ t-rpc-cover.mjs      145537 ms
+✓ 控制台（真容器，~40s）        5172 ms
+✓ 网关（需 magpie 3425）    16037 ms
+- 页面 UI（需 web 3456）    跳过（缺 MAGPIE_WEB_KEY，web 登录 key 不入仓库；3456 是否在跑需另验）
+
+11 通过 / 0 失败 / 1 跳过
+EXIT=0
+```
+
+⚠️ 读数注意：**「1 跳过」不等于「页面 UI 通过」**。这一项自 key 改造之后
+在 CI/无人值守环境下永远是跳过，要真验界面得自己给 key：
+`MAGPIE_WEB_KEY=<key> node scripts/test-all.mjs --all`。完整日志留在
+`$TEMP/jethub-all-1502.log`（不在仓库内）。
+
+### 20.2 `git filter-repo` 之后，VERIFICATION.md 里一半的 hash 已失效
+
+**背景**：14:23 那次 `--replace-text` 历史改写（见[十九](#十九本机-magpie-web-登录-key-曾随仓库公开2026-10-28已改写历史)）
+把 **41 个 commit 全部换了 hash**。改写前后各短值对不上，之前写进本文、
+写进群里的 hash 大半已是死链——`git rev-parse` 直接 `fatal: Not a valid object name`。
+
+**实测（14:3x，逐个数）**：
+
+```
+$ grep -oE '\b[0-9a-f]{7}\b' VERIFICATION.md | sort -u | while read h; do
+    git rev-parse --verify -q "$h" >/dev/null && echo "OK   $h" || echo "DEAD $h"; done
+OK   1c54082
+OK   8827247
+OK   a6dc83d
+DEAD 03b3edc
+DEAD 1639680
+DEAD 701ecdc
+DEAD dc0141d
+DEAD fb3c058
+```
+
+（`1639680` 是误报：它是[第 208 行](#)用量四格里的「缓存命中 1639680」，不是 hash。）
+
+⚠️ **上面 6 个 DEAD 值一个都不要单独引用** —— 它们在本机已不存在，单独出现就是把人往
+不存在的提交上引。要提就必须跟下面这张替换表**成对**写：旧值 → 新值（`03b3edc→2e34f0a`、
+`701ecdc→6689fbf`、`dc0141d→1c54082`、`921d80e→ddf055f`、`f35d085→a6dc83d`、
+`fb3c058→de9e7b4`）。同理，本文其他地方引 hash 一律用**新值**。
+
+**新旧对照**（`.git/filter-repo/commit-map`）：
+
+| 旧值 | 新值 | 那次改了什么 |
+|---|---|---|
+| `921d80e` | `ddf055f` | （Jeb 引用的第四个值） |
+| `f35d085` | `a6dc83d` | 改写前的 HEAD |
+| `03b3edc` | `2e34f0a` | `tests`: 落地 t-rpc-cover 与三处测试自身缺陷修复 |
+| `701ecdc` | `6689fbf` | `feat(console)`: 补 9 个缺口方法 |
+| `dc0141d` | `1c54082` | `feat(console)`: 接最后 2 个 RPC，78/78 |
+| `fb3c058` | `de9e7b4` | `fix(tests)`: 实参回溯取最近绑定、归因改串行 |
+
+⚠️ **`commit-map` 里前三行（`6eee107` / `c2ed21a` / `6402fec`）不能当替换关系用**，
+它们不是「同一个 commit 换了 hash」，而是**同一个改动在两条线上有两个不同的对象、
+内容也不一样**。见下面 20.2.1。
+
+#### 20.2.1 「两个 hash」不是一处改名的两半，是两条线的两份树（14:4x 实测）
+
+```
+$ for h in 6eee107 c2ed21a 6402fec 921d80e f35d085 03b3edc 701ecdc dc0141d fb3c058; do
+    exists=$(git cat-file -e "$h" 2>/dev/null && echo Y || echo N)
+    onmain=$(git merge-base --is-ancestor "$h" refs/heads/main 2>/dev/null && echo Y || echo N)
+    onpr=$(git merge-base --is-ancestor "$h" refs/remotes/origin/pr-1 2>/dev/null && echo Y || echo N)
+    printf "%-9s exists=%-2s on_main=%-2s on_pr1=%-2s\n" "$h" "$exists" "$onmain" "$onpr"; done
+6eee107   exists=Y  on_main=N  on_pr1=Y
+c2ed21a   exists=Y  on_main=N  on_pr1=Y
+6402fec   exists=Y  on_main=N  on_pr1=Y
+921d80e   exists=N  on_main=N  on_pr1=N
+f35d085   exists=N  on_main=N  on_pr1=N
+03b3edc   exists=N  on_main=N  on_pr1=N
+701ecdc   exists=N  on_main=N  on_pr1=N
+dc0141d   exists=N  on_main=N  on_pr1=N
+fb3c058   exists=N  on_main=N  on_pr1=N
+```
+
+（`git cat-file -e` 只判「对象还在不在」；`git rev-parse --verify` 还要有 ref 可达，
+所以前面那次扫描把它们报成 DEAD —— 两个命令答的不是同一个问题。）
+
+**同一条改动、同样的时间与标题，树内容不同**：
+
+```
+$ git rev-parse 6eee107^{tree}   → 0c983ed4df56
+$ git rev-parse b906065^{tree}   → 6f277eebabac          ← 不同
+$ git rev-parse c2ed21a^{tree}   → 0b64e0cd650f
+$ git rev-parse 3bf9c5d^{tree}   → 308ecb994413          ← 不同
+$ git rev-parse 6402fec^{tree}   → 8afbe800c87f
+$ git rev-parse 112e1dd^{tree}   → 7616e34b5153          ← 不同
+```
+
+**差异正好只有「那一行 key」**，三个文件各一行：
+
+```
+$ git diff --stat 6eee107 b906065
+ _shot-usage.cjs    | 2 +-
+ tests/shot.cjs     | 2 +-
+ tests/ui-check.cjs | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+$ git diff 6eee107 b906065 -- tests/ui-check.cjs
+-const KEY = process.argv[2] || '<原 key，32 位 hex>'
++const KEY = process.argv[2] || 'MAGPIE_WEB_KEY_REDACTED_SEE_README'
+```
+
+⇒ 结论精确化：`refs/remotes/origin/pr-1`（`850d339`，PR#1 `state: closed`、`merged: false`）
+上那条线是**未脱敏**的同一批 commit；`main` 上是脱敏后的。所以
+`6eee107` / `c2ed21a` / `6402fec` 在本地**查得到、能 checkout、里面是带 key 的旧文件** ——
+这也正是 20.3 那条口子的本地侧形态。别把它们当 rename 对照，也别以为它们「失效了所以
+无所谓」：它们是**仍然存在的旧内容**。
+
+**还有 6 个短值彻底没了**（`.git/filter-repo/suboptimal-issues`：被别的 commit
+message 引用、但该 commit 已被过滤掉，引用原样留在 message 里，谁也 checkout 不出来）：
+`dd2c0ebd` `50fe31bd` `c5a68171` `0595d106` `fbfa3882` `1209600`。
+
+**代价（如实记）**：`origin` remote 被 filter-repo 摘掉；本地 `stash` 必须先 `stash`
+再 `apply`（filter-repo 会重写 stash）；工作树里 11 个文件的未提交改动在
+14:26 靠 `stash apply` 才回来。**所以任何人报 hash 之前先 `git rev-parse --verify` 一下**，
+尤其是我自己——本文内的引用已按上表换过一遍，再引用旧值我就复核不了。
+
+### 20.3 十九节说的「不再出现在仓库里」是错的：key 仍可从公开仓库匿名读到（14:4x 实测）
+
+十九节写的「旧 key 只是不再出现在仓库里」——**这句现在不成立**。`--replace-text`
+只重写了 `main` 的 41 个 commit，**没有重写远端那个 PR ref**；而 PR ref 就在公开仓库上。
+
+**复现链（三步，全部匿名、不带任何凭据）**：
+
+```bash
+# 1) 仓库是公开的
+$ curl -s https://api.github.com/repos/Betsy20/magpie-Jet-Hub | grep -E '"visibility"|"private"'
+  "private": false,
+  "visibility": "public",
+
+# 2) PR#1 的 head ref 匿名可读
+$ curl -s -o /dev/null -w '%{http_code}\n' \
+    https://raw.githubusercontent.com/Betsy20/magpie-Jet-Hub/refs/pull/1/head/tests/ui-check.cjs
+200
+
+# 3) 响应正文里就是明文 key（本次输出已截断，仓库内不复述完整值）
+$ curl -s https://raw.githubusercontent.com/Betsy20/magpie-Jet-Hub/refs/pull/1/head/tests/ui-check.cjs \
+    | grep -n 'const KEY'
+15:const KEY = process.argv[2] || '<原 key，32 位 hex：本文不复述，只标它在那儿>'
+```
+
+注意 `grep -n 'const KEY'` 命中的是**行号 15、字面量就在那一行**——本文刻意不复述值，
+只留「在第 15 行、形如 `process.argv[2] || '<32 位 hex>'`」这个可核对的形状。
+
+**口子不止 PR#1 一条。四条独立的匿名读法，本段逐条自己复跑过（15:0x）**：
+
+```bash
+# A) PR#1 的 head ref（同上面的第 2、3 步，不重复）
+# B) 公开 fork iJetLi/magpie-Jet-Hub 的 main —— 改写前的整棵树都在那儿
+$ curl -s -o /dev/null -w '%{http_code}\n' \
+    https://raw.githubusercontent.com/iJetLi/magpie-Jet-Hub/main/tests/ui-check.cjs
+200
+$ curl -s https://raw.githubusercontent.com/iJetLi/magpie-Jet-Hub/main/tests/ui-check.cjs | grep -n 'const KEY'
+15:const KEY = process.argv[2] || '<原 key，32 位 hex>'
+```
+
+```bash
+# C) 直接按 40 位 SHA 取老 commit —— 匿名，建一个空仓库就行
+$ cd /tmp/jh-anon && git init -q . \
+    && git remote add origin https://github.com/Betsy20/magpie-Jet-Hub.git
+$ git fetch --no-tags -q origin 8c867e8c2f4f4cd5a6ad00333c41935222bd3ed4  → OK
+$ git fetch --no-tags -q origin e96a562313224946a3495c847f4354f232ae1d7f  → OK
+$ git fetch --no-tags -q origin fc90544f94dd77c151f8fabc4cf43f74d34028c3  → OK
+$ git fetch --no-tags -q origin f35d085feb48155cbe46258fda73da703e4e7c16
+fatal: remote error: upload-pack: not our ref f35d085feb48155cbe46258fda73da703e4e7c16
+```
+
+（`git ls-remote` 对这 4 个 SHA 全部命中 0 —— 它们是游离 commit，不挂在任何 ref 上，
+所以 `ls-remote` 看不见。**但按 SHA 直接 fetch 只要对象还在服务端就成功**，这三条都能。）
+
+```bash
+# 取到的三个老 commit 里，仍是明文 key（值已遮蔽，只看形状）
+$ git -C /tmp/jh-anon log -1 --format='%h %s' 8c867e8c…
+8c867e8 feat: 账号积分接入 magpie 用量卡 + 每日…
+   _shot-usage.cjs: 18:const KEY = '<32 位 hex>'
+   tests/shot.cjs:    8:const KEY = process.argv[2] || '<32 位 hex>'
+   tests/ui-check.cjs: 15:const KEY = process.argv[2] || '<32 位 hex>'
+$ git -C /tmp/jh-anon log -1 --format='%h %s' e96a5623…
+e96a562 feat(page): 侧栏页做成控制台 UI（接入/模…
+   tests/shot.cjs:    8: …
+   tests/ui-check.cjs: 15: …
+$ git -C /tmp/jh-anon log -1 --format='%h %s' fc90544f…
+fc90544 feat: magpie-Jet-Hub —— 把 deepseek-harness-cod…
+   tests/shot.cjs:    8: …
+```
+
+⇒ **结论要写得比「main 上删掉了」更死**：`filter-repo` 只改了 `main` 的 41 个 commit，
+**key 仍可从三处匿名读到** —— PR#1 ref、公开 fork `iJetLi/magpie-Jet-Hub`（main 与 fix
+分支都是改写前的树）、以及按 40 位 SHA 直接取的老 commit。**改写历史在这件事上是无效的**：
+它改的是引用，不是对象；旧对象只要还被任何 ref（PR ref、fork）指住就留得下、取得到。
+**唯一真正能关掉这条口子的动作是换 key**（外加删 PR ref / 仓库转私有，二者只有 owner 能做）。
+
+
+**本地侧同样的东西（未认证即可 enumerate）**：
+
+```
+$ git grep -l '<原 key>' refs/remotes/origin/pr-1
+refs/remotes/origin/pr-1:_shot-usage.cjs      :18  const KEY = '<原 key>'
+refs/remotes/origin/pr-1:tests/shot.cjs       :8   const KEY = process.argv[2] || '<原 key>'
+refs/remotes/origin/pr-1:tests/ui-check.cjs   :15  const KEY = process.argv[2] || '<原 key>'
+$ git log --oneline -S'<原 key>' refs/remotes/origin/pr-1 | wc -l
+3
+$ git log --oneline -S'<原 key>' refs/heads/main | wc -l
+0
+```
+
+**这把 key 现在还是活的**（这就是为什么它不是「历史遗留」而是「当前凭据」）：
+
+```
+$ curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 \
+    -H "Cookie: magpie_web_3456=<原 key>" http://127.0.0.1:3456/api/providers
+200
+```
+
+**伤害面（如实、不夸大）**：web 只绑 `127.0.0.1:3456`（十九节实测过），所以拿到 key 的人
+**还得先能访问这台机器**。但 key 本身已经等同于公开，十九节「已经收干净了」的结论要撤回。
+
+**要关掉这条口子的三个动作（前两个只有仓库 owner 能做，我一个人做不了）**：
+
+1. GitHub 上删掉 PR#1 的 ref，或把仓库改私有 —— `refs/pull/1/head` 只能靠这两条之一消失；
+   本地 `git push origin --delete <branch>` 对 `refs/pull/*` **无效**（那是 GitHub 托管 ref）。
+2. 换一个新 `MAGPIE_WEB_KEY` 并重启 `magpie web`：这样即使旧值还在，它也已经失效。
+   **这一条是唯一有效的一条** —— 见上面三条匿名读法：删 PR ref 与转私有都挡不住
+   公开 fork `iJetLi/magpie-Jet-Hub` 和按 SHA 取的老 commit，只有换 key 让旧值变成废值。
+3. 之后再把 `main` 上的三个脚本确认一遍（已确认 0 处，见十九节）。
+
+→ 1、2 归**文档/仓库 owner**，不是我的权限范围；我这边只交付这条复现与结论。
+**未实测**：PR#1 被删后 raw 链接是否立刻 404（依赖 GitHub 缓存，我没法构造）；
+fork `iJetLi/magpie-Jet-Hub` 是 owner 主动建的镜像还是别人 fork 的，我没查 —— 它现在
+公开可读（上面 `http=200`），这一点与归属无关地成立。
+
+### 20.4 `t-rpc-cover.mjs` 还有第二、第三个"虚报覆盖率"的自伤 bug（14:5x 实测）
+
+写 20.3 时为了给 78 找证据，我把 `viaParam` 打印加进统计，结果反倒揪出测试自己的两个洞。
+**这两个洞的方向都是「把覆盖率抬高」，不是压低** —— 比之前那个 `\s` bug 危险得多，因为
+它让红变成了绿。
+
+#### 洞一：跳过函数定义行的守卫从来没触发过
+
+```js
+// 修前（tests/t-rpc-cover.mjs:336）
+if (/function\s+rpc\s*$/.test(l.slice(0, m.index))) continue
+```
+
+`m.index` 正落在 `rpc(` 的开头，所以 `l.slice(0, m.index)` 以 `"function "` 结尾、
+**根本不含 "rpc"**，这条正则永远不匹配 ⇒ `console/console.js:20` 的
+`async function rpc(method, payload = {})` 定义行被当成一个「调用点」。
+
+#### 洞二：`rpc` 自己的形参被当成「转发形参」，成了万能通配
+
+定义行被收进调用点之后，其实参 `method` 走「形参回溯」分支；而形参扫描会在全文里找
+`function rpc(...)`，正好找到它自己，于是 `rpc()` 的**每一个**调用点的字面量都被拼进来：
+
+```
+[viaParam] console/console.js:20 rpc(method) -> 65 个方法  (经 rpc+accBulk)
+```
+
+—— 一处「调用点」凭空贡献 65 个方法名。任何 `rpc(method)` 写法（含 `accBulk` 里那个真转发）
+都会被这张通配覆盖，**覆盖率可以虚抬到 100%**。
+
+**修法（两处，都在自己负责的 tests/ 里）**：
+
+```js
+// :340 洞一——按「切片以 function 结尾」判，定义行真正被跳过
+if (/(?:async\s+)?function\s+$/.test(l.slice(0, m.index))) continue
+
+// :243 洞二——`rpc` 自己的形参不参与回溯（它是运行时变量，不是调用点传的字面量）
+if (idx < 0 || sig[1] === 'rpc') continue
+```
+
+**修后**（`node tests/t-rpc-cover.mjs`，EXIT=0）：
+
+```
+✓ 83 个 rpc() 调用点的实参全部解析到字面量方法名
+  控制台已接: 78 / 78
+  控制台未接: 0
+✓ 主 switch 的 65 个方法控制台全都接了
+✓ RPC 口径一致：本体 78 个方法，控制台接 78 个
+```
+
+**注意这个 78/78 和修前的 78/78 不是同一件事**：修前那 78 里有一部分是通配白送的。
+我另外做了一次判别实验（把 `sig[1] === 'rpc'` 那条排除规则去掉、只留洞一修好），
+结果仍是 78/78 —— 说明**这次的两个洞没有污染最终数字**，78 是真的。但结论不能靠
+「反正数字没变」：两个洞现在都被钉死，下次谁再写 `rpc(method)` 不会再白送覆盖率。
+
+**仍未实测**：`--probe` 那条 69 个方法真发请求的断言（`--all` 时跑，约 2.5 分钟），
+本段写作时正在后台跑，结果见 20.5。
+
+### 20.5 `--probe`：69 个方法真发请求，均未回 unknown method（14:5x 实测，已回收）
+
+**命令**（后台跑，约 2 分 15 秒；`--probe` 只在有活的 magpie web 宿主时才跑）：
+
+```
+$ "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-rpc-cover.mjs --probe
+```
+
+**原始输出（结尾 20 行，原样）**：
+
+```
+✓ 主 switch 的 65 个方法控制台全都接了
+✓ 未接项全部属于前缀改道（0 个）
+✓ loomy.permanentLock 已由控制台接通（经 lockMethod 变量，不是未接项）
+✓ 控制台对 opencode.* 有处置（接了 5 / 缺 0）
+✓ 控制台对 gemini.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 qoder.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 minimaxintl.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 modelscope.* 有处置（接了 2 / 缺 0）
+✓ 控制台没有调用不存在的方法
+  控制台探活: http://127.0.0.1:18500（快照里的 http://127.0.0.1:18502 已失效，已改扫端口）（并发 6，单请求超时 5000 ms）
+  归因对照组（不调用任何方法，同样的等待协议 3 轮）：0/3 次内容自己变了
+  ⚠ 探活期间状态文件内容变了，进入隔离复验（串行，逐个方法等静默窗口、两次命中才算）
+  副作用归因：嫌疑 69，坐实 0，判为并发写方噪声 69（噪声: account.delete, account.list, …）
+✓ 探活后状态文件内容变了，但归因没坐实任何单个方法（对照组命中 0 次，69 个嫌疑串行两轮全判噪声 ⇒ 外部并发写方）
+✓ 69 个方法真发请求，均未回 unknown method
+✓ 探活无请求异常/超时
+  有副作用、按设计跳过（9）: account.create[建占位账号], account.reset[清限流标记], account.resetAll[同上，且遍历全部账号], account.retest[发真实上游请求 + 清限流标记], account.retestAll[同上，且遍历全部账号], aggregate.rejectNonExpiring[改聚合白名单], backup.import[缺省 mode='replace'，会覆盖整库], captcha.contribute[写载体参数表], credits.claimAll[对每条账号真发领取]
+  探活耗时 135262 ms
+
+✓ RPC 口径一致：本体 78 个方法，控制台接 78 个
+EXIT=0
+```
+
+**这条证据证明什么、不证明什么**：
+
+- 证明：控制台真的发了 78−9=69 个请求，宿主一个都没回 `unknown method`（即这几个方法在
+  运行态确实可调度，不是只在源码里有个名字）。这也覆盖了走 `handleMethod()` 前缀改道的
+  那 13 个 —— 它们最容易出现「源码有名字、运行态没分发」的假接。
+- **不证明**「78 个都接对了业务」：探活只发**空载荷**，只能证分发层存在。
+- 9 个按设计跳过的方法在输出里逐个写了**为什么跳过**（会写盘 / 会发真实上游请求），
+  这份清单就是探活的写入白名单，改它必须给出「空载荷不写盘」的实测。
+- 归因：本轮嫌疑 69、坐实 0，对照组 0/3 —— 状态文件确实被外部并发写方改了（两个
+  magpie 宿主 + UI 轮询），但没有任何单个方法被坐实。这是 P1「双宿主」的副作用：
+  只要 18500/18501 同时活着，这套归因就只能给「坐实 0」，给不了更强的结论。
+
+**端口说明**：本轮探的是 `127.0.0.1:18500`，快照文件里写的 18502 无人监听（P1 未修）。
+
+### 20.6 `tests/t-console.mjs` 跑一次就覆写用户真实 `~/.config`（15:0x 实测，方案未落地）
+
+**这是一条测试套件自己的副作用缺陷，不是产品 bug** —— 起因是 `src/container.mjs:199` 无条件
+写地址文件，而 `tests/t-console.mjs:26` 会真起容器。
+
+**根因（读码，行号可核）**：
+
+```js
+// src/container.mjs:196-202
+try {
+  const p = join(homedir(), '.config', 'magpie', 'jet-hub-console.json')
+  mkdirSync(dirname(p), { recursive: true })
+  writeFileSync(p, JSON.stringify({ url: this.console.url, port: this.console.port, at: new Date().toISOString() }, null, 2))
+} catch { /* 写不了不影响服务 */ }
+```
+
+两个要点：
+1. 路径从 `homedir()` 求，**不是** `this.home`（`:57` 已经把 `options.home` 存下来、
+   `:110` 还会传给它建的 `FileCredentialProvider`）。所以「注入 home」这个既有开关**管不到这里**。
+2. `catch {}` 吞掉所有错误、不报警 —— 写失败或者写错地方都不会有声音。
+
+**实测 A：现状（`MODE=raw`，即 `tests/t-console.mjs` 现在的写法）**
+
+```bash
+$ F="C:/Users/Betsy/.config/magpie/jet-hub-console.json"
+$ ls -la --time-style=full-iso "$F"; cat "$F"          # 跑前
+-rw-r--r-- 1 Betsy 197121 91 2026-10-28 14:51:25.424546400 +0800 …jet-hub-console.json
+{ "url": "http://127.0.0.1:18502/", "port": 18502, "at": "2026-10-28T06:37:21.194Z" }
+
+$ MODE=raw node .tmp-probe-config.mjs
+  · 内部网关就绪 :18392，模型 28 个
+  · 控制台就绪 http://127.0.0.1:18502/｜管理路由 2 条：POST /api/jet-hub | GET /api/jet-hub/captcha-carrier
+MODE= raw homedir()= C:\Users\Betsy console= http://127.0.0.1:18502/
+  astudio: 2 个账号
+  loomy: 2 个账号
+真实账号合计= 4
+[EXIT=0]
+
+$ ls -la --time-style=full-iso "$F"; cat "$F"          # 跑后
+-rw-r--r-- 1 Betsy 197121 91 2026-10-28 15:01:05.767219100 +0800 …jet-hub-console.json
+{ "url": "http://127.0.0.1:18502/", "port": 18502, "at": "2026-10-28T07:01:05.766Z" }
+
+$ diff .tmp-cfg-before.json "$F"
+4c4
+<   "at": "2026-10-28T06:37:21.194Z"
+---
+>   "at": "2026-10-28T07:01:05.766Z"
+```
+
+⇒ **成立**：跑一次就重写用户的真实配置文件（mtime 14:51:25 → 15:01:05，`at` 也被刷新）。
+唯一「没变」的是 `url`/`port` —— 因为探针这次恰好也起在 18502。换个端口跑就会把用户的
+地址来源改成那个端口：这正是 控制台 的快照 `console` 字段曾经指向 18502（而 18502 无人监听）
+的成因。
+
+**实测 B：方案 A（测试侧隔离，`MODE=iso`）**
+
+做法：起容器**之前**先把 `USERPROFILE` / `HOME` 改到 `mkdtempSync(join(tmpdir(),'jh-iso-'))`，
+而 `new JetHubContainer({ home: REAL_HOME, … })` 仍显式传真实家（凭据照读真号）。
+
+```bash
+$ MODE=iso node .tmp-probe-config.mjs
+MODE= iso homedir()= C:\Users\Betsy\AppData\Local\Temp\jh-iso-CmOn8b console= http://127.0.0.1:18502/
+  astudio: 2 个账号
+  loomy: 2 个账号
+真实账号合计= 4
+临时家目录里的地址文件: http://127.0.0.1:18502/
+[EXIT=0]
+
+$ ls -la --time-style=full-iso "$F"                    # 真实家
+-rw-r--r-- 1 Betsy 197121 91 2026-10-28 15:01:05.767219100 +0800   ← mtime 与 at 都停在 raw 那次
+$ diff .tmp-cfg-isopre.json "$F"                       # 只差 raw 那次留下的 at，iso 没再写
+4c4
+<   "at": "2026-10-28T06:37:21.194Z"
+---
+>   "at": "2026-10-28T07:01:05.766Z"
+$ ls -la "$TEMP"/jh-iso-CmOn8b/.config/magpie/
+-rw-r--r-- 1 Betsy 197121 91 Oct 28 15:01 jet-hub-console.json
+```
+
+**判据用的是文件里的 `at`（写入时刻自己写进去的时间戳），不是 mtime** —— `at` 保持
+`07:01:05.766Z` 不变，就证明 iso 那次**一次都没写**这个文件；同时临时家目录里出现了
+同样的 `jet-hub-console.json`（内容 `url` 相同），即写入被**原地改道**而不是被**跳过**。
+
+**两种模式读到的账号完全一致（astudio 2 + loomy 2 = 4）** ⇒ 隔离不改变测试要验证的东西，
+`home` 显式传真实家这一半是必须的（否则凭据会跟着 `USERPROFILE` 跑掉）。
+
+**三个候选方案，我的评估**：
+
+| 方案 | 谁改 | 强度 | 说明 |
+|---|---|---|---|
+| **A 测试侧隔离**（`USERPROFILE`/`HOME` → 临时目录，`home` 仍传真实家） | 我，只动 `tests/` | 够用，已实测 | 副作用被改道到临时目录；无需插件侧配合；缺点是「写文件」这个行为本身还在，只是写歪了 |
+| **B 插件侧注入落盘路径**（`homedir()` → `this.home` 或 `DSH_HOME`） | 内核 | 最干净 | 根因修在源头，且 `:57` 已经有 `this.home` 可用，改动 3 行；但 `src/` 不是我的文件，**先报 Jeb 派给 内核** |
+| C 测试前后备份还原 | 我 | 最弱 | 进程被杀 / 断言失败中途退出就漏还原；且两次测试并发会互相踩 |
+
+**我的建议**：A 与 B 不冲突，**A 现在就够**（我能独立做完、不碰产品代码），B 作为根因修复
+由 内核 决定（它顺带能挡住 `catch {}` 那句吞错）。C 不建议。
+
+**未实测**：这轮只验了「谁写、写到哪」；`tests/t-console.mjs` 本身**还没改**（Jeb 要求
+先给方案、跟 控制台 对齐后再动手）。所以现在跑 `node scripts/test-all.mjs --all` 仍会覆写
+用户真实配置 —— 在方案落地前，**谁跑 `--all` 谁就把别人的地址来源改掉**。
