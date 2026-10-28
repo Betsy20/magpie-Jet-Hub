@@ -93,6 +93,11 @@ const NAMES = {
   'jet-hub-opencode': ['Jet Hub · OpenCode', 'OpenCode'],
   'jet-hub-raccoon': ['Jet Hub · Raccoon', 'Raccoon'],
   'jet-hub-minimaxintl': ['Jet Hub · MiniMax 国际', 'MiniMax 国际版'],
+  'jet-hub-minimax': ['Jet Hub · MiniMax', 'MiniMax 国内站'],
+  'jet-hub-autoclawintl': ['Jet Hub · AutoClaw 国际', '智谱 AutoClaw 国际版'],
+  'jet-hub-gemini': ['Jet Hub · Gemini', 'Google Gemini'],
+  'jet-hub-accio': ['Jet Hub · Accio', '阿里 Accio'],
+  'jet-hub-codely': ['Jet Hub · Codely', 'Codely'],
 }
 
 const CACHE = path.join(homedir(), '.config', 'magpie', 'jet-hub-models.json')
