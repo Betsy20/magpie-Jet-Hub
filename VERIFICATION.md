@@ -727,3 +727,57 @@ magpie 侧栏页的 `connect-src 'none'` 是写死的（`_mp_pluginpage.go:228`�
 - `_shot-console.cjs` → `scripts/shot-console.cjs`（八标签实拍 + DOM 断言）
 - `_run-console.mjs` → `scripts/run-console.mjs`（单独起容器 + 控制台，不重启 magpie）
 - 删除临时探针 `_probe-all.mjs` / `_probe-write.mjs` / `_probe-cand.mjs` / `_probe-cand2.mjs`
+
+---
+
+## 十四、侧栏页控制台地址写死 18500 的真缺陷（已修）
+
+### 症状（Observed）
+侧栏页「控制台」标签显示的地址恒为 `http://127.0.0.1:18500/`，
+而实际端口是 `src/container.mjs` 里 `startHubServer({ from: 18500 })` 向上找的第一个空位。
+实测当次运行：
+```
+$ cat ~/.config/magpie/jet-hub-console.json
+{"url":"http://127.0.0.1:18502/","port":18502}
+```
+⇒ 用户点「复制地址」拿到 18500，那是**另一个 bun 宿主**的控制台，会连到错误实例。
+
+### 根因
+`page/page.js` 原写：
+```js
+const CON_PORT_DEFAULT = '18500'
+function conUrl() { return `http://127.0.0.1:${CON_PORT_DEFAULT}/` }
+```
+侧栏页 CSP 是 `connect-src 'none'`（`internal/gui/pluginpage.go` 写死），
+页面**发不出任何请求**，自己问不到端口，只能靠别处喂。
+
+### 修法
+1. `scripts/snapshot-models.mjs` 新增 `readConsoleUrl()`，读
+   `~/.config/magpie/jet-hub-console.json` 的 `url`，连同模型目录一起写进
+   `page/models.js` 的 `console` 字段（读不到退回 18500）。
+2. `page/page.js` 的 `conUrl()` 改为优先读 `window.JET_HUB_CATALOG.console`
+   （校验 `/^https?:\/\//`），退回默认值；`fillConsole()` 顺带更新
+   `#conUrlNote`，把「地址来自 YYYY-MM-DD HH:mm:ss 的快照」说清楚。
+3. `page/index.html` 的提示段落补上 `id="conUrlNote"`。
+4. `tests/ui-check.cjs` 新增断言：控制台标签的 `#conUrlBox` 必须是
+   `http://127.0.0.1:<port>/` 形状，否则判失败。
+
+### 验证（Observed，真跑）
+```
+$ node scripts/snapshot-models.mjs
+✓ 863 个模型 / 19 个 provider（来源：plugin-cache（上游全量））→ page\models.js
+$ grep -n '"console"' page/models.js
+6132:  "console": "http://127.0.0.1:18502/"
+
+$ node tests/ui-check.cjs
+  {"tab":"console",...,"conUrl":"http://127.0.0.1:18502/",
+   "conNote":"地址来自 2026-10-28 02:02:41 的快照（端口随占用自动变，重跑"}
+页面无 JS 报错
+✓ 六个标签均渲染正常
+✓ 控制台地址 http://127.0.0.1:18502/｜提示：地址来自 2026-10-28 02:02:41 的快照（端口随占用自动变，重跑
+```
+`node scripts/test-all.mjs` → **7 通过 / 0 失败 / 0 跳过**。
+
+### 遗留限制
+端口每次宿主启动都可能变，快照不会自动更新 —— 地址仍然是「快照时刻」的，
+页面已把快照时间写在提示里，不假装实时。

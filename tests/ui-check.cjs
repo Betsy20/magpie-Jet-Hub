@@ -130,6 +130,9 @@ function makeClient(wsUrl, problems) {
         provs:document.querySelectorAll('.prov').length,
         snippetLen:(document.querySelector('#snippet')?.textContent||'').length,
         bodyH:Math.round(document.body.getBoundingClientRect().height),
+        // 控制台标签必须显示快照里的真实端口，不能是写死的 18500
+        conUrl:document.querySelector('#conUrlBox')?.value||'',
+        conNote:(document.querySelector('#conUrlNote')?.textContent||'').trim().slice(0,40),
       })
     })()`)
     console.log('  ' + probe)
@@ -141,7 +144,19 @@ function makeClient(wsUrl, problems) {
 
   const bad = report.filter((r) => r.panelTitle === 'NO PANEL' || !r.state)
   if (bad.length) console.log('⚠ 有标签未正常渲染:', bad.map((b) => b.tab).join(','))
-  else console.log('✓ 五个标签均渲染正常')
+  else console.log('✓ 六个标签均渲染正常')
+
+  // 控制台地址必须是快照里的真实端口（写死 18500 就会连到别的实例上）
+  const con = report.find((r) => r.tab === 'console')
+  if (!con?.conUrl) {
+    console.log('⚠ 控制台标签没读到地址框')
+    bad.push({ tab: 'console-url' })
+  } else if (!/^http:\/\/127\.0\.0\.1:\d+\/$/.test(con.conUrl)) {
+    console.log(`⚠ 控制台地址形状不对：${con.conUrl}`)
+    bad.push({ tab: 'console-url' })
+  } else {
+    console.log(`✓ 控制台地址 ${con.conUrl}｜提示：${con.conNote}`)
+  }
 
   fr.ws.close(); main.ws.close(); child.kill()
   await sleep(300)

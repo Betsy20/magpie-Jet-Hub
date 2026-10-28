@@ -346,16 +346,29 @@ async function saveSettings() {
 /* ── tabs ─────────────────────────────── */
 
 /* 控制台地址：页面拿不到插件运行时端口（沙箱，connect-src 'none'），
-   所以只能显示默认值，并指路 ~/.config/magpie/jet-hub-console.json。 */
+   所以地址由快照脚本一并写进 models.js（`JET_HUB_CATALOG.console`）；
+   快照里没有时才退回默认 18500。 */
 const CON_PORT_DEFAULT = '18500'
 
 function conUrl() {
+  const fromSnap = (typeof window.JET_HUB_CATALOG === 'object' && window.JET_HUB_CATALOG)
+    ? window.JET_HUB_CATALOG.console
+    : undefined
+  if (typeof fromSnap === 'string' && /^https?:\/\//.test(fromSnap)) return fromSnap
   return `http://127.0.0.1:${CON_PORT_DEFAULT}/`
 }
 
 function fillConsole() {
   const box = $('#conUrlBox')
   if (box) box.value = conUrl()
+  // 快照里的地址可能不是 18500，提示文案要跟着走，别让用户以为写死了
+  const note = $('#conUrlNote')
+  if (note) {
+    const snapAt = (window.JET_HUB_CATALOG || {}).generatedAt
+    note.textContent = snapAt
+      ? `地址来自 ${String(snapAt).slice(0, 19).replace('T', ' ')} 的快照（端口随占用自动变，重跑 snapshot-models 更新）`
+      : `端口默认 18500，被占用时会自动 +1。准确端口见 ~/.config/magpie/jet-hub-console.json 的 url 字段。`
+  }
 }
 
 function showTab(name) {

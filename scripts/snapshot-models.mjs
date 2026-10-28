@@ -28,6 +28,22 @@ const OUT = path.join(HERE, '..', 'page', 'models.js')
 const gateway = (process.argv[2] || 'http://127.0.0.1:3425').replace(/\/+$/, '')
 
 /**
+ * 控制台真实地址（插件启动时写在 `~/.config/magpie/jet-hub-console.json`）。
+ * 端口从 18500 起找空位，被占用就是 18501/18502…，所以不能写死。
+ * 读不到时退回默认 18500（此时页面上的提示会指路这个文件）。
+ */
+function readConsoleUrl() {
+  try {
+    const p = path.join(homedir(), '.config', 'magpie', 'jet-hub-console.json')
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'))
+    if (typeof j?.url === 'string' && j.url) return j.url
+  } catch {
+    /* 文件不在或坏了都退回默认 */
+  }
+  return 'http://127.0.0.1:18500/'
+}
+
+/**
  * 本体 provider → magpie provider id。
  *
  * ⚠️ 只有 `jet-hub-auto` 特殊：它在 magpie 里叫 `jet-hub`（见 src/plugin.mjs 的 idOf）。
@@ -114,6 +130,9 @@ async function main() {
     models,
     detail: Object.fromEntries([...byId]),
     providers,
+    // 控制台地址随快照一起带过去：侧栏页 CSP 是 connect-src 'none'，自己问不到端口，
+    // 只能从这份快照里读（否则页面只能写死 18500，被占用后就是错地址）。
+    console: readConsoleUrl(),
   }
 
   const js = `// 自动生成：node scripts/snapshot-models.mjs —— 别手改。
