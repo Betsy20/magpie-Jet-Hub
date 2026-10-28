@@ -5,7 +5,7 @@
 把 **deepseek-harness-codearts 插件本体**装进 magpie。
 
 不是"重写一份 CodeArts 能力"（那样只搬一家），而是把本体「路由中枢」原样跑起来：
-内嵌一个 cordis 容器加载 `deepseek-harness-codearts`（= `dsh-providers-hub`，其中 19 个 provider），
+内嵌一个 cordis 容器加载 `deepseek-harness-codearts`（= `dsh-providers-hub`，其中 24 个 provider），
 让它自己开一个只监听回环的 OpenAI 兼容网关，magpie 侧只把请求转发进去。
 
 ```
@@ -14,7 +14,7 @@ magpie 网关 (3425)
        └─ auth.loader().fetch       ← 只改这一层：剥 provider 前缀 + 转发
             └─ JetHubContainer（内嵌 cordis + 本体 lib/index.js）
                  └─ 本体自带网关 127.0.0.1:<动态端口>
-                      └─ 19 家 provider 的真实上游
+                      └─ 24 家 provider 的真实上游
 ```
 
 ## 模型目录：上游全量，不是「当前可用」
@@ -26,7 +26,7 @@ magpie 网关 (3425)
 | 网关 `/v1/models` | 此刻**能用**的 | 1 | 1 | 2 |
 | 本体 `model.list` RPC | 上游**全量** | 9 | 540 | 32 |
 
-magpie 里 `jet-hub-*` 每个 provider 的模型列表用的是**后者**（全量 861 个 / 19 家），
+magpie 里 `jet-hub-*` 每个 provider 的模型列表用的是**后者**（全量 893 个 / 24 家），
 因为用户要的是「供应商上游全部模型」。全量里已在 Jet Hub 关闭的模型照样列出，
 名字后缀 `· 已在 Jet Hub 关闭`、页面里显示为灰，提示你先去控制台打开。
 
@@ -79,9 +79,9 @@ magpie plugin login jet-hub
 > 换机器时把 `magpie-Jet-Hub` 换成自己的绝对路径即可。目录式安装是**直接引用**
 > （不复制、不建软链），所以改完代码 `magpie plugin list` 重载即生效。
 
-## 19 个供应商，不是一个
+## 24 个供应商，不是一个
 
-本体里有 19 个 provider。本插件把它们**各注册成 magpie 的一个供应商**，
+本体里有 24 个 provider。本插件把它们**各注册成 magpie 的一个供应商**，
 而不是塞进一个 `jet-hub` 里：
 
 | magpie provider id | 显示名 | 本体 provider |
@@ -89,7 +89,17 @@ magpie plugin login jet-hub
 | `jet-hub` | Jet Hub · 自动选号 | `jet-hub-auto` |
 | `jet-hub-codearts` | Jet Hub · CodeArts（华为云） | `codearts` |
 | `jet-hub-workbuddy` | Jet Hub · WorkBuddy | `workbuddy` |
-| …（共 19 个） | | |
+| `jet-hub-minimax` | Jet Hub · MiniMax | `minimax` |
+| `jet-hub-accio` | Jet Hub · Accio（阿里） | `accio` |
+| `jet-hub-gemini` | Jet Hub · Gemini | `gemini` |
+| `jet-hub-codely` | Jet Hub · Codely | `codely` |
+| `jet-hub-autoclawintl` | Jet Hub · AutoClaw 国际 | `autoclawintl` |
+| …（共 24 个） | | |
+
+> 名单来自本体 `provider.getOrder`（23 家真渠道 + 1 个 `jet-hub-auto` 路由组）。
+> 早期版本只接了 19 家，漏掉 `minimax` / `accio` / `gemini` / `codely` /
+> `autoclawintl` —— 这 5 家在 `provider.status` 里查不出来（传空数组返回
+> `statuses: {}`），必须用 `provider.getOrder` 才看得全。
 
 模型 id 就是 `<provider>/<model>`，例如：
 
@@ -100,12 +110,12 @@ jet-hub-qoder/qfmodel
 ```
 
 > **为什么能这么做**：magpie 宿主 `servers(mod)` 取模块导出的**每一个函数**，
-> `auths()` 再按 `hooks.auth.provider` 建映射 —— 所以一个插件包导出 19 个
-> 插件工厂，就能注册 19 个 provider id。`index.mjs` 正好导出 19 个
+> `auths()` 再按 `hooks.auth.provider` 建映射 —— 所以一个插件包导出 24 个
+> 插件工厂，就能注册 24 个 provider id。`index.mjs` 正好导出 24 个
 > `JetHub*Plugin`。
 >
-> ⚠️ 容器是**模块级单例**：19 个工厂共用一个 cordis 容器与一个内部网关。
-> 各起一个的话会拉 19 个网关端口，冷启动直接炸。
+> ⚠️ 容器是**模块级单例**：24 个工厂共用一个 cordis 容器与一个内部网关。
+> 各起一个的话会拉 24 个网关端口，冷启动直接炸。
 
 ### 账号也按 provider 分开
 
@@ -119,7 +129,7 @@ jet-hub-codearts#d4e5f6      → codearts-a40ab885
 ```
 
 `node scripts/seed-auth.mjs` 把本体账号池（`~/.dsh/jet-hub/state.json`，实测
-56 个账号 / 19 个 provider）按 provider 摊平写进 magpie，写入前自动备份，
+56 个账号 / 24 个 provider）按 provider 摊平写进 magpie，写入前自动备份，
 只动本插件自己的键。
 
 > ⚠️ **一句实话**：本体自己的 HTTP 网关没有「按请求指定账号」的入口 ——
@@ -233,7 +243,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 |---|---|
 | 概览 | 本体/网关/模型/账号统计，网关六项状态，自动签到今日情况，provider 清单，接入代码 |
 | 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置 |
-| 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含 19 个渠道的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
+| 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含 24 个渠道的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
 | 模型 | 模型开关（单条 / 勾选批量 / 全开全关 / 清理失效）；聚合路由的候选目录、排序模式、到期排序、当前渠道、拒绝表，以及**候选级逐个打开/拒绝/调序** |
 | 供应商 | 全部 provider 的模型数/账号数/启用状态、逐个停用启用、顺序保存 |
 | 用量 | token 账本（6 项汇总 + 明细）、历史、删除某天、徽章偏好 |
@@ -271,7 +281,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 
 ## 入口只导出插件工厂
 
-`index.mjs` 只导出 19 个 `JetHub*Plugin`，一个都不多。
+`index.mjs` 只导出 24 个 `JetHub*Plugin`，一个都不多。
 
 > ⚠️ **绝不能多导出常量/工具函数**。magpie 宿主加载插件时遍历**全部导出**并
 > 探测性调用，任何一个非插件工厂的导出都会让它抛错、整个插件加载失败
