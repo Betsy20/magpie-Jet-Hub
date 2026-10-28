@@ -781,3 +781,49 @@ $ node tests/ui-check.cjs
 ### 遗留限制
 端口每次宿主启动都可能变，快照不会自动更新 —— 地址仍然是「快照时刻」的，
 页面已把快照时间写在提示里，不假装实时。
+
+---
+
+## 十五、/__meta 只报网关实时目录，导致概览模型数与模型页不一致（已修）
+
+### 症状（Observed）
+重启后控制台：
+```
+$ curl -s http://127.0.0.1:18501/__meta | python -c "..."
+providers: 18  总模型: 36
+```
+但模型页（读本体 `model.list` 全量）显示 **863 个模型 / 19 个 provider**。
+概览卡写「模型 36 · 网关 /v1/models 当前条数」，用户看到的数字与模型页自相矛盾。
+
+### 根因
+`container.meta()` 只遍历 `this.models`（来自网关 `/v1/models`，只列**此刻能用**的），
+而 `refreshFullCatalog()` 的结果没有留在容器上，`meta()` 拿不到。
+另：`astudio` 在网关只有 1 条（其余 8 条 disabled），所以 18 vs 19 家也对不上。
+
+### 修法
+1. `container` 新增字段 `fullCatalog = []` / `fullCatalogAt`，`refreshFullCatalog()`
+   结束后落盘到实例上。
+2. `meta()` 优先用 `fullCatalog`（按 `/` 前段分组），全量为空（冷启动中）才退回
+   `this.models`；额外返回 `liveModels` 与 `fullCatalogAt`。
+3. `console.js` 概览卡改为：`['模型', full, live>0 && live!==full ? '上游全量（网关可用 N）' : '上游全量目录']`。
+
+### ⚠️ 期间踩到并记录的死锁
+第一版把补拉写在 `start()` 里：
+```js
+this.refreshFullCatalog(this.dshProviders).catch(...)   // ← 死锁
+```
+`refreshFullCatalog()` 第一行是 `await this.start()`，而此刻 `this.ready` 正是
+**当前这个** promise —— 自己等自己。已改为注释说明，补拉继续由
+`plugin.mjs` 的 `refreshInBackground()` 在 start 完成后填。
+
+### 验证（Observed，真跑）
+```
+$ node scripts/shot-console.cjs
+启动状态: {"bootHidden":true,"appShown":true,"meta":{"providers":19,"models":863}}
+[overview]  {"on":true,"rows":19,"cards":14,"btns":0,"err":[]}
+[providers] {"on":true,"rows":23,"cards":0,"btns":25,"err":[]}
+页面 JS 报错: （无）
+```
+`docs/console-overview.png` 实拍：`provider 19` / `模型 863 上游全量（网关可用 36）`。
+`docs/console-providers.png` 实拍：aggregate 17/6、buddy 21/20、workbuddy 32/30、cline 541/… 全部为全量数。
+`node scripts/test-all.mjs` → **7 通过 / 0 失败 / 0 跳过**。
