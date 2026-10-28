@@ -108,9 +108,12 @@ function renderGeneric(host, value) {
 /* ═══════════════════ 概览 ═══════════════════ */
 
 function renderOverview() {
+  // `META.models` 现在是上游全量（含已关闭），`liveModels` 是网关此刻能用的
+  const full = Number(META.models) || 0
+  const live = Number(META.liveModels) || 0
   const cards = [
     ['provider', META.providers.length, '本体带来的渠道数'],
-    ['模型', META.models, '网关 /v1/models 当前条数'],
+    ['模型', full, live > 0 && live !== full ? `上游全量（网关可用 ${live}）` : '上游全量目录'],
     ['网关端口', META.gateway?.port ?? '—', '只监听回环'],
     ['本体版本', META.version ?? '—', 'deepseek-harness-codearts'],
   ]
