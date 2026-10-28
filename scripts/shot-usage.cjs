@@ -1,5 +1,9 @@
 // 截 magpie「用量 → 概览」里 Jet Hub 账号积分卡片。
 //
+//   MAGPIE_WEB_KEY=<key> node scripts/shot-usage.cjs [out] [卡片标题]
+//
+// ⚠️ key 不写默认值（2026-10-28 实测过一次凭据进公开仓库，见 VERIFICATION.md 第十九节）。
+//
 // 实测踩到的四个坑（都写进 README 了）：
 //   1. 滚动容器是 `MAIN.view`，不是 window/body —— `scrollIntoView` / `window.scrollBy` 全不动。
 //   2. 卡片是**懒渲染**的：不在视口内时 `getBoundingClientRect()` 全返回 0，
@@ -15,7 +19,11 @@ const EDGE = [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
 ].find((p) => fs.existsSync(p))
-const KEY = 'MAGPIE_WEB_KEY_REDACTED_SEE_README'
+const KEY = process.env.MAGPIE_WEB_KEY
+if (!KEY) {
+  console.error('缺少 magpie web 登录 key：设 MAGPIE_WEB_KEY=<key> 再跑。')
+  process.exit(2)
+}
 const PORT = 9337
 const OUT = process.argv[2] || path.join(process.env.TEMP || '/tmp', 'jethub-usage.png')
 const TARGET = process.argv[3] || 'Jet Hub · WorkBuddy'

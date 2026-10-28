@@ -256,11 +256,22 @@ export class JetHubContainer {
     // 服务的号一起被判死。实测（2026-10-28）：两个 loomy 号寿命正好 336.00 小时，
     // 全被判死，而账本里 `loomy-dd2c0ebd` 当日 91 次请求 0 错误。
     //
-    // 与「其余无 refreshableOf 判据的 6 家」**不能**一并豁免：它们的
-    // refreshable:false 要么是终态错误写下的（astudio-auth.js:584/600），要么
-    // 缺第二腿的 expiresAt（astudio 的 `astudioCredentialExpiresAtMs` 恒
-    // undefined、modelscope/opencode/zcode 无到期字段）⇒ 判据不会恒真，留着是
-    // 有效保护（codearts 的死号正是靠它挡住 502）。
+    // 与「同属无 refreshableOf 判据的另 6 家」（astudio / codely / modelscope /
+    // officeace / opencode / zcode）**不能**一并豁免：它们各有第三条退路，判据
+    // 对它们不会恒真，留着是有效保护（codearts 的死号正是靠它挡住 502）：
+    //  - astudio：`refreshable` 由凭据如实判定（astudio.js:95 isAstudioRefreshable），
+    //    false 只在终态错误时写（astudio-auth.js:584/600）；而第二腿**恒不成立**
+    //    ——`astudio.js:91 astudioCredentialExpiresAtMs` 恒 undefined，
+    //    astudio-auth.js:617-620 把「绝不写 expiresAt」列成了硬规矩。
+    //  - officeace：登录成功即回填 `refreshable: true`（jet-hub-rpc.js:2551）
+    //    ⇒ 第一腿就不过；占位条目虽写 false（:4032），但它不带 expiresAt。
+    //  - codely：`refreshable` 恒 false（续期未接线，jet-hub-rpc.js:4371），
+    //    但 expiresAt 只在 JWT 自带 exp 时才写（:4370）——写了且已过 = 真的
+    //    不可用，判死是正确行为。
+    //  - modelscope / opencode / zcode：落池条目都没有 expiresAt —— 魔搭的
+    //    `expiresAtOf` 虽登记了（modelscope-auth.js:48），但 API Key 默认长期
+    //    有效、凭据里多数没有 `expires_at`；opencode 是匿名占位（opencode-
+    //    auth.js:183）、zcode 是「JWT 无 exp」的静态凭据（jet-hub-rpc.js:3843）。
     if (DEAD_JUDGE_UNTRUSTED.has(entry?.provider)) return false
     if (entry?.refreshable !== false) return false
     const at = entry?.expiresAt

@@ -32,6 +32,18 @@ const cases = all
   ? [...UNIT.map((f) => ({ file: f, cmd: process.execPath, label: f, args: extraArgs(f) })), ...ENV]
   : UNIT.map((f) => ({ file: f, cmd: process.execPath, label: f, args: [] }))
 
+// 环境前置条件：**缺凭据/缺服务算跳过，不算失败**（文件头约定：NOT RUN ⇒ 跳过）。
+// 踩过的坑（2026-10-28 14:1x）：`ui-check.cjs` 没设 MAGPIE_WEB_KEY 时 exit 2，
+// 于是 `--all` 报「11 通过 / 1 失败」—— 但当时 3456 活着（curl 给 401 而非拒连），
+// 唯一的问题是这台 shell 没设 key。判据工具把「没条件测」说成「失败」是假的信号，
+// 会逼人去查产品代码。key 本身**不能**写进仓库（这台机器的凭据），只能外部注入。
+const PRECONDITION = (c) => {
+  if (c.file === 'ui-check.cjs' && !process.env.MAGPIE_WEB_KEY) {
+    return '跳过（缺 MAGPIE_WEB_KEY，web 登录 key 不入仓库；3456 是否在跑需另验）'
+  }
+  return null
+}
+
 let pass = 0
 let fail = 0
 let skip = 0
@@ -41,6 +53,12 @@ for (const c of cases) {
   const file = path.join(TESTS, c.file)
   if (!fs.existsSync(file)) {
     rows.push(['-', c.label, '文件不存在'])
+    skip++
+    continue
+  }
+  const pre = PRECONDITION(c)
+  if (pre) {
+    rows.push(['-', c.label, pre])
     skip++
     continue
   }

@@ -19,16 +19,21 @@ magpie 网关 (3425)
 
 ## 模型目录：上游全量，不是「当前可用」
 
-这里有两套目录，**不要混用**（实测数据）：
+这里有两套目录，**不要混用**。下表三个 provider 是**对照样本**（只说明「网关只给
+此刻能用的、全量多得多」这个量级差，不是权威计数）：出处是 `VERIFICATION.md`
+第十三节「模型目录改成上游全量」的实测对比。权威家数/条数只看快照 `page/models.js`
+的 `providers` 与 `total`：
 
 | 来源 | 含义 | astudio | cline | workbuddy |
 |---|---|---|---|---|
 | 网关 `/v1/models` | 此刻**能用**的 | 1 | 1 | 2 |
 | 本体 `model.list` RPC | 上游**全量** | 9 | 540 | 32 |
 
-magpie 里 `jet-hub-*` 每个 provider 的模型列表用的是**后者**（全量 893 个 / 24 家），
-因为用户要的是「供应商上游全部模型」。全量里已在 Jet Hub 关闭的模型照样列出，
-名字后缀 `· 已在 Jet Hub 关闭`、页面里显示为灰，提示你先去控制台打开。
+magpie 里 `jet-hub-*` 每个 provider 的模型列表用的是**后者**（全量），因为用户要的是
+「供应商上游全部模型」。家数与条数**不在这里写死** —— 以快照为准：`page/models.js`
+的 `providers` 键有多少就是多少家，`total` 是多少就是多少条（快照每次重生成都会变，
+本文件里凡是写具体数字的地方都标明它出自哪次快照或哪次现测）。全量里已在 Jet Hub
+关闭的模型照样列出，名字后缀 `· 已在 Jet Hub 关闭`、页面里显示为灰，提示你先去控制台打开。
 
 取数链路：
 
@@ -61,6 +66,28 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 | **本插件：装本体** | 本体 24 家全在，升级跟着走，**不依赖 DSH 进程** |
 
 代价：本体以 npm 包形式随 `vendor/` 分发（17 MB）。
+
+### `vendor/` 的来源与许可
+
+`vendor/` 是上游 npm 包 **`deepseek-harness-codearts@2.7.261027`** 的**原样副本**
+（`lib/` + `locale/` + `package.json`），未作任何修改 —— 只额外放了一份上游的
+`vendor/LICENSE`。
+
+| 项 | 值 |
+|---|---|
+| 上游包名 | `deepseek-harness-codearts`（包内 `name` 字段；旧名 `dsh-codearts-auth`，再改名前叫 `dsh-providers-hub`） |
+| 版本 | `2.7.261027` |
+| 许可 | **MIT**，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](vendor/LICENSE) |
+| 取法 | `npm pack deepseek-harness-codearts@2.7.261027` 后解包到 `vendor/` |
+
+MIT 要求「substantial portions」保留版权与许可声明，所以 `vendor/LICENSE` 必须
+跟着 `vendor/` 一起分发（`package.json` 的 `files` 里已含 `vendor`，整目录进包）。
+根目录的 `LICENSE` 是本插件自己的，两者不要混看。
+
+`vendor/` 里另有 482 个 `.map`（source map，约 4.3 MB）**运行时用不到**，留着是
+为了与上游包逐字节一致（方便 `diff` 校验副本没被改动过）。要在意仓库体积可以
+删掉它们，不影响运行，但那样就不再是「原样副本」了。
+
 
 ## 安装
 
@@ -130,9 +157,12 @@ jet-hub-codearts             → codearts-8e65da6c
 jet-hub-codearts#d4e5f6      → codearts-a40ab885
 ```
 
-`node scripts/seed-auth.mjs` 把本体账号池（`~/.dsh/jet-hub/state.json`，实测
-56 个账号 / 24 个 provider）按 provider 摊平写进 magpie，写入前自动备份，
-只动本插件自己的键。
+`node scripts/seed-auth.mjs` 把本体账号池（`~/.dsh/jet-hub/state.json`）按 provider
+摊平写进 magpie，写入前自动备份，只动本插件自己的键。现测（`--dry-run`）：
+**56 个账号 / 19 个有账号的 provider**，共写入 61 个键 —— 56 个键对应 56 个账号，
+另 5 个键是没账号的 provider 的占位记录（2 个路由组 + 3 家只有渠道、本机未登录）。
+别把这里的家数和本插件注册的 24 家混淆：**24 是本插件注册的供应商数，19 才是
+账号池里有账号的家数**。
 
 > ⚠️ **一句实话**：本体自己的 HTTP 网关没有「按请求指定账号」的入口 ——
 > 账号是适配器内部用 `getAvailableAccount(provider, modelId, excludeAccountIds)`
@@ -201,11 +231,12 @@ jet-hub/auto                     ← 本体的自动选号路由组
 页面在沙箱 iframe 里跑，只能通过 `_magpie/bridge.js` 拿声明过的数据，不联网、
 不碰 magpie 的 `/api`。
 
-![magpie 侧栏里的 Jet Hub 页 · 接入点标签](docs/screenshot.png)
+![magpie 侧栏里的 Jet Hub 页 · 接入标签](docs/screenshot.png)
 
-上图是 magpie 侧栏里实拍（接入点标签）：宿主端口 `18500`、共 `892` 个模型 ——
-这两个数与 `page/models.js` 快照里的 `consolePort` / `total` 同源，快照一变就得重拍
-（`scripts/shot-console.cjs` 只拍控制台，这张是 `tests/ui-check.cjs` 那条链路的产物）。
+上图是 magpie 侧栏里的实拍（默认打开的「接入」标签，页面小标题写的是「接入点」）：
+控制台端口 `18500`、模型 `892` 个。这两个数不是拍照时的巧合 —— 它们就是
+`page/models.js` 快照里的 `consolePort` 与 `total`，所以**快照一变这张图就该重拍**，
+否则图上显示的是旧端口、旧模型数。
 
 ### 六个标签
 
@@ -256,7 +287,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 | 标签 | 能做什么 |
 |---|---|
 | 概览 | 本体/网关/模型/账号统计，网关六项状态，自动签到今日情况，provider 清单，接入代码 |
-| 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置 |
+| 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置，以及 per-账号的**出口代理**（见下） |
 | 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含 24 个渠道的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
 | 模型 | 模型开关（单条 / 勾选批量 / 全开全关 / 清理失效）；聚合路由的候选目录、排序模式、到期排序、当前渠道、拒绝表，以及**候选级逐个打开/拒绝/调序** |
 | 供应商 | 全部 provider 的模型数/账号数/启用状态、逐个停用启用、顺序保存 |
@@ -264,9 +295,16 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 | 设置 | 网关启用、局域网、渠道原生搜索、面板入口、MiniMax XFF、验证码三件套 |
 | 备份 | 账号总数/缺有效期统计、导出下载、merge/replace 导入 |
 
-![控制台 · 模型](docs/console-models.png)
+![控制台 · 账号](docs/console-accounts.png)
 ![控制台 · 积分](docs/console-credits.png)
+![控制台 · 模型](docs/console-models.png)
 ![控制台 · 供应商](docs/console-providers.png)
+![控制台 · 用量](docs/console-usage.png)
+![控制台 · 设置](docs/console-settings.png)
+![控制台 · 备份](docs/console-backup.png)
+
+（八张按标签顺序排，概览那张在本节开头。全部由 `scripts/shot-console.cjs` 直接
+覆盖写同一个文件名，所以重拍不需要改 README。）
 
 三个**格式陷阱**（都实测踩过，本体不会报错，只会静默做错事）：
 
@@ -289,7 +327,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 `vendor/lib/client/jet-hub.js:8073`（opencode）与 `:8077`（modelscope）在
 `createAccount()` 里提前弹 Key 输入框然后 `return`，根本走不到 `account.create`。
 
-所以控制台对这两家换了入口（`console/console.js:357` 的 `KEY_CHANNELS`）：
+所以控制台对这两家换了入口（`console/console.js:389` 的 `KEY_CHANNELS`）：
 
 | 渠道 | 走的 RPC | Key 形状（与本体报错文案同源） | 取 Key 的地方 |
 |---|---|---|---|
@@ -300,10 +338,45 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 `vendor/lib/modelscope-rpc.js:95` / opencode 在 `vendor/lib/opencode-rpc.js:276`
 回 `existed: true`）。控制台只填自己的入口，没去改 `src/` 给 `account.create`
 长一个没有轮询的 create 分支 —— 那要把两份 `KEY_PATTERN` 校验也复制一遍
-（理由写在 `console/console.js:343-356` 的注释里）。
+（理由写在 `console/console.js:374-388` 的注释里）。
 
 ![加账号 · modelscope 的 Key 输入框](docs/console-keymodal-modelscope.png)
 ![加账号 · opencode 的 Key 输入框](docs/console-keymodal-opencode.png)
+
+#### 出口代理也是 per-账号，四家四份实现
+
+控制台不把四家的代理合成一个输入框（`console/console.js:561` 的 `PROXY_CHANNELS`）：
+本体那边就是**四个池字段、四份 setProxy**（`vendor/lib/account-pool.js:2705`
+`setOpencodeProxy` / `:2737` `setGeminiProxy` / `:2778` `setQoderProxy` / `:2816`
+`setMinimaxIntlProxy`），语义各不相同 —— opencode 是按出口 IP 分份额度、Gemini 是
+能不能连通（端点全在墙外）、Qoder 是绕 SNI 阻断、MiniMax 国际站是绕地域分流。
+合并成一个就会「清掉 Gemini 的代理顺手清掉 opencode 的出口配置」。
+
+![账号 · opencode 的出口代理弹窗](docs/console-proxymodal.png)
+
+读代理**不需要新 RPC**：`account.list` 的 `listAccounts` 只做浅拷贝
+（`vendor/lib/account-pool.js:1601` 的 `{ ...entry }`），池字段原样透传，弹窗打开时
+就拿这条值回填输入框。写走各家 `*.setProxy`，**空串 = 删键回直连**
+（`account-pool.js:2715` / `:2747` / `:2788` / `:2826` 的 `delete entry.xxxProxy`），
+不是写空串 —— 否则下游会把空串当成「配了一个空地址」。
+
+两处入口上的坑：
+
+- `qodercn` **没有自己的** `qodercn.setProxy`：前缀改道只认 `qoder.`
+  （`vendor/lib/jet-hub-rpc.js:2936`，而 `'qodercn.setProxy'.startsWith('qoder.')` 为 false）。
+  但 `setQoderProxy` 是按 `accountId` 定位的，中国版账号照样能设；只有「测试连接」
+  得把 `provider` 传 `qodercn` 才会选到中国站产品（`vendor/lib/qoder-rpc.js:56` 的 `productOf`）。
+- 代理串必须**带显式端口**且协议是 http/https/socks5（`vendor/lib/opencode.js:121`
+  `normalizeProxy`）：裸 `host:port` 会补成 `http://`，`socks5h://` 归一成 `socks5://`，
+  `ftp://…` 直接回「不支持的协议」（`shot-console.cjs` 的代理断言就是用 `ftp://host:21`
+  这种必被拒的串，错误路径不落池字段，跑多少遍都不污染账号池）。
+
+「测试连接」只收 `{proxy}`（qoder 另收 `provider`），**不收 `accountId`** —— 它测的是
+「这个出口通不通」，与哪个账号无关。四家的回包形状也不同，别硬套一套文案：
+opencode 回出口 IP + 国家 + 延迟（`opencode-rpc.js:394` 的 `exitIp`，10 秒超时），Gemini / Qoder
+只看拿没拿到 HTTP 响应（400 / 401 / 403 同样证明链路通，不判状态码，15 秒超时），
+MiniMax 国际站用 `redirect:'manual'` 看 307 那一跳判有没有被分流（`minimax-rpc.js:184`，
+跟随之后 401 与「凭据失效」逐字同形，事后分不清）。
 
 ### 两个必须记住的渲染事实
 
@@ -356,11 +429,33 @@ node scripts/test-all.mjs --all
 python tests/t-gateway.py
 
 # 界面自检（CDP 驱动 Edge → 点侧栏 → 连进页面 OOPIF → 六个标签逐个截图 + DOM 断言 + 收集 JS 报错）
-node tests/ui-check.cjs
+MAGPIE_WEB_KEY=<key> node tests/ui-check.cjs
 # 截图落在 %TEMP%/jethub-ui/tab-*.png；有 JS 报错或标签没渲染就退出码非 0
 ```
 
 测试用 magpie 自带的 bun（`~/.cache/magpie/bun/*/magpie-bun.exe`），因为宿主就是 bun。
+
+### 需要 magpie web 登录 key 的三个脚本
+
+`tests/ui-check.cjs`、`scripts/shot-console.cjs`、`scripts/shot-usage.cjs` 都要用 magpie
+web 的登录 key。**key 一律从环境变量 `MAGPIE_WEB_KEY` 取，代码里不写默认值。**
+
+```bash
+MAGPIE_WEB_KEY=<key> node tests/ui-check.cjs
+MAGPIE_WEB_KEY=<key> node scripts/shot-console.cjs
+MAGPIE_WEB_KEY=<key> node scripts/shot-usage.cjs
+```
+
+key 在启动 web 实例时打印出来：
+
+```
+● magpie web on http://127.0.0.1:3456/?k=<key>
+```
+
+没设 `MAGPIE_WEB_KEY` 时这三个脚本**直接退出码 2**，不会静默用一个内置值去连 ——
+那是 2026-10-28 修掉的真实问题（内置 key 随仓库公开了，见
+[`VERIFICATION.md`](VERIFICATION.md) 第十九节）。`ui-check` / `shot` 也仍接受把 key
+作为第一个位置参数传入（旧用法），但别把它写进任何脚本或文档。
 
 ## 已知限制
 
@@ -423,17 +518,20 @@ src/container.mjs      内嵌 cordis 容器，加载本体并转发
 src/credentials.mjs    把 .credentials.yaml 桥成 credentials 服务
 src/connection.mjs     补 connection 服务，让本体的 jet-hub-rpc 端点注册起来
 src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
-vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/）
+vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/ + locale/ + 上游 LICENSE）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
 console/               控制台界面（八个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
 scripts/snapshot-models.mjs  重新生成 page/models.js
 scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headless + CDP）
+scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
 tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-seed-auth / t-console / t-gateway / t-rpc-cover / ui-check）
-docs/screenshot.png    侧栏页面实拍
-docs/console-*.png     控制台八标签实拍（`scripts/shot-console.cjs` 直接覆盖写）
+LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
+vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
+docs/screenshot.png    侧栏页面实拍（`tests/ui-check.cjs` 的截图）
+docs/console-*.png     控制台实拍：八标签 + Key / 代理两个弹窗（`scripts/shot-console.cjs` 直接覆盖写）
 docs/archive/          不再被 README 引用的旧截图留档
 ```
 

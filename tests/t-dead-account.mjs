@@ -50,7 +50,7 @@ ok(isDeadAccount({ provider: 'codearts', refreshable: false, expiresAt: NOW - 60
 ok(isDeadAccount({ provider: 'minimax', refreshable: false, expiresAt: NOW - 60_000 }, NOW) === true,
   'minimax 同样输入 → 仍然算死号（它的 refreshable 是兑出来的）')
 ok(isDeadAccount({ provider: 'astudio', refreshable: false, expiresAt: NOW - 60_000 }, NOW) === true,
-  'astudio 同样输入 → 仍然算死号（终态错误写下的 false）')
+  'astudio 同样输入 → 仍然算死号（它的 expiresAt 恒不写，第二腿恒不成立）')
 
 // ---- 豁免前提的反向守卫（Jeb 要求）----------------------------------------
 // 豁免是建立在 vendor 两个事实上的：① loomy 没有真正的 refreshableOf 判据；

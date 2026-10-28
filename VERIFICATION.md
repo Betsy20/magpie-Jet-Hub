@@ -184,7 +184,8 @@ loader.baseURL: https://jet-hub.invalid/v1
 
 ## 七、侧栏页面（界面实拍）
 
-`node tests/shot.cjs` —— CDP 驱动 Edge，注入 `magpie_web_3456` cookie，打开
+`node tests/shot.cjs`（当时用的脚本；它已由 `tests/ui-check.cjs` 取代并从仓库移除）
+—— CDP 驱动 Edge，注入 `magpie_web_3456` cookie，打开
 `http://127.0.0.1:3456/`，点侧栏 `Jet Hub（本体直装）`，`Page.captureScreenshot`。
 
 侧栏按钮实测列表：
@@ -334,7 +335,7 @@ tests/t-models-nowait.mjs  models() 延迟门禁
 tests/t-dead-account.mjs   死号过滤判据（13 条断言，不联网）
 tests/t-writerefs.mjs      .credentials.yaml 写回不吞行（14 条断言）
 tests/t-gateway.py     经 magpie 3425 的四项端到端
-tests/shot.cjs         CDP 界面实拍
+tests/ui-check.cjs        CDP 界面实拍（已取代 tests/shot.cjs，后者从仓库移除）
 ```
 
 `node_modules/`（79 MB）为运行时依赖（`@deepseek-ai/cordis` 4.0.5 + `dsh-commands` +
@@ -379,7 +380,8 @@ $ magpie-bun tests/t-writerefs.mjs    → 全部通过
   jet-hub/codearts/deepseek-v4.1-flash    200 （死号过滤后不再 502）
   jet-hub/workbuddy/... 流式              200 [DONE]x1
 
-侧栏：`tests/shot.cjs` 实拍，第 10 个导航项为「Jet Hub（本体直装）」，
+侧栏：当时用 `tests/shot.cjs` 实拍（该脚本已由 `tests/ui-check.cjs` 取代并移除），
+第 10 个导航项为「Jet Hub（本体直装）」，
 点开后页面正常（docs/screenshot.png 已更新）。
 ```
 
@@ -1465,11 +1467,11 @@ EXIT=0
 > `(?:const|let|var)s+cfgs*=s*(.+)$` —— 这不是复现失败，是 shell 引号问题。
 > 我 14:0x 就被这个绊了一次，两次输出都在 `VERIFICATION.md` 的历史里。
 
-**修法**：`tests/t-rpc-cover.mjs:256-257` 走 `escapeRe()`（在 `:184`）拼正则，
-模板串里写双反斜杠 `\\s`。**只有这一处**需要改；`:273` / `:295` 的字段扫描正则早已是
-双反斜杠，不受影响。
+**修法**：`tests/t-rpc-cover.mjs:281-282` 走 `escapeRe()`（定义在 `:203`）拼正则，
+模板串里写双反斜杠 `\\s`。**只有这一处**需要改；同文件里其余几个扫描正则
+（`fieldLiterals` 的字段扫描、表定义扫描）早就是双反斜杠，不受影响。
 
-**治本：把它钉成测试自己的断言**（`tests/t-rpc-cover.mjs:79-95`，本次新加）
+**治本：把它钉成测试自己的断言**（`tests/t-rpc-cover.mjs:78-95`，本次新加）
 ——「被测解析器」自己也要有断言，否则它坏掉时只会表现为「某个数字变差」，
 让人去查产品代码：
 
@@ -1517,7 +1519,7 @@ EXIT=0
 **最小复现（修前）**：`node scripts/test-all.mjs --all` 的 t-rpc-cover 只花 ~100 ms
 （探活实测 6426 ms），输出里没有 `控制台探活:` 那一行。
 
-**修法**（`scripts/test-all.mjs:23-33`、`:48`）：给用例挂 `args`，
+**修法**（`scripts/test-all.mjs:23-34`、`:55`）：给用例挂 `args`，
 `t-rpc-cover.mjs` 在 `--all` 下补 `--probe`；`spawnSync(c.cmd, [file, ...(c.args ?? [])])`。
 
 **修后实测**（`"C:/…/magpie-bun.exe" tests/t-rpc-cover.mjs --probe`，端口 18500，14:2x 复跑）：
@@ -1543,34 +1545,64 @@ EXIT=0
 ⇒ 这条是「注释说有、代码没做」的典型：**判断工具的注释也是断言对象**。
 以后凡是注释里承诺的行为，要么有断言，要么改成「未实测」。
 
-Jeb 13:2x 报的 11 个未接里，有 8 个（`gemini/minimaxintl/opencode/qoder` 各 2 个
-`setProxy`+`testProxy`）当时**已经接进控制台了**，是我数错。控制台随后自己补完了
-（`701ecdc` 补 9 个、`dc0141d` 补最后 2 个），**现测 78/78、未接 0**。
+### 18.13 归因算法的第四次假阳性：`model.setDisabled`「坐实」了 1 个，实测是 0（14:1x）
 
-**最小复现**（`node`，与本仓库无依赖）：
+打开探活之后第一次整跑（`node scripts/test-all.mjs --all`，14:0x）红了：
 
 ```
-$ node .tmp-repro-escape.mjs
-修前 regex source : (?:const|let|var)s+cfgs*=s*(.+)$
-修前 能匹配到绑定吗 : false
-修后 regex source : (?:const|let|var)\s+cfg\s*=\s*(.+)$
-修后 能匹配到绑定吗 : true
+--- t-rpc-cover.mjs 第 1 次失败、重试通过（不稳定，需查） ---
+  副作用归因：嫌疑 69，坐实 1，判为并发写方噪声 68（噪声: account.delete, account.list, …）
+✗ 这些方法的空载荷会真写用户状态：model.setDisabled（需补进 SIDE_EFFECTS 或给实现补「空载荷即拒绝」的闸）
+✓ 69 个方法真发请求，均未回 unknown method
+  探活耗时 144092 ms
+```
+
+**先查产品代码**（`vendor/lib/jet-hub-rpc.js:6126`）：入口第一句就是闸 ——
+`typeof req.provider !== 'string' || typeof req.modelId !== 'string'` → `bad-request`，
+连 `pool.setModelDisabled` 都到不了。
+
+**再实测**（`.tmp-probe-setdisabled.cjs`，与 `t-rpc-cover` 同一套判据：
+规范化 JSON 指纹、等静默窗口 → 调用 → 等 400 ms → 比对，跑 6 轮）：
+
+```
+$ node .tmp-probe-setdisabled.cjs 6
+#1 未变 · 回包 {"type":"server-response","rpcId":"probe","result":{"ok":false,"error":{"code":"bad-request",…
+#2 未变 · …
+#3 未变 · …  #4 未变 · …  #5 未变 · …  #6 未变 · …
+6 次里变了 0 次 → 空载荷不写盘（判定：误报）
 EXIT=0
 ```
 
-**机制**：模板字符串里写 `\s`，JS 的字符串字面量先把 `\s` 解析成 `s`（未知转义按
-字面字符处理），拼出来的正则于是成了 `consts`，永远匹配不到 `const cfg = …`。
-同一个 bug 也让 `KEY_CHANNELS[provider].method` 这一路回溯读不到字段
-（`console/console.js:421 rpc(cfg.method)` 一度被判「解析不出实参」）。
+⇒ **`model.setDisabled` 是假阳性，我没往 `SIDE_EFFECTS` 里塞它**（塞进去等于把
+「空载荷即拒绝」这条真正的安全网自己关掉）。
 
-**修法**：`tests/t-rpc-cover.mjs:256-257` 走 `escapeRe()`（在 `:184`）拼正则，
-模板串里写双反斜杠 `\\s`。**只有这一处**需要改；`:273` / `:295` 的字段扫描正则早已是
-双反斜杠，不受影响。
+**根因是归因算法本身**：多实例 + UI 轮询持续重写这些文件，`mutated` 一次次为真，
+于是每次都进 69 个方法的串行复验（每方法最多等 5 s ×2 轮 ⇒ 144 s）；
+而「同一方法两轮各撞一次」在 138 次尝试里的偶然命中率并不为零。
 
-⇒ 教训：**我自己的正则拼装也是被测对象**。凡是「某个数字突然变差」，
-先怀疑解析器的转义/正则，再怀疑产品代码。
+**修法：加对照组**（`tests/t-rpc-cover.mjs:586` `controlHits()`，`:605` 调用处）。
+不调用任何方法，只走和归因完全相同的「等静默窗口 → 等 400 ms → 比对」3 轮：
 
-**附：这一轮端口事实（P1 未修好，所有结论标明端口）**
+```
+  归因对照组（不调用任何方法，同样的等待协议 3 轮）：0/3 次内容自己变了
+  ⚠ 探活期间状态文件内容变了，进入隔离复验（串行，逐个方法等静默窗口、两次命中才算）
+  副作用归因：嫌疑 69，坐实 0，判为并发写方噪声 69（噪声: account.delete, …）
+✓ 探活后状态文件内容变了，但归因没坐实任何单个方法（对照组命中 0 次，69 个嫌疑串行两轮全判噪声 ⇒ 外部并发写方）
+```
+
+对照组的意义是**给归因一个本底**：本底命中 > 0 ⇒ 这套归因在该环境没有分辨力，
+直接放弃归因、不判任何方法有副作用（并打印 `⇒ 基线噪声非零`），
+省掉 2 分钟不可信的串行复验。
+
+**复跑**（14:2x）：
+
+```
+$ "C:/…/magpie-bun.exe" tests/t-rpc-cover.mjs          EXIT=0   → 本体 78，控制台接 78
+$ "C:/…/magpie-bun.exe" tests/t-rpc-cover.mjs --probe   EXIT=0   130616 ms，坐实 0
+```
+
+⇒ **教训（第三次落在这上面了）**：这个测试的「副作用判定」比被测代码更容易出错。
+凡是 **N 个嫌疑 × 少量轮次** 的统计式判定，没有对照组就等于没有判据。**附：这一轮端口事实（P1 未修好，所有结论标明端口）**
 
 ```
 $ curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18500/api/jet-hub -d '…'  200
@@ -1641,3 +1673,71 @@ EXIT=0
 说明那次失败不在 models() 的耗时断言上（在它前面的某条断言），
 **具体是哪条未实测**（`test-all` 只留失败输出的尾部 8 行，被截掉了）。
 这条列进待办，等 P2 收树后单独复跑取证。
+
+## 十九、本机 magpie web 登录 key 曾随仓库公开（2026-10-28，已改写历史）
+
+### 症状
+
+`tests/ui-check.cjs`、`tests/shot.cjs`、`_shot-usage.cjs` 三个脚本把 magpie web 的
+登录 key 写成了**代码里的默认值**。`git log -S` 全历史扫描：这把 key 从**第一个
+commit**（`feat: magpie-Jet-Hub —— 把 deepseek-harness-codearts 插件本体装进 magpie`）
+起就在仓库里，之后又被带进两次。
+
+仓库当时是 **public**（`GET /repos/Betsy20/magpie-Jet-Hub` 的 `private: false`）。
+
+### 影响面（实测，不夸大也不缩小）
+
+| 检查 | 结果 |
+|---|---|
+| key 是否仍有效 | `curl -H 'Cookie: magpie_web_3456=<key>' http://127.0.0.1:3456/api/providers` → **200**，确实还能登录 |
+| web 监听地址 | `TCP 127.0.0.1:3456 0.0.0.0:0 LISTENING`（pid 48524）—— **只绑本机 loopback** |
+| 因此能做什么 | 拿到 key 的人**必须先能访问这台机器的 `127.0.0.1:3456`** 才能用它（bind 到 `0.0.0.0` 时除外） |
+
+⇒ 属「凭据泄露」而不是「立刻可被利用」：不是半夜必须换的那一档，但不该长期留在
+公开历史里，因为 `magpie web --addr` 与 `gatewayAllowLan` 都存在，绑宽的可能就在。
+
+### 修法（三件，全部真跑）
+
+**1. 代码里不再有默认值**（三个脚本一致：取 `process.env.MAGPIE_WEB_KEY`，没有就 `exit 2`）
+
+```bash
+$ node tests/ui-check.cjs      → 缺少 magpie web 登录 key…  exit=2
+$ node tests/shot.cjs          → exit=2
+$ node scripts/shot-usage.cjs  → exit=2
+$ MAGPIE_WEB_KEY=<key> node tests/ui-check.cjs
+  ✓ 六个标签均渲染正常    exit=0
+```
+
+`ui-check` / `shot` 仍接受把 key 作为第一个位置参数（旧用法），按「像不像 16+ 位
+hex」自动分流；`_shot-usage.cjs` 一并从根目录移到 `scripts/shot-usage.cjs`。
+
+**2. 历史改写**（`git filter-repo --replace-text`）
+
+改写前后的证明：
+
+```
+$ git log --all -S'<原 key>' --oneline | wc -l   → 0      # 全历史 0 个 commit 含该串
+$ git rev-list --all --objects | ... 逐 blob cat-file    → 无命中
+$ git log --all --oneline -S'MAGPIE_WEB_KEY_REDACTED_SEE_README'
+  → 4 个 commit（原来含 key 的那四处，现在是替换标记）
+```
+
+如实记录的代价：**41 个 commit 全部换了 hash**（首 `8827247`、末 `a6dc83d`），
+`origin` remote 被 filter-repo 主动摘掉（要重新 add），本地必须先 `stash` 再
+`apply`（filter-repo 也会重写 stash，我第一次 `stash pop` 只恢复了一部分，
+核对后 `checkout` + `stash apply` 重放才对）。改写前打了 9.1 MB 的
+`git bundle`（`../magpie-Jet-Hub.BEFORE-FILTER.bundle`）作回退保险。
+
+**3. 未做的（明确记下）**
+
+- **没有换 key**。用户拍板时选的是「改写历史」，不是「换 key」；旧 key 现仍在用，
+  只是不再出现在仓库里。要彻底解决得换个新 `MAGPIE_WEB_KEY` 重启 web 实例。
+- **没有删 `.map`**（482 个 / 4.3 MB）：它们是 source map，运行时用不到，但删了
+  `vendor/` 就不再是上游包的逐字节副本，`diff` 校验会失效。体积换一致性，选了后者。
+
+### 补的合规项
+
+`vendor/` 是上游 `deepseek-harness-codearts@2.7.261027` 的原样副本，MIT
+（`Copyright (c) 2026 Jet`），但仓库里原本**没有这份许可声明**。已放
+`vendor/LICENSE`（与上游包里的逐字节一致，`cmp` 验过），README 补「`vendor/` 的
+来源与许可」一节说明两份 LICENSE 的关系。

@@ -1,6 +1,11 @@
 // UI 自检：CDP 打开 magpie 窗口 → 点侧栏 Jet Hub 页 → 连进页面 iframe（OOPIF）逐标签截图 + DOM 断言。
 //
-//   node tests/ui-check.cjs [key] [outDir]
+//   MAGPIE_WEB_KEY=<key> node tests/ui-check.cjs [outDir]
+//   node tests/ui-check.cjs <key> [outDir]        ← 也认位置参数
+//
+// ⚠️ key **不写默认值**：magpie 的 web 登录 key 是这台机器的凭据，写进仓库
+// 等于公开（2026-10-28 实测过一次，见 VERIFICATION.md 第十九节）。所以只从
+// 环境变量 `MAGPIE_WEB_KEY` 或位置参数取，两者都没有就报错退出。
 //
 // 页面是 sandbox="allow-scripts"（无 allow-same-origin）⇒ opaque origin ⇒ 独立进程。
 // 所以不能从主文档读它的 DOM，也不在主 target 的 execution context 里。
@@ -12,8 +17,17 @@ const path = require('node:path')
 
 const EDGE = process.env.EDGE_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
 const PORT = 9379
-const KEY = process.argv[2] || 'MAGPIE_WEB_KEY_REDACTED_SEE_README'
-const OUT_DIR = process.argv[3] || path.join(process.env.TEMP || '/tmp', 'jethub-ui')
+
+/** 位置参数可能是 key（旧用法）或 outDir（新用法），按「像不像 32 位 hex」分流。 */
+const argv2 = process.argv[2]
+const keyFromArgv = typeof argv2 === 'string' && /^[0-9a-f]{16,}$/i.test(argv2) ? argv2 : undefined
+const KEY = keyFromArgv || process.env.MAGPIE_WEB_KEY
+if (!KEY) {
+  console.error('缺少 magpie web 登录 key：设 MAGPIE_WEB_KEY=<key>，或把它作为第一个参数传入。')
+  console.error('  key 在启动 web 实例时打印：● magpie web on http://127.0.0.1:3456/?k=<key>')
+  process.exit(2)
+}
+const OUT_DIR = (keyFromArgv ? process.argv[3] : argv2) || path.join(process.env.TEMP || '/tmp', 'jethub-ui')
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const getJson = async (p) => (await fetch(`http://127.0.0.1:${PORT}${p}`)).json()
