@@ -626,3 +626,104 @@ node scripts/test-all.mjs --all  → 8 通过 / 0 失败 / 0 跳过
 「余额查询未能全部完成」502，导致测试红过一次（**不是**桥接层缺陷）。
 改成按 workbuddy → codearts → trae 顺序试、任一 200 即通过；三个都挂才算失败。
 
+
+---
+
+## 十二、账号积分接入 magpie 用量卡 + 每日签到
+
+### 问题
+用户报「账号积分也未接入」：magpie「用量 → 概览」里 Jet Hub 各家账号卡片只有
+「可用额度 100% / 余额追踪走势 本周期」，没有真实积分。
+
+### 契约（Observed，`_mp_host.js`）
+- `auth.usage(getAuth, provider)` → `{plan, user, until, balance, error, windows:[{name, used(已用百分比), resetsAt, display, amount, limit, unit, aside}]}`。
+  **第一个参数是取凭据的函数**，靠它知道当前问的是哪个账号。
+- `auth.checkin(getAuth, provider)` → `{outcome: claimed|done|ineligible|inactive|captcha|failed, credit?, streak?, message?}`。
+
+### 实现
+1. `src/plugin.mjs` 新增 `balanceOf(container, provider, wantAccountId, log)`：
+   调 `credits.balances`（**整家渠道一次读完**，写进 90 秒 TTL 的 `balanceCache`，
+   键 `<provider>|<accountId>`）。理由：magpie 会把同一家渠道下每个账号的卡都问一遍，
+   逐个打上游会被限流。`unsupported provider`（路由组）返回 `undefined` 不报错。
+2. `toMagpieUsage(reading, provider)`：`used` = 已用百分比，`display` = 剩余/总额 + unit，
+   `resetsAt` 取 `deductionEndTime`，`active===false` 的套餐标 `aside`。
+3. `async usage(getAuth)` 取 `account.uid ?? account.metadata.dshAccountId` 精确匹配。
+4. `async checkin(getAuth)` 调 `credits.claimAll`，按 accountId 挑出本账号那条，
+   `toMagpieCheckin` 映射到 magpie 六种 outcome（`already-claimed`→`done`、
+   `exhausted`→`done`、其它→`failed` + 原文 message）。
+
+### 修掉的两个真缺陷
+1. **空套餐 0/0 画出误导卡**：astudio 返回 `{total:0, remaining:0}` 的「会员积分」，
+   卡片显示「0/0 · 可用 100%」。→ 过滤 `total>0 || remaining>0`。
+2. **`used` 填成 remaining 导致自相矛盾**：卡片显示「0 / 6,200 · 剩余 100%」
+   （剩余 0 但进度条满）。→ `used` 用已用百分比，`display` 用剩余/总额。
+
+### 验证（Observed）
+```
+curl /api/usage/quotas → 66 张卡，55 张 jet-hub-*，全部 checkins:true
+jet-hub-workbuddy / betsy021 → balance "222.34 credits"，三条 window，used 8%
+jet-hub-lobsterai 签到 → {"outcome":"claimed","credit":100}
+jet-hub-workbuddy 签到 → {"outcome":"failed","message":"WorkBuddy 国际版不支持每日签到"}
+node scripts/test-all.mjs → 7 通过 / 0 失败 / 0 跳过
+```
+截图 `docs/screenshot-usage-credits.png`（784x2842）：WorkBuddy 整卡显示
+`7.66 / 100 积分 · 剩余 92%`、Bonus Pack 0/100、`自动签到` 按钮、余额 `222.34 credits`。
+
+---
+
+## 十三、完整控制台：八个标签，覆盖 62/65 个本体 RPC
+
+### 背景
+`auth.usage` / `auth.checkin` 只能覆盖「积分」一栏；用户要的是**全部功能**。
+magpie 侧栏页的 `connect-src 'none'` 是写死的（`_mp_pluginpage.go:228`），
+做不了写操作，所以完整功能走插件自己的本地 HTTP 服务（`src/hub-server.mjs`）。
+
+### 结构
+`console/index.html` + `console/console.js`（约 1200 行）+ `console/console.css`，
+左栏八个标签：概览 / 账号 / 积分 / 模型 / 供应商 / 用量 / 设置 / 备份。
+
+### 三个格式陷阱（都实测踩过，本体不报错、只静默做错事）
+1. **`aggregate.setOrder` 的条目是 `provider\u0000realId`（NUL 分隔）**。
+   传 `provider/realId` 会被 `setAggregateOrder`（`vendor/lib/account-pool.js:919`）
+   全部丢弃 → 返回空数组 → 顺手删键（等于清空手工顺序）。
+   实测：斜杠版返回 `{"order":[]}`；NUL 版返回 8 条并落盘。
+2. **`usage.autoCheckin.channels` 是 `{provider, text}`**，`text` 是
+   「1 个 +100积分，1 个失败」这类一句话，不是 `{enabled, lastDate, lastResult}`。
+   按后者渲染会出一整列空。
+3. **`account.resetAll` / `account.retestAll` / `buddy.*` / `cline.requestLog` /
+   `onboarding.*` 都必须带 `accountId`** —— 本体在守卫之后才解析凭据，
+   只给 provider 会报「账号不存在」。
+
+### 修掉的 UI 缺陷
+1. **默认 provider 选中 `aggregate`**（路由组，没有账号）→ 账号页空、模型页只剩聚合目录。
+   修法：`ROUTE_GROUPS` 把路由组排到最后，并默认选第一个有模型的真渠道。
+2. **账本 `totals` 被塞进一格 JSON** 看不出数 → `renderLedger()` 摊成 6 张卡 + 明细表。
+3. **`usage.autoCheckin` 没有 `run`** → 「运行一次」改成「关→开」触发一轮。
+4. **`accTestAll` / `accRetestAll` 重复** → 删掉 `#accTestAll`。
+
+### 验证（Observed，`node scripts/shot-console.cjs`）
+```
+启动状态: {"bootHidden":true,"appShown":true,"meta":{"providers":18,"models":28}}
+[overview]  {"on":true,"rows":19,"cards":14,"btns":0,"err":[]}
+[accounts]  {"on":true,"rows":2,"cards":0,"btns":26,"msgs":["2 个账号"],"err":[]}
+[credits]   {"on":true,"rows":19,"cards":4,"btns":12,"err":[]}
+[models]    {"on":true,"rows":9,"cards":0,"btns":25,"msgs":["9 个模型，8 个已关闭"],"err":[]}
+[providers] {"on":true,"rows":23,"cards":0,"btns":25,"msgs":["23 个 provider"],"err":[]}
+[usage]     {"on":true,"rows":0,"cards":6,"btns":4,"msgs":["已读取","当前：auto"],"err":[]}
+[settings]  {"on":true,"rows":0,"cards":0,"btns":3,"err":[]}
+[backup]    {"on":true,"rows":56,"cards":2,"btns":2,"err":[]}
+页面 JS 报错: （无）
+```
+八张图逐张 `read_image` 确认过内容正确，落在 `docs/console-<tab>.png`。
+
+### 覆盖率
+本体 65 个方法，控制台直调 62 个。未接的 3 个：
+- `account.resetAll` / `account.retestAll` —— 已由「全部重置」「全部复测」按钮
+  以字符串常量传入 `rpc(method)`，等价可用（正则只扫字面量才漏计）；
+- `loomy.permanentLock` —— 与 `credits.permanentLock` 同一实现，传
+  `provider:'loomy'` 即可。
+
+### 工具转正
+- `_shot-console.cjs` → `scripts/shot-console.cjs`（八标签实拍 + DOM 断言）
+- `_run-console.mjs` → `scripts/run-console.mjs`（单独起容器 + 控制台，不重启 magpie）
+- 删除临时探针 `_probe-all.mjs` / `_probe-write.mjs` / `_probe-cand.mjs` / `_probe-cand2.mjs`

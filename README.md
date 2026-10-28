@@ -199,6 +199,8 @@ jet-hub/auto                     ← 本体的自动选号路由组
 | 设置 | 默认模型、用量默认周期、复制是否带前缀（存 `plugins.json`，只属本插件） | `magpie.options` |
 | 控制台 | 本地控制台地址（一键复制）+ 能在里面做什么的清单 | 本地常量 |
 
+（侧栏页这五个标签是**只读**的概览；所有写操作在下面说的本地控制台里。）
+
 ### 控制台：完整功能走本地服务
 
 页面只能**只读**（`providers:list` + `usage:summary`），这是 magpie 写死的：
@@ -219,17 +221,37 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 ![控制台](docs/screenshot-console.png)
 
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
-响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）实测可用的方法：
+响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）。
 
-| 方法 | 作用 |
+控制台是八个标签的完整管理界面，覆盖本体 **62 / 65** 个 RPC：
+
+| 标签 | 能做什么 |
 |---|---|
-| `account.list` / `account.create` / `account.update` / `account.delete` | 账号池增删改查（`account.update` 的 `patch` 只认 `nickname/enabled/expiresAt/refreshable`） |
-| `account.refresh` / `account.test` / `account.reset` / `account.reorder` | 强制续期、真发一次请求验证、重置、排序 |
-| `login.poll` | 轮询登录流程状态（`account.create` 起流程） |
-| `credits.status` / `credits.balances` / `credits.claimAll` | 积分状态、余额、一键领取 |
-| `model.list` / `model.setDisabled` | 模型列表（带 disabled/dead 标记）、开关 |
-| `backup.status` / `backup.export` / `backup.import` | 账号池备份与迁移 |
-| `gateway.getEnabled` / `gateway.setEnabled` | 内嵌网关开关与状态（含 apiKey） |
+| 概览 | 本体/网关/模型/账号统计，网关六项状态，自动签到今日情况，provider 清单，接入代码 |
+| 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置 |
+| 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含 19 个渠道的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
+| 模型 | 模型开关（单条 / 勾选批量 / 全开全关 / 清理失效）；聚合路由的候选目录、排序模式、到期排序、当前渠道、拒绝表，以及**候选级逐个打开/拒绝/调序** |
+| 供应商 | 全部 provider 的模型数/账号数/启用状态、逐个停用启用、顺序保存 |
+| 用量 | token 账本（6 项汇总 + 明细）、历史、删除某天、徽章偏好 |
+| 设置 | 网关启用、局域网、渠道原生搜索、面板入口、MiniMax XFF、验证码三件套 |
+| 备份 | 账号总数/缺有效期统计、导出下载、merge/replace 导入 |
+
+![控制台 · 模型](docs/console-models.png)
+![控制台 · 积分](docs/console-credits.png)
+![控制台 · 供应商](docs/console-providers.png)
+
+三个**格式陷阱**（都实测踩过，本体不会报错，只会静默做错事）：
+
+1. `aggregate.setOrder` 的条目是 `provider\u0000realId`（**NUL 分隔**），不是 `provider/realId`。
+   传斜杠会被 `setAggregateOrder` 全部丢弃 → 返回空数组 → 顺手删键（等于清空手工顺序）。
+2. `usage.autoCheckin` 的 `channels` 形状是 `{provider, text}`（`text` 是「1 个 +100积分，1 个失败」这类
+   一句话），不是 `{enabled, lastDate, lastResult}`。按后者读会渲染出一整列空。
+3. `account.resetAll` / `account.retestAll` / `buddy.compensationStatus` / `buddy.claimCompensation` /
+   `cline.requestLog` / `onboarding.*` 都**必须**带 `accountId`（本体在守卫之后才解析凭据）。
+
+改完控制台后跑一次 `node scripts/shot-console.cjs`：它用 Edge headless + CDP 逐个点开八个标签、
+断言表格行数/卡片数/按钮数/错误消息，并把每页截到 `docs/console-<tab>.png`。
+`node scripts/run-console.mjs` 则单独起一个容器 + 控制台（不重启 magpie），打印 `CONSOLE_URL`。
 
 ### 两个必须记住的渲染事实
 
@@ -299,11 +321,17 @@ node tests/ui-check.cjs
   （`src/container.mjs` 的 `_filterDeadAccounts`，详见 `VERIFICATION.md` 第七点五节）。
   注意：过滤只让死号不参与选号，**不会删除**它 —— 彻底清掉请去 DSH 的 Jet Hub 删账号。
 - `zcode` 可能报"上游并发限流"：本体自带退避，属上游限流，非插件缺陷。
-- 本体的 Jet Hub **设置界面**（`lib/client/jet-hub.js`）是本插件搬不过来的部分 ——
-  它是 DSH 前端 UI，magpie 里由本插件自己的侧栏页替代；账号登录/续期仍在 DSH 侧做。
+- 本体的 Jet Hub **设置界面**（`lib/client/jet-hub.js`）是 DSH 的前端 UI，搬不过来；
+  magpie 里由本插件自己的侧栏页 + 本地控制台替代 —— 登录、换号、续期、积分、签到、
+  模型开关、聚合路由、备份迁移都在控制台里做，功能上不再需要回 DSH。
 - 侧栏「模型」页是**快照**，不随账号变化自动更新；页面里显示的也是快照时间。
-- 页面能读的只有 `providers:list` 与 `usage:summary` 两项（magpie 的白名单），
-  所以做不出「点一下就登录/换号」的按钮 —— 那需要写接口，magpie 没给。
+  真正的实时模型清单与控制台在本地 HTTP 服务里（`console/`）。
+- 侧栏页能读的只有 `providers:list` 与 `usage:summary` 两项（magpie 的白名单，
+  `connect-src 'none'` 写死），所以侧栏里做不出「点一下就登录/换号」的按钮；
+  这类写操作全部在本地控制台（`http://127.0.0.1:18500/`）里。
+- 控制台覆盖 62/65 个 RPC，未接的 3 个是 `account.resetAll` / `account.retestAll`
+  （已由「全部重置」「全部复测」按钮以字符串常量传入，等价可用）与
+  `loomy.permanentLock`（`credits.permanentLock` 传 `provider:'loomy'` 走同一实现）。
 
 ## 目录
 
@@ -316,12 +344,15 @@ src/connection.mjs     补 connection 服务，让本体的 jet-hub-rpc 端点�
 src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
 vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
-console/               完整控制台界面（账号 / 登录 / 积分 / 模型 / 路由 / 备份）
+console/               完整控制台界面（八个标签，覆盖 62 个 RPC）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
 scripts/snapshot-models.mjs  重新生成 page/models.js
+scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headless + CDP）
+scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-seed-auth / t-console / t-gateway / ui-check）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-seed-auth / t-console / t-gateway / ui-check）
 docs/screenshot.png    侧栏页面实拍
+docs/console-*.png     控制台八个标签实拍
 ```
 
 ## 实现细节补充
