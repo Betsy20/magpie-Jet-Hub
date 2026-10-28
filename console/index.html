@@ -57,6 +57,10 @@
         <button id="accReload">刷新列表</button>
         <button id="accRetestAll">全部复测</button>
         <button id="accResetAll" class="warn">全部重置</button>
+        <!-- 匿名通道只有 opencode 有（本体 opencode.addAnonymous）；别的 provider 下隐藏 -->
+        <button id="accAnon" hidden>加匿名通道</button>
+        <!-- 出口代理只对四家可用（gemini / qoder / minimaxintl / opencode）；别的 provider 下隐藏 -->
+        <button id="accProxy" hidden>出口代理…</button>
         <span id="accMsg" class="msg"></span>
       </div>
       <div class="tablewrap"><table id="accTable"></table></div>
@@ -249,6 +253,31 @@
       <button id="kmClose">关闭</button>
     </div>
     <div id="kmMsg" class="msg"></div>
+  </div>
+</div>
+
+<!-- 出口代理弹窗：只有 gemini / qoder / minimaxintl / opencode 四家有 *.setProxy / *.testProxy。
+     四家是**各自独立的池字段**（geminiProxy / qoderProxy / minimaxIntlProxy / opencodeProxy），
+     语义不同（opencode 分份额度、Gemini 能不能连通、Qoder 绕 SNI 阻断），所以界面上也不合并。 -->
+<div id="proxyModal" class="modal" hidden>
+  <div class="modal-box">
+    <h2><span id="pxProvider"></span> 出口代理</h2>
+    <p id="pxHint"></p>
+    <div class="bar">
+      <label>账号 <select id="pxAccount"></select></label>
+      <input id="pxAccountId" placeholder="或直接填 accountId" class="grow">
+    </div>
+    <div class="bar">
+      <input id="pxProxy" placeholder="http://127.0.0.1:7897 或 socks5://host:port，留空=直连" class="grow" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="bar">
+      <button id="pxTest">测试连接</button>
+      <button id="pxSave" class="primary">保存</button>
+      <button id="pxClear">清除（回直连）</button>
+      <button id="pxClose">关闭</button>
+    </div>
+    <div id="pxMsg" class="msg"></div>
+    <div id="pxOut"></div>
   </div>
 </div>
 

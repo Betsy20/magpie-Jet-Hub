@@ -216,6 +216,74 @@ async function main() {
   }
   console.log('Key 弹窗断言:', keyChecks.every((r) => r?.opened) && keyChecks.every((r) => r?.msgErr) ? '通过' : '失败')
 
+  // ---- 出口代理（四家各自的 *.setProxy / *.testProxy）--------------------------
+  // ⚠️ 只用**必被拒的代理串**（ftp 不是支持的三类），错误路径不落任何池字段，
+  // 跑多少遍都不污染账号池 —— 与上面 Key 弹窗只用非法 Key 是同一条纪律。
+  // `opencode.addAnonymous` 会真的新建一条账号，所以这里只断言按钮的显隐，不点。
+  const pxChecks = []
+  for (const provider of ['opencode', 'gemini', 'qoder', 'minimaxintl', 'buddy']) {
+    const r = await ev(`(async () => {
+      document.querySelector('#nav button[data-tab="accounts"]').click()
+      await new Promise(r => setTimeout(r, 300))
+      const sel = document.querySelector('#accProvider')
+      sel.value = ${JSON.stringify(provider)}
+      sel.dispatchEvent(new Event('change'))
+      await new Promise(r => setTimeout(r, 800))
+      const wantProxy = !!PROXY_CHANNELS[${JSON.stringify(provider)}]
+      const barBtnHidden = document.querySelector('#accProxy').hidden
+      const anonHidden = document.querySelector('#accAnon').hidden
+      const hasCol = [...document.querySelectorAll('#accTable thead th')].some(th => th.textContent === '出口代理')
+      const rowProxyBtns = document.querySelectorAll('#accTable button[data-act="proxy"]').length
+      const out = { provider: ${JSON.stringify(provider)}, wantProxy, barBtnHidden, anonHidden, hasCol, rowProxyBtns }
+      if (!wantProxy) return out
+      openProxyModal(${JSON.stringify(provider)})
+      const modal = document.querySelector('#proxyModal')
+      out.opened = modal?.hidden === false
+      out.modalProvider = document.querySelector('#pxProvider')?.textContent
+      out.hintLen = (document.querySelector('#pxHint')?.textContent ?? '').length
+      out.accountIds = document.querySelectorAll('#pxAccount option').length
+      // 当前代理必须从 account.list 的池字段回填（不需要新增读端点）
+      out.prefilled = document.querySelector('#pxProxy').value
+      out.hasAccount = document.querySelector('#pxAccount').value
+      document.querySelector('#pxProxy').value = 'ftp://host:21'
+      await proxyTest(document.querySelector('#pxTest'))
+      await new Promise(r => setTimeout(r, 500))
+      const msg = document.querySelector('#pxMsg')
+      out.testMsg = msg?.textContent
+      out.testErr = msg?.className?.includes('err') === true
+      // 清除/保存：不真的点（会写池），只断言两个按钮都在
+      out.btns = ['pxSave','pxClear','pxTest','pxClose'].filter(id => !!document.getElementById(id)).length
+      closeProxyModal()
+      return out
+    })()`)
+    pxChecks.push(r)
+    console.log(`[proxy:${provider}]`, JSON.stringify(r))
+    if (provider === 'opencode') {
+      const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
+      fs.writeFileSync(path.join(OUT, 'console-proxymodal.png'), Buffer.from(shot.result.data, 'base64'))
+    }
+    if (r?.wantProxy) {
+      if (r?.barBtnHidden !== false) { console.log(`✗ proxy ${provider}: bar 按钮没显示`); errors.push(`proxy ${provider} 按钮未显示`) }
+      if (r?.hasCol !== true) { console.log(`✗ proxy ${provider}: 账号表没有「出口代理」列`); errors.push(`proxy ${provider} 无代理列`) }
+      if (r?.opened !== true || r?.modalProvider !== provider) { console.log(`✗ proxy ${provider}: 弹窗没打开或 provider 没填`); errors.push(`proxy ${provider} 弹窗未就绪`) }
+      if (r?.testErr !== true || !/不支持/.test(r?.testMsg ?? '')) { console.log(`✗ proxy ${provider}: 非法代理没显示本体错误`); errors.push(`proxy ${provider} 错误未显示`) }
+      if (!r?.hintLen) { console.log(`✗ proxy ${provider}: 没有提示文案`); errors.push(`proxy ${provider} 无提示`) }
+    } else {
+      if (r?.barBtnHidden !== true) { console.log(`✗ proxy ${provider}: 不该有代理按钮却显示了`); errors.push(`proxy ${provider} 多余按钮`) }
+    }
+    // 「加匿名通道」只有 opencode 有（opencode.addAnonymous），其他 provider 下必须隐藏
+    if (provider === 'opencode' && r?.anonHidden !== false) { console.log('✗ opencode 下「加匿名通道」应可见'); errors.push('匿名通道按钮不可见') }
+    else if (provider === 'buddy' && r?.anonHidden !== true) { console.log('✗ buddy 下「加匿名通道」应隐藏'); errors.push('匿名通道按钮没隐藏') }
+  }
+  // opencode 那条真的读过池字段了吗：有一个账号设了代理，回填必须非空
+  const oc = pxChecks.find((r) => r?.provider === 'opencode')
+  if (oc && oc.hasAccount && !oc.prefilled) {
+    console.log(`⚠ opencode 账号 ${oc.hasAccount} 的代理回填为空（该账号可能本来就没配代理，不算失败）`)
+  } else if (oc?.prefilled) {
+    console.log(`代理回填: opencode 账号 ${oc.hasAccount} → ${oc.prefilled}`)
+  }
+  console.log('代理断言:', pxChecks.filter((r) => r?.wantProxy).every((r) => r?.opened && r?.testErr) ? '通过' : '失败')
+
   ws.close()
   proc.kill()
   try { fs.rmSync(prof, { recursive: true, force: true }) } catch {}

@@ -196,6 +196,7 @@ async function loadAccounts() {
   try {
     ACC = (await rpc('account.list', { provider }))?.accounts ?? []
     renderAccounts()
+    syncProxyButtons()
     say('#accMsg', `${ACC.length} 个账号`, 'ok')
   } catch (e) {
     say('#accMsg', String(e.message ?? e), 'err')
@@ -203,15 +204,24 @@ async function loadAccounts() {
 }
 
 function renderAccounts() {
+  const provider = $('#accProvider').value
+  const px = PROXY_CHANNELS[provider]
   const rows = ACC.map((a, i) => {
     const dead = a.refreshable === false && typeof a.expiresAt === 'number' && a.expiresAt < Date.now()
     const status = a.enabled === false ? '<span class="pill off">停用</span>' : '<span class="pill on">启用</span>'
+    // 代理值直接从 account.list 透传的池字段读（不需要额外的读端点）。
+    // 四家的字段名不同，所以由 PROXY_CHANNELS[provider].field 决定读哪个。
+    const proxyVal = px && typeof a[px.field] === 'string' ? a[px.field] : ''
+    const proxyCell = !px
+      ? '<td class="muted">—</td>'
+      : `<td class="mono">${proxyVal ? esc(proxyVal) : '<span class="muted">直连</span>'}</td>`
     return `<tr>
       <td>${esc(a.nickname ?? a.id)}<div class="muted mono">${esc(a.id)}</div></td>
       <td>${status}${dead ? ' <span class="pill warn">死号</span>' : ''}</td>
       <td class="mono">${esc(fmtTime(a.expiresAt))}<div class="muted">${esc(relTime(a.expiresAt))}</div></td>
       <td>${a.refreshable === false ? '<span class="pill off">否</span>' : '<span class="pill on">是</span>'}</td>
       <td class="mono muted">${esc(a.credentialRef ?? '—')}</td>
+      ${proxyCell}
       <td><div class="ops">
         <button data-act="toggle" data-id="${esc(a.id)}">${a.enabled === false ? '启用' : '停用'}</button>
         <button data-act="refresh" data-id="${esc(a.id)}">续期</button>
@@ -220,14 +230,15 @@ function renderAccounts() {
         <button data-act="reset" data-id="${esc(a.id)}">重置</button>
         <button data-act="comp" data-id="${esc(a.id)}">补偿</button>
         <button data-act="onboard" data-id="${esc(a.id)}">新人奖励</button>
+        ${px ? `<button data-act="proxy" data-id="${esc(a.id)}">代理</button>` : ''}
         <button data-act="up" data-id="${esc(a.id)}" ${i === 0 ? 'disabled' : ''}>↑</button>
         <button data-act="down" data-id="${esc(a.id)}" ${i === ACC.length - 1 ? 'disabled' : ''}>↓</button>
         <button data-act="del" data-id="${esc(a.id)}">删除</button>
       </div></td>
     </tr>`
   })
-  $('#accTable').innerHTML = `<thead><tr><th>账号</th><th>状态</th><th>到期</th><th>可续期</th><th>凭据 ref</th><th>操作</th></tr></thead><tbody>${
-    rows.join('') || '<tr><td colspan="6" class="muted">这个 provider 下还没有账号</td></tr>'
+  $('#accTable').innerHTML = `<thead><tr><th>账号</th><th>状态</th><th>到期</th><th>可续期</th><th>凭据 ref</th><th>出口代理</th><th>操作</th></tr></thead><tbody>${
+    rows.join('') || '<tr><td colspan="7" class="muted">这个 provider 下还没有账号</td></tr>'
   }</tbody>`
 }
 
@@ -273,6 +284,9 @@ async function onAccAction(e) {
           const c = await rpc('onboarding.claim', { provider, accountId: id })
           renderGeneric($('#accDetail'), c)
         }
+        return
+      } else if (act === 'proxy') {
+        openProxyModal(provider, id)
         return
       } else if (act === 'del') {
         if (!confirm(`删除账号 ${id}？凭据也会一起清掉。`)) return
@@ -345,8 +359,10 @@ function closeLogin() {
  * （实测传 provider:'modelscope' / 'opencode' 回 `unknown provider: xxx`），
  * 只能走各自的前缀改道方法 `*.addAccount`。
  *
- * 官方客户端也这么选：vendor/lib/client/jet-hub.js 的 createAccount() 在第 8072
- * 行（opencode）和第 8076 行（modelscope）都提前 `setKeyModal(...)` 然后 return，
+ * 官方客户端也这么选：vendor/lib/client/jet-hub.js 的 createAccount() 在
+ * `vendor/lib/client/jet-hub.js:8073`（`if (provider === "opencode")`）与
+ * `:8077`（`if (provider === "modelscope")`）两处都提前调
+ * `setKeyModal({ provider, error: "" })`（分别在 `:8074` / `:8078`）然后 return，
  * 根本不到 account.create —— 补 create 分支等于让一个「建占位号 + 回 loginUrl +
  * login.poll 轮询」的方法再长出两套没有 poll 的语义，还得把两份 KEY_PATTERN
  * 校验复制一遍。控制台自己的入口自己的坑自己填，不动 src/。
@@ -362,7 +378,11 @@ const KEY_CHANNELS = {
   },
   opencode: {
     method: 'opencode.addAccount',
-    hint: 'OpenCode Zen 的 Key，20 位以上、不含空格。同一把 Key 重复添加会复用同一条账号。',
+    // 与 modelscope 的口径**刻意不同**：modelscope 命中同 id 就直接回 existed:true
+    // （modelscope-rpc.js:95），而 opencode 在 opencode-rpc.js:272-302 有 2026-10-25
+    // 审计后的修正 —— 同 id 但凭据读不出来（坏槽）会**覆盖写**并如实回 existed:false。
+    // 所以这里不能像上面那样许诺「重复添加一定复用」。
+    hint: 'OpenCode Zen 的 Key，20 位以上、不含空格。同一把 Key 重复添加会复用同一条账号；若那条账号的凭据已读不出来（坏槽），会覆盖写并如实回报为新建。',
     where: 'https://opencode.ai/console/account',
   },
 }
@@ -409,6 +429,172 @@ async function submitKeyAccount(btn) {
     })
   } catch (e) {
     say('#kmMsg', String(e.message ?? e), 'err')
+  }
+}
+
+/* ══════════ 出口代理（per-账号，四家各自的端点与池字段） ══════════
+ *
+ * 本体把四家**刻意写成四份实现、四个池字段**（vendor/lib/account-pool.js：
+ * setOpencodeProxy / setGeminiProxy / setQoderProxy / setMinimaxIntlProxy），
+ * 因为语义不同：opencode = 分份额度（匿名通道按出口 IP 限额）、Gemini =
+ * 能不能连通（全部端点都在墙外）、Qoder = 绕开 openapi.qoder.sh 的 SNI 阻断、
+ * MiniMax 国际站 = 绕开地域分流。共用一份会让「清掉 Gemini 的代理」连带清掉
+ * opencode 的出口配置 —— 所以界面上也分开，一个 provider 一个端点。
+ *
+ * ⚠️ **读代理不需要新 RPC**：`account.list` 的 listAccounts 只做 `{...entry}`
+ * 浅拷贝，池字段原样透传（实测 opencode 那条回 `"opencodeProxy":
+ * "http://127.0.0.1:7897"`）。写走各家 `*.setProxy`；**空串 = 删键回直连**
+ * （池侧 `delete entry.xxxProxy`，不是写空串 —— 否则下游会把空串当成
+ * 「配了一个空地址」）。
+ *
+ * ⚠️ `qodercn` 没有自己的 `qodercn.setProxy`：前缀改道只认 `qoder.`
+ * （vendor/lib/jet-hub-rpc.js:2936 `method.startsWith('qoder.')`，而
+ * `'qodercn.setProxy'.startsWith('qoder.')` 为 false）。但 `setQoderProxy`
+ * 是按 accountId 定位的，所以中国版账号照样能设；只有 `testProxy` 需要把
+ * `provider` 传 `qodercn` 才会选到中国站产品（qoder-rpc.js:56 productOf）。
+ */
+const PROXY_CHANNELS = {
+  opencode: {
+    setProxy: 'opencode.setProxy',
+    testProxy: 'opencode.testProxy',
+    field: 'opencodeProxy',
+    hint: 'OpenCode 的出口。要 http/https/socks5 **且带端口**（裸 host:port 会补成 http://）。清空即回本机出口。注意：匿名通道按出口 IP 限额，多要份额度得给不同通道配不同代理，换指纹不增加配额。',
+  },
+  gemini: {
+    setProxy: 'gemini.setProxy',
+    testProxy: 'gemini.testProxy',
+    field: 'geminiProxy',
+    hint: 'Gemini 全部端点都在墙外，而插件进程**不走系统代理**，只能在这里给账号单独配。测试只要拿到 HTTP 响应就算通（400 invalid_request 也算），不判状态码。',
+  },
+  qoder: {
+    setProxy: 'qoder.setProxy',
+    testProxy: 'qoder.testProxy',
+    field: 'qoderProxy',
+    testProvider: 'qoder',
+    hint: '国际版 openapi.qoder.sh 会被 SNI 阻断。中国版本来直连就快，别一起塞进代理。测试不判状态码：401/403 同样证明链路通。',
+  },
+  qodercn: {
+    setProxy: 'qoder.setProxy',
+    testProxy: 'qoder.testProxy',
+    field: 'qoderProxy',
+    testProvider: 'qodercn',
+    hint: '中国版账号的代理写在本体同一份 qoder 池字段里（qoder.setProxy 按 accountId 定位，没有单独的 qodercn.setProxy）。测试时传 provider=qodercn 才会选中国站产品。',
+  },
+  minimaxintl: {
+    setProxy: 'minimaxintl.setProxy',
+    testProxy: 'minimaxintl.testProxy',
+    field: 'minimaxIntlProxy',
+    hint: 'MiniMax 国际站的出口。测试用 redirect:manual 看那一跳 307 判有没有被分流 —— 跟随之后 401 与「凭据失效」逐字同形，事后分不清。',
+  },
+}
+
+function syncProxyButtons() {
+  const provider = $('#accProvider').value
+  const anon = $('#accAnon')
+  if (anon) anon.hidden = provider !== 'opencode'
+  const px = $('#accProxy')
+  if (px) px.hidden = !PROXY_CHANNELS[provider]
+}
+
+/** 当前代理弹窗里的 accountId：下拉优先，其次手填框。 */
+function proxyAccountId() {
+  return (($('#pxAccount').value || $('#pxAccountId').value) ?? '').trim()
+}
+
+function fillProxyAccounts(provider, preferId) {
+  const sel = $('#pxAccount')
+  const opts = ACC.map((a) => `<option value="${esc(a.id)}">${esc(a.nickname ?? a.id)}</option>`).join('')
+  sel.innerHTML = opts || '<option value="">（这个 provider 下没有账号）</option>'
+  const want = preferId || ACC[0]?.id
+  if (want && ACC.some((a) => a.id === want)) sel.value = want
+}
+
+/** 把选中账号的当前代理回填进输入框（值来自 account.list 透传的池字段）。 */
+function prefillProxyValue() {
+  const provider = $('#pxProvider').textContent
+  const cfg = PROXY_CHANNELS[provider]
+  const id = proxyAccountId()
+  const acc = ACC.find((a) => a.id === id)
+  $('#pxProxy').value = (cfg && acc && typeof acc[cfg.field] === 'string') ? acc[cfg.field] : ''
+}
+
+function openProxyModal(provider, accountId) {
+  const cfg = PROXY_CHANNELS[provider]
+  if (!cfg) throw new Error(`没有代理端点的 provider：${provider}`)
+  $('#pxProvider').textContent = provider
+  $('#pxHint').textContent = cfg.hint
+  $('#pxAccountId').value = accountId && !ACC.some((a) => a.id === accountId) ? accountId : ''
+  fillProxyAccounts(provider, accountId)
+  prefillProxyValue()
+  say('#pxMsg', '')
+  $('#pxOut').innerHTML = ''
+  $('#proxyModal').hidden = false
+}
+
+function closeProxyModal() {
+  $('#proxyModal').hidden = true
+  say('#pxMsg', '')
+}
+
+/** 测试连接：只要 `{proxy}`（qoder 另收 provider 选产品），不要 accountId。 */
+async function proxyTest(btn) {
+  const provider = $('#pxProvider').textContent
+  const cfg = PROXY_CHANNELS[provider]
+  const proxy = $('#pxProxy').value.trim()
+  if (!proxy) {
+    say('#pxMsg', '先填代理地址；要回直连请点「清除」', 'err')
+    return
+  }
+  try {
+    await busy(btn, async () => {
+      const payload = cfg.testProvider ? { proxy, provider: cfg.testProvider } : { proxy }
+      const v = await rpc(cfg.testProxy, payload)
+      renderGeneric($('#pxOut'), v)
+      // 四家的回包形状各不相同：opencode 要 exitIp，minimaxintl 要 geoRouted，
+      // gemini/qoder 只有 status+latency。逐家读自己那几个字段，别硬套一套文案。
+      let line = `通：${v?.status ?? '—'}`
+      if (typeof v?.latencyMs === 'number') line += `，${v.latencyMs}ms`
+      if (v?.exitIp) line += `，出口 IP ${v.exitIp}${v.country ? `（${v.country}）` : ''}`
+      if (typeof v?.geoRouted === 'boolean') line += v.geoRouted ? '，⚠ 被分流到中国站' : '，未分流'
+      if (v?.host) line += `，目标 ${v.host}`
+      say('#pxMsg', line, 'ok')
+    })
+  } catch (e) {
+    say('#pxMsg', String(e.message ?? e), 'err')
+  }
+}
+
+async function proxyWrite(btn, proxy) {
+  const provider = $('#pxProvider').textContent
+  const cfg = PROXY_CHANNELS[provider]
+  const accountId = proxyAccountId()
+  if (!accountId) {
+    say('#pxMsg', '先选账号或填 accountId（代理是按账号存的）', 'err')
+    return
+  }
+  try {
+    await busy(btn, async () => {
+      const v = await rpc(cfg.setProxy, { accountId, proxy })
+      renderGeneric($('#pxOut'), v)
+      say('#pxMsg', v?.proxy ? `已设为 ${v.label ?? v.proxy}` : '已清除，回直连（本机出口）', 'ok')
+      await loadAccounts()
+      fillProxyAccounts(provider, accountId)
+      prefillProxyValue()
+    })
+  } catch (e) {
+    say('#pxMsg', String(e.message ?? e), 'err')
+  }
+}
+
+async function addAnonymousChannel(btn) {
+  try {
+    await busy(btn, async () => {
+      const v = await rpc('opencode.addAnonymous', {})
+      say('#accMsg', `已加匿名通道 ${v?.accountId ?? ''}（指纹不增加配额；要更多份额度，给它单独配一个出口）`, 'ok')
+    })
+    await loadAccounts()
+  } catch (e) {
+    say('#accMsg', String(e.message ?? e), 'err')
   }
 }
 
@@ -1146,15 +1332,43 @@ async function boot() {
   $('#health').className = 'dot ok'
 
   fillProviderSelects()
+  syncProxyButtons()
   renderOverview()
   wireTabs()
 
   // 账号
   $('#accReload').addEventListener('click', () => loadAccounts())
-  $('#accProvider').addEventListener('change', () => loadAccounts())
+  $('#accProvider').addEventListener('change', () => {
+    syncProxyButtons()
+    loadAccounts()
+  })
   $('#accTable').addEventListener('click', onAccAction)
   $('#accRetestAll').addEventListener('click', (e) => accBulk(e.currentTarget, 'account.retestAll'))
   $('#accResetAll').addEventListener('click', (e) => accBulk(e.currentTarget, 'account.resetAll'))
+  $('#accAnon').addEventListener('click', (e) => addAnonymousChannel(e.currentTarget))
+  $('#accProxy').addEventListener('click', () => {
+    try {
+      openProxyModal($('#accProvider').value)
+    } catch (e) {
+      say('#accMsg', String(e.message ?? e), 'err')
+    }
+  })
+
+  // 出口代理弹窗
+  $('#pxTest').addEventListener('click', (e) => proxyTest(e.currentTarget))
+  $('#pxSave').addEventListener('click', (e) => proxyWrite(e.currentTarget, $('#pxProxy').value.trim()))
+  // 清除 = 传空串（池侧删键回直连）。**不是不传**：不传时 raw 取空串同样走清除，
+  // 但显式传空串能让人在抓包时一眼看出意图。
+  $('#pxClear').addEventListener('click', (e) => proxyWrite(e.currentTarget, ''))
+  $('#pxClose').addEventListener('click', closeProxyModal)
+  $('#pxAccount').addEventListener('change', () => {
+    $('#pxAccountId').value = ''
+    prefillProxyValue()
+  })
+  $('#pxAccountId').addEventListener('input', prefillProxyValue)
+  $('#pxProxy').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') proxyTest($('#pxTest'))
+  })
   $('#accAdd').addEventListener('click', async () => {
     const provider = $('#accProvider').value
     try {
