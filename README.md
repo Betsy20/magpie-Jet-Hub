@@ -218,6 +218,10 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 准确地址写在 `~/.config/magpie/jet-hub-console.json` 的 `url` 字段（每次宿主启动时更新）。
 侧栏页面的「控制台」标签就是把这个地址摆出来，附一键复制。
 
+⚠️ 侧栏页 CSP 是 `connect-src 'none'`，**它自己问不到端口**，所以地址是
+`scripts/snapshot-models.mjs` 一起写进 `page/models.js` 的 `console` 字段 ——
+端口变了要重跑一次快照，否则页面还显示旧端口（会连到别的实例上）。
+
 ![控制台](docs/screenshot-console.png)
 
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
