@@ -206,6 +206,7 @@ async function loadAccounts() {
 function renderAccounts() {
   const provider = $('#accProvider').value
   const px = PROXY_CHANNELS[provider]
+  const rekey = REKEY_CHANNELS[provider]
   const rows = ACC.map((a, i) => {
     const dead = a.refreshable === false && typeof a.expiresAt === 'number' && a.expiresAt < Date.now()
     const status = a.enabled === false ? '<span class="pill off">停用</span>' : '<span class="pill on">启用</span>'
@@ -215,8 +216,13 @@ function renderAccounts() {
     const proxyCell = !px
       ? '<td class="muted">—</td>'
       : `<td class="mono">${proxyVal ? esc(proxyVal) : '<span class="muted">直连</span>'}</td>`
+    // opencode 指纹代次：`account.list` 透传池字段 `opencodeFingerprintGeneration`，
+    // 未设过就是 0（读的是同一个 normalizeOpencodeGeneration，见 pool:2883）。
+    const gen = provider === 'opencode' ? Number(a.opencodeFingerprintGeneration ?? 0) : null
     return `<tr>
-      <td>${esc(a.nickname ?? a.id)}<div class="muted mono">${esc(a.id)}</div></td>
+      <td>${esc(a.nickname ?? a.id)}<div class="muted mono">${esc(a.id)}</div>${
+        gen === null ? '' : `<div class="muted">指纹代次 ${gen}</div>`
+      }</td>
       <td>${status}${dead ? ' <span class="pill warn">死号</span>' : ''}</td>
       <td class="mono">${esc(fmtTime(a.expiresAt))}<div class="muted">${esc(relTime(a.expiresAt))}</div></td>
       <td>${a.refreshable === false ? '<span class="pill off">否</span>' : '<span class="pill on">是</span>'}</td>
@@ -231,6 +237,8 @@ function renderAccounts() {
         <button data-act="comp" data-id="${esc(a.id)}">补偿</button>
         <button data-act="onboard" data-id="${esc(a.id)}">新人奖励</button>
         ${px ? `<button data-act="proxy" data-id="${esc(a.id)}">代理</button>` : ''}
+        ${rekey ? `<button data-act="rekey" data-id="${esc(a.id)}">换 Key</button>` : ''}
+        ${provider === 'opencode' ? `<button data-act="rotfp" data-id="${esc(a.id)}">换指纹</button>` : ''}
         <button data-act="up" data-id="${esc(a.id)}" ${i === 0 ? 'disabled' : ''}>↑</button>
         <button data-act="down" data-id="${esc(a.id)}" ${i === ACC.length - 1 ? 'disabled' : ''}>↓</button>
         <button data-act="del" data-id="${esc(a.id)}">删除</button>
@@ -287,6 +295,14 @@ async function onAccAction(e) {
         return
       } else if (act === 'proxy') {
         openProxyModal(provider, id)
+        return
+      } else if (act === 'rekey') {
+        openRekeyModal(id)
+        return
+      } else if (act === 'rotfp') {
+        // rotateFingerprint 自己写完再整表重读（代次变了要在行里显示出来）；
+        // 它不自己套 busy —— 这里已经是 busy 里面了。
+        await rotateFingerprint(id)
         return
       } else if (act === 'del') {
         if (!confirm(`删除账号 ${id}？凭据也会一起清掉。`)) return
@@ -430,6 +446,95 @@ async function submitKeyAccount(btn) {
   } catch (e) {
     say('#kmMsg', String(e.message ?? e), 'err')
   }
+}
+
+/* ══════════ 换 API Key（只有 modelscope；opencode 没有 setApiKey） ══════════
+ *
+ * ⚠️ **这不是「改一个字段」，多数时候是换一条账号**：`modelscope.setApiKey` 的
+ * 账号 id 由 Key 尾 8 位派生（`modelscopeSlotNamesOf`，vendor/lib/modelscope-rpc.js:131），
+ * 所以换另一把 Key 时本体走「先建新号 + 删旧号」，回 `renamed:true`。
+ * ⇒ 界面必须**整表重读**：就地改一行的话，旧 id 那行还在、新 id 那行没有，
+ * 用户会以为账号没变、实际已经换了一条。`renamed:false` 才是真正就地刷新凭据。
+ *
+ * opencode **没有** setApiKey（对照 `opencode-rpc.js` 的 case 表，只有 addAccount），
+ * 唯一出路是先删后加 —— 所以这里不给 opencode 这个按钮，不让用户看到一条走不通的路。
+ */
+const REKEY_CHANNELS = {
+  modelscope: {
+    hint: '换成另一把 Key 会**换一条账号**（id 随 Key 尾 8 位变）：本体先建新号再删旧号，' +
+      '昵称与停用状态都继承旧的。填同一把 Key 则只刷新凭据，账号不变。',
+    where: 'https://modelscope.cn/my/myaccesstoken',
+  },
+}
+
+function openRekeyModal(accountId) {
+  const provider = $('#accProvider').value
+  const cfg = REKEY_CHANNELS[provider]
+  if (!cfg) throw new Error(`没有换 Key 端点的 provider：${provider}`)
+  const acc = ACC.find((a) => a.id === accountId)
+  $('#rkProvider').textContent = provider
+  $('#rkHint').textContent = cfg.hint
+  $('#rkWhere').href = cfg.where
+  $('#rkAccountId').value = accountId
+  $('#rkKey').value = ''
+  say('#rkMsg', acc?.nickname ? `当前账号：${acc.nickname}` : '')
+  $('#rkModal').hidden = false
+  $('#rkKey').focus()
+}
+
+function closeRekeyModal() {
+  $('#rkModal').hidden = true
+  say('#rkMsg', '')
+}
+
+async function submitRekey(btn) {
+  const provider = $('#rkProvider').textContent
+  if (!REKEY_CHANNELS[provider]) return
+  const accountId = $('#rkAccountId').value.trim()
+  const apiKey = $('#rkKey').value.trim()
+  if (!apiKey) {
+    say('#rkMsg', '请先粘贴新的 API Key', 'err')
+    return
+  }
+  try {
+    await busy(btn, async () => {
+      // 方法名写字面量（tests/t-rpc-cover.mjs 按字面量数覆盖率，用变量拼会数不到）
+      const v = await rpc('modelscope.setApiKey', { accountId, apiKey })
+      if (v?.renamed === true) {
+        say('#rkMsg', `已换成另一把 Key：账号从 ${accountId} 变成 ${v.accountId}（旧号已删）`, 'ok')
+      } else {
+        say('#rkMsg', `已刷新凭据 ${v?.masked ?? ''}（账号不变 ${v?.accountId ?? accountId}）`, 'ok')
+      }
+      setTimeout(async () => {
+        closeRekeyModal()
+        // ⚠️ 两种结果都整表重读：renamed 是换了一条账号；没换也得让
+        // `credentialRef` / 掩码这些派生列重新算一遍，别只改内存里的一个字段。
+        await loadAccounts()
+      }, 800)
+    })
+  } catch (e) {
+    say('#rkMsg', String(e.message ?? e), 'err')
+  }
+}
+
+/* ══════════ 换指纹代次（只有 opencode） ══════════
+ *
+ * `opencode.rotateFingerprint` 用**当前代次**派生下一代并写回池
+ * （vendor/lib/account-pool.js:2865 `updateOpencodeFingerprintGeneration`，
+ * 只接受比现值更大的代次 —— 乱序/重复回调写回小值会让人以为换了、其实没换）。
+ * 回包 `{generation, projectId}` 的 projectId **只用于即时回显**，不是请求依据：
+ * 真正的权威值在接线层按 `deriveProjectId(api_key, generation)` 重算。
+ *
+ * ⚠️ 换指纹**不增加配额**：匿名通道按出口 IP 限额（本体注释实测：换 key、换伪装头、
+ * 换指纹全部无效）。要多份额度得给不同通道配不同代理。所以按钮文案与回显都不许诺额度。
+ */
+async function rotateFingerprint(accountId) {
+  // 由 onAccAction 的 busy() 包着调用，这里不再自己 busy(btn) —— 同一个按钮
+  // 套两层 busy 会让内层先恢复文字与 disabled，外层的「执行中」状态提前消失。
+  // 方法名写字面量（tests/t-rpc-cover.mjs 按字面量数覆盖率）。
+  const v = await rpc('opencode.rotateFingerprint', { accountId })
+  say('#accMsg', `指纹代次 → ${v?.generation ?? '—'}（projectId ${v?.projectId ?? '—'}；换指纹不加额度，要额度请给它单独配出口）`, 'ok')
+  await loadAccounts()
 }
 
 /* ══════════ 出口代理（per-账号，四家各自的端点与池字段） ══════════
@@ -1383,6 +1488,13 @@ async function boot() {
   $('#kmClose').addEventListener('click', closeKeyModal)
   $('#kmKey').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') submitKeyAccount($('#kmAdd'))
+  })
+
+  // 换 Key 弹窗
+  $('#rkSave').addEventListener('click', (e) => submitRekey(e.currentTarget))
+  $('#rkClose').addEventListener('click', closeRekeyModal)
+  $('#rkKey').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitRekey($('#rkSave'))
   })
 
   // 登录弹窗

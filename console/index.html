@@ -281,6 +281,28 @@
   </div>
 </div>
 
+<!-- 换 API Key（只有 modelscope 有 modelscope.setApiKey；opencode 没有，只能先删后加）。
+     ⚠️ 换了另一把 Key ⇒ 账号 id 随 Key 尾段变 ⇒ 那是**换一条账号**，本体先建后删并回
+     renamed:true；这时整表必须重读。同一把 Key 只刷凭据，renamed:false，就地更新。 -->
+<div id="rkModal" class="modal" hidden>
+  <div class="modal-box">
+    <h2>换 <span id="rkProvider"></span> API Key</h2>
+    <p id="rkHint"></p>
+    <div class="bar">
+      <label>账号 <input id="rkAccountId" class="grow mono" readonly></label>
+    </div>
+    <div class="bar">
+      <input id="rkKey" placeholder="粘新的 API Key" class="grow" autocomplete="off" spellcheck="false">
+      <a id="rkWhere" class="btn" href="#" target="_blank" rel="noreferrer">去哪拿 Key</a>
+    </div>
+    <div class="bar">
+      <button id="rkSave" class="primary">换 Key</button>
+      <button id="rkClose">关闭</button>
+    </div>
+    <div id="rkMsg" class="msg"></div>
+  </div>
+</div>
+
 <div id="loginModal" class="modal" hidden>
   <div class="modal-box">
     <h2>登录 <span id="lmProvider"></span></h2>

@@ -288,6 +288,98 @@ async function main() {
   }
   console.log('代理断言:', pxChecks.filter((r) => r?.wantProxy).every((r) => r?.opened && r?.testErr) ? '通过' : '失败')
 
+  // ---- 换 Key（modelscope.setApiKey）与换指纹（opencode.rotateFingerprint）----
+  // ⚠️ 换 Key 只用**形状非法的 Key**：错误路径不落任何账号，跑多少遍都不污染账号池，
+  // 与上面 Key 弹窗、代理测试是同一条纪律。换指纹**会真写代次**（池里 +1），
+  // 但它不改配额、不影响可用性，只是防关联计数 —— 真跑一次才算真的验过。
+  const rkChecks = []
+  for (const provider of ['modelscope', 'opencode']) {
+    const r = await ev(`(async () => {
+      document.querySelector('#nav button[data-tab="accounts"]').click()
+      await new Promise(r => setTimeout(r, 300))
+      const sel = document.querySelector('#accProvider')
+      sel.value = ${JSON.stringify(provider)}
+      sel.dispatchEvent(new Event('change'))
+      await new Promise(r => setTimeout(r, 800))
+      const before = ACC.length
+      // 两个按钮的**显隐**：换 Key 只有 modelscope 有（opencode 没有 setApiKey），
+      // 换指纹只有 opencode 有 —— 别让用户在走不通的路上点。
+      const out = {
+        provider: ${JSON.stringify(provider)},
+        rekeyBtns: document.querySelectorAll('#accTable button[data-act="rekey"]').length,
+        rotfpBtns: document.querySelectorAll('#accTable button[data-act="rotfp"]').length,
+        wantsRekey: !!REKEY_CHANNELS[${JSON.stringify(provider)}],
+        accCount: before,
+        genText: [...document.querySelectorAll('#accTable tbody tr td:first-child')].map(td => td.textContent).join(' '),
+      }
+      if (!out.wantsRekey) return out
+      const first = ACC[0]
+      if (!first) { out.noAccount = true; return out }
+      openRekeyModal(first.id)
+      out.opened = document.querySelector('#rkModal').hidden === false
+      out.modalProvider = document.querySelector('#rkProvider').textContent
+      out.accountId = document.querySelector('#rkAccountId').value
+      out.hintLen = (document.querySelector('#rkHint').textContent || '').length
+      out.where = document.querySelector('#rkWhere').getAttribute('href')
+      // 形状非法的 Key：断言错误消息真的落进弹窗，且**账号数没变**
+      document.querySelector('#rkKey').value = 'not-a-valid-key'
+      await submitRekey(document.querySelector('#rkSave'))
+      await new Promise(r => setTimeout(r, 900))
+      const msg = document.querySelector('#rkMsg')
+      out.msgText = msg?.textContent
+      out.msgErr = msg?.className?.includes('err') === true
+      out.stillOpen = document.querySelector('#rkModal').hidden === false
+      out.accCountAfter = ACC.length
+      return out
+    })()`)
+    rkChecks.push(r)
+    console.log(`[rekey:${provider}]`, JSON.stringify(r))
+    await ev(`closeRekeyModal()`)
+    const want = r?.wantsRekey === true
+    const btnsOk = want ? r?.rekeyBtns > 0 : r?.rekeyBtns === 0
+    if (!btnsOk) { console.log(`✗ rekey ${provider}: 「换 Key」按钮显隐不对（应${want ? '可见' : '隐藏'}）`); errors.push(`rekey ${provider} 按钮显隐`) }
+    if (want) {
+      if (r?.opened !== true || r?.modalProvider !== provider) { console.log(`✗ rekey ${provider}: 弹窗没打开或 provider 没填`); errors.push(`rekey ${provider} 弹窗未就绪`) }
+      if (!r?.accountId) { console.log(`✗ rekey ${provider}: 弹窗没带 accountId`); errors.push(`rekey ${provider} 缺 accountId`) }
+      if (!r?.hintLen || !r?.where) { console.log(`✗ rekey ${provider}: 没有提示文案或拿 Key 的地址`); errors.push(`rekey ${provider} 无提示`) }
+      if (r?.msgErr !== true || !/形状不对/.test(r?.msgText ?? '')) { console.log(`✗ rekey ${provider}: 非法 Key 没显示本体错误`); errors.push(`rekey ${provider} 错误未显示`) }
+      if (r?.accCountAfter !== r?.accCount) { console.log(`✗ rekey ${provider}: 非法 Key 竟然改了账号数 ${r?.accCount}→${r?.accCountAfter}`); errors.push(`rekey ${provider} 污染账号池`) }
+    }
+    // 换指纹只有 opencode 有
+    const wantFp = provider === 'opencode'
+    const fpBtnsOk = wantFp ? r?.rotfpBtns > 0 : r?.rotfpBtns === 0
+    if (!fpBtnsOk) { console.log(`✗ rotfp ${provider}: 「换指纹」按钮显隐不对（应${wantFp ? '可见' : '隐藏'}）`); errors.push(`rotfp ${provider} 按钮显隐`) }
+  }
+  console.log('换 Key 断言:', rkChecks.every((r) => (r?.wantsRekey ? r?.opened && r?.msgErr : r?.rekeyBtns === 0)) ? '通过' : '失败')
+
+  // 真跑一次换指纹：断言代次真的 +1、回包带 projectId、行里显示新代次
+  const fp = await ev(`(async () => {
+    document.querySelector('#nav button[data-tab="accounts"]').click()
+    await new Promise(r => setTimeout(r, 300))
+    const sel = document.querySelector('#accProvider')
+    sel.value = 'opencode'
+    sel.dispatchEvent(new Event('change'))
+    await new Promise(r => setTimeout(r, 800))
+    const acc = ACC[0]
+    if (!acc) return { noAccount: true }
+    const before = Number(acc.opencodeFingerprintGeneration ?? 0)
+    const v = await rpc('opencode.rotateFingerprint', { accountId: acc.id })
+    await loadAccounts()
+    const after = Number(ACC.find(a => a.id === acc.id)?.opencodeFingerprintGeneration ?? 0)
+    const shown = [...document.querySelectorAll('#accTable tbody tr td:first-child')].map(td => td.textContent).join(' ')
+    return { accountId: acc.id, before, after, gen: v?.generation, projectId: v?.projectId, shownHasGen: /指纹代次/.test(shown) }
+  })()`)
+  console.log('[rotateFingerprint]', JSON.stringify(fp))
+  if (fp?.noAccount) {
+    console.log('⚠ opencode 下没有账号，换指纹只能断按钮存在')
+  } else {
+    if (!(fp?.after > fp?.before)) { console.log(`✗ 换指纹没真的推进代次 ${fp?.before}→${fp?.after}`); errors.push('换指纹代次未推进') }
+    if (fp?.gen !== fp?.after) { console.log(`✗ 回包的 generation(${fp?.gen})与池里读到的(${fp?.after})不一致`); errors.push('换指纹回包与池不一致') }
+    if (!fp?.projectId) { console.log('✗ 换指纹回包没有 projectId'); errors.push('换指纹无 projectId') }
+    if (fp?.shownHasGen !== true) { console.log('✗ 账号行没有显示指纹代次'); errors.push('账号行无指纹代次') }
+  }
+  console.log('换指纹断言:', fp?.noAccount ? '跳过（无账号）' : (fp?.after > fp?.before && fp?.projectId && fp?.shownHasGen) ? '通过' : '失败')
+
   ws.close()
   proc.kill()
   try { fs.rmSync(prof, { recursive: true, force: true }) } catch {}
