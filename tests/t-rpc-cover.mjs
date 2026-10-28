@@ -239,6 +239,12 @@ function resolveArg(arg, atLine) {
       const params = sig[2].split(',').map((s) => s.trim().split(/\s*=\s*/)[0].trim())
       const idx = params.indexOf(expr)
       if (idx < 0) continue
+      // ⚠️ `rpc(method, payload = {})` 自己不算「转发形参」：它的 method 是运行时变量，
+      //    不是调用点传进来的字面量。若让它参与回溯，那么**任何** `rpc(method)` 形式的
+      //    调用点都会被展开成「全体 rpc 调用点字面量的并集」—— 一个隐形的万能通配，
+      //    能把覆盖率虚抬到 100%。2026-10-28 实测：这个通配把 console.js:20 的定义行
+      //    抬成 65 个方法。真正的转发形参（如 `accBulk(btn, method)`）照旧生效。
+      if (sig[1] === 'rpc') continue
       isParam = true
       const fname = sig[1]
       const callRe = new RegExp(`\\b${fname}\\(([^()]*)\\)`, 'g')
@@ -332,8 +338,14 @@ for (let i = 0; i < consoleLines.length; i++) {
   let m
   re.lastIndex = 0
   while ((m = re.exec(l)) !== null) {
-    // 跳过函数定义行 `function rpc(method, payload = {})`
-    if (/function\s+rpc\s*$/.test(l.slice(0, m.index))) continue
+    // 跳过函数定义行 `async function rpc(method, payload = {})`
+    // ⚠️ 2026-10-28 修：原判据 `/function\s+rpc\s*$/` 作用在 `l.slice(0, m.index)` 上，
+    //    而 m.index 正落在 `rpc(` 的开头，切片以 "function " 结尾、**不含 "rpc"** ——
+    //    所以这条守卫从来没触发过，定义行被当成一个「调用点」，其实参 `method`
+    //    又被下面的形参回溯展开成「全体调用点字面量的并集」，等于往统计里塞了
+    //    一张万能通配。实测证据：加 viaParam 打印后，console/console.js:20 报出
+    //    65 个方法名、经 rpc+accBulk。现在按「切片以 function 结尾」判。
+    if (/(?:async\s+)?function\s+$/.test(l.slice(0, m.index))) continue
     rpcCallSites.push({ line: i + 1, arg: m[1], ...resolveArg(m[1], i + 1) })
   }
 }
