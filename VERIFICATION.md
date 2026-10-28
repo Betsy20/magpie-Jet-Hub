@@ -1741,15 +1741,43 @@ $ git log --all --oneline -S'MAGPIE_WEB_KEY_REDACTED_SEE_README'
 核对后 `checkout` + `stash apply` 重放才对）。改写前打了 9.1 MB 的
 `git bundle`（`../magpie-Jet-Hub.BEFORE-FILTER.bundle`）作回退保险。
 
-**3. 未做的（明确记下）**
+**3. key 轮换（15:23 完成，这一条已闭合）**
 
-- **没有换 key**。用户拍板时选的是「改写历史」，不是「换 key」；旧 key 现仍在用，
-  只是不再出现在仓库里。要彻底解决得换个新 `MAGPIE_WEB_KEY` 重启 web 实例。
-  ⚠️ **但「不再出现在仓库里」这句 14:4x 被推翻了**：key 仍可从**三处**匿名读到（PR#1 ref、
-  公开 fork `iJetLi/magpie-Jet-Hub`、按 40 位 SHA 直接取的老 commit），见
-  [20.3](#203-十九说的不再出现在仓库里是错的key-仍可从公开仓库匿名读到14x-实测)。
-  **改写历史在这件事上是无效的**：它改的是 ref，旧 commit 对象只要还被别人的 ref 或
-  fork 指住就取得到；唯一能真正关掉的是换 key。
+改写历史**关不掉**这把 key：「不再出现在仓库里」这句 14:4x 就被推翻了，key 仍可从**三处**
+匿名读到（PR#1 ref、公开 fork `iJetLi/magpie-Jet-Hub`、按 40 位 SHA 直接取的老 commit），
+见 [20.3](#203-十九说的不再出现在仓库里是错的key-仍可从公开仓库匿名读到14x-实测)。
+**改写历史在这件事上是无效的**：它改的是 ref，旧 commit 对象只要还被别人的 ref 或 fork
+指住就取得到；唯一能真正关掉的是轮换 key 本身。15:23 做了：
+
+```
+旧实例 pid 48524，11:00:40 起，"magpie-windows-amd64.exe" web --addr 127.0.0.1:3456 --no-open --gateway
+                  环境里没有 MAGPIE_WEB_KEY
+停掉后按完全相同参数起 pid 41608（CreationDate 2026/10/28 15:23:26）
+新实例自报：?k=07982b21…（全文不进文档，只留前 8 位）
+netstat -ano → TCP 127.0.0.1:3456 LISTENING 41608    （换的就是这个监听者）
+```
+
+现测（本机 `curl -o /dev/null -w '%{http_code}'`）：
+
+```
+cookie=07982b21  /api/providers -> 200      cookie=07982b21  /  -> 200
+cookie=deadbeef  /api/providers -> 401      cookie=deadbeef  /  -> 401
+no-cookie        /api/providers -> 401      no-cookie        /  -> 401
+（任一 cookie 状态）/  ?k=07982b21…  -> 303   跳转到已登录页
+```
+
+`deadbeef…`（同长度假值）那一组是对照，证明 401 来自 key 不匹配，不是「带 cookie 就 401」。
+**旧 key 本身没能由我复测**：换 instance 后旧值已不可得，它在 `/api/providers` 与 `/` 上
+都是 401 这一条是 Jeb 15:23 停旧实例前测的 —— 记为**他测、我未复现**。
+
+远端那三处仍是明文：15:2x 匿名 `curl` 两个 raw URL，都还是
+`const KEY = process.argv[2] || '<旧 key>'`（`len=7678`，`const KEY` 在 L15）。
+**明文还在、但已是死值** —— 这就是「改写历史无效、轮换才关得掉」的完整闭合。
+
+代价：3456 的浏览器会话需要重新登录一次（用户已知情并同意）。
+
+**4. 未做的（明确记下）**
+
 - **没有删 `.map`**（482 个 / 4.3 MB）：它们是 source map，运行时用不到，但删了
   `vendor/` 就不再是上游包的逐字节副本，`diff` 校验会失效。体积换一致性，选了后者。
 
