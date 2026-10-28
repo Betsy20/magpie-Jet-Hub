@@ -666,9 +666,11 @@ curl /api/usage/quotas → 66 张卡，55 张 jet-hub-*，全部 checkins:true
 jet-hub-workbuddy / betsy021 → balance "222.34 credits"，三条 window，used 8%
 jet-hub-lobsterai 签到 → {"outcome":"claimed","credit":100}
 jet-hub-workbuddy 签到 → {"outcome":"failed","message":"WorkBuddy 国际版不支持每日签到"}
-node scripts/test-all.mjs → 7 通过 / 0 失败 / 0 跳过
+node scripts/test-all.mjs → 7 通过 / 0 失败 / 0 跳过   ← 当时（本节写作时）的读数；
+                                          现测见二十节末尾，别引用这一行
 ```
-截图 `docs/screenshot-usage-credits.png`（784x2842）：WorkBuddy 整卡显示
+截图 `docs/archive/screenshot-usage-credits.png`（784x2842，已归档到 `docs/archive/`）：
+WorkBuddy 整卡显示
 `7.66 / 100 积分 · 剩余 92%`、Bonus Pack 0/100、`自动签到` 按钮、余额 `222.34 credits`。
 
 ---
@@ -1871,13 +1873,32 @@ fb3c058   exists=N  on_main=N  on_pr1=N
 
 **同一条改动、同样的时间与标题，树内容不同**：
 
+⚠️ **下面这 6 个 hash 不是同一个仓库同一侧的**：`6eee107` / `c2ed21a` / `6402fec` 只在
+`refs/remotes/origin/pr-1` 上（**`main` 上没有**），`b906065` / `3bf9c5d` / `112e1dd` 在
+`main` 上。所以这是「PR#1 那份树 vs main 那份树」的对照，**不是「改名前后」的对照**，
+本地在主分支上 `git show 6eee107` 是能取到的（对象还在），但 `git merge-base --is-ancestor
+6eee107 refs/heads/main` 是 `N`。现测（15:1x）：
+
 ```
-$ git rev-parse 6eee107^{tree}   → 0c983ed4df56
-$ git rev-parse b906065^{tree}   → 6f277eebabac          ← 不同
-$ git rev-parse c2ed21a^{tree}   → 0b64e0cd650f
-$ git rev-parse 3bf9c5d^{tree}   → 308ecb994413          ← 不同
-$ git rev-parse 6402fec^{tree}   → 8afbe800c87f
-$ git rev-parse 112e1dd^{tree}   → 7616e34b5153          ← 不同
+$ for h in 6eee107 b906065 c2ed21a 3bf9c5d 6402fec 112e1dd; do
+    onmain=$(git merge-base --is-ancestor "$h" refs/heads/main && echo Y || echo N)
+    onpr=$(git merge-base --is-ancestor "$h" refs/remotes/origin/pr-1 && echo Y || echo N)
+    echo "$h on_main=$onmain on_pr1=$onpr"; done
+6eee107 on_main=N on_pr1=Y
+b906065 on_main=Y on_pr1=N
+c2ed21a on_main=N on_pr1=Y
+3bf9c5d on_main=Y on_pr1=N
+6402fec on_main=N on_pr1=Y
+112e1dd on_main=Y on_pr1=N
+```
+
+```
+$ git rev-parse 6eee107^{tree}   → 0c983ed4df56   （PR#1 侧）
+$ git rev-parse b906065^{tree}   → 6f277eebabac   （main 侧）   ← 不同
+$ git rev-parse c2ed21a^{tree}   → 0b64e0cd650f   （PR#1 侧）
+$ git rev-parse 3bf9c5d^{tree}   → 308ecb994413   （main 侧）   ← 不同
+$ git rev-parse 6402fec^{tree}   → 8afbe800c87f   （PR#1 侧）
+$ git rev-parse 112e1dd^{tree}   → 7616e34b5153   （main 侧）   ← 不同
 ```
 
 **差异正好只有「那一行 key」**，三个文件各一行：
@@ -2227,3 +2248,63 @@ $ ls -la "$TEMP"/jh-iso-CmOn8b/.config/magpie/
 **未实测**：这轮只验了「谁写、写到哪」；`tests/t-console.mjs` 本身**还没改**（Jeb 要求
 先给方案、跟 控制台 对齐后再动手）。所以现在跑 `node scripts/test-all.mjs --all` 仍会覆写
 用户真实配置 —— 在方案落地前，**谁跑 `--all` 谁就把别人的地址来源改掉**。
+
+### 20.7 本节数字的「取证时刻」：新 HEAD 上重跑（15:1x 实测）
+
+**规矩（从这一轮起写死）**：本文里任何「某某是 X」的句子，旁边必须有**同一轮跑出来的**
+命令输出。旧 HEAD 的读数一律标「当时」，不当现状引用。
+
+**本轮取证的一次完整跑（HEAD=`184fc17`，15:11:10 起）**：
+
+```
+$ git rev-parse --short HEAD
+184fc17
+
+$ node tests/t-rpc-cover.mjs --no-probe
+  控制台已接: 78 / 78
+  控制台未接: 0
+✓ 主 switch 的 65 个方法控制台全都接了
+✓ 未接项全部属于前缀改道（0 个）
+✓ loomy.permanentLock 已由控制台接通（经 lockMethod 变量，不是未接项）
+✓ 控制台对 opencode.* 有处置（接了 5 / 缺 0）
+✓ 控制台对 gemini.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 qoder.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 minimaxintl.* 有处置（接了 2 / 缺 0）
+✓ 控制台对 modelscope.* 有处置（接了 2 / 缺 0）
+✓ 控制台没有调用不存在的方法
+  探活未启用（默认关：全量网络往返不该绑在每次单测里）。要跑可调用性断言：加 --probe / JET_HUB_PROBE=1，或跑 scripts/test-all.mjs --all。
+✓ RPC 口径一致：本体 78 个方法，控制台接 78 个
+EXIT=0
+```
+
+```
+$ node scripts/test-all.mjs
+✓ t-writerefs.mjs      82 ms
+✓ t-dead-account.mjs   90 ms
+✓ t-usage.mjs          20198 ms
+✓ t-checkin.mjs        3731 ms
+✓ t-options.mjs        113 ms
+✓ t-plugin.mjs         6027 ms
+✓ t-models-nowait.mjs  45136 ms
+✓ t-seed-auth.mjs      285 ms
+✓ t-rpc-cover.mjs      83 ms
+
+9 通过 / 0 失败 / 0 跳过
+EXIT=0
+```
+
+**8 个单测变 9 个的原因**：`tests/t-rpc-cover.mjs` 在 `2e34f0a` 落地成 tracked 之后才进
+`scripts/test-all.mjs` 的名单。所以本文更早那些「7 通过」「9 通过」的读数**都不是错，
+是名单不同**——引用时必须带上日期与当时 HEAD，否则没法比。
+
+**本节数字的有效性**（同一轮现测，不是推算）：
+
+| 数字 | 值 | 判据 |
+|---|---|---|
+| 本体可调度方法总数 | **78** | 解析 `vendor/lib/jet-hub-rpc.js` 主 switch（65）+ `handleMethod()` 前缀改道（13），由测试从源码推导，无硬编码 |
+| 控制台已接 | **78** | 同上，解析 `console/console.js` 的 83 个 `rpc()` 调用点 |
+| 未接 | **0** | 78 − 78 |
+| 单测 | **9 通过 / 0 失败 / 0 跳过** | `node scripts/test-all.mjs` 的退出码与汇总行 |
+
+⚠️ **这些数会随控制台继续接方法而变**。本文锁的是「口径由测试从源码解析」，不是这四个
+数本身；下次任何人引用前先跑 `node tests/t-rpc-cover.mjs` 看当下的打印。
