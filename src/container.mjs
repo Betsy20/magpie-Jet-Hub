@@ -195,11 +195,27 @@ export class JetHubContainer {
     // 全量目录由 plugin.mjs 的 refreshInBackground 在 start 完成后填。
     // 落一份地址文件：magpie 的插件页 CSP 是 connect-src 'none'，页面拿不到端口，
     // 只能由用户/文档从这里取；同时便于 `magpie plugin list` 之后排查。
-    try {
-      const p = join(homedir(), '.config', 'magpie', 'jet-hub-console.json')
-      mkdirSync(dirname(p), { recursive: true })
-      writeFileSync(p, JSON.stringify({ url: this.console.url, port: this.console.port, at: new Date().toISOString() }, null, 2))
-    } catch { /* 写不了不影响服务 */ }
+    //
+    // ⚠️ **两条件缺一不可**（2026-10-28 事故：文件被测试进程写成 18502，而 18502
+    // 上无人监听，用户照它访问连不上）。
+    //
+    //  ① `JET_HUB_NO_ADDR_FILE=1` 时**完全不写**：测试起的临时容器跑完就退，
+    //     它绝不是这个文件该记的所有者；让测试闭嘴是根上的修法。
+    //  ② 只有拿到**首发端口**（`from`，即 18500）时才写。向上漂移出来的 18501 /
+    //     18502 说明首发端口被别人占着，**那个人才是所有者**，它的地址更该留。
+    //     这条兜住「测试脚本忘了带开关」的情形。
+    //
+    // 代价（明写，不留暗坑）：所有者进程退出后文件仍指向它，直到下次有实例
+    // 拿到 18500 才刷新。读取方（控制台页 / scripts/shot-console.cjs /
+    // t-rpc-cover 的 `snapshotUrls`）本来就都另有探活与沿区间扫描的退路。
+    const addrFileDisabled = /^(1|true|yes)$/i.test(String(process.env.JET_HUB_NO_ADDR_FILE ?? ''))
+    if (!addrFileDisabled && this.console.port === 18500) {
+      try {
+        const p = join(homedir(), '.config', 'magpie', 'jet-hub-console.json')
+        mkdirSync(dirname(p), { recursive: true })
+        writeFileSync(p, JSON.stringify({ url: this.console.url, port: this.console.port, at: new Date().toISOString() }, null, 2))
+      } catch { /* 写不了不影响服务 */ }
+    }
     return this
   }
 
