@@ -20,6 +20,7 @@
 import fs from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
+import http from 'node:http'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -30,15 +31,35 @@ const gateway = (process.argv[2] || 'http://127.0.0.1:3425').replace(/\/+$/, '')
 /**
  * 控制台真实地址（插件启动时写在 `~/.config/magpie/jet-hub-console.json`）。
  * 端口从 18500 起找空位，被占用就是 18501/18502…，所以不能写死。
- * 读不到时退回默认 18500（此时页面上的提示会指路这个文件）。
+ *
+ * ⚠️ 只读文件不够（实测踩过）：那个文件是**最后写入者**留下的，宿主被强杀后
+ * 会留下一个死端口（实测文件写 18502，但 18502 早已没人监听，实际活着的是
+ * 18500/18501）。所以读完必须连一下 `/__meta` 验证，连不上就按候选列表逐个探。
+ * 全都不通才退回默认值（此时页面上的提示会指路这个文件）。
  */
-function readConsoleUrl() {
+async function readConsoleUrl() {
+  const probe = (url) =>
+    new Promise((resolve) => {
+      const req = http.get(`${url}__meta`, { timeout: 1500 }, (res) => {
+        res.resume()
+        resolve(res.statusCode === 200)
+      })
+      req.on('error', () => resolve(false))
+      req.on('timeout', () => { req.destroy(); resolve(false) })
+    })
+
+  const cands = []
   try {
     const p = path.join(homedir(), '.config', 'magpie', 'jet-hub-console.json')
     const j = JSON.parse(fs.readFileSync(p, 'utf8'))
-    if (typeof j?.url === 'string' && j.url) return j.url
+    if (typeof j?.url === 'string' && j.url) cands.push(j.url)
   } catch {
-    /* 文件不在或坏了都退回默认 */
+    /* 文件不在或坏了就只探默认端口 */
+  }
+  for (let port = 18500; port < 18510; port += 1) cands.push(`http://127.0.0.1:${port}/`)
+
+  for (const url of cands) {
+    if (await probe(url)) return url
   }
   return 'http://127.0.0.1:18500/'
 }
@@ -132,7 +153,7 @@ async function main() {
     providers,
     // 控制台地址随快照一起带过去：侧栏页 CSP 是 connect-src 'none'，自己问不到端口，
     // 只能从这份快照里读（否则页面只能写死 18500，被占用后就是错地址）。
-    console: readConsoleUrl(),
+    console: await readConsoleUrl(),
   }
 
   const js = `// 自动生成：node scripts/snapshot-models.mjs —— 别手改。

@@ -1,8 +1,8 @@
 // 自动生成：node scripts/snapshot-models.mjs —— 别手改。
-// 快照时间 2026-10-28T02:02:41.532Z
+// 快照时间 2026-10-28T02:08:08.970Z
 window.JET_HUB_CATALOG = {
-  "generatedAt": "2026-10-28T02:02:41.532Z",
-  "catalogAt": "2026-10-28T01:59:48.896Z",
+  "generatedAt": "2026-10-28T02:08:08.970Z",
+  "catalogAt": "2026-10-28T02:07:09.400Z",
   "gateway": "http://127.0.0.1:3425",
   "source": "plugin-cache（上游全量）",
   "total": 863,
@@ -6129,5 +6129,5 @@ window.JET_HUB_CATALOG = {
       "desc": "本体自带的按额度自动择优路由"
     }
   },
-  "console": "http://127.0.0.1:18502/"
+  "console": "http://127.0.0.1:18500/"
 };
