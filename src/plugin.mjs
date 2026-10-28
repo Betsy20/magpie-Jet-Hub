@@ -122,6 +122,21 @@ const PREFIXES = [...new Set([...DSH_PROVIDERS, ...PROVIDER_IDS])].sort((a, b) =
 const PLACEHOLDER_BASE = 'https://jet-hub.invalid/v1'
 
 /**
+ * magpie 供应商列表里的图标（契约 `_mp_host.js:1890` 的 `iconOf`）。
+ * 只认 `https://` 或 `data:image/`，且不超过 1 MB。这里内联一个 SVG，
+ * 免得依赖外部图床（离线也要能显示）。
+ */
+const ICON_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+  '<rect width="64" height="64" rx="14" fill="#5b5bd6"/>' +
+  '<circle cx="32" cy="32" r="7" fill="#fff"/>' +
+  '<g stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".85">' +
+  '<path d="M32 10v9"/><path d="M32 45v9"/><path d="M10 32h9"/><path d="M45 32h9"/>' +
+  '<path d="M17 17l6 6"/><path d="M41 41l6 6"/><path d="M47 17l-6 6"/><path d="M23 41l-6 6"/>' +
+  '</g></svg>'
+const ICON_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(ICON_SVG).toString('base64')}`
+
+/**
  * 未登录时给 magpie 看的静态目录（完整目录要等容器起来）。
  * 键是全 id `<provider>/<model>`，按 provider 过滤。
  */
@@ -233,6 +248,16 @@ function containerFor(options, log) {
   })
   return shared
 }
+
+/**
+ * 本体 provider 名 → 「是否跳过死号」的判定函数。
+ *
+ * 容器层（`container.mjs` 的 `_filterDeadAccounts`）不知道 magpie 开关的存在，
+ * 只认 `container.deadSkipCheck(provider)` 这个回调；这里把每个 provider 在
+ * magpie 里拨的 `dead_account_skip` 开关注册进去。工厂每次被调用都覆盖一次，
+ * 最后一次（宿主最终加载的那份 input）生效 —— 同一宿主下 input 是同一份。
+ */
+const DEAD_SKIP = new Map()
 
 /** 模型缓存文件（落盘，下次启动首屏就是真实目录）。 */
 const cacheFile = join(homedir(), '.config', 'magpie', 'jet-hub-models.json')
@@ -552,6 +577,24 @@ export function makePlugin(dshProvider) {
     const container = containerFor(options, log)
 
     /**
+     * 读 magpie 里用户拨的开关（`auth.options` 声明的那些）。
+     *
+     * 契约：`input.magpie.option(provider, key) → boolean`，插件没声明过的 key 一律 false。
+     * 宿主每次调用都现读，所以用户在 magpie 里拨完开关**不用重启**就生效。
+     * 宿主没给 `input.magpie`（老版本 / 别的宿主）时退回默认值。
+     */
+    function optionOn(key, fallback = false) {
+      try {
+        if (typeof input?.magpie?.option === 'function') return input.magpie.option(id, key) === true
+      } catch { /* 读不到就用默认 */ }
+      return fallback
+    }
+
+    // 把「跳过死号」开关交给容器层（容器在 _filterDeadAccounts 里回调它）
+    DEAD_SKIP.set(dshProvider, () => optionOn('dead_account_skip', true))
+    container.deadSkipCheck = (p) => (DEAD_SKIP.get(p) ?? (() => true))()
+
+    /**
      * 本 provider 的模型表（不阻塞）。
      *
      * 优先级：**上游全量** > 实时可用 > 静态兜底。
@@ -560,8 +603,11 @@ export function makePlugin(dshProvider) {
      */
     function currentModels(provider) {
       const { live, full } = currentAll(container, log)
-      const wide = modelsOfFull(dshProvider, full)
-      if (Object.keys(wide).length > 0) return wide
+      // 用户可以在 magpie 里拨「模型列表用上游全量」这个开关关掉全量
+      if (optionOn('prefer_full', true)) {
+        const wide = modelsOfFull(dshProvider, full)
+        if (Object.keys(wide).length > 0) return wide
+      }
       const got = modelsOf(dshProvider, live)
       if (Object.keys(got).length > 0) return got
       return provider?.models ?? fallbackFor(dshProvider)
@@ -589,6 +635,36 @@ export function makePlugin(dshProvider) {
          * 不会在 magpie 里堆出 `<id>#a1b2c3` 这种重复账号。
          */
         single: true,
+
+        /**
+         * magpie 供应商编辑器里的开关（契约 `_mp_host.js:1833` 的 `optionsOf`）。
+         *
+         * 用户在 magpie 里拨开关 → magpie 存起来 → 插件用
+         * `input.magpie.option(provider, key)` 读（不重启就生效）。
+         * key 必须是 `[a-z0-9_-]{1,40}`，最多 16 个；没有 key 或 label 的会被丢掉。
+         *
+         * 这里只放**真正被本插件读取**的开关，不放装饰性项。
+         */
+        options: [
+          {
+            key: 'prefer_full',
+            label: '模型列表用上游全量',
+            description: '打开：列出上游全量模型（含已关闭）；关闭：只列网关此刻可用的模型。',
+            default: true,
+          },
+          {
+            key: 'dead_account_skip',
+            label: '跳过已过期且不可续期的账号',
+            description: '关掉后，过期且 refreshable=false 的账号也会参与选号（会 502）。',
+            default: true,
+          },
+        ],
+
+        /**
+         * magpie 的 provider 图标：https URL 或 data:image。
+         * 用 SVG 内联成 data URI，免得依赖外部图床。
+         */
+        icon: ICON_DATA_URI,
 
         /**
          * 免输入签入：凭据早就在 `~/.dsh/.credentials.yaml` 里，容器启动即读到。
