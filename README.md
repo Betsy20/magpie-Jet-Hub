@@ -281,14 +281,15 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
 响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）。
 
-控制台是八个标签的管理界面，覆盖本体可调度 RPC 的**大部分**（不是全部，覆盖率与
-方法总数由 `tests/t-rpc-cover.mjs` 从源码解析后自动统计，本文不硬编码这两个数）：
+控制台是八个标签的管理界面，覆盖本体可调度的 RPC —— **覆盖率与方法总数不写进本文**：
+由 `tests/t-rpc-cover.mjs` 从源码解析后自动统计（主 `switch` 与前缀改道两批都算进去），
+两个数随代码走，写死在文档里必然过期：
 
 | 标签 | 能做什么 |
 |---|---|
-| 概览 | 本体/网关/模型/账号统计，网关六项状态，自动签到今日情况，provider 清单，接入代码 |
+| 概览 | 本体/网关/模型/账号统计，网关六项状态（启用 / 运行中 / 被环境变量挡住 / 允许局域网 / 监听 / 最近错误），自动签到今日情况，provider 清单，接入代码 |
 | 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置，以及 per-账号的**出口代理**（见下） |
-| 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含 24 个渠道的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
+| 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含**每个有账号的渠道**的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
 | 模型 | 模型开关（单条 / 勾选批量 / 全开全关 / 清理失效）；聚合路由的候选目录、排序模式、到期排序、当前渠道、拒绝表，以及**候选级逐个打开/拒绝/调序** |
 | 供应商 | 全部 provider 的模型数/账号数/启用状态、逐个停用启用、顺序保存 |
 | 用量 | token 账本（6 项汇总 + 明细）、历史、删除某天、徽章偏好 |
@@ -477,7 +478,8 @@ key 在启动 web 实例时打印出来：
 - 侧栏页能读的只有 `providers:list` 与 `usage:summary` 两项（magpie 的白名单，
   `connect-src 'none'` 写死），所以侧栏里做不出「点一下就登录/换号」的按钮；
   这类写操作全部在本地控制台（`http://127.0.0.1:18500/`）里。
-- 控制台覆盖本体可调度方法的大部分，未接清单以 `tests/t-rpc-cover.mjs` 的输出为准。
+- 控制台接了本体哪些可调度方法、哪些没接，以 `tests/t-rpc-cover.mjs` 的输出为准
+  （本文不写死「接了多少 / 共多少」这两个数）。
   数这个数有几个坑，都踩过：只数小写首段会漏掉 `nativeSearch.*` / `panelEntry.*`
   这类驼峰首段；直接 grep 关键字面量会把 `claimed` / `inactive` / `failed` /
   `already-claimed` 这四条非 RPC 的枚举 case 算进去；在控制台里
@@ -489,7 +491,9 @@ key 在启动 web 实例时打印出来：
   `minimaxintl.` / `modelscope.` 五个前缀改道接管。按 case 扫会整体漏掉这一批
   （这几家的账号级代理、匿名账号、指定 provider 加号等入口都在里面）。
 - `loomy.permanentLock` 与 `credits.permanentLock` 是同一实现的**两个 label**，
-  传 `provider:'loomy'` 走哪个名字都行（实测回包一致）。
+  传 `provider:'loomy'` 走哪个名字都行（实测回包一致）。控制台用的是变量而非常量：
+  `console/console.js` 的 `lockAction()` 里 `const lockMethod = provider === 'loomy' ?
+  'loomy.permanentLock' : 'credits.permanentLock'`，load / on / off 三个 mode 都走它。
 
 ## 供应商编辑器里的开关（`auth.options`）
 
