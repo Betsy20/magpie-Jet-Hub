@@ -145,8 +145,10 @@
       <button type="button" data-copy="#conUrlBox">复制地址</button>
     </div>
     <p class="hint" id="conUrlNote">
-      端口默认 <code>18500</code>，被占用时会自动 +1。准确端口见
-      <code>~/.config/magpie/jet-hub-console.json</code> 的 <code>url</code> 字段。
+      端口默认 <code>18500</code>，被占用时会自动 +1。本页的地址取自模型快照：快照探到哪台真在跑就用哪台，
+      一台都没探通时才退回读下面这个文件。
+      <code>~/.config/magpie/jet-hub-console.json</code> 只在实例拿到首发端口 <code>18500</code> 时才写，
+      记的是那台的地址 —— 漂移过的实例（<code>18501</code>、<code>18502</code>…）不在里面，别把它当「当前端口」查。
     </p>
   </div>
 
