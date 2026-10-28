@@ -481,14 +481,18 @@ async function creditsSpecial(btn, which) {
 
 async function lockAction(btn, mode) {
   const provider = $('#credProvider').value
+  // loomy 有一个历史端点名 `loomy.permanentLock`：本体侧与 `credits.permanentLock`
+  // 是**同一个 case**，只是 provider 固定为 loomy、且忽略载荷里的 provider。
+  // 走哪个名字行为完全一致（实测两者回包相同），这里用老名字把本体方法覆盖补满。
+  const lockMethod = provider === 'loomy' ? 'loomy.permanentLock' : 'credits.permanentLock'
   try {
     await busy(btn, async () => {
       let v
-      if (mode === 'load') v = await rpc('credits.permanentLock', { provider })
+      if (mode === 'load') v = await rpc(lockMethod, { provider })
       else if (mode === 'on') {
         if (!confirm(`锁定 ${provider} 的永久积分？（只烧永久额度，不动临期额度）`)) return
-        v = await rpc('credits.permanentLock', { provider, locked: true })
-      } else if (mode === 'off') v = await rpc('credits.permanentLock', { provider, locked: false })
+        v = await rpc(lockMethod, { provider, locked: true })
+      } else if (mode === 'off') v = await rpc(lockMethod, { provider, locked: false })
       renderGeneric($('#lockOut'), v)
       say('#lockMsg', '已执行', 'ok')
     })
