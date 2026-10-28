@@ -44,9 +44,10 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
   const covered = new Set(iconProviders())
   const noIcon = DSH_PROVIDERS.filter((p) => !covered.has(p))
   ok(noIcon.length === 0, `每个 provider 都登记了图标（缺：${noIcon.join(', ')}）`)
+  // ZCode 只有官方 PNG，所以这里要求「内联图像」而不是「内联 SVG」
   ok(
-    [...icons.values()].every((v) => typeof v === 'string' && v.startsWith('data:image/svg+xml;base64,')),
-    '每个 provider 的 icon 都是内联 SVG（离线可显示）',
+    [...icons.values()].every((v) => typeof v === 'string' && v.startsWith('data:image/')),
+    '每个 provider 的 icon 都是内联图像（离线可显示）',
   )
   const byUri = new Map()
   for (const [id, v] of icons) {

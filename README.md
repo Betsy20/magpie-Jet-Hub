@@ -521,12 +521,13 @@ magpie 落盘成 `file:<hash>.svg` 供 GUI 引用。
 
 ## 供应商图标（`src/icons.mjs`）
 
-**每家一个图标**，不是 24 个 provider 共用插件自己那个。两种来源：
+**每家一个图标**，不是 24 个 provider 共用插件自己那个。三种来源：
 
 | 来源 | 用在哪 |
 |---|---|
-| magpie 本体内嵌的 `assets/icons/*.svg` | 有厂商的渠道：Trae / Qoder / Cline / Gemini / MiniMax / ModelScope / OpenCode / 智谱（AutoClaw）/ 阿里（Accio）/ 讯飞（AStudio）/ 华为云（CodeArts）/ GLM（ZCode） |
-| 现画 | 没有对应厂商的：聚合路由、自动选号、Buddy、Codely、LobsterAI、Loomy、Raccoon、WorkBuddy、OfficeAce |
+| magpie 本体内嵌的 `assets/icons/*.svg` | 有厂商的渠道：Trae / Qoder / Cline / Gemini / MiniMax / ModelScope / OpenCode / 智谱（AutoClaw）/ 阿里（Accio）/ 讯飞（AStudio）/ 华为云（CodeArts） |
+| 厂商自己出的位图 | ZCode —— 只有官方 PNG（`src/zcode-icon.mjs` 内联，128×128）；WorkBuddy —— LobeHub 图标库的 `workbuddy-color.svg`（和 magpie 内嵌的那张同图） |
+| 现画 | 没有对应厂商的：聚合路由、自动选号、Buddy、Codely、LobsterAI、Loomy、Raccoon、OfficeAce |
 
 用 magpie 那套图是有意的：它给自己的内置供应商显示的就是同一套 logo，
 所以插件渠道和 magpie 自带渠道在列表里视觉一致。`*intl`（AutoClaw 国际 /
