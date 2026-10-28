@@ -519,6 +519,37 @@ magpie 的 auth 契约允许插件声明若干开关，用户在「供应商 →
 `auth.icon` 是内联 SVG 的 `data:image/svg+xml;base64,…`（不依赖外部图床），
 magpie 落盘成 `file:<hash>.svg` 供 GUI 引用。
 
+## 模型能力（上下文 / 支持图片 / 推理强度）
+
+magpie 模型列表里那三列**只能由插件的 `provider.models()` 给**：宿主拿到钩子返回后
+是**整体替换**（`out.models = Object.fromEntries(...)`，见宿主 `host-*.js` 的
+`info()`），**不跟 models.dev 的 capabilities 合并** —— 少给一个字段，界面上那一格
+就是空的（推理档位显示「跟随分组推理」、没有图片标记、上下文一排 128K）。
+
+数据来自本体 `ctx.llm`，但**分在两处**，只读前一处等于没读：
+
+| 字段 | 来源 | 备注 |
+|---|---|---|
+| `limit.context` | `resolveModelInfo().context.contextWindow` | `listModels()` **不带**窗口 |
+| `limit.output` | `resolveModelInfo().defaultMaxTokens` | |
+| `capabilities.input.image` | `resolveModelInfo().inputModalities` | 决定「支持图片」标记 |
+| `capabilities.reasoning` | `resolveModelInfo().reasoning.efforts` | 决定推理档位 |
+| 模型名 / 是否已关闭 | `listModels()` / `model.list` RPC | |
+
+实测（2026-10-29，用户报「推理强度 / 支持图片输出 / 上下文没正确取到」）：只读
+`listModels()` 时**53 个模型里 0 个有窗口**，界面 53 行全显示 128K，而真窗口是
+1M。补齐后 `trae/deepseek-v4.1-flash` = `context 1000000 / output 64000 /
+image true / reasoning true`，`astudio/xopdsv4flash0731in` = `1048576 / 100000 /
+纯文本`。
+
+上游全量目录（895 条）走完 `model.list` RPC 后同样逐条 `resolveModelInfo` 补：
+**实测 300 条 8 ms**（读的是适配器已缓存的目录，不发网络请求），41% 能解析出窗口。
+`codely` 那家上游只声明模态、不声明窗口，所以它的 `limit.context` 仍是 0 —— 上游
+事实，不是插件缺陷（`tests/t-plugin.mjs` 因此只把「一家都没有」判成失败）。
+
+能力元数据跟目录一起落盘到 `~/.config/magpie/jet-hub-models.json` 的 `meta` 字段，
+冷启动首屏就有真窗口，不必等本体 20–30 秒起来。
+
 ## 供应商图标（`src/icons.mjs`）
 
 **每家一个图标**，不是 24 个 provider 共用插件自己那个。三种来源：

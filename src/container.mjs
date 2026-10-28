@@ -66,6 +66,12 @@ export class JetHubContainer {
     this.version = undefined
     this.models = []      // 最近一次拉到的模型 id（不带 provider 前缀）
     this.ownerOf = new Map() // modelId -> provider id
+    // modelId -> 能力元数据 `{ context, output, input, reasoning }`。
+    //
+    // ⚠️ 单独存一份是因为 `this.models` 是**纯 id 数组**：magpie 的模型列表要
+    // 上下文窗口、能不能发图、有没有思考档位，只留 id 的话调用方只能按 128K 猜。
+    // 实测（2026-10-29）：真窗口 trae 1000000 / astudio 1048576，全被猜成 128K。
+    this.modelMeta = new Map()
     this.fullCatalog = [] // 上游全量目录 [{id:'p/m', name, disabled, dead}]，含 disabled
     this.fullCatalogAt = undefined
     // 对外网关（magpie 主程序那个，不是本插件内部网关 —— 内部网关已经没有了）。
@@ -412,12 +418,23 @@ export class JetHubContainer {
     const rows = Array.isArray(json?.data) ? json.data : []
     this.models = []
     this.ownerOf.clear()
+    this.modelMeta.clear()
     for (const m of rows) {
       const id = String(m?.id ?? '')
       if (!id) continue
       this.models.push(id)
       const owner = String(m?.owned_by ?? '')
       if (owner) this.ownerOf.set(id, owner)
+      // 能力元数据：`modelsPayload` 已经把 `resolveModelInfo` 的窗口/预算/模态/
+      // 档位并进 data 项了，这里只挑 magpie 用得到的四个。
+      const meta = {}
+      if (Number.isFinite(m?.context_window) && m.context_window > 0) meta.context = m.context_window
+      if (Number.isFinite(m?.max_tokens) && m.max_tokens > 0) meta.output = m.max_tokens
+      if (Array.isArray(m?.input) && m.input.length > 0) meta.input = [...m.input]
+      if (m?.reasoning !== undefined) meta.reasoning = Array.isArray(m.reasoning?.openai_efforts)
+        ? m.reasoning.openai_efforts.length > 0
+        : true
+      if (Object.keys(meta).length > 0) this.modelMeta.set(id, meta)
     }
   }
 
@@ -497,6 +514,35 @@ export class JetHubContainer {
         this.log(`拉 ${p} 的全量目录失败：${e?.message ?? e}`)
       }
     }
+
+    // 全量目录只有 id / name / disabled / dead —— **上下文窗口、模态、思考档位
+    // 都在 `resolveModelInfo` 里**，`model.list` 一个都不给。实测（2026-10-29）：
+    // 895 条里有 41% 能解析出窗口，而 `listModels` 那条路 53 条里 0 条有窗口。
+    //
+    // 成本可忽略：`resolveModelInfo` 读的是适配器**已缓存**的目录（`model.list`
+    // 刚拉过同一份），不产生网络请求。实测 300 个模型 8 ms 全部成功。
+    // 逐模型 catch：解析失败就是那条没有能力字段，全量目录照常返回。
+    if (typeof this.llm?.resolveModelInfo === 'function') {
+      await Promise.all(out.map(async (row) => {
+        const at = row.id.indexOf('/')
+        const provider = row.id.slice(0, at)
+        const model = row.id.slice(at + 1)
+        try {
+          const info = await this.llm.resolveModelInfo(provider, model)
+          const meta = {}
+          const window = info?.context?.contextWindow
+          if (typeof window === 'number' && window > 0) meta.context = window
+          const maxTokens = info?.defaultMaxTokens
+          if (typeof maxTokens === 'number' && maxTokens > 0) meta.output = maxTokens
+          if (Array.isArray(info?.inputModalities) && info.inputModalities.length > 0) meta.input = [...info.inputModalities]
+          if (Array.isArray(info?.reasoning?.efforts) && info.reasoning.efforts.length > 0) meta.reasoning = true
+          if (Object.keys(meta).length > 0) this.modelMeta.set(row.id, meta)
+        } catch {
+          // 这个模型没有能力声明（或 provider 没加载）：全量目录照常，它自己少字段
+        }
+      }))
+    }
+
     this.fullCatalog = out
     this.fullCatalogAt = new Date().toISOString()
     return out

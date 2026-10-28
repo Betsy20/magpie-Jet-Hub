@@ -232,12 +232,58 @@ function fallbackFor(dshProvider) {
   return out
 }
 
-function modelEntry(id, def) {
-  return {
+/**
+ * magpie 的模型条目。
+ *
+ * ⚠️ 宿主 `provider.models` 钩子的返回是**整体替换**（`out.models =
+ * Object.fromEntries(...)`，见宿主 `host-*.js` 的 `info()`），不跟 models.dev
+ * 的 capabilities 合并。所以**能力字段必须由这里给全**，少一个 magpie 界面上
+ * 就少一样：不给 `limit.context` 就按 `0`/默认显示、不给
+ * `capabilities.reasoning` 就显示「跟随分组推理」、不给
+ * `capabilities.input.image` 就没有图片标记。
+ *
+ * 实测（2026-10-29，用户报「推理强度/支持图片输出/上下文没正确取到」）：修复前
+ * 这里只有 `name` / `limit`（硬编码 128K / 8192）/ `tool_call`，于是 53 个模型
+ * 全显示 128K，真窗口是 1M。
+ *
+ * @param {string} id 模型名（已剥 provider 前缀）
+ * @param {{name?:string, limit?:{context?:number, output?:number}, tool_call?:boolean}} [def] 静态兜底表里的声明
+ * @param {{context?:number, output?:number, input?:string[], reasoning?:boolean}} [meta] 从本体现采的能力元数据
+ */
+function modelEntry(id, def, meta) {
+  const context = meta?.context ?? def?.limit?.context
+  const output = meta?.output ?? def?.limit?.output
+  const input = Array.isArray(meta?.input) && meta.input.length > 0 ? meta.input : ['text']
+  // 上游没声明模态时保守按纯文本（与本体各适配器「不声明即 text」同口径）：
+  // 宁可少报能力，也别让用户发一张注定被上游拒绝的图。
+  const hasImage = input.includes('image')
+  const reasoning = meta?.reasoning ?? def?.reasoning ?? false
+  const toolCall = def?.tool_call ?? true
+  const entry = {
     name: def?.name ?? id,
-    limit: { context: def?.limit?.context ?? 128_000, output: def?.limit?.output ?? 8192 },
-    tool_call: def?.tool_call ?? true,
+    // magpie 界面的「上下文」列直接读 limit.context。
+    limit: { context: context ?? 0, output: output ?? 8192 },
+    tool_call: toolCall,
+    capabilities: {
+      temperature: true,
+      reasoning,
+      attachment: hasImage,
+      toolcall: toolCall,
+      input: {
+        text: true,
+        image: hasImage,
+        audio: input.includes('audio'),
+        video: input.includes('video'),
+        pdf: input.includes('pdf'),
+      },
+      output: { text: true },
+      interleaved: false,
+    },
   }
+  // 未声明就**不发**这几个字段（发 0 / false 会被读成「确认不支持」）。
+  if (Array.isArray(meta?.input) && meta.input.length > 0) entry.modalities = { input: [...input], output: ['text'] }
+  if (reasoning) entry.reasoning = true
+  return entry
 }
 
 // ---- 共享容器与模型缓存 -------------------------------------------------------
@@ -281,12 +327,33 @@ let allModels = undefined
  */
 let fullModels = undefined
 
+/**
+ * 能力元数据：`<本体 provider>/<model>` → `{ context, output, input, reasoning }`。
+ *
+ * `allModels` / `fullModels` 都只是 id（全量那份多 name/disabled），magpie 要的
+ * 上下文窗口、能不能发图、有没有思考档位只能单独记。来源两处：
+ * 本体 `ctx.llm` 现采（`container.modelMeta`）与落盘缓存的 `meta` 字段。
+ */
+let metaById = new Map()
+
+/** 取某个 `<provider>/<model>` 的能力元数据（没有就 undefined）。 */
+function metaOf(fullId) {
+  return metaById.get(fullId)
+}
+
+/** 把容器刚采到的能力元数据同步进模块级表（缓存写盘也读它）。 */
+function absorbMeta(container) {
+  const got = container?.modelMeta
+  if (got instanceof Map && got.size > 0) metaById = new Map(got)
+}
+
 function readCache() {
   try {
     const j = JSON.parse(readFileSync(cacheFile, 'utf8'))
     const out = {}
     if (Array.isArray(j?.models) && j.models.length > 0) out.live = j.models
     if (Array.isArray(j?.full) && j.full.length > 0) out.full = j.full
+    if (j?.meta !== null && typeof j?.meta === 'object' && !Array.isArray(j.meta)) out.meta = j.meta
     return out
   } catch { /* 没有缓存是正常情况 */ }
   return {}
@@ -505,6 +572,9 @@ function writeCache(log) {
       at: new Date().toISOString(),
       models: allModels ?? prev.models,
       full: fullModels ?? prev.full,
+      // 能力元数据跟目录一起落盘：否则冷启动首屏只能按无上下文显示，
+      // 要等本体 20–30 秒起来才有真实窗口。
+      meta: metaById.size > 0 ? Object.fromEntries(metaById) : prev.meta,
     }
     writeFileSync(cacheFile, JSON.stringify(out, null, 2))
   } catch (e) {
@@ -519,10 +589,15 @@ function refreshInBackground(container, log) {
     .then(() => container.refreshModels())
     .then((list) => {
       if (Array.isArray(list) && list.length > 0) allModels = list.slice()
+      // 能力元数据跟 id 一起来自这一次 `_absorbModels`，必须同时同步。
+      absorbMeta(container)
       return container.refreshFullCatalog(DSH_PROVIDERS)
     })
     .then((rows) => {
       if (Array.isArray(rows) && rows.length > 0) fullModels = rows
+      // 全量目录那一趟也会用 `resolveModelInfo` 补能力（`model.list` 本身不带），
+      // 所以这里要再同步一次 —— 只同步第一次的话落盘的就只有实时那几十条。
+      absorbMeta(container)
       writeCache(log)
     })
     .catch((e) => log?.(`后台刷新模型目录失败：${e?.message ?? e}`))
@@ -553,6 +628,7 @@ function currentAll(container, log) {
     const seed = readCache()
     if (seed.live !== undefined) allModels = seed.live
     if (seed.full !== undefined) fullModels = seed.full
+    if (seed.meta !== undefined) metaById = new Map(Object.entries(seed.meta))
   }
   return { live: allModels, full: fullModels }
 }
@@ -562,6 +638,7 @@ async function liveAll(container, log) {
   const list = await container.refreshModels()
   if (Array.isArray(list) && list.length > 0) {
     allModels = list.slice()
+    absorbMeta(container)
     writeCache(log)
   }
   return allModels ?? []
@@ -578,7 +655,7 @@ function modelsOfFull(dshProvider, rows) {
     const base = row?.name ?? bare
     // 已在上游关掉的模型照样列出（用户要全量），但把状态写进名字，
     // 免得选中后打不通却不知道为什么。
-    out[bare] = modelEntry(row?.disabled === true ? `${base} · 已在 Jet Hub 关闭` : base, undefined)
+    out[bare] = modelEntry(row?.disabled === true ? `${base} · 已在 Jet Hub 关闭` : base, undefined, metaOf(id))
   }
   return out
 }
@@ -590,7 +667,7 @@ function modelsOf(dshProvider, list) {
   for (const id of list ?? []) {
     if (!id.startsWith(prefix)) continue
     const bare = id.slice(prefix.length)
-    out[bare] = modelEntry(bare, undefined)
+    out[bare] = modelEntry(bare, undefined, metaOf(id))
   }
   return out
 }

@@ -2358,3 +2358,74 @@ EXIT=0
 
 ⚠️ **这些数会随控制台继续接方法而变**。本文锁的是「口径由测试从源码解析」，不是这四个
 数本身；下次任何人引用前先跑 `node tests/t-rpc-cover.mjs` 看当下的打印。
+
+---
+
+## 二十一、模型能力三项（上下文 / 支持图片 / 推理强度）取不到（2026-10-29，已修）
+
+**症状**（用户报，截图 magpie 模型列表）：DeepSeek 系列 12 行**全部显示 128K**，且
+AStudio 与 WorkBuddy-SG 两行没有图片标记、每一行推理档位都是「跟随分组推理」。
+真窗口其实是 1M（trae `deepseek-v4.1-flash`）、AStudio 上游只吃纯文本。
+
+**根因（三层，任缺一层症状都在）**
+
+| 层 | 事实 | 出处 |
+|---|---|---|
+| 宿主 | `provider.models()` 返回**整体替换**，不与 models.dev 的 capabilities 合并 | 宿主 `info()` 尾部 `out.models = Object.fromEntries(...)` |
+| 宿主落盘 | 只认 `limit.context` / `limit.output` / `capabilities.reasoning` / `capabilities.input.image` | `host-6eabac8b763e.js:2027-2035` |
+| 插件 | `modelEntry()` 原先只给 `{name, limit:{context: 128_000 硬编码, output: 8192}, tool_call}` | `src/plugin.mjs` 改前 |
+
+**数据源实测：`listModels()` 里根本没有窗口**
+
+```
+listModels() 53 条 → context_window 有值的 0 条，reasoning 48，input 46
+resolveModelInfo('trae','deepseek-v4.1-flash') →
+  {context:{contextWindow:1000000}, defaultMaxTokens:64000,
+   inputModalities:['text','image'], reasoning:{efforts:[light,high,extra_high],defaultEffort:'high'}}
+resolveModelInfo('astudio','xopdsv4flash0731in') →
+  {context:{contextWindow:1048576}, defaultMaxTokens:100000, inputModalities:['text'], ...}
+```
+
+⇒ 只读 `listModels()`／`model.list` RPC（后者只给 `{id,name,disabled,dead}`）永远补不上
+窗口，必须逐模型 `ctx.llm.resolveModelInfo()`。成本实测全量 895 条走一遍前 300 条
+**8 ms**（读适配器已缓存目录，不发网络）。
+
+**改了三处**：`src/llm-bridge.mjs` 的 `modelsPayload()` 逐模型 resolve 后回填
+`context_window`／`max_tokens`／`input`；`src/container.mjs` 新增 `modelMeta` Map，
+由 `_absorbModels()` 与 `refreshFullCatalog()` 两路填；`src/plugin.mjs` 的
+`modelEntry(id, def, meta)` 扩成三参并产出完整 `limit` + `capabilities`，
+**并删掉原 `128_000` 硬编码**（不知道就给 0，不放假值）。
+
+**验证（真跑）**
+
+```
+# 插件层（12 秒后台刷新后再取一次 config）
+deepseek-v4.1-flash → limit {context:1000000, output:64000}
+                      capabilities {reasoning:true, attachment:true, input:{text,image}}
+glm-5.1             → limit {context:200000,  output:32000}  纯文本 reasoning:false
+Doubao-Seed-Code    → limit {context:256000,  output:32000}  image+reasoning
+container.modelMeta: 875
+
+# 落盘 ~/.config/magpie/jet-hub-models.json（205KB）
+键 ['at','models','full','meta']；models 53 / full 895 / meta 875
+trae/deepseek-v4.1-flash → {context:1000000, output:64000, input:['text','image'], reasoning:true}
+
+# 宿主口径（`magpie plugin list --json` 起的新进程，14 条同名模型）
+{'context': 1000000, 'output': 128000, 'reasoning': True, 'image': True, 'imageSaid': True, 'inputs': ['text','image']}
+{'context': 116000,  'output': 16000,  'reasoning': True, 'image': True,  'inputs': ['text','image']}
+{'context': 200000,  'output': 16000,  'reasoning': True, 'image': False, 'inputs': ['text']}
+
+# 测试
+node scripts/test-all.mjs        → 9 通过 / 0 失败 / 0 跳过
+node scripts/test-all.mjs --all  → 12 通过 / 0 失败 / 1 跳过（页面 UI 缺 MAGPIE_WEB_KEY）
+```
+
+**唯一仍然要人做的一步**：magpie 主程序不会因文件改动重载插件
+（`touch` 插件目录无效，`magpie plugin` 也没有 reload 子命令），重启 magpie
+后才在界面上生效。落盘那一份 `plugin-providers.json` 在重启前仍是旧值
+（`context:128000`）。
+
+**一处上游事实，不是缺陷**：`codely` 那 5 个模型 `resolveModelInfo` 只返回
+`inputModalities`，不返回 `context`／`defaultMaxTokens`，所以它的 `limit.context`
+仍是 0。`tests/t-plugin.mjs` 因此只把「**一家都没有**窗口」判成失败，并在输出里
+点明是哪一家。

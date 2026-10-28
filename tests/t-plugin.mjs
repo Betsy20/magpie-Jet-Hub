@@ -10,6 +10,8 @@ console.log('函数导出数:', fns.length)
 
 const problems = []
 const described = []
+/** 上游没声明窗口的家（codely 就是：只有模态，没有 context/maxTokens）。 */
+const noContext = []
 for (const [name, fn] of fns) {
   // 宿主行为：无参探测调用，不能抛
   let plugin
@@ -32,11 +34,33 @@ for (const [name, fn] of fns) {
   const p = cfg.provider?.[id]
   if (!p) problems.push(`${name}: config 没写 provider[${id}]`)
   else if (!p.name || !p.api) problems.push(`${name}: config 缺 name/api`)
+  if (p) {
+    // 模型条目必须带**能力字段**（2026-10-29 用户报「推理强度 / 支持图片输出 /
+    // 上下文没正确取到」）。宿主 `provider.models` 的返回是整体替换，不跟
+    // models.dev 合并 —— 这里不给，magpie 界面上就是缺。
+    const models = p?.models ?? {}
+    const rows = Object.values(models)
+    if (rows.length > 0) {
+      const noLimit = rows.filter((m) => typeof m?.limit?.context !== 'number').length
+      if (noLimit > 0) problems.push(`${name}: ${noLimit}/${rows.length} 个模型缺 limit.context`)
+      const noCaps = rows.filter((m) => typeof m?.capabilities?.input?.text !== 'boolean').length
+      if (noCaps > 0) problems.push(`${name}: ${noCaps}/${rows.length} 个模型缺 capabilities.input`)
+      // 上下文别再是「一个数字都没有」：真实窗口必须来自本体，不能全 0。
+      // ⚠️ 逐家不判死：codely 上游只声明模态、不声明 context（实测），那家全 0
+      // 是上游事实。所以只把「一家都没有」当失败 —— 那才是能力链路整体断了。
+      const withContext = rows.filter((m) => (m?.limit?.context ?? 0) > 0).length
+      if (rows.length > 0 && withContext === 0) noContext.push(name)
+    }
+  }
   described.push(`${id} ← ${name} | ${p?.name} | 静态模型 ${Object.keys(p?.models ?? {}).length}`)
 }
 
 console.log('--- 19 个 provider ---')
 for (const d of described) console.log('  ' + d)
+if (noContext.length > 0) console.log(`  注：${noContext.join(' / ')} 的上游没声明上下文窗口（不是插件缺陷）`)
+if (noContext.length === described.length && described.length > 0) {
+  problems.push(`全部 ${described.length} 个 provider 的模型都没有 limit.context —— 能力链路断了`)
+}
 
 if (problems.length) {
   console.log('✗ 契约问题:')

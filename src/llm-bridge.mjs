@@ -37,9 +37,9 @@ import {
 import { markGatewayChannel } from '../vendor/lib/openai-gateway/channel.js'
 import {
   collectGatewayModels,
-  collectGatewayEffortViews,
   toOpenAiModels,
 } from '../vendor/lib/openai-gateway/models.js'
+import { effortView } from '../vendor/lib/openai-gateway/effort-view.js'
 
 const SSE_HEADERS = {
   'content-type': 'text/event-stream; charset=utf-8',
@@ -143,11 +143,67 @@ export async function chatCompletion(llm, body, signal) {
   }
 }
 
-/** `GET /v1/models`，直接从 `ctx.llm` 采集，不经过任何 HTTP 网关。 */
+/**
+ * `GET /v1/models`，直接从 `ctx.llm` 采集，不经过任何 HTTP 网关。
+ *
+ * 除了 id / name，还要把**能力**一并带出来 —— 上游 `listModels` 只给 id、name
+ * 与 `inputModalities`，**上下文窗口和输出预算只在 `resolveModelInfo` 里**：
+ *
+ * | 字段 | 来源 | 实测（2026-10-29） |
+ * |---|---|---|
+ * | `context_window` | `context.contextWindow` | trae 1000000 / astudio 1048576 |
+ * | `max_tokens` | `defaultMaxTokens` | trae 64000 / astudio 100000 |
+ * | `input` | `inputModalities`（缺了用 resolve 的） | 46/53 有 |
+ * | `reasoning` | `reasoning.efforts` + `defaultEffort` | 48/53 有 |
+ *
+ * ⚠️ 不补 `context_window` 的后果是**调用方只能按 128K 猜**：magpie 的模型列表
+ * 里 53 个模型全显示 128K，而真窗口是 1M —— 用户 2026-10-29 报的就是这个。
+ *
+ * ⚠️ 这里没有直接调 vendor 的 `collectGatewayEffortViews`：它内部已经逐个
+ * `resolveModelInfo`，但只留下档位视图、把同一个结果里的 context 与 maxTokens
+ * 丢了；再调一次就是同一件事算两遍。所以这里自己走一遍，逻辑与它一致
+ * （逐个 catch，单个模型失败只让它自己少字段）。
+ */
 export async function modelsPayload(llm) {
   if (!llmReady(llm)) throw new Error('magpie-jet-hub: 本体 llm 服务未就绪，无法读取模型目录')
   // 采集器逐个 provider 兜错（未登录的跳过），承诺永不抛出。
   const groups = await collectGatewayModels(llm, () => {})
-  const effortViews = await collectGatewayEffortViews(llm, groups, () => {})
-  return { object: 'list', data: toOpenAiModels(groups, effortViews) }
+
+  // 每个模型一次 resolveModelInfo：读的是适配器已缓存的目录，不额外发网络请求。
+  const infos = new Map()
+  if (typeof llm?.resolveModelInfo === 'function') {
+    await Promise.all(
+      groups.flatMap(({ provider, models }) =>
+        (models ?? []).map(async (model) => {
+          try {
+            const info = await llm.resolveModelInfo(provider, model.id)
+            if (info !== undefined && info !== null) infos.set(`${provider}/${model.id}`, info)
+          } catch {
+            // 单个模型解析失败：它自己不带档位与窗口，目录照常返回
+          }
+        }),
+      ),
+    )
+  }
+
+  const effortViews = new Map()
+  for (const [id, info] of infos) {
+    const view = effortView(info?.reasoning?.efforts, info?.reasoning?.defaultEffort)
+    if (view !== undefined) effortViews.set(id, view)
+  }
+
+  const data = toOpenAiModels(groups, effortViews)
+  for (const row of data) {
+    const info = infos.get(row.id)
+    if (info === undefined) continue
+    const window = info?.context?.contextWindow
+    if (typeof window === 'number' && window > 0) row.context_window = window
+    const maxTokens = info?.defaultMaxTokens
+    if (typeof maxTokens === 'number' && maxTokens > 0) row.max_tokens = maxTokens
+    // listModels 没声明模态时用 resolve 的那份（两处口径不同，取更全的）
+    if (!Array.isArray(row.input) && Array.isArray(info?.inputModalities) && info.inputModalities.length > 0) {
+      row.input = [...info.inputModalities]
+    }
+  }
+  return { object: 'list', data }
 }
