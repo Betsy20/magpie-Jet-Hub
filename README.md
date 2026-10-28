@@ -239,7 +239,8 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
 响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）。
 
-控制台是八个标签的完整管理界面，覆盖本体 **62 / 65** 个 RPC：
+控制台是八个标签的管理界面，覆盖本体可调度 RPC 的**大部分**（不是全部，覆盖率与
+方法总数由 `tests/t-rpc-cover.mjs` 从源码解析后自动统计，本文不硬编码这两个数）：
 
 | 标签 | 能做什么 |
 |---|---|
@@ -345,9 +346,19 @@ node tests/ui-check.cjs
 - 侧栏页能读的只有 `providers:list` 与 `usage:summary` 两项（magpie 的白名单，
   `connect-src 'none'` 写死），所以侧栏里做不出「点一下就登录/换号」的按钮；
   这类写操作全部在本地控制台（`http://127.0.0.1:18500/`）里。
-- 控制台覆盖 62/65 个 RPC，未接的 3 个是 `account.resetAll` / `account.retestAll`
-  （已由「全部重置」「全部复测」按钮以字符串常量传入，等价可用）与
-  `loomy.permanentLock`（`credits.permanentLock` 传 `provider:'loomy'` 走同一实现）。
+- 控制台覆盖本体可调度方法的大部分，未接清单以 `tests/t-rpc-cover.mjs` 的输出为准。
+  数这个数有几个坑，都踩过：只数小写首段会漏掉 `nativeSearch.*` / `panelEntry.*`
+  这类驼峰首段；直接 grep 关键字面量会把 `claimed` / `inactive` / `failed` /
+  `already-claimed` 这四条非 RPC 的枚举 case 算进去；在控制台里
+  `grep rpc('...')` 会漏掉**以字符串常量传入**的调用 —— `account.resetAll` /
+  `account.retestAll` 就是这样接的（「全部重置」「全部复测」两个按钮把方法名当参数
+  传给 `accBulk()`），它们是真接了的，别当成未接。
+- 方法总数也不是主 `switch (method)` 的 case 标签数：另有一批方法**根本不走主
+  switch**，在它之前先被 `handleMethod()` 按 `opencode.` / `gemini.` / `qoder.` /
+  `minimaxintl.` / `modelscope.` 五个前缀改道接管。按 case 扫会整体漏掉这一批
+  （这几家的账号级代理、匿名账号、指定 provider 加号等入口都在里面）。
+- `loomy.permanentLock` 与 `credits.permanentLock` 是同一实现的**两个 label**，
+  传 `provider:'loomy'` 走哪个名字都行（实测回包一致）。
 
 ## 供应商编辑器里的开关（`auth.options`）
 
@@ -378,7 +389,7 @@ src/connection.mjs     补 connection 服务，让本体的 jet-hub-rpc 端点�
 src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
 vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
-console/               完整控制台界面（八个标签，覆盖 62 / 65 个 RPC）
+console/               控制台界面（八个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
 scripts/snapshot-models.mjs  重新生成 page/models.js
 scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headless + CDP）

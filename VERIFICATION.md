@@ -671,7 +671,7 @@ node scripts/test-all.mjs → 7 通过 / 0 失败 / 0 跳过
 
 ---
 
-## 十三、完整控制台：八个标签，覆盖 62/65 个本体 RPC
+## 十三、控制台：八个标签，覆盖本体可调度 RPC
 
 ### 背景
 `auth.usage` / `auth.checkin` 只能覆盖「积分」一栏；用户要的是**全部功能**。
@@ -702,26 +702,53 @@ magpie 侧栏页的 `connect-src 'none'` 是写死的（`_mp_pluginpage.go:228`�
 4. **`accTestAll` / `accRetestAll` 重复** → 删掉 `#accTestAll`。
 
 ### 验证（Observed，`node scripts/shot-console.cjs`）
-```
-启动状态: {"bootHidden":true,"appShown":true,"meta":{"providers":18,"models":28}}
-[overview]  {"on":true,"rows":19,"cards":14,"btns":0,"err":[]}
-[accounts]  {"on":true,"rows":2,"cards":0,"btns":26,"msgs":["2 个账号"],"err":[]}
-[credits]   {"on":true,"rows":19,"cards":4,"btns":12,"err":[]}
-[models]    {"on":true,"rows":9,"cards":0,"btns":25,"msgs":["9 个模型，8 个已关闭"],"err":[]}
-[providers] {"on":true,"rows":23,"cards":0,"btns":25,"msgs":["23 个 provider"],"err":[]}
-[usage]     {"on":true,"rows":0,"cards":6,"btns":4,"msgs":["已读取","当前：auto"],"err":[]}
-[settings]  {"on":true,"rows":0,"cards":0,"btns":3,"err":[]}
-[backup]    {"on":true,"rows":56,"cards":2,"btns":2,"err":[]}
-页面 JS 报错: （无）
-```
+行数 / 卡片数 / 按钮数**随账号与模型状态变**，每跑一次 `shot-console.cjs` 都会重新打印
+并重拍八张图，所以这里只留**一次具体运行的记录**，不当作常量：
+
+| 标签 | 2026-10-28 11:39–11:40 那次运行 |
+|---|---|
+| overview | rows 19 / cards 14 |
+| accounts | rows 1 / btns 16 |
+| credits | rows 19 |
+| models | rows 15 / btns 31 |
+| providers | rows 23 / btns 25 |
+| usage | rows 20 |
+| settings | btns 3 |
+| backup | rows 56 |
+
+⚠️ 这组数是**控制台 自己跑完截图脚本报的**，经项目经理 Jeb 转达后抄进本表 ——
+不是文档作者复跑的输出。要更新就重跑一次脚本、照抄它打印的 JSON，别手改。
+
+本节以前留的是更早一版（控制台刚做出来时）的数：`meta.providers` 18 / models 28、
+accounts rows 2、models rows 9。**这类旧数别再沿用** —— 账号池和模型目录后来都长过。
+文档写作时现测 `/__meta`：24 个 provider、`models` 892、`liveModels` 35、内嵌网关 18390。
+
 八张图逐张 `read_image` 确认过内容正确，落在 `docs/console-<tab>.png`。
 
 ### 覆盖率
-本体 65 个方法，控制台直调 62 个。未接的 3 个：
-- `account.resetAll` / `account.retestAll` —— 已由「全部重置」「全部复测」按钮
-  以字符串常量传入 `rpc(method)`，等价可用（正则只扫字面量才漏计）；
-- `loomy.permanentLock` —— 与 `credits.permanentLock` 同一实现，传
-  `provider:'loomy'` 即可。
+本体方法总数与控制台的覆盖率**不再手写**，由 `tests/t-rpc-cover.mjs` 从源码解析后
+自动统计并打印（该测试同时断言控制台没有调用不存在的方法、以及对每个方法真发一次
+空 payload、断言都不回 `unknown method:`）。本文只记录口径，不记录数字 ——
+这一节以前写过「本体 65 个方法、控制台直调 62 个、未接 3 个」，数字和举例都是错的：
+
+- **65 是主 `switch (method)` 的 case 标签数，不是方法总数**。另有一批方法根本不走主
+  switch，在它之前先被 `handleMethod()`（`vendor/lib/jet-hub-rpc.js:2920`）按
+  `opencode.`（:2921）/ `gemini.`（:2928）/ `qoder.`（:2936）/ `minimaxintl.`（:2945）/
+  `modelscope.`（:2959）五个前缀改道接管。
+  按 case 扫会整体漏掉这一批（这几家的账号级代理、匿名账号、指定 provider 加号等入口
+  都在里面）。这些前缀方法逐个真发过请求，全部返回业务校验错、无一回 `unknown method`，
+  确认存在。
+- **`account.resetAll` / `account.retestAll` 是真接了的**，以前把它们列成「未接」是
+  数法的问题，不是接入的问题：「全部重置」「全部复测」两个按钮把方法名当字符串常量
+  传给 `accBulk()`（`console/console.js` 的 `accBulk(btn, method)`），只扫
+  `rpc('字面量')` 的正则自然数不到。**别再把它们当反例。**
+- 其他几种数法也不可靠：只数小写首段会漏掉 `nativeSearch.*` / `panelEntry.*` 这类驼峰
+  首段；直接 grep 关键字面量会把 `claimed` / `inactive` / `failed` / `already-claimed`
+  这四条非 RPC 的枚举 case 一起算进去。
+- `loomy.permanentLock` —— **已接**。`credits.permanentLock` 与 `loomy.permanentLock`
+  是同一实现的两个 label（fall-through），`lockAction()` 里
+  `provider === 'loomy'` 时就走老端点名，load / on / off 三个动作共用同一个方法名
+  变量；传 `provider:'loomy'` 时两个名字回包一致。
 
 ### 工具转正
 - `_shot-console.cjs` → `scripts/shot-console.cjs`（八标签实拍 + DOM 断言）
@@ -787,7 +814,8 @@ $ node tests/ui-check.cjs
 ## 十五、/__meta 只报网关实时目录，导致概览模型数与模型页不一致（已修）
 
 ### 症状（Observed）
-重启后控制台：
+重启后控制台（**下面这些数是这个 bug 当次现场的数，不是现值**；现值 24 家 provider、
+`models` 892，见本节末）：
 ```
 $ curl -s http://127.0.0.1:18501/__meta | python -c "..."
 providers: 18  总模型: 36
@@ -826,7 +854,11 @@ $ node scripts/shot-console.cjs
 ```
 `docs/console-overview.png` 实拍：`provider 19` / `模型 863 上游全量（网关可用 36）`。
 `docs/console-providers.png` 实拍：aggregate 17/6、buddy 21/20、workbuddy 32/30、cline 541/… 全部为全量数。
+（上面这组同样是**当次**的数：19 家 / 863 个模型。模型目录后来涨到 24 家 / 892 个，
+复跑会和这里不一样 —— 那是数据变了，不是这段记录失效。）
 `node scripts/test-all.mjs` → **7 通过 / 0 失败 / 0 跳过**。
+（当时 `t-rpc-cover.mjs` 还没进总入口；现在它在 `scripts/test-all.mjs` 的 `UNIT`
+列表里，复跑会看到更多用例。）
 
 ## 十六、补齐 magpie auth 契约字段：`auth.options` 与 `auth.icon`
 
