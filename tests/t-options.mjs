@@ -3,7 +3,8 @@
 //
 // 开关的读法是宿主每次现读（`input.magpie.option(provider, key)`），所以这里
 // 用两份不同的 input 各建一次插件实例来模拟「用户在 magpie 里拨了开关」。
-import { PLUGINS } from '../src/plugin.mjs'
+import { DSH_PROVIDERS, PLUGINS, PROVIDER_IDS } from '../src/plugin.mjs'
+import { iconProviders } from '../src/icons.mjs'
 
 let failed = 0
 const ok = (cond, msg) => {
@@ -29,6 +30,33 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
   const icon = p.auth.icon
   ok(typeof icon === 'string' && /^(https:\/\/|data:image\/)/i.test(icon), `auth.icon 是 data:image 或 https（${String(icon).slice(0, 24)}…）`)
   ok(String(icon).length <= 3 << 19, 'auth.icon 不超过 1 MB')
+}
+
+// ---- 1b) 每家一个图标：以前 24 个 provider 全用插件自己那个六向星 -------
+{
+  const mk = Object.fromEntries(PLUGINS)
+  const icons = new Map()
+  for (const [id, factory] of PLUGINS) {
+    const p = await factory(noop, {})
+    icons.set(id, p.auth.icon)
+  }
+  ok(icons.size === PROVIDER_IDS.length, `24 个 provider 都拿到了工厂（${icons.size}）`)
+  const covered = new Set(iconProviders())
+  const noIcon = DSH_PROVIDERS.filter((p) => !covered.has(p))
+  ok(noIcon.length === 0, `每个 provider 都登记了图标（缺：${noIcon.join(', ')}）`)
+  ok(
+    [...icons.values()].every((v) => typeof v === 'string' && v.startsWith('data:image/svg+xml;base64,')),
+    '每个 provider 的 icon 都是内联 SVG（离线可显示）',
+  )
+  const byUri = new Map()
+  for (const [id, v] of icons) {
+    if (!byUri.has(v)) byUri.set(v, [])
+    byUri.get(v).push(id)
+  }
+  const same = [...byUri.values()].filter((ids) => ids.length > 1)
+  ok(same.length === 0, `每家图标互不相同（重复：${same.map((ids) => ids.join('=')).join(', ')}）`)
+  const biggest = Math.max(...[...icons.values()].map((v) => v.length))
+  ok(biggest <= 3 << 19, `最大图标 ${biggest}B 不超过 1 MB`)
 }
 
 // ---- 2) 开关真的生效 ---------------------------------------------------------

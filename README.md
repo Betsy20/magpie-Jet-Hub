@@ -519,6 +519,26 @@ magpie 的 auth 契约允许插件声明若干开关，用户在「供应商 →
 `auth.icon` 是内联 SVG 的 `data:image/svg+xml;base64,…`（不依赖外部图床），
 magpie 落盘成 `file:<hash>.svg` 供 GUI 引用。
 
+## 供应商图标（`src/icons.mjs`）
+
+**每家一个图标**，不是 24 个 provider 共用插件自己那个。两种来源：
+
+| 来源 | 用在哪 |
+|---|---|
+| magpie 本体内嵌的 `assets/icons/*.svg` | 有厂商的渠道：Trae / Qoder / Cline / Gemini / MiniMax / ModelScope / OpenCode / 智谱（AutoClaw）/ 阿里（Accio）/ 讯飞（AStudio）/ 华为云（CodeArts）/ GLM（ZCode） |
+| 现画 | 没有对应厂商的：聚合路由、自动选号、Buddy、Codely、LobsterAI、Loomy、Raccoon、WorkBuddy、OfficeAce |
+
+用 magpie 那套图是有意的：它给自己的内置供应商显示的就是同一套 logo，
+所以插件渠道和 magpie 自带渠道在列表里视觉一致。`*intl`（AutoClaw 国际 /
+MiniMax 国际 / Qoder 国内）在原 logo 外面套一圈虚线地球环 —— 同一家的两个
+端点要能一眼分开，又不能让人以为是两个品牌。
+
+授权：品牌 logo 的商标归各家所有，这里只用于标识对应的服务，不声称任何
+关联或背书。要用自己的图标改 `src/icons.mjs` 里的 `PROVIDER_SVG` 即可。
+
+`tests/t-options.mjs` 会断言 24 个 provider 的图标**互不相同**（这条是回归守卫：
+曾经 24 个全是同一个六向星，光看测试是绿的）。
+
 ## 目录
 
 ```

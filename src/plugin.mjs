@@ -40,6 +40,7 @@
  */
 
 import { JetHubContainer } from './container.mjs'
+import { iconFor } from './icons.mjs'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -135,20 +136,6 @@ const PREFIXES = [...new Set([...DSH_PROVIDERS, ...PROVIDER_IDS])].sort((a, b) =
  */
 const PLACEHOLDER_BASE = 'https://jet-hub.invalid/v1'
 
-/**
- * magpie 供应商列表里的图标（契约 `_mp_host.js:1890` 的 `iconOf`）。
- * 只认 `https://` 或 `data:image/`，且不超过 1 MB。这里内联一个 SVG，
- * 免得依赖外部图床（离线也要能显示）。
- */
-const ICON_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
-  '<rect width="64" height="64" rx="14" fill="#5b5bd6"/>' +
-  '<circle cx="32" cy="32" r="7" fill="#fff"/>' +
-  '<g stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".85">' +
-  '<path d="M32 10v9"/><path d="M32 45v9"/><path d="M10 32h9"/><path d="M45 32h9"/>' +
-  '<path d="M17 17l6 6"/><path d="M41 41l6 6"/><path d="M47 17l-6 6"/><path d="M23 41l-6 6"/>' +
-  '</g></svg>'
-const ICON_DATA_URI = `data:image/svg+xml;base64,${Buffer.from(ICON_SVG).toString('base64')}`
 
 /**
  * 未登录时给 magpie 看的静态目录（完整目录要等容器起来）。
@@ -712,9 +699,9 @@ export function makePlugin(dshProvider) {
 
         /**
          * magpie 的 provider 图标：https URL 或 data:image。
-         * 用 SVG 内联成 data URI，免得依赖外部图床。
+         * 每家一个（`PROVIDER_SVG`），别 24 个 provider 都用插件自己那个。
          */
-        icon: ICON_DATA_URI,
+        icon: iconFor(dshProvider),
 
         /**
          * 免输入签入：凭据早就在 `~/.dsh/.credentials.yaml` 里，容器启动即读到。
