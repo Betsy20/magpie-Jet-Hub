@@ -59,6 +59,8 @@ export class JetHubContainer {
     this.version = undefined
     this.models = []      // 最近一次拉到的模型 id（不带 provider 前缀）
     this.ownerOf = new Map() // modelId -> provider id
+    this.fullCatalog = [] // 上游全量目录 [{id:'p/m', name, disabled, dead}]，含 disabled
+    this.fullCatalogAt = undefined
   }
 
   get baseURL() {
@@ -177,6 +179,9 @@ export class JetHubContainer {
       from: 18500,
     })
     this.log(`控制台就绪 ${this.console.url}｜管理路由 ${this.seam.routes.size} 条：${this.seam.list().join(' | ')}`)
+    // ⚠️ 不在这里补拉全量目录：`refreshFullCatalog()` 第一行就是 `await this.start()`，
+    // 而此刻 `this.ready` 正是**当前这个** promise —— 会自己等自己，死锁。
+    // 全量目录由 plugin.mjs 的 refreshInBackground 在 start 完成后填。
     // 落一份地址文件：magpie 的插件页 CSP 是 connect-src 'none'，页面拿不到端口，
     // 只能由用户/文档从这里取；同时便于 `magpie plugin list` 之后排查。
     try {
@@ -196,8 +201,14 @@ export class JetHubContainer {
   meta() {
     /** @type {Map<string, string[]>} */
     const byProvider = new Map()
-    for (const fullId of this.models) {
-      const owner = this.ownerOf.get(fullId)
+    // 优先用上游全量目录：网关 /v1/models 只列「此刻能用」的（astudio 1 条），
+    // 控制台的模型页读的是 model.list 全量（astudio 9 条），两边不一致会让
+    // 概览页的模型数看起来是错的。全量没拉到（冷启动中）才退回实时目录。
+    const source = this.fullCatalog.length > 0 ? this.fullCatalog.map((m) => m.id) : this.models
+    for (const fullId of source) {
+      const owner = this.fullCatalog.length > 0
+        ? fullId.split('/')[0]
+        : this.ownerOf.get(fullId)
       if (!owner) continue
       if (!byProvider.has(owner)) byProvider.set(owner, [])
       const bare = fullId.startsWith(`${owner}/`) ? fullId.slice(owner.length + 1) : fullId
@@ -207,7 +218,9 @@ export class JetHubContainer {
       providers: [...byProvider.entries()]
         .map(([id, models]) => ({ id, name: id, models }))
         .sort((a, b) => a.id.localeCompare(b.id)),
-      models: this.models.length,
+      models: source.length,
+      liveModels: this.models.length,
+      fullCatalogAt: this.fullCatalogAt ?? undefined,
       gateway: { baseURL: this.baseURL, port: this.port },
       version: this.version,
       generatedAt: new Date().toISOString(),
@@ -357,6 +370,8 @@ export class JetHubContainer {
         this.log(`拉 ${p} 的全量目录失败：${e?.message ?? e}`)
       }
     }
+    this.fullCatalog = out
+    this.fullCatalogAt = new Date().toISOString()
     return out
   }
 
