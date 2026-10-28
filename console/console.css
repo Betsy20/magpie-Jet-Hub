@@ -7,6 +7,7 @@
   --fg: #1c1c21;
   --fg2: #4b4b55;
   --muted: #6b6b76;
+  --faint: #9a9aa6;
   --line: #e6e6ec;
   --accent: #6b5bd2;
   --accent-soft: #efedfb;
@@ -24,6 +25,7 @@
     --fg: #ececf1;
     --fg2: #b9b9c4;
     --muted: #8b8b98;
+    --faint: #63636e;
     --line: #303038;
     --accent: #9b8cff;
     --accent-soft: #2a2643;
@@ -64,15 +66,24 @@ h2 { font-size: 12.5px; margin: 22px 0 8px; color: var(--fg2); font-weight: 600;
 
 .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .bar label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
-select, input[type=file] { font: inherit; font-size: 12px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+select, input[type=file], input[type=number], input[type=text], input:not([type]) { font: inherit; font-size: 12px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+input::placeholder { color: var(--faint); }
+input:focus, select:focus { outline: none; border-color: var(--accent); }
+.grow { flex: 1 1 180px; min-width: 120px; }
+.narrow { width: 68px; }
 button, .btn { font: inherit; font-size: 12px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); cursor: pointer; text-decoration: none; display: inline-block; }
 button:hover, .btn:hover { border-color: var(--accent); color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover { filter: brightness(1.08); color: #fff; }
+button.warn { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); }
+button.warn:hover { border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
+button.right { float: right; margin-top: -4px; }
 button:disabled { opacity: .45; cursor: not-allowed; }
 .msg { font-size: 11.5px; color: var(--muted); }
 .msg.err { color: var(--red); }
 .msg.ok { color: var(--green); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 900px) { .row2 { grid-template-columns: 1fr; } }
 
 /* 卡片 */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
@@ -123,3 +134,7 @@ td .ops button { padding: 2px 7px; font-size: 11px; }
 .modal-box { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; width: min(560px, 100%); box-shadow: 0 18px 50px rgba(0,0,0,.22); }
 .modal-box h2 { margin: 0 0 8px; font-size: 14px; }
 .modal-box p { font-size: 11.5px; color: var(--muted); margin: 0 0 10px; }
+
+/* 批量勾选列：窄一点，别把模型 id 挤走 */
+th.pick, td.pick { width: 34px; text-align: center; }
+th.pick input, td.pick input { margin: 0; cursor: pointer; }

@@ -21,8 +21,10 @@
       <button data-tab="accounts">账号</button>
       <button data-tab="credits">积分</button>
       <button data-tab="models">模型</button>
-      <button data-tab="backup">备份</button>
+      <button data-tab="providers">供应商</button>
+      <button data-tab="usage">用量</button>
       <button data-tab="settings">设置</button>
+      <button data-tab="backup">备份</button>
     </nav>
     <div class="rail-foot">
       <div id="gw" class="gw"></div>
@@ -31,53 +33,190 @@
   </aside>
 
   <main class="main">
-    <!-- 概览 -->
+    <!-- ══════════ 概览 ══════════ -->
     <section id="tab-overview" class="tab on">
       <h1>概览</h1>
       <div class="cards" id="cards"></div>
+      <h2>网关</h2>
+      <div class="cards" id="gwCards"></div>
+      <h2>自动签到</h2>
+      <div id="acOut"></div>
       <h2>本体带来的 provider</h2>
       <div id="provList" class="chips"></div>
       <h2>接入方式</h2>
       <div class="code" id="gwCode"></div>
     </section>
 
-    <!-- 账号 -->
+    <!-- ══════════ 账号 ══════════ -->
     <section id="tab-accounts" class="tab">
-      <h1>账号池 <span class="sub">登录 / 续期 / 换号 / 测试</span></h1>
+      <h1>账号池 <span class="sub">登录 / 续期 / 换号 / 测试 / 重置</span>
+        <button id="accAdd" class="primary right">添加账号</button>
+      </h1>
       <div class="bar">
         <label>provider <select id="accProvider"></select></label>
         <button id="accReload">刷新列表</button>
-        <button id="accAdd" class="primary">添加账号</button>
+        <button id="accRetestAll">全部复测</button>
+        <button id="accResetAll" class="warn">全部重置</button>
         <span id="accMsg" class="msg"></span>
       </div>
       <div class="tablewrap"><table id="accTable"></table></div>
+      <div class="bar">
+        <label>buddy 补偿 <input id="accCompId" placeholder="选一个 buddy 账号后自动填入" class="grow"></label>
+        <button id="accCompStatus">查补偿</button>
+        <button id="accCompClaim" class="primary">领取补偿</button>
+        <span id="accCompMsg" class="msg"></span>
+      </div>
+      <div id="accDetail"></div>
     </section>
 
-    <!-- 积分 -->
+    <!-- ══════════ 积分 ══════════ -->
     <section id="tab-credits" class="tab">
-      <h1>积分 <span class="sub">状态 / 余额 / 领取</span></h1>
+      <h1>积分 <span class="sub">状态 / 余额 / 领取 / 额度 / 账本</span></h1>
       <div class="bar">
         <label>provider <select id="credProvider"></select></label>
-        <button id="credLoad">查询状态</button>
+        <button id="credLoad">查状态</button>
         <button id="credBalances">查余额</button>
+        <button id="credBadge">查徽章</button>
         <button id="credClaim" class="primary">全部领取</button>
         <span id="credMsg" class="msg"></span>
       </div>
       <div id="credOut"></div>
+      <div class="row2">
+        <div>
+          <h2>每日签到 <span class="sub">本体的自动签到</span></h2>
+          <div class="bar">
+            <button id="acRun">运行一次</button>
+            <button id="acDismiss">清掉提示</button>
+            <span id="acMsg" class="msg"></span>
+          </div>
+          <div id="acOut2"></div>
+        </div>
+        <div>
+          <h2>专项额度</h2>
+          <div class="bar">
+            <button id="credCline">Cline 额度</button>
+            <button id="credOffice">OfficeAce 状态</button>
+            <button id="credClineLog">Cline 请求流水</button>
+            <span id="credMsg2" class="msg"></span>
+          </div>
+          <div id="credOut2"></div>
+
+          <h2>永久积分锁定 <span class="sub">锁住后只烧永久积分，不动临期额度</span></h2>
+          <div class="bar">
+            <button id="lockLoad">查状态</button>
+            <button id="lockOn">锁定</button>
+            <button id="lockOff">解除</button>
+            <span id="lockMsg" class="msg"></span>
+          </div>
+          <div id="lockOut"></div>
+        </div>
+      </div>
     </section>
 
-    <!-- 模型 -->
+    <!-- ══════════ 模型 ══════════ -->
     <section id="tab-models" class="tab">
-      <h1>模型开关 <span class="sub">关掉的模型不会出现在 /v1/models</span></h1>
+      <h1>模型 <span class="sub">关掉的模型不会出现在 /v1/models</span></h1>
       <div class="bar">
         <label>provider <select id="modProvider"></select></label>
+        <input id="modFilter" placeholder="过滤模型 id / 名称" class="grow">
         <button id="modLoad">列出模型</button>
+        <button id="modAllOff" class="warn">全部关闭</button>
+        <button id="modAllOn">全部打开</button>
+        <button id="modClearDead">清理失效</button>
         <span id="modMsg" class="msg"></span>
       </div>
       <div class="tablewrap"><table id="modTable"></table></div>
+
+      <h2>聚合路由 <span class="sub">aggregate / jet-hub-auto 的候选与顺序</span></h2>
+      <div class="bar">
+        <button id="aggCatalog">列候选目录</button>
+        <button id="aggOrderMode">切换排序模式</button>
+        <button id="aggExpiry">按到期排序</button>
+        <button id="aggActive">当前生效渠道</button>
+        <button id="aggClearRej" class="warn">清空拒绝表</button>
+        <button id="aggRejectNonExpiring" class="warn">一律拒绝不失效的</button>
+        <span id="aggMsg" class="msg"></span>
+      </div>
+      <div id="aggOut"></div>
+
+      <h2>聚合候选 <span class="sub">逐个候选打开 / 拒绝 / 调序</span></h2>
+      <div class="bar">
+        <label>canonical <select id="aggCanon"></select></label>
+        <button id="aggShowCand">列出候选</button>
+        <button id="aggSaveOrder" class="primary">保存这个顺序</button>
+        <span id="aggCandMsg" class="msg"></span>
+      </div>
+      <div class="tablewrap"><table id="aggCandTable"></table></div>
+
+      <h2>批量开关 <span class="sub">按勾选批量改</span></h2>
+      <div class="bar">
+        <button id="modBulkOff" class="warn">勾选的关闭</button>
+        <button id="modBulkOn">勾选的打开</button>
+        <button id="modCheckAll">全选当前表</button>
+        <button id="modUncheckAll">取消全选</button>
+        <span id="modBulkMsg" class="msg"></span>
+      </div>
     </section>
 
-    <!-- 备份 -->
+    <!-- ══════════ 供应商 ══════════ -->
+    <section id="tab-providers" class="tab">
+      <h1>供应商 <span class="sub">顺序 / 启用 / 状态</span></h1>
+      <div class="bar">
+        <button id="pvLoad" class="primary">读取全部状态</button>
+        <button id="pvSaveOrder">保存当前顺序</button>
+        <span id="pvMsg" class="msg"></span>
+      </div>
+      <div class="tablewrap"><table id="pvTable"></table></div>
+      <h2>顺序</h2>
+      <div id="pvOrder" class="chips"></div>
+    </section>
+
+    <!-- ══════════ 用量 ══════════ -->
+    <section id="tab-usage" class="tab">
+      <h1>用量账本 <span class="sub">token 台账 / 历史 / 徽章偏好</span></h1>
+      <div class="bar">
+        <label>最近 <input id="tlLimit" type="number" value="20" min="1" max="500" class="narrow"> 条</label>
+        <button id="tlLoad">读账本</button>
+        <label>最近 <input id="tlDays" type="number" value="7" min="1" max="90" class="narrow"> 天</label>
+        <button id="tlHistory">读历史</button>
+        <button id="tlDelete">删除某天</button>
+        <span id="tlMsg" class="msg"></span>
+      </div>
+      <div id="tlOut"></div>
+      <h2>徽章偏好</h2>
+      <div class="bar">
+        <select id="badgePref">
+          <option value="auto">auto（自动）</option>
+          <option value="always">always（总是显示）</option>
+          <option value="never">never（从不）</option>
+        </select>
+        <button id="badgeSave">保存</button>
+        <span id="badgeMsg" class="msg"></span>
+      </div>
+    </section>
+
+    <!-- ══════════ 设置 ══════════ -->
+    <section id="tab-settings" class="tab">
+      <h1>设置</h1>
+      <div class="rows">
+        <div class="row"><div><b>网关启用</b><p>关掉后本体不再对外提供 /v1 转发。</p></div><label class="sw"><input type="checkbox" id="setGateway"><i></i></label></div>
+        <div class="row"><div><b>允许局域网访问</b><p>默认只监听回环 127.0.0.1。开了同网段其它机器也能连。</p></div><label class="sw"><input type="checkbox" id="setAllowLan"><i></i></label></div>
+        <div class="row"><div><b>渠道原生搜索</b><p>让上游自己做联网检索（不是 magpie 的 web_search）。</p></div><label class="sw"><input type="checkbox" id="setSearch"><i></i></label></div>
+        <div class="row"><div><b>面板入口</b><p>在 DSH 里这个面板挂在侧栏还是设置页。</p></div><select id="setPanel"><option value="sidebar">sidebar</option><option value="settings">settings</option></select></div>
+        <div class="row"><div><b>MiniMax XFF</b><p>发给 MiniMax 的 X-Forwarded-For，空表示不伪造。</p></div><input id="setXff" class="grow"></div>
+      </div>
+      <div id="setMsg" class="msg"></div>
+      <h2>验证码</h2>
+      <div class="bar">
+        <button id="capDemand">查是否需要</button>
+        <button id="capCarrier">取载体页地址</button>
+        <button id="capContribute">上报已手动完成</button>
+        <span id="capMsg" class="msg"></span>
+      </div>
+      <div id="capOut"></div>
+    </section>
+
+    <!-- ══════════ 备份 ══════════ -->
     <section id="tab-backup" class="tab">
       <h1>备份 <span class="sub">账号池 + 凭据，可导出 / 导入</span></h1>
       <div class="cards" id="bkCards"></div>
@@ -90,30 +229,33 @@
       </div>
       <div id="bkOut"></div>
     </section>
-
-    <!-- 设置 -->
-    <section id="tab-settings" class="tab">
-      <h1>设置</h1>
-      <div class="rows">
-        <div class="row"><div><b>网关启用</b><p>关掉后本体不再对外提供 /v1 转发。</p></div><label class="sw"><input type="checkbox" id="setGateway"><i></i></label></div>
-        <div class="row"><div><b>渠道原生搜索</b><p>让上游自己做联网检索（不是 magpie 的 web_search）。</p></div><label class="sw"><input type="checkbox" id="setSearch"><i></i></label></div>
-        <div class="row"><div><b>面板入口</b><p>在 DSH 里这个面板挂在侧栏还是设置页。</p></div><select id="setPanel"><option value="sidebar">sidebar</option><option value="settings">settings</option></select></div>
-      </div>
-      <div id="setMsg" class="msg"></div>
-    </section>
   </main>
 </div>
 
-<!-- 登录流程 -->
+<!-- ══════════ 登录流程 ══════════ -->
 <div id="loginModal" class="modal" hidden>
   <div class="modal-box">
     <h2>登录 <span id="lmProvider"></span></h2>
-    <p>浏览器没自动打开时，复制下面的地址手动访问，授权完成后本页会自动继续。</p>
-    <div class="code" id="lmUrl"></div>
-    <div class="bar">
-      <button id="lmCopy">复制地址</button>
-      <a id="lmOpen" class="btn" href="#" target="_blank" rel="noreferrer">在新窗口打开</a>
-      <span id="lmState" class="msg">等待授权…</span>
+    <div id="lmSms" hidden>
+      <p>这个渠道要手机验证码。</p>
+      <div class="bar">
+        <input id="lmPhone" placeholder="手机号" class="grow">
+        <button id="lmSend">发送验证码</button>
+      </div>
+      <div class="bar">
+        <input id="lmCode" placeholder="收到的验证码" class="grow">
+        <button id="lmSubmit" class="primary">提交</button>
+      </div>
+      <div id="lmSmsMsg" class="msg"></div>
+    </div>
+    <div id="lmOauth">
+      <p>浏览器没自动打开时，复制下面的地址手动访问，授权完成后本页会自动继续。</p>
+      <div class="code" id="lmUrl"></div>
+      <div class="bar">
+        <button id="lmCopy">复制地址</button>
+        <a id="lmOpen" class="btn" href="#" target="_blank" rel="noreferrer">在新窗口打开</a>
+        <span id="lmState" class="msg">等待授权…</span>
+      </div>
     </div>
     <div class="bar"><button id="lmClose">关闭</button></div>
   </div>
