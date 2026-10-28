@@ -202,13 +202,16 @@ async function main() {
       await new Promise(r => setTimeout(r, 900))
       const msg = document.querySelector('#kmMsg')
       const out = { provider: ${JSON.stringify(provider)}, opened, shown, msgText: msg?.textContent, msgErr: msg?.className?.includes('err') === true, stillOpen: modal?.hidden === false }
-      closeKeyModal()
+      // 弹窗**先别关**：截图要拍到打开的样子。关闭放到截图之后。
       return out
     })()`)
     keyChecks.push(r)
     console.log(`[keyModal:${provider}]`, JSON.stringify(r))
+    // ⚠️ 截图必须在关闭之前 —— 曾经把 closeKeyModal() 写在同一个 ev() 里，
+    // 结果拍出来的是「弹窗已关」的空页面，两张 keymodal 图与 proxymodal 图字节相同。
     const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
     fs.writeFileSync(path.join(OUT, `console-keymodal-${provider}.png`), Buffer.from(shot.result.data, 'base64'))
+    await ev(`closeKeyModal()`)
     const okOpen = r?.opened === true && r?.shown?.provider === provider && !!r?.shown?.where
     const okErr = r?.msgErr === true && /形状不对/.test(r?.msgText ?? '')
     if (!okOpen) { console.log(`✗ keyModal ${provider}: 弹窗没打开或字段没填`); errors.push(`keyModal ${provider} 未就绪`) }
@@ -253,7 +256,7 @@ async function main() {
       out.testErr = msg?.className?.includes('err') === true
       // 清除/保存：不真的点（会写池），只断言两个按钮都在
       out.btns = ['pxSave','pxClear','pxTest','pxClose'].filter(id => !!document.getElementById(id)).length
-      closeProxyModal()
+      // 同样先别关：截图要拍到弹窗与回填值
       return out
     })()`)
     pxChecks.push(r)
@@ -262,6 +265,7 @@ async function main() {
       const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
       fs.writeFileSync(path.join(OUT, 'console-proxymodal.png'), Buffer.from(shot.result.data, 'base64'))
     }
+    await ev(`closeProxyModal()`)
     if (r?.wantProxy) {
       if (r?.barBtnHidden !== false) { console.log(`✗ proxy ${provider}: bar 按钮没显示`); errors.push(`proxy ${provider} 按钮未显示`) }
       if (r?.hasCol !== true) { console.log(`✗ proxy ${provider}: 账号表没有「出口代理」列`); errors.push(`proxy ${provider} 无代理列`) }
