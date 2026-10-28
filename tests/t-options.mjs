@@ -43,12 +43,48 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
 
   const a = await on.provider.models({ models: {} })
   const b = await off.provider.models({ models: {} })
-  const na = Object.keys(a).length
-  const nb = Object.keys(b).length
+  const ka = Object.keys(a)
+  const kb = Object.keys(b)
+  const na = ka.length
+  const nb = kb.length
   console.log(`  全量开 → ${na} 个；全量关 → ${nb} 个`)
   ok(na > 0, '全量开时有模型')
-  ok(na >= nb, '全量开的模型数不少于全量关（关掉不该多出模型）')
+  // 这条是关键：只说「开 >= 关」的话，开关完全没被读也能通过。
+  // 必须断言关掉后**确实变少**，且关掉的集合是开着的子集。
+  ok(na > nb, `关掉 prefer_full 后模型数真的变少（${na} → ${nb}）`)
+  const setA = new Set(ka)
+  ok(kb.every((k) => setA.has(k)), '关掉后列出的模型是「全量」的子集（只筛掉，不凭空多出）')
 }
+
+// ---- 2b) dead_account_skip 真的接到了容器（不是死代码）------------------------
+// t-dead-account 验的是容器侧契约：`deadSkipCheck(provider)` 回 false 就放行死号。
+// 但「magpie 开关 → container.deadSkipCheck」这段接线只在 plugin.mjs 里，
+// 没有测试就可能是死代码。这里用假 input 拨开关，直接问真容器的回调要答案。
+{
+  const mk = Object.fromEntries(PLUGINS)
+
+  const plugOn = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: true }), {})
+  const plugOff = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: false }), {})
+
+  // 工厂内部是模块级单例容器，所以两个插件对象拿到的是同一个实例；
+  // 最后一次工厂调用的闭包生效（同一宿主下 input 是同一份）。
+  const c = plugOn._internal?.container ?? plugOff._internal?.container
+  ok(c !== undefined, '插件对象暴露了容器实例（_internal.container）')
+  ok(typeof c?.deadSkipCheck === 'function', '容器上挂了 deadSkipCheck 回调')
+
+  // 拨到 false 后问回调：必须回 false（= 放行死号）。
+  const offVal = c.deadSkipCheck('codearts')
+  ok(offVal === false, `开关拨到 false 时 deadSkipCheck('codearts') === false（实测 ${String(offVal)}）`)
+  // 其它 provider 不受影响（开关是按 provider 拨的）。
+  const otherVal = c.deadSkipCheck('qoder')
+  ok(otherVal !== false, `其它 provider 仍跳过死号（deadSkipCheck('qoder') = ${String(otherVal)}）`)
+
+  // 再拨回 true，同一个容器的回调必须立刻变回真（现读，不用重启）。
+  const plugBack = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: true }), {})
+  const backVal = (plugBack._internal?.container ?? c).deadSkipCheck('codearts')
+  ok(backVal !== false, `拨回 true 后立即恢复过滤（实测 ${String(backVal)}）`)
+}
+
 
 // ---- 3) 宿主没给 input.magpie 时不能崩 ---------------------------------------
 {

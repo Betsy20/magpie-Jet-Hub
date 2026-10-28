@@ -13,7 +13,7 @@ const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z
 const ROOT = path.dirname(HERE)
 const TESTS = path.join(ROOT, 'tests')
 
-const UNIT = ['t-writerefs.mjs', 't-dead-account.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs']
+const UNIT = ['t-writerefs.mjs', 't-dead-account.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-rpc-cover.mjs']
 const ENV = [
   { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
   { file: 't-gateway.py', cmd: process.env.PYTHON || 'python', label: '网关（需 magpie 3425）' },
@@ -37,20 +37,54 @@ for (const c of cases) {
     skip++
     continue
   }
-  const t0 = Date.now()
-  const r = spawnSync(c.cmd, [file], { cwd: ROOT, encoding: 'utf8', timeout: 600_000 })
-  const ms = Date.now() - t0
-  const out = `${r.stdout || ''}${r.stderr || ''}`
+  // 沙箱下管道 stdio 被禁（spawnSync 直接 EPERM，status=null），改用文件描述符
+  // 重定向抓输出：退出码语义不变，且能同时拿到 stdout+stderr。
+  const runOnce = (attempt) => {
+    const capPath = path.join(ROOT, `.tmp-test-all-${process.pid}-${c.file}-${attempt}.log`)
+    const capFd = fs.openSync(capPath, 'w')
+    const t0 = Date.now()
+    let r
+    try {
+      r = spawnSync(c.cmd, [file], { cwd: ROOT, stdio: ['ignore', capFd, capFd], timeout: 600_000 })
+    } finally {
+      fs.closeSync(capFd)
+    }
+    let out = ''
+    try { out = fs.readFileSync(capPath, 'utf8') } catch {}
+    try { fs.unlinkSync(capPath) } catch {}
+    return { status: r.status, out, ms: Date.now() - t0 }
+  }
+
+  // 非确定性是这套测试的真实属性，不是偶发噪声：2026-10-28 13:0x 同一提交、同一环境
+  // 跑 `--all`，t-plugin 崩在 0xC0000409、t-rpc-cover 误报 clearRejected 写盘、
+  // ui-check 在 console 标签抛 Uncaught；三个单独跑和紧接着重跑都全绿。
+  // 判据工具的结论不能一秒变一次，所以：失败先重试一次，重试结果为准，
+  // 但第一次失败必须打印出来（不吞），并在汇总行标注「重试后通过」——
+  // 这样「现在到底绿不绿」有确定答案，「有没有不稳定」也有证据。
+  let r = runOnce(1)
+  let retried = false
+  const firstOut = r.out
+  if (r.status !== 0) {
+    retried = true
+    r = runOnce(2)
+  }
+  const ms = r.ms
+  const out = r.out
   if (r.status === 0) {
     if (out.includes('NOT RUN')) {
       rows.push(['-', c.label, '跳过（环境不具备）'])
       skip++
+    } else if (retried) {
+      rows.push(['✓', c.label, `${ms} ms（重试后通过）`])
+      pass++
+      const tail = firstOut.trim().split('\n').slice(-8).join('\n')
+      console.log(`\n--- ${c.file} 第 1 次失败、重试通过（不稳定，需查） ---\n${tail}\n`)
     } else {
       rows.push(['✓', c.label, `${ms} ms`])
       pass++
     }
   } else {
-    rows.push(['✗', c.label, `exit ${r.status} · ${ms} ms`])
+    rows.push(['✗', c.label, `exit ${r.status} · ${ms} ms${retried ? '（重试仍失败）' : ''}`])
     fail++
     const tail = out.trim().split('\n').slice(-12).join('\n')
     if (tail) console.log(`\n--- ${c.file} 失败输出（尾部） ---\n${tail}\n`)
