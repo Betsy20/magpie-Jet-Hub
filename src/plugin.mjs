@@ -10,7 +10,7 @@
  *
  * magpie 宿主 `servers(mod)` 会取模块导出的**每一个函数**，`auths()` 再按
  * `hooks.auth.provider` 建映射 —— 所以一个插件包导出 N 个插件工厂，就能注册
- * N 个 provider id。本文件对本体里的 19 个 provider 各生成一个工厂。
+ * N 个 provider id。本文件对本体里的 24 个 provider 各生成一个工厂。
  *
  * ## 架构
  *
@@ -19,14 +19,14 @@
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
- *   └─ …（19 个）                     ┘
+ *   └─ …（24 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
  *             └─ 本体自带网关 127.0.0.1:<动态端口>
  *                  └─ 各 provider 的真实上游
  * ```
  *
- * ⚠️ 容器**必须模块级共享**：19 个插件工厂各自 new 一个容器的话，会拉起 19 个
- * cordis + 19 个网关端口，冷启动直接炸。
+ * ⚠️ 容器**必须模块级共享**：24 个插件工厂各自 new 一个容器的话，会拉起 24 个
+ * cordis + 24 个网关端口，冷启动直接炸。
  *
  * ## 凭据从哪来
  *
@@ -251,7 +251,7 @@ function modelEntry(id, def) {
 
 // ---- 共享容器与模型缓存 -------------------------------------------------------
 
-/** 模块级单例：19 个 provider 共用同一个容器。 */
+/** 模块级单例：24 个 provider 共用同一个容器。 */
 let shared = null
 
 function containerFor(options, log) {
@@ -823,5 +823,5 @@ export function makePlugin(dshProvider) {
   }
 }
 
-/** 全部 19 个工厂（`index.mjs` 逐个具名导出）。 */
+/** 全部 24 个工厂（`index.mjs` 逐个具名导出）。 */
 export const PLUGINS = DSH_PROVIDERS.map((p) => [idOf(p), makePlugin(p)])
