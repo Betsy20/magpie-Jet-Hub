@@ -337,6 +337,24 @@ node tests/ui-check.cjs
   （已由「全部重置」「全部复测」按钮以字符串常量传入，等价可用）与
   `loomy.permanentLock`（`credits.permanentLock` 传 `provider:'loomy'` 走同一实现）。
 
+## 供应商编辑器里的开关（`auth.options`）
+
+magpie 的 auth 契约允许插件声明若干开关，用户在「供应商 → 高级」里拨，插件在
+需要时现读（`input.magpie.option(provider, key)`，**不重启就生效**）。本插件声明两个：
+
+| key | 默认 | 打开 | 关掉 |
+|---|---|---|---|
+| `prefer_full` | 开 | 模型列表用上游全量（含已关闭） | 只列网关此刻可用的模型 |
+| `dead_account_skip` | 开 | 已过期且 `refreshable=false` 的账号不参与选号 | 死号也参与（会 502） |
+
+两个开关都不是装饰：`prefer_full` 直接决定 `provider.models()` 走全量还是走实时
+（实测 workbuddy 全量开 32 个、关掉 2 个）；`dead_account_skip` 直接决定容器层
+`_filterDeadAccounts` 的取舍。`tests/t-options.mjs` 用两份不同的 `input.magpie`
+各建一次插件实例来验证这一点，而不是只断言字段存在。
+
+`auth.icon` 是内联 SVG 的 `data:image/svg+xml;base64,…`（不依赖外部图床），
+magpie 落盘成 `file:<hash>.svg` 供 GUI 引用。
+
 ## 目录
 
 ```
@@ -354,7 +372,7 @@ scripts/snapshot-models.mjs  重新生成 page/models.js
 scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headless + CDP）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-seed-auth / t-console / t-gateway / ui-check）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-seed-auth / t-console / t-gateway / ui-check）
 docs/screenshot.png    侧栏页面实拍
 docs/console-*.png     控制台八个标签实拍
 ```

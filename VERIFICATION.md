@@ -827,3 +827,82 @@ $ node scripts/shot-console.cjs
 `docs/console-overview.png` 实拍：`provider 19` / `模型 863 上游全量（网关可用 36）`。
 `docs/console-providers.png` 实拍：aggregate 17/6、buddy 21/20、workbuddy 32/30、cline 541/… 全部为全量数。
 `node scripts/test-all.mjs` → **7 通过 / 0 失败 / 0 跳过**。
+
+## 十六、补齐 magpie auth 契约字段：`auth.options` 与 `auth.icon`
+
+### 症状（Observed）
+`src/plugin.mjs` 的 `auth` 对象只实现了 `provider / single / methods / loader / usage /
+checkin`，magpie 契约里还有 `auth.options`（供应商编辑器里的开关）与 `auth.icon`
+（GUI 图标）。缺 `options` 的后果不是"少个开关"而是**用户无法关掉任何行为**：
+模型目录用全量还是实时、死号参不参与选号，此前都是写死的常量。
+
+### 实现
+`src/plugin.mjs` 的 auth 增加：
+```js
+options: [
+  { key: 'prefer_full', label: '模型列表用上游全量',
+    description: '打开：列出上游全量模型（含已关闭）；关闭：只列网关此刻可用的模型。',
+    default: true },
+  { key: 'dead_account_skip', label: '跳过已过期且不可续期的账号',
+    description: '关掉后，过期且 refreshable=false 的账号也会参与选号（会 502）。',
+    default: true },
+],
+icon: ICON_DATA_URI,   // data:image/svg+xml;base64,… 内联 SVG，不依赖外部图床
+```
+读取侧（同一个工厂内）：
+```js
+function optionOn(key, fallback = false) {
+  try {
+    if (typeof input?.magpie?.option === 'function') return input.magpie.option(id, key) === true
+  } catch { /* 读不到就用默认 */ }
+  return fallback
+}
+DEAD_SKIP.set(dshProvider, () => optionOn('dead_account_skip', true))
+container.deadSkipCheck = (p) => (DEAD_SKIP.get(p) ?? (() => true))()
+```
+`currentModels()` 里 `if (optionOn('prefer_full', true))` 决定走全量还是实时。
+宿主**每次调用现读**，所以用户在 magpie 里拨完开关不用重启插件。
+
+### 验证一：契约形状 + 开关真的改变行为（`tests/t-options.mjs`，真跑）
+```
+✓ auth.options 是数组（2 项）
+✓ auth.options 不超过 MAX_OPTIONS=16
+✓ 每个 option.key 都符合 [a-z0-9_-]{1,40}
+✓ 每个 label 非空且 ≤60 字
+✓ option.key 无重复
+✓ auth.icon 是 data:image 或 https（data:image/svg+xml;base6…
+✓ auth.icon 不超过 1 MB
+  全量开 → 32 个；全量关 → 2 个
+✓ 全量开时有模型
+✓ 全量开的模型数不少于全量关（关掉不该多出模型）
+✓ 没有 input.magpie 时 models() 仍返回对象（不抛错）
+```
+关键在**用两份不同的 `input.magpie` 各建一次插件实例**（模拟用户拨开关），
+而不是只断言字段存在 —— 否则开关可能声明了却没人读。
+
+### 验证二：magpie 侧真的收到了（Observed）
+重启 magpie 后：
+```
+$ magpie plugin list | grep jet-hub-astudio
+  jet-hub-astudio (Jet Hub · AStudio（讯飞）, 9 models)  signed in as 134******03
+
+$ curl -s http://127.0.0.1:3456/api/providers -H 'Cookie: magpie_web_3456=…'
+/api/providers 的 plugins[] 里 jet-hub-astudio：
+  options: [{"key":"prefer_full","label":"模型列表用上游全量","default":true,"on":true},
+            {"key":"dead_account_skip","label":"跳过已过期且不可续期的账号","default":true,"on":true}]
+  icon: file:7948695d0b601a32.svg
+```
+注：`/api/providers` 顶层的 `providers[]` 里 `options` 恒为 `null` —— 那是给 GUI
+主列表用的精简行，开关在 `plugins[]` 里（前端 `pluginSubs()` 从
+`providers.plugins` 取，`pluginOptionsField(sub)` 读 `sub.plugin.options`）。
+`settings.json` 的 `pluginOptions` 目前是 `null`，因为用户还没改过默认值 ——
+`on: true` 来自插件声明的 `default: true`，符合 `optionValues()` 的
+「用户值 → 否则插件默认」语义。
+
+### 验证三：整跑
+```
+$ node scripts/test-all.mjs
+✓ t-writerefs.mjs  ✓ t-dead-account.mjs  ✓ t-usage.mjs  ✓ t-checkin.mjs
+✓ t-options.mjs    ✓ t-plugin.mjs         ✓ t-models-nowait.mjs  ✓ t-seed-auth.mjs
+8 通过 / 0 失败 / 0 跳过
+```

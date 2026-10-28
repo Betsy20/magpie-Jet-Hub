@@ -254,9 +254,13 @@ export class JetHubContainer {
     pool.__dshHubDeadFiltered = true
     const { isDeadAccount } = JetHubContainer
     const self = this
+    // magpie 里「跳过已过期且不可续期的账号」开关：按 provider 单独拨，
+    // 由 plugin.mjs 注册进来（容器自己不知道 magpie 的开关存在）。
+    const skipFor = (provider) => (typeof self.deadSkipCheck === 'function' ? self.deadSkipCheck(provider) !== false : true)
 
     const origGet = pool.getAvailableAccount.bind(pool)
     pool.getAvailableAccount = async function (provider, modelId, excludeAccountIds) {
+      if (!skipFor(provider)) return origGet(provider, modelId, excludeAccountIds)
       const dead = new Set(
         this.readAccounts()
           .filter((a) => a.provider === provider && isDeadAccount(a))
@@ -273,6 +277,7 @@ export class JetHubContainer {
     const origList = pool.listAvailableCredentials.bind(pool)
     pool.listAvailableCredentials = async function (provider, modelId) {
       const rows = await origList(provider, modelId)
+      if (!skipFor(provider)) return rows
       const dead = new Set(
         this.readAccounts()
           .filter((a) => a.provider === provider && isDeadAccount(a))
