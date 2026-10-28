@@ -261,6 +261,171 @@ function readCache() {
   return {}
 }
 
+/* ── 积分余额 ────────────────────────────────────────────────────────────
+ *
+ * 本体 `credits.balances` 一次返回**整家渠道所有账号**的余额：
+ *
+ *   { accounts: [ { accountId, nickname,
+ *       balance?: { total, expiredTotal,
+ *         packages: [ { name, unit, remaining, total, used, active,
+ *                       cycleStartTime, cycleEndTime, expiredTime,
+ *                       deductionEndTime } ] },
+ *       error?: string } ] }
+ *
+ * 实测（2026-10-28）：workbuddy 20 账号 / cline 6 / buddy 3，其余 1–2；
+ * 部分渠道返回的是**错误字符串而不是 balance**（codearts `APIG.0301`、
+ * accio `NOT_LOGIN`、buddy `余额查询失败`），这些要原样报给用户，
+ * 不能吞掉当成 0 积分。
+ *
+ * 结果按 `<provider>|<accountId>` 缓存 90 秒：magpie 会把同一家渠道下
+ * 每个账号的用量卡都问一遍，逐个打上游会被限流。
+ */
+
+const BALANCE_TTL_MS = 90_000
+/** @type {Map<string, {at:number, reading:object|undefined}>} */
+const balanceCache = new Map()
+
+/**
+ * 取某家渠道的余额读数，**按账号 id 精确匹配**。
+ * @returns 该账号那一条；渠道里找不到这个账号（路由组 / 未登录）返回 undefined
+ */
+async function balanceOf(container, provider, wantAccountId, log) {
+  const stamp = `${provider}|${wantAccountId}`
+  const hit = balanceCache.get(stamp)
+  if (hit !== undefined && Date.now() - hit.at < BALANCE_TTL_MS) return hit.reading
+
+  let accounts = []
+  try {
+    const v = await container.rpc('credits.balances', { provider })
+    accounts = Array.isArray(v?.accounts) ? v.accounts : []
+  } catch (e) {
+    const msg = String(e?.message ?? e)
+    // 路由组（aggregate / jet-hub-auto）本体里没有自己的账号池，`credits.balances`
+    // 直接抛 `unsupported provider`。这不是错误，是「这里没有可查的积分」。
+    if (/unsupported provider/i.test(msg)) {
+      balanceCache.set(stamp, { at: Date.now(), reading: undefined })
+      return undefined
+    }
+    log?.(`[${provider}] 余额查询失败：${msg}`)
+    // 失败也落缓存，避免同一轮里 magpie 把失败重打 N 次
+    const reading = { provider, accountId: wantAccountId, error: String(e?.message ?? e) }
+    balanceCache.set(stamp, { at: Date.now(), reading })
+    return reading
+  }
+
+  // 整家渠道的读数一次拿全，顺手给每个账号都写进缓存
+  let mine
+  for (const a of accounts) {
+    const reading = {
+      provider,
+      accountId: String(a?.accountId ?? ''),
+      nickname: a?.nickname,
+      balance: a?.balance,
+      error: a?.error,
+    }
+    balanceCache.set(`${provider}|${reading.accountId}`, { at: Date.now(), reading })
+    if (reading.accountId === wantAccountId) mine = reading
+  }
+  // 账号 id 对不上时（老记录没有 uid）退回第一条，总比空白好
+  if (mine === undefined && wantAccountId === '' && accounts.length > 0) {
+    mine = balanceCache.get(`${provider}|${String(accounts[0]?.accountId ?? '')}`)?.reading
+  }
+  balanceCache.set(stamp, { at: Date.now(), reading: mine })
+  return mine
+}
+
+/**
+ * 把本体的签到结果翻译成 magpie 的 `auth.checkin` 返回形状。
+ *
+ * 本体的 `kind` 与 magpie 的 `outcome` 不是一一对应：
+ *   - `claimed`          → `claimed`（并带上 credit / streak）
+ *   - `already-claimed`  → `done`（今天已经领过了）
+ *   - `inactive`         → `inactive`（活动没开）
+ *   - `exhausted`        → `done`（额度已经领完，等同于今天无事可做）
+ *   - 其它 / `failed`    → `failed`，把原文塞进 message
+ */
+function toMagpieCheckin(row) {
+  const o = row?.outcome ?? {}
+  const kind = String(o?.kind ?? '')
+  const credit = Number(o?.credit)
+  const message = o?.message === undefined ? undefined : String(o.message)
+  const base = {
+    ...(Number.isFinite(credit) && credit > 0 ? { credit } : {}),
+    ...(message !== undefined ? { message } : {}),
+  }
+  switch (kind) {
+    case 'claimed':
+      return { outcome: 'claimed', ...base }
+    case 'already-claimed':
+      return { outcome: 'done', ...base }
+    case 'inactive':
+      return { outcome: 'inactive', ...base }
+    case 'exhausted':
+      return { outcome: 'done', ...base }
+    case 'captcha':
+      return { outcome: 'captcha', ...base }
+    default:
+      return { outcome: 'failed', message: message ?? (kind === '' ? '本体未返回签到结果' : kind) }
+  }
+}
+
+/** 把本体的余额读数翻译成 magpie 的 `auth.usage` 返回形状。 */function toMagpieUsage(reading, provider) {
+  const plan = `${DISPLAY_NAME} · ${provider}`
+  if (reading?.error) return { plan, error: String(reading.error), windows: [] }
+
+  const b = reading?.balance
+  if (b === undefined || b === null) return { plan, windows: [] }
+
+  // ⚠️ 过滤 total=0 的空套餐：本体照样会返回 `{total:0, remaining:0}` 的条目
+  //    （astudio 的「会员积分」实测就是这样），画成卡片就是「0/0、可用 100%」，
+  //    纯误导。有 remaining 没有 total 的（按量计费）保留。
+  const packages = (Array.isArray(b.packages) ? b.packages : []).filter(
+    (p) => (Number(p?.total) || 0) > 0 || (Number(p?.remaining) || 0) > 0,
+  )
+  const windows = packages.map((p) => {
+    const total = Number(p?.total) || 0
+    const remaining = Number(p?.remaining) || 0
+    const used = Number(p?.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
+    const w = {
+      name: String(p?.name ?? '积分'),
+      // used 是**已用百分比**（0–100），magpie 用它画进度条并写「剩余 100%」。
+      // ⚠️ 别填 remaining —— 实测 astudio 会变成「0 / 6,200 · 剩余 100%」这种
+      //    自相矛盾的卡片（显示剩余 0、进度条却是满的）。
+      used: total > 0 ? Math.round((used / total) * 100) : 0,
+      // display 是**剩余 / 总额**（magpie 自己的文案就是「剩余 x%」，这里对齐它）
+      display: `${remaining} / ${total} ${p?.unit ?? ''}`.trim(),
+      amount: remaining,
+      limit: total,
+      unit: String(p?.unit ?? ''),
+    }
+    // 到期：`deductionEndTime` 是毫秒时间戳，`cycleEndTime` 是本地时间串
+    const until = Number(p?.deductionEndTime)
+    if (Number.isFinite(until) && until > 0) w.resetsAt = until
+    // 过期/未生效的套餐不算「用完就停」，标 aside 让 magpie 别当主额度
+    if (p?.active === false) w.aside = true
+    return w
+  })
+
+  // 全部套餐都是 0/0 时 windows 为空，magpie 会显示一张没有内容的卡；
+  // 这种情况退回 balance 文本，至少让人看见「0 积分」而不是空白。
+  if (windows.length === 0) {
+    const unit0 = packages[0]?.unit ?? '积分'
+    return { plan, user: reading?.nickname !== undefined ? String(reading.nickname) : '', balance: `0 ${unit0}`.trim(), windows: [] }
+  }
+
+  const total = Number(b.total) || 0
+  const unit = packages[0]?.unit ?? '积分'
+  // 最早到期的那一份：magpie 用它显示「订阅到 X 到期」
+  const untils = windows.map((w) => w.resetsAt).filter((t) => Number.isFinite(t) && t > 0)
+  return {
+    plan,
+    user: reading?.nickname !== undefined ? String(reading.nickname) : '',
+    balance: `${total} ${unit}`.trim(),
+    ...(untils.length ? { until: Math.min(...untils) } : {}),
+    windows,
+  }
+}
+
 function writeCache(log) {
   try {
     mkdirSync(dirname(cacheFile), { recursive: true })
@@ -484,24 +649,73 @@ export function makePlugin(dshProvider) {
           }
         },
 
-        /** 用量卡：报本 provider 的全量模型数（不伪造积分数字）。 */
-        async usage() {
+        /**
+         * 用量卡：把本体 `credits.balances` 的**真实积分**报给 magpie。
+         *
+         * 签名（`_mp_host.js` 的 `usageOf`）：
+         *   auth.usage(getAuth, provider) → { plan?, user?, until?, renew?,
+         *     balance?, error?, resets?, windows?, signIn? }
+         * 第一个参数是**取凭据的函数**（`await getAuth()` 拿这个账号存的记录），
+         * 不是凭据本身 —— 这里正是靠它知道「现在是哪个账号」。
+         *
+         * ⚠️ 一个 magpie provider = 本体里的一个渠道，但一个渠道下有**多个账号**。
+         *    卡片点开是某个具体账号，所以必须按 `uid`（= 本体账号 id）挑那一条，
+         *    不能把整家渠道的余额加起来。
+         */
+        async usage(getAuth) {
           try {
-            const { live, full } = currentAll(container, log)
-            const wide = Object.keys(modelsOfFull(dshProvider, full)).length
-            const n = Object.keys(modelsOf(dshProvider, live)).length
-            return {
-              plan: `${DISPLAY_NAME} · ${dshProvider}`,
-              windows: [
-                {
-                  name: '上游模型 / 当前可用',
-                  used: 0,
-                  display: `${wide} / ${n} 个 · 容器 127.0.0.1:${container.port}`,
-                },
-              ],
+            const account = typeof getAuth === 'function' ? await getAuth() : undefined
+            const want = String(account?.uid ?? account?.metadata?.dshAccountId ?? '')
+            const reading = await balanceOf(container, dshProvider, want, log)
+            if (reading === undefined) {
+              // 路由组 / 本体里没有账号的渠道：说清「这里没有可查的积分」，别编数字
+              const { live, full } = currentAll(container, log)
+              const wide = Object.keys(modelsOfFull(dshProvider, full)).length
+              const n = Object.keys(modelsOf(dshProvider, live)).length
+              return {
+                plan: `${DISPLAY_NAME} · ${dshProvider}`,
+                windows: [
+                  {
+                    name: '上游模型 / 当前可用',
+                    used: 0,
+                    display: `${wide} / ${n} 个 · 容器 127.0.0.1:${container.port}`,
+                  },
+                ],
+              }
             }
+            return toMagpieUsage(reading, dshProvider)
           } catch (e) {
             return { error: e?.message ?? String(e), windows: [] }
+          }
+        },
+
+        /**
+         * 每日签到：把本体 `credits.claimAll` 的**真实领取结果**报给 magpie。
+         *
+         * 签名（`_mp_host.js` 的 `checkinOf`）：
+         *   auth.checkin(getAuth, provider) → {
+         *     outcome: 'claimed' | 'done' | 'ineligible' | 'inactive' | 'captcha' | 'failed',
+         *     credit?, streak?, message? }
+         *
+         * 本体侧的 `credits.claimAll` 一次领取**整家渠道所有账号**，返回
+         * `{ results: [{accountId, nickname, outcome: {kind, credit?, message?}}],
+         *    summary: {claimed, totalCredit, alreadyClaimed, inactive, failed, ...} }`。
+         * 所以这里同样要按账号 id 挑出属于本账号的那一条 —— 不能报整家渠道的合计。
+         */
+        async checkin(getAuth) {
+          try {
+            const account = typeof getAuth === 'function' ? await getAuth() : undefined
+            const want = String(account?.uid ?? account?.metadata?.dshAccountId ?? '')
+            const v = await container.rpc('credits.claimAll', { provider: dshProvider })
+            const rows = Array.isArray(v?.results) ? v.results : []
+            const mine = rows.find((r) => String(r?.accountId ?? '') === want) ?? (want === '' ? rows[0] : undefined)
+            if (mine === undefined) {
+              return { outcome: 'ineligible', message: `本体里没有 ${dshProvider} 的可签到账号` }
+            }
+            return toMagpieCheckin(mine)
+          } catch (e) {
+            // 抛异常在 magpie 里等同 failed，但带上原文更有用
+            return { outcome: 'failed', message: String(e?.message ?? e) }
           }
         },
       },
@@ -513,7 +727,7 @@ export function makePlugin(dshProvider) {
         },
       },
 
-      _internal: { container, dshProvider, toUpstreamModel },
+      _internal: { container, dshProvider, toUpstreamModel, toMagpieCheckin, toMagpieUsage },
     }
   }
 }
