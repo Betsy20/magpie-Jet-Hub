@@ -906,3 +906,108 @@ $ node scripts/test-all.mjs
 ✓ t-options.mjs    ✓ t-plugin.mjs         ✓ t-models-nowait.mjs  ✓ t-seed-auth.mjs
 8 通过 / 0 失败 / 0 跳过
 ```
+
+## 十七、补接漏掉的 5 家 provider：19 → 24
+
+### 症状
+
+`magpie plugin list` 里 `jet-hub-*` 只有 19 条，而本体自报 23 个真渠道 + 1 个
+路由组。少的是 `minimax` / `accio` / `gemini` / `codely` / `autoclawintl`。
+
+### 根因
+
+`src/plugin.mjs` 的 `DSH_PROVIDERS` 是手写常量，当初照着「有账号的渠道」抄的，
+漏掉了这几家。而 `provider.status` **查不出它们** —— 传 `{providers: []}`
+返回 `statuses: {}`，只有显式点名才回状态，所以一直没有暴露。
+
+真正的全名单只能从 `provider.getOrder` 拿：
+```
+order: [aggregate, buddy, workbuddy, lobsterai, trae, loomy, officeace, astudio,
+        codearts, qodercn, qoder, zcode, autoclaw, autoclawintl, modelscope,
+        minimax, minimaxintl, gemini, accio, raccoon, cline, opencode, codely]
+```
+共 23 个（不含 `jet-hub-auto`）。
+
+### 这 5 家确实该接（实测）
+
+```
+autoclawintl   accounts=0  models=4   (zai_glm-5.3-flash, zaicoding_glm-5.3, zai_auto)
+minimax        accounts=2  models=5   (MiniMax-M3.1-Flash-Preview, MiniMax-M3, MiniMax-M2.7-highspeed…)
+gemini         accounts=0  models=1   (gemini-3.8-flash)
+accio          accounts=1  models=15  (qwen-3-8-27b, qwen-3-8-flash, glm-5-3-flash…)
+codely         accounts=0  models=5   (codely-core, codely-basic, codely-flash…)
+```
+`minimax` 有 2 个**启用**账号，是漏接里唯一能直接用的。
+
+### 改动
+
+1. `src/plugin.mjs` `DSH_PROVIDERS` 19 → 24（按字母序插入 5 项）；
+2. 同文件 `NAMES` 补 5 条中文名、`FALLBACK_MODELS` 补 5 条静态兜底；
+3. `scripts/snapshot-models.mjs` 的 `NAMES` 补 5 条（侧栏页显示名）；
+4. 重新生成 `index.mjs` → 24 个 `JetHub*Plugin` 工厂。
+
+### 验证一：装进 magpie
+
+```
+$ magpie plugin list | grep -c '^  jet-hub'
+24
+
+$ magpie plugin list | grep -E 'jet-hub-(minimax|accio|gemini|codely|autoclawintl) '
+  jet-hub-accio (Jet Hub · Accio（阿里）, 15 models)  signed in as accio-2e8cb773（已停用）
+  jet-hub-autoclawintl (Jet Hub · AutoClaw 国际, 4 models)  signed in as （本机 DSH 未登录该渠道）
+  jet-hub-codely (Jet Hub · Codely, 5 models)  signed in as （本机 DSH 未登录该渠道）
+  jet-hub-gemini (Jet Hub · Gemini, 1 models)  signed in as （本机 DSH 未登录该渠道）
+  jet-hub-minimax (Jet Hub · MiniMax, 5 models)  signed in as MiniMax407112
+```
+重跑 `node scripts/seed-auth.mjs` 后 24 家全部有签入记录（`plugin-auth.json`
+共 85 条，本插件 61 条）。
+
+### 验证二：网关暴露的模型
+
+```
+$ curl -s http://127.0.0.1:3425/v1/models
+jet-hub-minimax/       [MiniMax-M3.1-Flash-Preview, MiniMax-M3, MiniMax-M2.7-highspeed, …]
+jet-hub-accio/         [qwen-3-8-27b, qwen-3-8-flash, glm-5-3-flash, deepseek-v4-1-flash, …]
+jet-hub-gemini/        [gemini-3.8-flash]
+jet-hub-codely/        [codely-core, codely-basic, codely-flash, codely-air, codely-vl]
+jet-hub-autoclawintl/  [zai_glm-5.3-flash, zaicoding_glm-5.3, zai_auto, zai_auto-fast]
+```
+
+### 验证三：真转发（这 5 家都是上游侧的真实状态，不是插件缺陷）
+
+```
+jet-hub-minimax/MiniMax-M2.7-highspeed
+  → 无法确认是否有可用账号。已锁定永久积分，而本次余额查询未能全部完成
+    （凭据未配置或已失效（共 2 个账号））
+    ↳ 两个 minimax 账号的 credentialRef（MINIMAX_ACCOUNT_6062BF46 /
+      MINIMAX_ACCOUNT_E128B011）在 .credentials.yaml 里不存在 —— 本体侧也没登录过
+
+jet-hub-accio/glm-5-3-flash
+  → 凭据未配置
+    ↳ 凭据本身有效（resolve 得到 access_token + refresh_token + expires_at），
+      但账号 accio-2e8cb773 是 enabled: false；本体没有「启用账号」的 RPC
+      （account.update 只改昵称/ref），需在 DSH 面板里启用
+
+jet-hub-gemini/gemini-3.8-flash
+  → 凭据未配置，请先登录
+    ↳ .credentials.yaml 里没有 GEMINI_* ref，本体从未登录过
+```
+对照：`jet-hub-workbuddy/deepseek-v4.1-flash` 仍 200（返回 `reasoning_content`）。
+
+### 验证四：界面
+
+```
+$ node scripts/snapshot-models.mjs
+✓ 893 个模型 / 24 个 provider（来源：plugin-cache（上游全量））→ page/models.js
+
+$ curl /api/providers | jet-hub provider 数: 24 ｜模型合计: 893
+
+$ node scripts/shot-console.cjs        # 八标签全部 err:[]
+$ node tests/ui-check.cjs              # 侧栏六标签均渲染正常，24 个供应商
+```
+
+### 验证五：整跑
+```
+$ node scripts/test-all.mjs
+8 通过 / 0 失败 / 0 跳过
+```
