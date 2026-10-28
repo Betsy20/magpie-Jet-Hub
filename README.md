@@ -201,6 +201,12 @@ jet-hub/auto                     ← 本体的自动选号路由组
 页面在沙箱 iframe 里跑，只能通过 `_magpie/bridge.js` 拿声明过的数据，不联网、
 不碰 magpie 的 `/api`。
 
+![magpie 侧栏里的 Jet Hub 页 · 接入点标签](docs/screenshot.png)
+
+上图是 magpie 侧栏里实拍（接入点标签）：宿主端口 `18500`、共 `892` 个模型 ——
+这两个数与 `page/models.js` 快照里的 `consolePort` / `total` 同源，快照一变就得重拍
+（`scripts/shot-console.cjs` 只拍控制台，这张是 `tests/ui-check.cjs` 那条链路的产物）。
+
 ### 六个标签
 
 | 标签 | 内容 | 数据来源 |
