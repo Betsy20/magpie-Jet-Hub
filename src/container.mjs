@@ -20,6 +20,17 @@ import { FileCredentialProvider } from './credentials.mjs'
 import { ConnectionSeam } from './connection.mjs'
 import { startHubServer } from './hub-server.mjs'
 
+/**
+ * 「死号判据对本家不可信」的 provider 名单 —— 命中即**不判死**。
+ *
+ * 判据 = 「`refreshable === false` 且 `expiresAt` 已过」。它成立于
+ * 「refreshable 是兑出来的、expiresAt 是真日期」这两条前提。
+ * 前提不成立的家必须列在这里，否则判据恒真、把能用的号就地判死。
+ *
+ * 当前只有 loomy —— 具体理由见 `isDeadAccount` 内注释。
+ */
+const DEAD_JUDGE_UNTRUSTED = new Set(['loomy'])
+
 /** 找可用端口：先 bind 试探再释放（网关自己还会 bind，窗口极小但可接受）。 */
 async function findFreePort(from = 18390, tries = 60) {
   for (let p = from; p < from + tries; p++) {
@@ -229,6 +240,28 @@ export class JetHubContainer {
 
   /** 判断账号是否「死号」：明确不可续期且有效期已过。 */
   static isDeadAccount(entry, now = Date.now()) {
+    // loomy 的两条判据都**不是失效证据**，对它恒真 ⇒ 必须豁免，否则必误杀。
+    //
+    // ① `refreshable` 恒 false：loomy 服务端根本没有 refresh 端点，
+    //    `vendor/lib/loomy-auth.js:34-37` 把这条写成了「诚实标记」——它描述的是
+    //    「本产品没有续期这回事」，不是「这个号失效了」。而且它在登录返回值里
+    //    无条件写死（`loomy-auth.js:160` / `:189`，再由 `jet-hub-rpc.js:3460` /
+    //    `:4846` 落池）⇒ 池里每一个 loomy 账号都是 refreshable:false。
+    // ② `expires_at` 是**本地推算的假日期**：服务端响应不带到期时间戳，
+    //    `loomy-auth.js:198-206 buildCredential` 按 `Date.now() + 14 天` 自己算
+    //    （`loomy-oauth.js:35 LOOMY_SESSION_TTL_SECONDS = 1_209_600`）。
+    //    它只回答「登录后第 14 天」，不回答「这个号还能不能用」。
+    //
+    // 后果：两条腿合起来对 loomy **恒真** —— 登录满 14 天后，连同当时唯一在
+    // 服务的号一起被判死。实测（2026-10-28）：两个 loomy 号寿命正好 336.00 小时，
+    // 全被判死，而账本里 `loomy-dd2c0ebd` 当日 91 次请求 0 错误。
+    //
+    // 与「其余无 refreshableOf 判据的 6 家」**不能**一并豁免：它们的
+    // refreshable:false 要么是终态错误写下的（astudio-auth.js:584/600），要么
+    // 缺第二腿的 expiresAt（astudio 的 `astudioCredentialExpiresAtMs` 恒
+    // undefined、modelscope/opencode/zcode 无到期字段）⇒ 判据不会恒真，留着是
+    // 有效保护（codearts 的死号正是靠它挡住 502）。
+    if (DEAD_JUDGE_UNTRUSTED.has(entry?.provider)) return false
     if (entry?.refreshable !== false) return false
     const at = entry?.expiresAt
     if (typeof at !== 'number' || !Number.isFinite(at) || at <= 0) return false
@@ -242,6 +275,18 @@ export class JetHubContainer {
    * `listAvailableCredentials`），而不是 `readAccounts()` —— 后者是**写入**路径的
    * 读源（`updateModelRateLimit` 等走「读 → 改 → 整体写回」），在读取层过滤会
    * 把死号从磁盘上抹掉，那是用户的账号数据，不能悄悄删。
+   *
+   * ⚠️ **覆盖范围有限，且刻意不扩**（2026-10-28 定稿）：
+   * - 请求选号里有一批家走 `vendor/lib/credential-resolver.js:148 candidatesOf`
+   *   → `pool.listAccountsByProvider`，**不经过这两个方法**，即本过滤对它们无效
+   *   （loomy 的请求路径就在这批里）。
+   * - 但 `vendor/lib/index.js:2712` 与 `:2726` 会为「凭据健康探测 / 续期」与
+   *   「远端模型表」调 `getAvailableAccount(LOOMY.id, '')` —— 那两条**走这里**。
+   *   所以 loomy 的豁免不是可有可无的：没有它，这两条会拿到 `null` 并落到
+   *   全池刷新或 `LOOMY.defaultCredentialRef` 兜底。
+   * - 不去包 `listAccountsByProvider`：它是 `candidatesOf` / `status()` / 控制台
+   *   列表的**共同上游**，在那里过滤会同时改掉余额分档的候选集与 UI 展示，
+   *   超出「选号」这件事的范围。要做必须单独立项、带自己的判据。
    */
   _filterDeadAccounts(ctx) {
     const pool = ctx.accountPool
