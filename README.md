@@ -10,7 +10,7 @@
 
 ```
 magpie 网关 (3425)
-  └─ provider `jet-hub-*` ×19      ← 本插件（每家一个供应商）
+  └─ provider `jet-hub-*` ×24      ← 本插件（每家一个供应商）
        └─ auth.loader().fetch       ← 只改这一层：剥 provider 前缀 + 转发
             └─ JetHubContainer（内嵌 cordis + 本体 lib/index.js）
                  └─ 本体自带网关 127.0.0.1:<动态端口>
@@ -96,7 +96,9 @@ magpie plugin login jet-hub
 | `jet-hub-autoclawintl` | Jet Hub · AutoClaw 国际 | `autoclawintl` |
 | …（共 24 个） | | |
 
-> 名单来自本体 `provider.getOrder`（23 家真渠道 + 1 个 `jet-hub-auto` 路由组）。
+> 名单来自本体 `provider.getOrder`（**22 家真渠道 + 2 个路由组**：`aggregate` 与
+> `jet-hub-auto`，合计 24）。路由组的判据在本体侧是它们没有自己的账号池
+> （`scripts/seed-auth.mjs` 的 `ROUTE_GROUPS` 就按这两家判）。
 > 早期版本只接了 19 家，漏掉 `minimax` / `accio` / `gemini` / `codely` /
 > `autoclawintl` —— 这 5 家在 `provider.status` 里查不出来（传空数组返回
 > `statuses: {}`），必须用 `provider.getOrder` 才看得全。
@@ -209,7 +211,7 @@ jet-hub/auto                     ← 本体的自动选号路由组
 | 设置 | 默认模型、用量默认周期、复制是否带前缀（存 `plugins.json`，只属本插件） | `magpie.options` |
 | 控制台 | 本地控制台地址（一键复制）+ 能在里面做什么的清单 | 本地常量 |
 
-（侧栏页这五个标签是**只读**的概览；所有写操作在下面说的本地控制台里。）
+（侧栏页这六个标签是**只读**的概览；所有写操作在下面说的本地控制台里。）
 
 ### 控制台：完整功能走本地服务
 
@@ -317,7 +319,7 @@ node scripts/test-all.mjs --all
 # 经 magpie 网关 3425 真转发（非流式 / 流式 / 工具调用 / 路由组）
 python tests/t-gateway.py
 
-# 界面自检（CDP 驱动 Edge → 点侧栏 → 连进页面 OOPIF → 五个标签逐个截图 + DOM 断言 + 收集 JS 报错）
+# 界面自检（CDP 驱动 Edge → 点侧栏 → 连进页面 OOPIF → 六个标签逐个截图 + DOM 断言 + 收集 JS 报错）
 node tests/ui-check.cjs
 # 截图落在 %TEMP%/jethub-ui/tab-*.png；有 JS 报错或标签没渲染就退出码非 0
 ```
@@ -376,7 +378,7 @@ src/connection.mjs     补 connection 服务，让本体的 jet-hub-rpc 端点�
 src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
 vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
-console/               完整控制台界面（八个标签，覆盖 62 个 RPC）
+console/               完整控制台界面（八个标签，覆盖 62 / 65 个 RPC）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
 scripts/snapshot-models.mjs  重新生成 page/models.js
 scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headless + CDP）
