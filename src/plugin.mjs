@@ -15,7 +15,7 @@
  * ## 架构
  *
  * ```
- * magpie 网关 (3425)
+ * magpie 网关（默认 3425，可用 JET_HUB_USER_GATEWAY 覆盖）
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
@@ -370,9 +370,15 @@ async function balanceOf(container, provider, wantAccountId, log) {
     balanceCache.set(`${provider}|${reading.accountId}`, { at: Date.now(), reading })
     if (reading.accountId === wantAccountId) mine = reading
   }
-  // 账号 id 对不上时（老记录没有 uid）退回第一条，总比空白好
+  // 账号 id 对不上时（老记录没有 uid）退回一条，总比空白好。
+  // ⚠️ 但别盲取 `accounts[0]`：本体是**逐账号兜错**的（vendor/lib/jet-hub-rpc.js 的
+  //    collectCreditBalances 把单账号的异常塞进该条的 error 字段，其余账号照常返回），
+  //    所以第一条可能正好是坏账号 —— 实测 workbuddy 20 个账号里只有
+  //    workbuddy-669bbcf6 一个坏，盲取第一条会把整张卡变成一句内部报错。
+  //    优先挑一条没有 error 的，全都坏才退回第一条。
   if (mine === undefined && wantAccountId === '' && accounts.length > 0) {
-    mine = balanceCache.get(`${provider}|${String(accounts[0]?.accountId ?? '')}`)?.reading
+    const pick = accounts.find((a) => a?.error === undefined) ?? accounts[0]
+    mine = balanceCache.get(`${provider}|${String(pick?.accountId ?? '')}`)?.reading
   }
   balanceCache.set(stamp, { at: Date.now(), reading: mine })
   return mine
@@ -413,9 +419,34 @@ function toMagpieCheckin(row) {
   }
 }
 
-/** 把本体的余额读数翻译成 magpie 的 `auth.usage` 返回形状。 */function toMagpieUsage(reading, provider) {
+/**
+ * 把本体透出来的余额错误文案翻成人话。
+ *
+ * 本体的 `credits.balances` 是逐账号兜错的，单账号失败时会把**原始异常 message**
+ * 塞进 `error` 字段（`vendor/lib/jet-hub-rpc.js` 的 collectCreditBalances）。于是
+ * 用户会在 magpie 的用量卡上看到 `Cannot read properties of undefined (reading 'id')`
+ * 这种内部堆栈文案 —— 对使用者零信息量，看着像插件崩了。
+ *
+ * 这里只做**文案层**的翻译：认得出的内部错误换成人话，认不出的原样透传
+ * （不吞信息 —— 真出问题还得靠原文定位）。
+ */
+function humanizeUsageError(error) {
+  const text = String(error ?? '')
+  if (/^Cannot read propert(y|ies) of/.test(text)) {
+    return `该账号的余额查询内部出错（${text}），换个账号或重新登录后重试`
+  }
+  if (/refresh token/i.test(text)) {
+    return `该账号的登录已过期（${text}），到 DSH 里重新登录一次即可`
+  }
+  return text
+}
+
+/**
+ * 把本体的余额读数翻译成 magpie 的 `auth.usage` 返回形状。
+ */
+function toMagpieUsage(reading, provider) {
   const plan = `${DISPLAY_NAME} · ${provider}`
-  if (reading?.error) return { plan, error: String(reading.error), windows: [] }
+  if (reading?.error) return { plan, error: humanizeUsageError(reading.error), windows: [] }
 
   const b = reading?.balance
   if (b === undefined || b === null) return { plan, windows: [] }
@@ -782,14 +813,16 @@ export function makePlugin(dshProvider) {
                   {
                     name: '上游模型 / 当前可用',
                     used: 0,
-                    display: `${wide} / ${n} 个 · 容器 127.0.0.1:${container.port}`,
+                    // 直连模式下没有本地端口（container.port 已不存在），别再拼端口号：
+                    // 那会让用量卡显示「容器 127.0.0.1:undefined」。
+                    display: `${wide} / ${n} 个 · 直连本体（无本地端口）`,
                   },
                 ],
               }
             }
             return toMagpieUsage(reading, dshProvider)
           } catch (e) {
-            return { error: e?.message ?? String(e), windows: [] }
+            return { error: humanizeUsageError(e?.message ?? e), windows: [] }
           }
         },
 

@@ -34,6 +34,15 @@ import { chatCompletion, modelsPayload, llmReady, jsonResponse, errorResponse } 
  */
 const DEAD_JUDGE_UNTRUSTED = new Set(['loomy'])
 
+/**
+ * 对外网关默认地址 —— magpie 主程序自己的 OpenAI 兼容网关。
+ *
+ * 为什么是常量而不是探测：magpie 不落盘端口（见构造函数里 `this.userGateway`
+ * 的注释）。改端口的人用 `JET_HUB_USER_GATEWAY` 覆盖即可，控制台/插件页/快照
+ * 三处都从 `meta().gateway.userGateway` 取值，不再各写一份。
+ */
+export const DEFAULT_USER_GATEWAY = 'http://127.0.0.1:3425'
+
 export class JetHubContainer {
   constructor(options = {}) {
     // ⚠️ 两个路径语义**不同**（2026-10-27 实测，卡住一轮）：
@@ -59,6 +68,16 @@ export class JetHubContainer {
     this.ownerOf = new Map() // modelId -> provider id
     this.fullCatalog = [] // 上游全量目录 [{id:'p/m', name, disabled, dead}]，含 disabled
     this.fullCatalogAt = undefined
+    // 对外网关（magpie 主程序那个，不是本插件内部网关 —— 内部网关已经没有了）。
+    //
+    // ⚠️ 这个地址**只能写默认值 + 让人覆盖**，没法自动探测：实测 magpie 主程序
+    // 不把端口落盘到 `~/.config/magpie/` 下任何可读配置（settings.json 里
+    // 没有 gate/port/server/api 相关键，也没有任何网关命名的文件），宿主注入
+    // 给插件的环境变量只有 `MAGPIE_*` 系列，同样不带端口。所以给一个显式覆盖口
+    // 比在三个文件里各写死一份 3425 更诚实。
+    this.userGateway = String(
+      options.userGateway ?? process.env.JET_HUB_USER_GATEWAY ?? DEFAULT_USER_GATEWAY,
+    ).replace(/\/+$/, '')
   }
 
   /**
@@ -268,7 +287,11 @@ export class JetHubContainer {
       // 直连模式：**没有**本地网关端口了。`mode: 'direct'` 是给控制台/插件页
       // 判文案的判据 —— 它们读 `gateway.port` 有值才显示「本地网关 :1839x」，
       // 读到 null 就显示「直连本体 llm 服务（无本地端口）」。
-      gateway: { mode: 'direct', baseURL: null, port: null },
+      //
+      // `userGateway` 是**另一个**东西：插件内部没有端口了，但用户拿客户端接的
+      // 是 magpie 主程序那个网关。它以前在控制台/插件页/快照脚本里各写死一份
+      // 3425，改端口就得改三处；现在统一从这里取（见 DEFAULT_USER_GATEWAY）。
+      gateway: { mode: 'direct', baseURL: null, port: null, userGateway: this.userGateway },
       version: this.version,
       generatedAt: new Date().toISOString(),
     }

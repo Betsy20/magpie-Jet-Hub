@@ -1,11 +1,11 @@
 // 自动生成：node scripts/snapshot-models.mjs —— 别手改。
-// 快照时间 2026-10-28T05:05:28.802Z｜数据源 宿主 :18500/__meta（上游全量）｜控制台 http://127.0.0.1:18500/
+// 快照时间 2026-10-28T22:20:59.996Z｜数据源 宿主 :18500/__meta（上游全量）｜控制台 http://127.0.0.1:18500/
 window.JET_HUB_CATALOG = {
-  "generatedAt": "2026-10-28T05:05:28.802Z",
-  "catalogAt": "2026-10-28T04:32:34.706Z",
+  "generatedAt": "2026-10-28T22:20:59.996Z",
+  "catalogAt": "2026-10-28T22:20:30.903Z",
   "gateway": "http://127.0.0.1:3425",
   "source": "宿主 :18500/__meta（上游全量）",
-  "total": 892,
+  "total": 895,
   "models": [
     "jet-hub-accio/deepseek-v4-1-flash",
     "jet-hub-accio/deepseek-v4-pro",
@@ -47,6 +47,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-aggregate/minimax-m3-1-flash",
     "jet-hub-aggregate/minimax-m3-1-flash-free",
     "jet-hub-aggregate/minimax-m3-1-flash-preview",
+    "jet-hub-aggregate/particle-1",
     "jet-hub-aggregate/spark-x2-5",
     "jet-hub-aggregate/spark-x2-5-4b",
     "jet-hub-aggregate/spark-x2-6",
@@ -484,6 +485,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/openrouter/free",
     "jet-hub-cline/openrouter/fusion",
     "jet-hub-cline/openrouter/pareto-code",
+    "jet-hub-cline/particle-ai/particle-1",
     "jet-hub-cline/perceptron/perceptron-mk1",
     "jet-hub-cline/perceptron/perceptron-mk1.5",
     "jet-hub-cline/perplexity/sonar",
@@ -701,6 +703,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-lobsterai/qwen3.8-flash",
     "jet-hub-lobsterai/qwen3.8-max",
     "jet-hub-lobsterai/qwen3.8-omni-flash",
+    "jet-hub-loomy/DeepSeek-V4.1-Flash",
     "jet-hub-loomy/GLM-5.3-Flash",
     "jet-hub-loomy/Kimi-k2.6",
     "jet-hub-loomy/MiniMax-M3",
@@ -1055,7 +1058,7 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-aggregate/flint-40b-free",
       "upstream": "aggregate/flint-40b-free",
       "name": "flint-40b-free",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-aggregate/glm-5": {
       "id": "jet-hub-aggregate/glm-5",
@@ -1075,6 +1078,72 @@ window.JET_HUB_CATALOG = {
       "name": "GLM-5.3",
       "disabled": true
     },
+    "jet-hub-aggregate/gpt-6-1-terra": {
+      "id": "jet-hub-aggregate/gpt-6-1-terra",
+      "upstream": "aggregate/gpt-6-1-terra",
+      "name": "gpt-6-1-terra",
+      "disabled": false
+    },
+    "jet-hub-aggregate/gpt-6-1-terra-pro": {
+      "id": "jet-hub-aggregate/gpt-6-1-terra-pro",
+      "upstream": "aggregate/gpt-6-1-terra-pro",
+      "name": "gpt-6-1-terra-pro",
+      "disabled": false
+    },
+    "jet-hub-aggregate/gpt-6-1-terra-pro:batch": {
+      "id": "jet-hub-aggregate/gpt-6-1-terra-pro:batch",
+      "upstream": "aggregate/gpt-6-1-terra-pro:batch",
+      "name": "gpt-6-1-terra-pro:batch",
+      "disabled": false
+    },
+    "jet-hub-aggregate/gpt-6-1-terra:batch": {
+      "id": "jet-hub-aggregate/gpt-6-1-terra:batch",
+      "upstream": "aggregate/gpt-6-1-terra:batch",
+      "name": "gpt-6-1-terra:batch",
+      "disabled": false
+    },
+    "jet-hub-aggregate/lfm-2-5-2-6b": {
+      "id": "jet-hub-aggregate/lfm-2-5-2-6b",
+      "upstream": "aggregate/lfm-2-5-2-6b",
+      "name": "lfm-2-5-2-6b",
+      "disabled": false
+    },
+    "jet-hub-aggregate/minimax-m2-7": {
+      "id": "jet-hub-aggregate/minimax-m2-7",
+      "upstream": "aggregate/minimax-m2-7",
+      "name": "MiniMax-M2.7",
+      "disabled": false
+    },
+    "jet-hub-aggregate/minimax-m2-7-highspeed": {
+      "id": "jet-hub-aggregate/minimax-m2-7-highspeed",
+      "upstream": "aggregate/minimax-m2-7-highspeed",
+      "name": "MiniMax-M2.7-highspeed",
+      "disabled": false
+    },
+    "jet-hub-aggregate/minimax-m3-1-flash-preview": {
+      "id": "jet-hub-aggregate/minimax-m3-1-flash-preview",
+      "upstream": "aggregate/minimax-m3-1-flash-preview",
+      "name": "MiniMax-M3.1-Flash-Preview",
+      "disabled": false
+    },
+    "jet-hub-aggregate/particle-1": {
+      "id": "jet-hub-aggregate/particle-1",
+      "upstream": "aggregate/particle-1",
+      "name": "particle-1",
+      "disabled": false
+    },
+    "jet-hub-aggregate/spark-x2-6": {
+      "id": "jet-hub-aggregate/spark-x2-6",
+      "upstream": "aggregate/spark-x2-6",
+      "name": "spark-x2-6",
+      "disabled": false
+    },
+    "jet-hub-aggregate/spark-x2-6-4b": {
+      "id": "jet-hub-aggregate/spark-x2-6-4b",
+      "upstream": "aggregate/spark-x2-6-4b",
+      "name": "spark-x2-6-4b",
+      "disabled": false
+    },
     "jet-hub-aggregate/ternary-bonsai-2-9b": {
       "id": "jet-hub-aggregate/ternary-bonsai-2-9b",
       "upstream": "aggregate/ternary-bonsai-2-9b",
@@ -1085,7 +1154,7 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-aggregate/xopdsv4flash0731in",
       "upstream": "aggregate/xopdsv4flash0731in",
       "name": "xopdsv4flash0731in",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-aggregate/zai_glm-5-3-flash": {
       "id": "jet-hub-aggregate/zai_glm-5-3-flash",
@@ -1159,66 +1228,6 @@ window.JET_HUB_CATALOG = {
       "name": "zaicoding_glm-5-3",
       "disabled": true
     },
-    "jet-hub-aggregate/minimax-m2-7": {
-      "id": "jet-hub-aggregate/minimax-m2-7",
-      "upstream": "aggregate/minimax-m2-7",
-      "name": "minimax-m2-7",
-      "disabled": true
-    },
-    "jet-hub-aggregate/minimax-m2-7-highspeed": {
-      "id": "jet-hub-aggregate/minimax-m2-7-highspeed",
-      "upstream": "aggregate/minimax-m2-7-highspeed",
-      "name": "minimax-m2-7-highspeed",
-      "disabled": true
-    },
-    "jet-hub-aggregate/minimax-m3-1-flash-preview": {
-      "id": "jet-hub-aggregate/minimax-m3-1-flash-preview",
-      "upstream": "aggregate/minimax-m3-1-flash-preview",
-      "name": "minimax-m3-1-flash-preview",
-      "disabled": true
-    },
-    "jet-hub-aggregate/lfm-2-5-2-6b": {
-      "id": "jet-hub-aggregate/lfm-2-5-2-6b",
-      "upstream": "aggregate/lfm-2-5-2-6b",
-      "name": "lfm-2-5-2-6b",
-      "disabled": true
-    },
-    "jet-hub-aggregate/gpt-6-1-terra:batch": {
-      "id": "jet-hub-aggregate/gpt-6-1-terra:batch",
-      "upstream": "aggregate/gpt-6-1-terra:batch",
-      "name": "gpt-6-1-terra:batch",
-      "disabled": true
-    },
-    "jet-hub-aggregate/gpt-6-1-terra-pro": {
-      "id": "jet-hub-aggregate/gpt-6-1-terra-pro",
-      "upstream": "aggregate/gpt-6-1-terra-pro",
-      "name": "gpt-6-1-terra-pro",
-      "disabled": true
-    },
-    "jet-hub-aggregate/gpt-6-1-terra": {
-      "id": "jet-hub-aggregate/gpt-6-1-terra",
-      "upstream": "aggregate/gpt-6-1-terra",
-      "name": "gpt-6-1-terra",
-      "disabled": true
-    },
-    "jet-hub-aggregate/spark-x2-6": {
-      "id": "jet-hub-aggregate/spark-x2-6",
-      "upstream": "aggregate/spark-x2-6",
-      "name": "spark-x2-6",
-      "disabled": true
-    },
-    "jet-hub-aggregate/spark-x2-6-4b": {
-      "id": "jet-hub-aggregate/spark-x2-6-4b",
-      "upstream": "aggregate/spark-x2-6-4b",
-      "name": "spark-x2-6-4b",
-      "disabled": true
-    },
-    "jet-hub-aggregate/gpt-6-1-terra-pro:batch": {
-      "id": "jet-hub-aggregate/gpt-6-1-terra-pro:batch",
-      "upstream": "aggregate/gpt-6-1-terra-pro:batch",
-      "name": "gpt-6-1-terra-pro:batch",
-      "disabled": true
-    },
     "jet-hub-astudio/xopglm52": {
       "id": "jet-hub-astudio/xopglm52",
       "upstream": "astudio/xopglm52",
@@ -1253,13 +1262,13 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-astudio/spark-x2.6",
       "upstream": "astudio/spark-x2.6",
       "name": "Spark-X2.6",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-astudio/spark-x2.6-4b": {
       "id": "jet-hub-astudio/spark-x2.6-4b",
       "upstream": "astudio/spark-x2.6-4b",
       "name": "Spark-X2.6-Lite",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-astudio/spark-x2.6-preview": {
       "id": "jet-hub-astudio/spark-x2.6-preview",
@@ -1324,7 +1333,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-buddy/hy4-preview": {
       "id": "jet-hub-buddy/hy4-preview",
       "upstream": "buddy/hy4-preview",
-      "name": "Hy4 preview · x0.29",
+      "name": "Hy4 preview · x0.29→免费",
       "disabled": true
     },
     "jet-hub-buddy/hy3": {
@@ -1372,13 +1381,13 @@ window.JET_HUB_CATALOG = {
     "jet-hub-buddy/glm-5.2": {
       "id": "jet-hub-buddy/glm-5.2",
       "upstream": "buddy/glm-5.2",
-      "name": "GLM-5.2 · x0.79",
+      "name": "GLM-5.2 · x0.79→x0.50",
       "disabled": true
     },
     "jet-hub-buddy/glm-5.1": {
       "id": "jet-hub-buddy/glm-5.1",
       "upstream": "buddy/glm-5.1",
-      "name": "GLM-5.1 · x0.79",
+      "name": "GLM-5.1",
       "disabled": true
     },
     "jet-hub-buddy/glm-5v-turbo": {
@@ -1414,7 +1423,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-buddy/minimax-m3": {
       "id": "jet-hub-buddy/minimax-m3",
       "upstream": "buddy/minimax-m3",
-      "name": "MiniMax-M3 · x0.25",
+      "name": "MiniMax-M3",
       "disabled": true
     },
     "jet-hub-buddy/step-5-preview": {
@@ -1651,16 +1660,16 @@ window.JET_HUB_CATALOG = {
       "name": "cline-pass/glm-5.3-flash",
       "disabled": true
     },
-    "jet-hub-cline/cline-pass/qwen3.7-max": {
-      "id": "jet-hub-cline/cline-pass/qwen3.7-max",
-      "upstream": "cline/cline-pass/qwen3.7-max",
-      "name": "Qwen3.7 Max",
-      "disabled": true
-    },
     "jet-hub-cline/cline-pass/qwen3.7-plus": {
       "id": "jet-hub-cline/cline-pass/qwen3.7-plus",
       "upstream": "cline/cline-pass/qwen3.7-plus",
       "name": "Qwen3.7 Plus",
+      "disabled": true
+    },
+    "jet-hub-cline/cline-pass/qwen3.7-max": {
+      "id": "jet-hub-cline/cline-pass/qwen3.7-max",
+      "upstream": "cline/cline-pass/qwen3.7-max",
+      "name": "Qwen3.7 Max",
       "disabled": true
     },
     "jet-hub-cline/cline-pass/minimax-m3": {
@@ -1669,10 +1678,10 @@ window.JET_HUB_CATALOG = {
       "name": "MiniMax-M3",
       "disabled": true
     },
-    "jet-hub-cline/cline-pass/deepseek-v4-flash": {
-      "id": "jet-hub-cline/cline-pass/deepseek-v4-flash",
-      "upstream": "cline/cline-pass/deepseek-v4-flash",
-      "name": "DeepSeek V4 Flash",
+    "jet-hub-cline/cline-pass/mimo-v2.5-pro": {
+      "id": "jet-hub-cline/cline-pass/mimo-v2.5-pro",
+      "upstream": "cline/cline-pass/mimo-v2.5-pro",
+      "name": "MiMo-V2.5-Pro",
       "disabled": true
     },
     "jet-hub-cline/cline-pass/kimi-k2.7-code": {
@@ -1681,16 +1690,10 @@ window.JET_HUB_CATALOG = {
       "name": "Kimi K2.7 Code",
       "disabled": true
     },
-    "jet-hub-cline/cline-pass/kimi-k2.6": {
-      "id": "jet-hub-cline/cline-pass/kimi-k2.6",
-      "upstream": "cline/cline-pass/kimi-k2.6",
-      "name": "Kimi K2.6",
-      "disabled": true
-    },
-    "jet-hub-cline/cline-pass/mimo-v2.5-pro": {
-      "id": "jet-hub-cline/cline-pass/mimo-v2.5-pro",
-      "upstream": "cline/cline-pass/mimo-v2.5-pro",
-      "name": "MiMo-V2.5-Pro",
+    "jet-hub-cline/cline-pass/deepseek-v4-flash": {
+      "id": "jet-hub-cline/cline-pass/deepseek-v4-flash",
+      "upstream": "cline/cline-pass/deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
       "disabled": true
     },
     "jet-hub-cline/cline-pass/glm-5.2": {
@@ -1699,35 +1702,47 @@ window.JET_HUB_CATALOG = {
       "name": "GLM-5.2",
       "disabled": true
     },
+    "jet-hub-cline/cline-pass/kimi-k2.6": {
+      "id": "jet-hub-cline/cline-pass/kimi-k2.6",
+      "upstream": "cline/cline-pass/kimi-k2.6",
+      "name": "Kimi K2.6",
+      "disabled": true
+    },
     "jet-hub-cline/cline-pass/mimo-v2.5": {
       "id": "jet-hub-cline/cline-pass/mimo-v2.5",
       "upstream": "cline/cline-pass/mimo-v2.5",
       "name": "MiMo-V2.5",
       "disabled": true
     },
+    "jet-hub-cline/particle-ai/particle-1": {
+      "id": "jet-hub-cline/particle-ai/particle-1",
+      "upstream": "cline/particle-ai/particle-1",
+      "name": "Particle 1",
+      "disabled": false
+    },
     "jet-hub-cline/openai/gpt-6.1-terra-pro": {
       "id": "jet-hub-cline/openai/gpt-6.1-terra-pro",
       "upstream": "cline/openai/gpt-6.1-terra-pro",
       "name": "Gpt 6.1 Terra Pro",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-cline/openai/gpt-6.1-terra-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-6.1-terra-pro:batch",
       "upstream": "cline/openai/gpt-6.1-terra-pro:batch",
       "name": "Gpt 6.1 Terra Pro:Batch",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-cline/openai/gpt-6.1-terra": {
       "id": "jet-hub-cline/openai/gpt-6.1-terra",
       "upstream": "cline/openai/gpt-6.1-terra",
       "name": "Gpt 6.1 Terra",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-cline/openai/gpt-6.1-terra:batch": {
       "id": "jet-hub-cline/openai/gpt-6.1-terra:batch",
       "upstream": "cline/openai/gpt-6.1-terra:batch",
       "name": "Gpt 6.1 Terra:Batch",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-cline/@preset/cline-mistral-k5-20261023-large4-zdr-r1": {
       "id": "jet-hub-cline/@preset/cline-mistral-k5-20261023-large4-zdr-r1",
@@ -2405,7 +2420,7 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-cline/liquid/lfm-2.5-2.6b",
       "upstream": "cline/liquid/lfm-2.5-2.6b",
       "name": "Lfm 2.5 2.6b",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-cline/liquid/lfm-2.5-2.6b:free": {
       "id": "jet-hub-cline/liquid/lfm-2.5-2.6b:free",
@@ -2965,22 +2980,10 @@ window.JET_HUB_CATALOG = {
       "name": "Gpt 5.5 Pro",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-5.5-pro:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.5-pro:batch",
-      "upstream": "cline/openai/gpt-5.5-pro:batch",
-      "name": "Gpt 5.5 Pro:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/openai/gpt-5.5": {
       "id": "jet-hub-cline/openai/gpt-5.5",
       "upstream": "cline/openai/gpt-5.5",
       "name": "Gpt 5.5",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-5.5:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.5:batch",
-      "upstream": "cline/openai/gpt-5.5:batch",
-      "name": "Gpt 5.5:Batch",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4-pro": {
@@ -3133,22 +3136,10 @@ window.JET_HUB_CATALOG = {
       "name": "Gpt 5.4 Nano",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-5.4-nano:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.4-nano:batch",
-      "upstream": "cline/openai/gpt-5.4-nano:batch",
-      "name": "Gpt 5.4 Nano:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/openai/gpt-5.4-mini": {
       "id": "jet-hub-cline/openai/gpt-5.4-mini",
       "upstream": "cline/openai/gpt-5.4-mini",
       "name": "Gpt 5.4 Mini",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-5.4-mini:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.4-mini:batch",
-      "upstream": "cline/openai/gpt-5.4-mini:batch",
-      "name": "Gpt 5.4 Mini:Batch",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-small-2603": {
@@ -3187,22 +3178,10 @@ window.JET_HUB_CATALOG = {
       "name": "Gpt 5.4 Pro",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-5.4-pro:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.4-pro:batch",
-      "upstream": "cline/openai/gpt-5.4-pro:batch",
-      "name": "Gpt 5.4 Pro:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/openai/gpt-5.4": {
       "id": "jet-hub-cline/openai/gpt-5.4",
       "upstream": "cline/openai/gpt-5.4",
       "name": "Gpt 5.4",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-5.4:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.4:batch",
-      "upstream": "cline/openai/gpt-5.4:batch",
-      "name": "Gpt 5.4:Batch",
       "disabled": true
     },
     "jet-hub-cline/inception/mercury-2": {
@@ -3439,34 +3418,16 @@ window.JET_HUB_CATALOG = {
       "name": "Nemotron 3 Nano 30b A3b",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-5.2-chat": {
-      "id": "jet-hub-cline/openai/gpt-5.2-chat",
-      "upstream": "cline/openai/gpt-5.2-chat",
-      "name": "Gpt 5.2 Chat",
-      "disabled": true
-    },
     "jet-hub-cline/openai/gpt-5.2-pro": {
       "id": "jet-hub-cline/openai/gpt-5.2-pro",
       "upstream": "cline/openai/gpt-5.2-pro",
       "name": "Gpt 5.2 Pro",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-5.2-pro:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.2-pro:batch",
-      "upstream": "cline/openai/gpt-5.2-pro:batch",
-      "name": "Gpt 5.2 Pro:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/openai/gpt-5.2": {
       "id": "jet-hub-cline/openai/gpt-5.2",
       "upstream": "cline/openai/gpt-5.2",
       "name": "Gpt 5.2",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-5.2:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.2:batch",
-      "upstream": "cline/openai/gpt-5.2:batch",
-      "name": "Gpt 5.2:Batch",
       "disabled": true
     },
     "jet-hub-cline/mistralai/devstral-2512": {
@@ -3557,12 +3518,6 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-cline/openai/gpt-5.1",
       "upstream": "cline/openai/gpt-5.1",
       "name": "Gpt 5.1",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-5.1:batch": {
-      "id": "jet-hub-cline/openai/gpt-5.1:batch",
-      "upstream": "cline/openai/gpt-5.1:batch",
-      "name": "Gpt 5.1:Batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.1-codex": {
@@ -3667,12 +3622,6 @@ window.JET_HUB_CATALOG = {
       "name": "Gpt 5 Pro",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-5-pro:batch": {
-      "id": "jet-hub-cline/openai/gpt-5-pro:batch",
-      "upstream": "cline/openai/gpt-5-pro:batch",
-      "name": "Gpt 5 Pro:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/z-ai/glm-4.6": {
       "id": "jet-hub-cline/z-ai/glm-4.6",
       "upstream": "cline/z-ai/glm-4.6",
@@ -3727,12 +3676,6 @@ window.JET_HUB_CATALOG = {
       "name": "Qwen3 Coder Flash",
       "disabled": true
     },
-    "jet-hub-cline/qwen/qwen3-next-80b-a3b-thinking": {
-      "id": "jet-hub-cline/qwen/qwen3-next-80b-a3b-thinking",
-      "upstream": "cline/qwen/qwen3-next-80b-a3b-thinking",
-      "name": "Qwen3 Next 80b A3b Thinking",
-      "disabled": true
-    },
     "jet-hub-cline/qwen/qwen3-next-80b-a3b-instruct": {
       "id": "jet-hub-cline/qwen/qwen3-next-80b-a3b-instruct",
       "upstream": "cline/qwen/qwen3-next-80b-a3b-instruct",
@@ -3775,22 +3718,10 @@ window.JET_HUB_CATALOG = {
       "name": "Gpt 5",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-5:batch": {
-      "id": "jet-hub-cline/openai/gpt-5:batch",
-      "upstream": "cline/openai/gpt-5:batch",
-      "name": "Gpt 5:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/openai/gpt-5-mini": {
       "id": "jet-hub-cline/openai/gpt-5-mini",
       "upstream": "cline/openai/gpt-5-mini",
       "name": "Gpt 5 Mini",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-5-mini:batch": {
-      "id": "jet-hub-cline/openai/gpt-5-mini:batch",
-      "upstream": "cline/openai/gpt-5-mini:batch",
-      "name": "Gpt 5 Mini:Batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5-nano": {
@@ -4003,34 +3934,10 @@ window.JET_HUB_CATALOG = {
       "name": "Qwen3 32b",
       "disabled": true
     },
-    "jet-hub-cline/openai/o4-mini-high": {
-      "id": "jet-hub-cline/openai/o4-mini-high",
-      "upstream": "cline/openai/o4-mini-high",
-      "name": "O4 Mini High",
-      "disabled": true
-    },
     "jet-hub-cline/openai/o3": {
       "id": "jet-hub-cline/openai/o3",
       "upstream": "cline/openai/o3",
       "name": "O3",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/o3:batch": {
-      "id": "jet-hub-cline/openai/o3:batch",
-      "upstream": "cline/openai/o3:batch",
-      "name": "O3:Batch",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/o4-mini": {
-      "id": "jet-hub-cline/openai/o4-mini",
-      "upstream": "cline/openai/o4-mini",
-      "name": "O4 Mini",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/o4-mini:batch": {
-      "id": "jet-hub-cline/openai/o4-mini:batch",
-      "upstream": "cline/openai/o4-mini:batch",
-      "name": "O4 Mini:Batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4.1": {
@@ -4039,34 +3946,16 @@ window.JET_HUB_CATALOG = {
       "name": "Gpt 4.1",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-4.1:batch": {
-      "id": "jet-hub-cline/openai/gpt-4.1:batch",
-      "upstream": "cline/openai/gpt-4.1:batch",
-      "name": "Gpt 4.1:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/openai/gpt-4.1-mini": {
       "id": "jet-hub-cline/openai/gpt-4.1-mini",
       "upstream": "cline/openai/gpt-4.1-mini",
       "name": "Gpt 4.1 Mini",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-4.1-mini:batch": {
-      "id": "jet-hub-cline/openai/gpt-4.1-mini:batch",
-      "upstream": "cline/openai/gpt-4.1-mini:batch",
-      "name": "Gpt 4.1 Mini:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/openai/gpt-4.1-nano": {
       "id": "jet-hub-cline/openai/gpt-4.1-nano",
       "upstream": "cline/openai/gpt-4.1-nano",
       "name": "Gpt 4.1 Nano",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-4.1-nano:batch": {
-      "id": "jet-hub-cline/openai/gpt-4.1-nano:batch",
-      "upstream": "cline/openai/gpt-4.1-nano:batch",
-      "name": "Gpt 4.1 Nano:Batch",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-4-maverick": {
@@ -4085,12 +3974,6 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-cline/deepseek/deepseek-chat-v3-0324",
       "upstream": "cline/deepseek/deepseek-chat-v3-0324",
       "name": "Deepseek Chat V3 0324",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/o1-pro": {
-      "id": "jet-hub-cline/openai/o1-pro",
-      "upstream": "cline/openai/o1-pro",
-      "name": "O1 Pro",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-small-3.1-24b-instruct": {
@@ -4159,12 +4042,6 @@ window.JET_HUB_CATALOG = {
       "name": "Mistral Saba",
       "disabled": true
     },
-    "jet-hub-cline/openai/o3-mini-high": {
-      "id": "jet-hub-cline/openai/o3-mini-high",
-      "upstream": "cline/openai/o3-mini-high",
-      "name": "O3 Mini High",
-      "disabled": true
-    },
     "jet-hub-cline/aion-labs/aion-rp-llama-3.1-8b": {
       "id": "jet-hub-cline/aion-labs/aion-rp-llama-3.1-8b",
       "upstream": "cline/aion-labs/aion-rp-llama-3.1-8b",
@@ -4181,18 +4058,6 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-cline/qwen/qwen-plus",
       "upstream": "cline/qwen/qwen-plus",
       "name": "Qwen Plus",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/o3-mini": {
-      "id": "jet-hub-cline/openai/o3-mini",
-      "upstream": "cline/openai/o3-mini",
-      "name": "O3 Mini",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/o3-mini:batch": {
-      "id": "jet-hub-cline/openai/o3-mini:batch",
-      "upstream": "cline/openai/o3-mini:batch",
-      "name": "O3 Mini:Batch",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-small-24b-instruct-2501": {
@@ -4223,12 +4088,6 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-cline/deepseek/deepseek-chat",
       "upstream": "cline/deepseek/deepseek-chat",
       "name": "Deepseek Chat",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/o1": {
-      "id": "jet-hub-cline/openai/o1",
-      "upstream": "cline/openai/o1",
-      "name": "O1",
       "disabled": true
     },
     "jet-hub-cline/cohere/command-r7b-12-2024": {
@@ -4387,12 +4246,6 @@ window.JET_HUB_CATALOG = {
       "name": "Gpt 4o Mini 2024 07 18",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-4o-mini:batch": {
-      "id": "jet-hub-cline/openai/gpt-4o-mini:batch",
-      "upstream": "cline/openai/gpt-4o-mini:batch",
-      "name": "Gpt 4o Mini:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/google/gemma-2-27b-it": {
       "id": "jet-hub-cline/google/gemma-2-27b-it",
       "upstream": "cline/google/gemma-2-27b-it",
@@ -4411,28 +4264,10 @@ window.JET_HUB_CATALOG = {
       "name": "Gpt 4o 2024 05 13",
       "disabled": true
     },
-    "jet-hub-cline/openai/gpt-4o:batch": {
-      "id": "jet-hub-cline/openai/gpt-4o:batch",
-      "upstream": "cline/openai/gpt-4o:batch",
-      "name": "Gpt 4o:Batch",
-      "disabled": true
-    },
     "jet-hub-cline/mistralai/mixtral-8x22b-instruct": {
       "id": "jet-hub-cline/mistralai/mixtral-8x22b-instruct",
       "upstream": "cline/mistralai/mixtral-8x22b-instruct",
       "name": "Mixtral 8x22b Instruct",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-4-turbo": {
-      "id": "jet-hub-cline/openai/gpt-4-turbo",
-      "upstream": "cline/openai/gpt-4-turbo",
-      "name": "Gpt 4 Turbo",
-      "disabled": true
-    },
-    "jet-hub-cline/openai/gpt-4-turbo:batch": {
-      "id": "jet-hub-cline/openai/gpt-4-turbo:batch",
-      "upstream": "cline/openai/gpt-4-turbo:batch",
-      "name": "Gpt 4 Turbo:Batch",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-large": {
@@ -4525,10 +4360,34 @@ window.JET_HUB_CATALOG = {
       "name": "qwen/qwen3.6-max-preview",
       "disabled": true
     },
+    "jet-hub-cline/openai/gpt-5.5-pro:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.5-pro:batch",
+      "upstream": "cline/openai/gpt-5.5-pro:batch",
+      "name": "openai/gpt-5.5-pro:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5.5:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.5:batch",
+      "upstream": "cline/openai/gpt-5.5:batch",
+      "name": "openai/gpt-5.5:batch",
+      "disabled": true
+    },
     "jet-hub-cline/arcee-ai/trinity-large-thinking": {
       "id": "jet-hub-cline/arcee-ai/trinity-large-thinking",
       "upstream": "cline/arcee-ai/trinity-large-thinking",
       "name": "arcee-ai/trinity-large-thinking",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5.4-nano:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.4-nano:batch",
+      "upstream": "cline/openai/gpt-5.4-nano:batch",
+      "name": "openai/gpt-5.4-nano:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5.4-mini:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.4-mini:batch",
+      "upstream": "cline/openai/gpt-5.4-mini:batch",
+      "name": "openai/gpt-5.4-mini:batch",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-small-2603:batch": {
@@ -4543,10 +4402,40 @@ window.JET_HUB_CATALOG = {
       "name": "nvidia/nemotron-3-super-120b-a12b:free",
       "disabled": true
     },
+    "jet-hub-cline/openai/gpt-5.4-pro:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.4-pro:batch",
+      "upstream": "cline/openai/gpt-5.4-pro:batch",
+      "name": "openai/gpt-5.4-pro:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5.4:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.4:batch",
+      "upstream": "cline/openai/gpt-5.4:batch",
+      "name": "openai/gpt-5.4:batch",
+      "disabled": true
+    },
     "jet-hub-cline/qwen/qwen3-max-thinking": {
       "id": "jet-hub-cline/qwen/qwen3-max-thinking",
       "upstream": "cline/qwen/qwen3-max-thinking",
       "name": "qwen/qwen3-max-thinking",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5.2-chat": {
+      "id": "jet-hub-cline/openai/gpt-5.2-chat",
+      "upstream": "cline/openai/gpt-5.2-chat",
+      "name": "openai/gpt-5.2-chat",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5.2-pro:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.2-pro:batch",
+      "upstream": "cline/openai/gpt-5.2-pro:batch",
+      "name": "openai/gpt-5.2-pro:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5.2:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.2:batch",
+      "upstream": "cline/openai/gpt-5.2:batch",
+      "name": "openai/gpt-5.2:batch",
       "disabled": true
     },
     "jet-hub-cline/mistralai/ministral-8b-2512:batch": {
@@ -4559,6 +4448,12 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-cline/mistralai/mistral-large-2512:batch",
       "upstream": "cline/mistralai/mistral-large-2512:batch",
       "name": "mistralai/mistral-large-2512:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5.1:batch": {
+      "id": "jet-hub-cline/openai/gpt-5.1:batch",
+      "upstream": "cline/openai/gpt-5.1:batch",
+      "name": "openai/gpt-5.1:batch",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-vl-32b-instruct": {
@@ -4579,6 +4474,12 @@ window.JET_HUB_CATALOG = {
       "name": "qwen/qwen3-vl-8b-thinking",
       "disabled": true
     },
+    "jet-hub-cline/openai/gpt-5-pro:batch": {
+      "id": "jet-hub-cline/openai/gpt-5-pro:batch",
+      "upstream": "cline/openai/gpt-5-pro:batch",
+      "name": "openai/gpt-5-pro:batch",
+      "disabled": true
+    },
     "jet-hub-cline/qwen/qwen3-vl-235b-a22b-thinking": {
       "id": "jet-hub-cline/qwen/qwen3-vl-235b-a22b-thinking",
       "upstream": "cline/qwen/qwen3-vl-235b-a22b-thinking",
@@ -4597,6 +4498,12 @@ window.JET_HUB_CATALOG = {
       "name": "qwen/qwen3-coder-plus",
       "disabled": true
     },
+    "jet-hub-cline/qwen/qwen3-next-80b-a3b-thinking": {
+      "id": "jet-hub-cline/qwen/qwen3-next-80b-a3b-thinking",
+      "upstream": "cline/qwen/qwen3-next-80b-a3b-thinking",
+      "name": "qwen/qwen3-next-80b-a3b-thinking",
+      "disabled": true
+    },
     "jet-hub-cline/qwen/qwen-plus-2025-07-28": {
       "id": "jet-hub-cline/qwen/qwen-plus-2025-07-28",
       "upstream": "cline/qwen/qwen-plus-2025-07-28",
@@ -4613,6 +4520,18 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-cline/mistralai/mistral-medium-3.1:batch",
       "upstream": "cline/mistralai/mistral-medium-3.1:batch",
       "name": "mistralai/mistral-medium-3.1:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5:batch": {
+      "id": "jet-hub-cline/openai/gpt-5:batch",
+      "upstream": "cline/openai/gpt-5:batch",
+      "name": "openai/gpt-5:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-5-mini:batch": {
+      "id": "jet-hub-cline/openai/gpt-5-mini:batch",
+      "upstream": "cline/openai/gpt-5-mini:batch",
+      "name": "openai/gpt-5-mini:batch",
       "disabled": true
     },
     "jet-hub-cline/mistralai/codestral-2508:batch": {
@@ -4663,6 +4582,72 @@ window.JET_HUB_CATALOG = {
       "name": "qwen/qwen3-235b-a22b",
       "disabled": true
     },
+    "jet-hub-cline/openai/o4-mini-high": {
+      "id": "jet-hub-cline/openai/o4-mini-high",
+      "upstream": "cline/openai/o4-mini-high",
+      "name": "openai/o4-mini-high",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/o3:batch": {
+      "id": "jet-hub-cline/openai/o3:batch",
+      "upstream": "cline/openai/o3:batch",
+      "name": "openai/o3:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/o4-mini": {
+      "id": "jet-hub-cline/openai/o4-mini",
+      "upstream": "cline/openai/o4-mini",
+      "name": "openai/o4-mini",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/o4-mini:batch": {
+      "id": "jet-hub-cline/openai/o4-mini:batch",
+      "upstream": "cline/openai/o4-mini:batch",
+      "name": "openai/o4-mini:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-4.1:batch": {
+      "id": "jet-hub-cline/openai/gpt-4.1:batch",
+      "upstream": "cline/openai/gpt-4.1:batch",
+      "name": "openai/gpt-4.1:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-4.1-mini:batch": {
+      "id": "jet-hub-cline/openai/gpt-4.1-mini:batch",
+      "upstream": "cline/openai/gpt-4.1-mini:batch",
+      "name": "openai/gpt-4.1-mini:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-4.1-nano:batch": {
+      "id": "jet-hub-cline/openai/gpt-4.1-nano:batch",
+      "upstream": "cline/openai/gpt-4.1-nano:batch",
+      "name": "openai/gpt-4.1-nano:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/o1-pro": {
+      "id": "jet-hub-cline/openai/o1-pro",
+      "upstream": "cline/openai/o1-pro",
+      "name": "openai/o1-pro",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/o3-mini-high": {
+      "id": "jet-hub-cline/openai/o3-mini-high",
+      "upstream": "cline/openai/o3-mini-high",
+      "name": "openai/o3-mini-high",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/o3-mini": {
+      "id": "jet-hub-cline/openai/o3-mini",
+      "upstream": "cline/openai/o3-mini",
+      "name": "openai/o3-mini",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/o3-mini:batch": {
+      "id": "jet-hub-cline/openai/o3-mini:batch",
+      "upstream": "cline/openai/o3-mini:batch",
+      "name": "openai/o3-mini:batch",
+      "disabled": true
+    },
     "jet-hub-cline/deepseek/deepseek-r1-distill-llama-70b": {
       "id": "jet-hub-cline/deepseek/deepseek-r1-distill-llama-70b",
       "upstream": "cline/deepseek/deepseek-r1-distill-llama-70b",
@@ -4681,10 +4666,40 @@ window.JET_HUB_CATALOG = {
       "name": "sao10k/l3.3-euryale-70b",
       "disabled": true
     },
+    "jet-hub-cline/openai/o1": {
+      "id": "jet-hub-cline/openai/o1",
+      "upstream": "cline/openai/o1",
+      "name": "openai/o1",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-4o-mini:batch": {
+      "id": "jet-hub-cline/openai/gpt-4o-mini:batch",
+      "upstream": "cline/openai/gpt-4o-mini:batch",
+      "name": "openai/gpt-4o-mini:batch",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-4o:batch": {
+      "id": "jet-hub-cline/openai/gpt-4o:batch",
+      "upstream": "cline/openai/gpt-4o:batch",
+      "name": "openai/gpt-4o:batch",
+      "disabled": true
+    },
     "jet-hub-cline/microsoft/wizardlm-2-8x22b": {
       "id": "jet-hub-cline/microsoft/wizardlm-2-8x22b",
       "upstream": "cline/microsoft/wizardlm-2-8x22b",
       "name": "microsoft/wizardlm-2-8x22b",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-4-turbo": {
+      "id": "jet-hub-cline/openai/gpt-4-turbo",
+      "upstream": "cline/openai/gpt-4-turbo",
+      "name": "openai/gpt-4-turbo",
+      "disabled": true
+    },
+    "jet-hub-cline/openai/gpt-4-turbo:batch": {
+      "id": "jet-hub-cline/openai/gpt-4-turbo:batch",
+      "upstream": "cline/openai/gpt-4-turbo:batch",
+      "name": "openai/gpt-4-turbo:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-3-haiku": {
@@ -5071,6 +5086,24 @@ window.JET_HUB_CATALOG = {
       "name": "MiniMax-M3.1-Flash-Preview",
       "disabled": true
     },
+    "jet-hub-loomy/spark-x2.6": {
+      "id": "jet-hub-loomy/spark-x2.6",
+      "upstream": "loomy/spark-x2.6",
+      "name": "Spark-X2.6 正式版(限时免费) · x0.0",
+      "disabled": true
+    },
+    "jet-hub-loomy/spark-x": {
+      "id": "jet-hub-loomy/spark-x",
+      "upstream": "loomy/spark-x",
+      "name": "Spark-X2.5（限时免费） · x0.0",
+      "disabled": true
+    },
+    "jet-hub-loomy/DeepSeek-V4.1-Flash": {
+      "id": "jet-hub-loomy/DeepSeek-V4.1-Flash",
+      "upstream": "loomy/DeepSeek-V4.1-Flash",
+      "name": "DeepSeek V4.1 Flash · x2.0",
+      "disabled": false
+    },
     "jet-hub-loomy/deepseek-v4-flash-0731": {
       "id": "jet-hub-loomy/deepseek-v4-flash-0731",
       "upstream": "loomy/deepseek-v4-flash-0731",
@@ -5107,12 +5140,6 @@ window.JET_HUB_CATALOG = {
       "name": "qwen 3.8 flash · x0.8",
       "disabled": true
     },
-    "jet-hub-loomy/spark-x": {
-      "id": "jet-hub-loomy/spark-x",
-      "upstream": "loomy/spark-x",
-      "name": "Spark-X2.5（限时免费） · x0.0",
-      "disabled": true
-    },
     "jet-hub-loomy/mimo-v2.5": {
       "id": "jet-hub-loomy/mimo-v2.5",
       "upstream": "loomy/mimo-v2.5",
@@ -5125,17 +5152,11 @@ window.JET_HUB_CATALOG = {
       "name": "自动 · 均衡",
       "disabled": true
     },
-    "jet-hub-loomy/spark-x2.6": {
-      "id": "jet-hub-loomy/spark-x2.6",
-      "upstream": "loomy/spark-x2.6",
-      "name": "Spark-X2.6 正式版(限时免费) · x0.0",
-      "disabled": true
-    },
     "jet-hub-minimax/MiniMax-M3.1-Flash-Preview": {
       "id": "jet-hub-minimax/MiniMax-M3.1-Flash-Preview",
       "upstream": "minimax/MiniMax-M3.1-Flash-Preview",
       "name": "M3.1-Flash-Preview",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-minimax/MiniMax-M3": {
       "id": "jet-hub-minimax/MiniMax-M3",
@@ -5147,13 +5168,13 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-minimax/MiniMax-M2.7-highspeed",
       "upstream": "minimax/MiniMax-M2.7-highspeed",
       "name": "M2.7-highspeed",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-minimax/MiniMax-M2.7": {
       "id": "jet-hub-minimax/MiniMax-M2.7",
       "upstream": "minimax/MiniMax-M2.7",
       "name": "M2.7",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-minimax/MiniMax-M3.1-Flash": {
       "id": "jet-hub-minimax/MiniMax-M3.1-Flash",
@@ -5165,7 +5186,7 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-minimaxintl/MiniMax-M3.1-Flash-Preview",
       "upstream": "minimaxintl/MiniMax-M3.1-Flash-Preview",
       "name": "M3.1-Flash-Preview",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-minimaxintl/MiniMax-M3": {
       "id": "jet-hub-minimaxintl/MiniMax-M3",
@@ -5177,13 +5198,13 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-minimaxintl/MiniMax-M2.7-highspeed",
       "upstream": "minimaxintl/MiniMax-M2.7-highspeed",
       "name": "M2.7-highspeed",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-minimaxintl/MiniMax-M2.7": {
       "id": "jet-hub-minimaxintl/MiniMax-M2.7",
       "upstream": "minimaxintl/MiniMax-M2.7",
       "name": "M2.7",
-      "disabled": true
+      "disabled": false
     },
     "jet-hub-minimaxintl/MiniMax-M3.1-Flash": {
       "id": "jet-hub-minimaxintl/MiniMax-M3.1-Flash",
@@ -5578,7 +5599,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-qoder/ultimate": {
       "id": "jet-hub-qoder/ultimate",
       "upstream": "qoder/ultimate",
-      "name": "Ultimate · x2",
+      "name": "Ultimate · x2→x0.4",
       "disabled": true
     },
     "jet-hub-qoder/efficient": {
@@ -5602,7 +5623,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-qoder/qmodel_38max": {
       "id": "jet-hub-qoder/qmodel_38max",
       "upstream": "qoder/qmodel_38max",
-      "name": "Qwen3.8-Max · x0.5",
+      "name": "Qwen3.8-Max · x0.5→x0.2",
       "disabled": true
     },
     "jet-hub-qoder/qfmodel": {
@@ -5680,7 +5701,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-qodercn/qmodel_38max": {
       "id": "jet-hub-qodercn/qmodel_38max",
       "upstream": "qodercn/qmodel_38max",
-      "name": "Qwen3.8-Max · x0.5",
+      "name": "Qwen3.8-Max · x0.5→x0.2",
       "disabled": true
     },
     "jet-hub-qodercn/qfmodel": {
@@ -5830,13 +5851,13 @@ window.JET_HUB_CATALOG = {
     "jet-hub-trae/DeepSeek-V4-Flash": {
       "id": "jet-hub-trae/DeepSeek-V4-Flash",
       "upstream": "trae/DeepSeek-V4-Flash",
-      "name": "DeepSeek-V4-Flash · x0.2",
+      "name": "DeepSeek-V4-Flash · x0.1",
       "disabled": true
     },
     "jet-hub-trae/DeepSeek-V4-Pro": {
       "id": "jet-hub-trae/DeepSeek-V4-Pro",
       "upstream": "trae/DeepSeek-V4-Pro",
-      "name": "DeepSeek-V4-Pro · x0.72",
+      "name": "DeepSeek-V4-Pro · x0.36",
       "disabled": true
     },
     "jet-hub-trae/kimi-k2.6": {
@@ -5914,7 +5935,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-trae/DeepSeek-V4-Pro-Official": {
       "id": "jet-hub-trae/DeepSeek-V4-Pro-Official",
       "upstream": "trae/DeepSeek-V4-Pro-Official",
-      "name": "DeepSeek-V4-Pro · x0.72",
+      "name": "DeepSeek-V4-Pro · x0.72→x0.36",
       "disabled": true
     },
     "jet-hub-trae/kimi-k3.1-pro": {
@@ -6136,13 +6157,13 @@ window.JET_HUB_CATALOG = {
     "jet-hub-workbuddy/gpt-5.5": {
       "id": "jet-hub-workbuddy/gpt-5.5",
       "upstream": "workbuddy/gpt-5.5",
-      "name": "GPT-5.5 · x3.31",
+      "name": "GPT-5.5",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-5.4": {
       "id": "jet-hub-workbuddy/gpt-5.4",
       "upstream": "workbuddy/gpt-5.4",
-      "name": "GPT-5.4 · x1.65",
+      "name": "GPT-5.4",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-5.3-codex": {
@@ -6166,7 +6187,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-workbuddy/glm-5.2": {
       "id": "jet-hub-workbuddy/glm-5.2",
       "upstream": "workbuddy/glm-5.2",
-      "name": "GLM-5.2 · x0.79",
+      "name": "GLM-5.2",
       "disabled": true
     },
     "jet-hub-workbuddy/kimi-k3": {
@@ -6223,12 +6244,6 @@ window.JET_HUB_CATALOG = {
       "name": "GLM-5.3-Flash · x0.08",
       "disabled": true
     },
-    "jet-hub-workbuddy/minimax-m3.1-flash": {
-      "id": "jet-hub-workbuddy/minimax-m3.1-flash",
-      "upstream": "workbuddy/minimax-m3.1-flash",
-      "name": "MiniMax-M3.1-Flash · x0.08",
-      "disabled": true
-    },
     "jet-hub-workbuddy/kimi-k3.1-pro": {
       "id": "jet-hub-workbuddy/kimi-k3.1-pro",
       "upstream": "workbuddy/kimi-k3.1-pro",
@@ -6239,6 +6254,12 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-workbuddy/kimi-k3.1-pro-highspeed",
       "upstream": "workbuddy/kimi-k3.1-pro-highspeed",
       "name": "Kimi-K3.1-Pro-Highspeed · x1.56",
+      "disabled": true
+    },
+    "jet-hub-workbuddy/minimax-m3.1-flash": {
+      "id": "jet-hub-workbuddy/minimax-m3.1-flash",
+      "upstream": "workbuddy/minimax-m3.1-flash",
+      "name": "MiniMax-M3.1-Flash · x0.08",
       "disabled": true
     },
     "jet-hub-zcode/GLM-5.3": {
@@ -6359,19 +6380,10 @@ window.JET_HUB_CATALOG = {
     {
       "url": "http://127.0.0.1:18500/",
       "port": "18500",
-      "models": 892,
+      "models": 895,
       "providers": 24,
-      "internalGateway": "http://127.0.0.1:18390/v1",
-      "fullCatalogAt": "2026-10-28T04:32:34.706Z",
-      "version": "2.7.261027"
-    },
-    {
-      "url": "http://127.0.0.1:18501/",
-      "port": "18501",
-      "models": 893,
-      "providers": 24,
-      "internalGateway": "http://127.0.0.1:18391/v1",
-      "fullCatalogAt": "2026-10-28T03:00:43.155Z",
+      "internalGateway": "direct",
+      "fullCatalogAt": "2026-10-28T22:20:30.903Z",
       "version": "2.7.261027"
     }
   ]

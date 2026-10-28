@@ -557,4 +557,16 @@ docs/archive/          不再被 README 引用的旧截图留档
 - 控制台端口从 `18500` 起动态探测，只有拿到首发端口 18500 的那个宿主会把实际 `url`
   写入 `~/.config/magpie/jet-hub-console.json`（漂移过的实例不写）；控制台只监听
   回环地址。magpie 侧的对外入口统一是它的网关 `http://127.0.0.1:3425/v1`。
+- 上面这个对外网关地址**写的是默认值**。magpie 不把它的端口落盘到任何可读配置
+  （`~/.config/magpie/` 下没有网关命名文件，`settings.json` 也没有端口键），宿主
+  注入插件的环境变量只有 `MAGPIE_*` 系列、同样不带端口，所以插件无法自动探测。
+  换过端口的话，用环境变量覆盖即可，控制台、插件页、快照脚本三处会一起跟着变：
+
+  ```bash
+  export JET_HUB_USER_GATEWAY=http://127.0.0.1:4000
+  ```
+
+  真源是 `src/container.mjs` 的 `DEFAULT_USER_GATEWAY`，经 `meta().gateway.userGateway`
+  下发给控制台与 `scripts/snapshot-models.mjs`；`page/page.js` 与 `page/index.html`
+  里各留一份兜底常量，只在快照还没生成时显示。
 

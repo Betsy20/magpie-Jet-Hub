@@ -5,6 +5,8 @@
 //
 //   node scripts/snapshot-models.mjs
 //   node scripts/snapshot-models.mjs http://127.0.0.1:3425     # 用户网关（拼 snippet 用）
+//   JET_HUB_USER_GATEWAY=http://127.0.0.1:4000 node scripts/snapshot-models.mjs
+//                                         # 同上，但走环境变量（magpie 换了端口时用）
 //
 // 只写 page/models.js，不动别的文件。
 //
@@ -43,8 +45,10 @@ import { fileURLToPath } from 'node:url'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const OUT = path.join(HERE, '..', 'page', 'models.js')
 
-/** 用户网关（拼给客户端用的那个，不是插件内部网关 1839x）。 */
-const gateway = (process.argv[2] || 'http://127.0.0.1:3425').replace(/\/+$/, '')
+/** 用户网关（拼给客户端用的那个，不是插件内部网关 1839x）。
+ *  优先级：命令行第一个参数 → JET_HUB_USER_GATEWAY → 常量默认。
+ *  与 src/container.mjs 的 DEFAULT_USER_GATEWAY 保持同一个值。 */
+const gateway = (process.argv[2] || process.env.JET_HUB_USER_GATEWAY || 'http://127.0.0.1:3425').replace(/\/+$/, '')
 
 const CONSOLE_FILE = path.join(homedir(), '.config', 'magpie', 'jet-hub-console.json')
 const CACHE = path.join(homedir(), '.config', 'magpie', 'jet-hub-models.json')

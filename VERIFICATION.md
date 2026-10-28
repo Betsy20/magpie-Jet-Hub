@@ -6,6 +6,28 @@
 环境：magpie 0.1.1734 / 网关 `127.0.0.1:3425` / Web UI `127.0.0.1:3456` /
 插件宿主 bun `C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe` / Windows。
 
+> ## ⚠️ 历史记录声明（2026-10-29 追加，先读这段）
+>
+> 本文是**改造前**的验证流水，跨了很多个提交累积下来，从头到尾记录的是当时真跑了
+> 什么。它**不代表当前 HEAD 的行为**，尤其下面两类：
+>
+> 1. **凡出现 `1839x` / `18390`–`18399` 这类"内嵌网关端口"、随机 `apiKey`、
+>    `/v1/models` 要带 key 的段落，都是 `16e9f24` 之前的事。** 那个提交
+>    （`refactor(gateway): 去掉内嵌 OpenAI 网关，进程内直连本体 ctx.llm`）之后：
+>    插件**不再开任何本地网关端口**，请求由 `src/llm-bridge.mjs` 在进程内直接交给
+>    本体 `ctx.llm.stream()`；`container.port` / `container.apiKey` / `container.baseURL`
+>    已删除，`meta().gateway` 变成
+>    `{ mode: 'direct', baseURL: null, port: null, userGateway: <对外网关> }`。
+>    现在只有**控制台**（从 18500 起探测）还是 HTTP。
+> 2. **`3425` 是 magpie 主程序自己的网关，不是本插件的。** 插件只把它当"用户该往
+>    哪儿接"的展示值，真源是 `src/container.mjs` 的 `DEFAULT_USER_GATEWAY`，可用
+>    `JET_HUB_USER_GATEWAY` 覆盖（见 README 末尾）。正文里把它当插件内部网关来描述
+>    的地方，同样按第 1 条理解。
+>
+> 要看**改造后**的现测取证：`tests/t-direct.mjs`（直连链路）与 `tests/t-gateway.py`
+> （经 3425 真转发）的真跑输出，以及「二十」之后的节。本文不逐条回改 —— 那会把
+> "当时到底跑出了什么"这段证据抹掉。
+
 ---
 
 ## 一、可行性前置实验（决定路线之前）

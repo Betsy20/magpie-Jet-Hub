@@ -126,16 +126,19 @@ function renderOverview() {
   const base = META.gateway?.baseURL ?? '—'
   // 直连模式下**没有**本地网关端口，别再让用户去找 1839x（那是老版本的事）。
   const direct = META.gateway?.mode === 'direct'
+  // 用户拿客户端接的是 magpie 主程序那个网关；地址由宿主 meta 给（可被
+  // JET_HUB_USER_GATEWAY 覆盖），别在这里再写死一份。
+  const ugw = META.gateway?.userGateway || 'http://127.0.0.1:3425'
   $('#gwCode').textContent = direct
     ? [
         '直连模式：本插件不开本地 OpenAI 网关端口，',
         '请求在进程内直接交给本体 llm 服务（ctx.llm）。',
         '',
         '对外统一走 magpie 网关（模型 id 前缀 jet-hub/<provider>/<model>）：',
-        '  http://127.0.0.1:3425/v1',
+        `  ${ugw}/v1`,
         '',
         '# 直接验证（需 magpie 在跑）',
-        'curl -s http://127.0.0.1:3425/v1/models | head -c 400',
+        `curl -s ${ugw}/v1/models | head -c 400`,
       ].join('\n')
     : [
         `OpenAI 兼容地址（magpie 内部使用）：${base}`,
@@ -144,22 +147,36 @@ function renderOverview() {
         `# 直接验证`,
         `curl -s ${base}/models -H "Authorization: Bearer <插件内部 key>" | head -c 400`,
       ].join('\n')
-  $('#gw').textContent = direct ? 'http://127.0.0.1:3425/v1' : base
+  $('#gw').textContent = direct ? `${ugw}/v1` : base
   loadGatewayCards()
   loadAutoCheckin($('#acOut'))
 }
 
 async function loadGatewayCards() {
   try {
+    const direct = META.gateway?.mode === 'direct'
     const g = await rpc('gateway.getEnabled')
-    const rows = [
-      ['启用', g?.enabled === true ? '是' : '否'],
-      ['运行中', g?.running === true ? '是' : '否'],
-      ['被环境变量挡住', g?.blockedByEnv === true ? '是（DSH_OPENAI_GATEWAY_* 优先）' : '否'],
-      ['允许局域网', g?.allowLan === true ? '是' : '否'],
-      ['监听', `${g?.address?.host ?? '—'}:${g?.address?.port ?? '—'}`],
-      ['最近错误', g?.lastError ?? '无'],
-    ]
+    // 直连模式下 `gateway.getEnabled` 报的是**本体自己那个内嵌网关**的开关，
+    // 本插件已经不用它了（请求走进程内 ctx.llm）。直接摊开六行「启用=否 /
+    // 运行中=否」会让人以为插件没生效，所以直连时把语义写在第一行，并在每项
+    // 上标明「本插件不使用」。
+    const rows = direct
+      ? [
+          ['模式', '直连本体（进程内调 ctx.llm，无本地端口）'],
+          ['对外网关', META.gateway?.userGateway ?? '—'],
+          ['本体内嵌网关', g?.enabled === true ? '启用（本插件不使用）' : '未启用（本插件不使用）'],
+          ['监听', `${g?.address?.host ?? '—'}:${g?.address?.port ?? '—'}`],
+          ['被环境变量挡住', g?.blockedByEnv === true ? '是（DSH_OPENAI_GATEWAY_* 优先）' : '否'],
+          ['最近错误', g?.lastError ?? '无'],
+        ]
+      : [
+          ['启用', g?.enabled === true ? '是' : '否'],
+          ['运行中', g?.running === true ? '是' : '否'],
+          ['被环境变量挡住', g?.blockedByEnv === true ? '是（DSH_OPENAI_GATEWAY_* 优先）' : '否'],
+          ['允许局域网', g?.allowLan === true ? '是' : '否'],
+          ['监听', `${g?.address?.host ?? '—'}:${g?.address?.port ?? '—'}`],
+          ['最近错误', g?.lastError ?? '无'],
+        ]
     $('#gwCards').innerHTML = rows
       .map(([k, v]) => `<div class="cardc"><span>${esc(k)}</span><b class="mono">${esc(v)}</b></div>`)
       .join('')

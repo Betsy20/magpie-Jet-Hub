@@ -15,7 +15,13 @@
 // 模型目录读不到（页面不能联网，providers:list 也不给模型），所以用
 // page/models.js 里的快照，由 scripts/snapshot-models.mjs 生成。
 
-const CATALOG = window.JET_HUB_CATALOG || { models: [], providers: {}, generatedAt: '', gateway: 'http://127.0.0.1:3425' }
+// 对外网关的**兜底**地址：真值来自 page/models.js 快照的 `gateway` 字段，而那个
+// 字段由 scripts/snapshot-models.mjs 写入（可用 JET_HUB_USER_GATEWAY 覆盖，与
+// src/container.mjs 的 DEFAULT_USER_GATEWAY 同一个值）。这里只兜「快照还没生成
+// 或字段缺失」的情况，别在三处各写一份裸字面量。
+const DEFAULT_USER_GATEWAY = 'http://127.0.0.1:3425'
+
+const CATALOG = window.JET_HUB_CATALOG || { models: [], providers: {}, generatedAt: '', gateway: DEFAULT_USER_GATEWAY }
 
 /* 每个本体 provider 都是独立的 magpie provider：jet-hub / jet-hub-codearts / …
    模型 id 形如 `jet-hub-codearts/deepseek-v4.1-flash`（第一段是 provider id）。 */
@@ -99,7 +105,7 @@ const providerName = (model) => providerOf(model)?.name || String(model || '').s
 /* ── 接入：代码片段 ───────────────────── */
 
 function snippetFor(lang) {
-  const gw = CATALOG.gateway || 'http://127.0.0.1:3425'
+  const gw = CATALOG.gateway || DEFAULT_USER_GATEWAY
   const model = modelId(state.options.model || CATALOG.models[0] || 'workbuddy/deepseek-v4.1-flash')
   if (lang === 'python') {
     return `# pip install openai
@@ -467,7 +473,7 @@ async function main() {
     ul.append(li)
   }
 
-  $('#gateway').textContent = CATALOG.gateway || 'http://127.0.0.1:3425'
+  $('#gateway').textContent = CATALOG.gateway || DEFAULT_USER_GATEWAY
   $('#prefix').textContent = 'jet-hub-<provider>/'
   $('#ver').textContent = 'magpie-jet-hub'
 
