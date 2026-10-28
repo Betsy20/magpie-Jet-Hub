@@ -339,7 +339,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 `vendor/lib/modelscope-rpc.js:95` / opencode 在 `vendor/lib/opencode-rpc.js:276`
 回 `existed: true`）。控制台只填自己的入口，没去改 `src/` 给 `account.create`
 长一个没有轮询的 create 分支 —— 那要把两份 `KEY_PATTERN` 校验也复制一遍
-（理由写在 `console/console.js:374-388` 的注释里）。
+（理由写在 `console/console.js:373-388` 的注释里）。
 
 ![加账号 · modelscope 的 Key 输入框](docs/console-keymodal-modelscope.png)
 ![加账号 · opencode 的 Key 输入框](docs/console-keymodal-opencode.png)
