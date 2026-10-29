@@ -49,6 +49,16 @@ import { dirname, join } from 'node:path'
 /** provider id 前缀。 */
 export const PROVIDER_PREFIX = 'jet-hub-'
 
+/**
+ * `ask()` 收集「选哪个 DSH 账号」用的 inputs 键名。
+ *
+ * 宿主会把用户答过的 `inputs` 原样回传给 `authorize(inputs)`，同时
+ * `save()` 会把它并进账号记录的 `metadata`（宿主 `save()` 的
+ * `const md = { ...inputs, ...result.metadata }`）—— 所以这个键名会出现在
+ * `plugin-auth.json` 里，改它等于让老记录的 `metadata` 多一个孤儿键（无害）。
+ */
+export const ACCOUNT_INPUT = 'dshAccount'
+
 /** 列表里显示的供应商名。 */
 export const DISPLAY_NAME = 'Jet Hub'
 
@@ -291,6 +301,27 @@ function modelEntry(id, def, meta) {
 /** 模块级单例：24 个 provider 共用同一个容器。 */
 let shared = null
 
+/**
+ * 预热容器的「开始时刻」。
+ *
+ * ## 为什么要预热（真实缺陷，2026-10-29 用户实测）
+ *
+ * magpie GUI 里点供应商的「连接」后，界面停在「请在浏览器中完成 … 登录 /
+ * 正在开始登录…」不动 —— 因为 `signing.state` 一直是 `starting`，而它只在
+ * `POST /api/plugin-signin` 返回后才推进。那条路径会调本插件的 `authorize()`，
+ * 而 `authorize()` 第一句就是 `await liveAll(container, log)` = `container.start()`
+ * —— **冷启动要 20–30 秒**（本体要拉账号池、注册 24 个 provider、采模型目录）。
+ *
+ * 后端不是坏了：用 `magpie web` 的 HTTP 面实测同一条链路 0.7 秒返回 done
+ * （因为那时宿主进程已经跑过一轮、容器是热的）；CLI `magpie plugin login`
+ * 也能 14 秒成功。**只有 GUI 冷启那一次会卡**。
+ *
+ * 修法：工厂被宿主加载时（`containerFor` 第一次调用）就在后台把容器起起来，
+ * 等用户真的去点「连接」时它多半已经就绪。预热失败不影响任何功能 ——
+ * 真正的 `start()` 调用会重试（`container.start()` 失败会把 `ready` 清掉）。
+ */
+let warmedUp = false
+
 function containerFor(options, log) {
   if (shared !== null) return shared
   shared = new JetHubContainer({
@@ -299,6 +330,21 @@ function containerFor(options, log) {
     log,
   })
   return shared
+}
+
+/**
+ * 后台预热容器（幂等，只跑一次）。
+ *
+ * ⚠️ 必须 `.catch()` 掉：预热失败是正常情况（比如 DSH 从没登录过），
+ * 未处理的 promise rejection 会让宿主进程报错。真正的调用方会自己重试。
+ */
+function warmUp(container, log) {
+  if (warmedUp) return
+  warmedUp = true
+  container
+    .start()
+    .then(() => log?.('容器预热完成（冷启动不再阻塞「连接」）'))
+    .catch((e) => log?.(`容器预热失败（不影响后续调用，会重试）：${e?.message ?? e}`))
 }
 
 /**
@@ -382,6 +428,367 @@ function readCache() {
 const BALANCE_TTL_MS = 90_000
 /** @type {Map<string, {at:number, reading:object|undefined}>} */
 const balanceCache = new Map()
+
+/* ── 按账号：列出 / 解析 ──────────────────────────────────────────────────
+ *
+ * magpie 侧「一个 provider 多个账号」要求插件能做两件事：
+ *  ① 签入时**列出**本家渠道在 DSH 里的全部账号，让用户挑一个（`ask()`）；
+ *  ② 每次请求时**认回**用户当初挑的是哪一个（`loader(getAuth)`）。
+ *
+ * 两件事都靠本体 `account.list` RPC（`vendor/lib/jet-hub-rpc.js:2965`，
+ * 返回 `{ accounts: [{ id, provider, nickname, enabled, credentialRef,
+ * refreshable, expiresAt, modelRateLimits }] }`，且已做 identity 富化）。
+ */
+
+/** 账号列表的短缓存：签入流程里 `ask()` 与 `authorize()` 会连着问两次。 */
+const ACCOUNTS_TTL_MS = 15_000
+/** @type {Map<string, {at:number, rows:Array<object>}>} */
+const accountsCache = new Map()
+
+/**
+ * 列某家渠道在本体里的全部账号。
+ *
+ * ⚠️ `account.list` **必须带 provider**：不带会返回空数组（本体把它当
+ * 「列全部」但实现只按 provider 过滤，实测 56 个账号的家返回 `{accounts:[]}`）。
+ */
+async function listAccountsOf(container, provider, log) {
+  const hit = accountsCache.get(provider)
+  if (hit !== undefined && Date.now() - hit.at < ACCOUNTS_TTL_MS) return hit.rows
+  let rows = []
+  try {
+    const v = await container.rpc('account.list', { provider })
+    rows = Array.isArray(v?.accounts) ? v.accounts : []
+  } catch (e) {
+    // 路由组（aggregate / jet-hub-auto）本体里没有自己的账号池 ⇒ `unknown provider`。
+    // 这不是错误，是「这家没有账号可选」，返回空数组让调用方走「整家一个槽」。
+    log?.(`[${provider}] 列账号失败：${e?.message ?? e}`)
+    rows = []
+  }
+  accountsCache.set(provider, { at: Date.now(), rows })
+  return rows
+}
+
+/**
+ * 把用户挑的账号 id 解析回池里那一条。
+ *
+ * 找不到（账号在 DSH 里被删了 / magpie 记录陈旧）返回 undefined —— 调用方
+ * 应当退回「整家一个槽」的行为，而不是让请求 502。
+ */
+async function accountById(container, provider, id, log) {
+  const want = String(id ?? '').trim()
+  if (want === '') return undefined
+  const rows = await listAccountsOf(container, provider, log)
+  return rows.find((a) => String(a?.id ?? '') === want)
+}
+
+/* ── 新建账号：把本体的登录流程包成 magpie 的 oauth 型签入方法 ────────────
+ *
+ * magpie 只认两种签入方法（`internal/plugin/providers.go` 的
+ * `type Method struct { Type, Label ... }`，`Type` 只有 `"oauth"` / `"api"`）：
+ *   · `api`   —— 插件直接给一个 key（本插件的「接已有账号」走这条）；
+ *   · `oauth` —— 插件给一个授权页地址，用户在浏览器里完成，插件自己收口。
+ *
+ * 用户报「只能添加已有账号，不能新建账号」（2026-10-29）：因为此前只声明了
+ * 一个 `api` 型方法，magpie 供应商页里就只能「接一个已经在 DSH 里的号」。
+ * 要让用户在 magpie 里真的**新建** DSH 账号，必须再声明一个 `oauth` 型方法，
+ * 把本体那条 `account.create` → `login.poll` →（失败/放弃则）`account.delete`
+ * 的登录流程包进去。
+ *
+ * 契约（宿主 `authorize()` / `callback()`）：
+ *   · `authorize()` 返回 `{ url, instructions?, opened?, callback(code?) }`；
+ *     宿主把它存进 `sessions` map，并把 `url` 交给 magpie 打开；
+ *   · magpie 随后（非 `"code"` 型）**立刻**在后台调宿主 `callback({session})`，
+ *     宿主转而调我们返回的 `callback()` —— 它要**阻塞**到用户授权完成；
+ *   · `callback()` 返回 `{ type: 'success', key, accountId, metadata }` 才算
+ *     签入成功（宿主 `save()` 据此落一条 `api` 型账号记录）。
+ *
+ * ⚠️ `authorize()` 有 **1 分钟**硬超时（magpie 侧
+ * `pluginBegin()` 用 `context.WithTimeout(..., time.Minute)` 包
+ * `plugin.Authorize`），所以里面只能等 `account.create`，**不能等用户** ——
+ * 等用户是 `callback()` 的事。
+ */
+
+/**
+ * 本体里根本没有「自己的账号」的四家：两个路由组（请求由池内其它渠道承接）
+ * 和两个 Key 型渠道（走各自的 `*.addAccount`，不接受 `account.create`）。
+ * 对它们不声明「新建账号」方法，免得用户点了才看到 `unknown provider`。
+ */
+const NO_NEW_ACCOUNT = new Set(['aggregate', 'jet-hub-auto', 'modelscope', 'opencode'])
+
+/** 轮询 `login.poll` 的间隔（本体登录流程最短也要一两秒，2 秒够用且不吵）。 */
+const LOGIN_POLL_MS = 2_000
+
+/**
+ * 等用户在浏览器里完成授权的上限。
+ *
+ * 取 9 分钟而不是更久：magpie 自己的插件签入超时是 **10 分钟**
+ * （magpie 的 `signInTimeout`，`internal/provider/signin.go`），我们必须在它
+ * 之前收口并返回可读的失败原因，否则用户只会看到一句「超时」而不知道是
+ * 自己没登录完。
+ */
+const NEW_ACCOUNT_WAIT_MS = 9 * 60 * 1000
+
+/**
+ * 单次 `login.poll` 的上限。
+ *
+ * 为什么必须有：`container.rpc()` 本身**没有超时**（它只是 `route.fetch()`），
+ * 而 `login.poll` 内部会去 `credentials.resolve()`，officeace / astudio 还有
+ * 「凭据不可用时现换一次」的分支 —— 那是会走网络的。一次轮询如果挂住，
+ * `waitForLogin()` 就永远不返回：magpie 那边 10 分钟到点报超时，插件这边还
+ * 卡在 await 上，占位账号永远不会被收掉。
+ *
+ * 取 15 秒：正常轮询是毫秒级（实测 24 家 `model.list` 全量也才 1.2 秒），
+ * 15 秒只会在真出问题时触发，届时当作「这一次没问到」继续等。
+ */
+const LOGIN_POLL_TIMEOUT_MS = 15_000
+
+/**
+ * 单次 `account.create` 的上限。
+ *
+ * 为什么也要有：本体 `account.create` 里**先**登记占位账号、**再** await 各家的
+ * `startLogin()`（qoder / loomy / raccoon / minimaxintl / gemini / officeace /
+ * autoclaw / astudio 都是这个形状）。某家 `startLogin` 如果长时间不返回，占位已经
+ * 进池、`rpc()` 却不返回 —— `authorize()` 就卡在那儿，magpie 侧 1 分钟硬超时到点
+ * 取消，插件这边还在 await，占位就没人收。
+ *
+ * 取 45 秒：必须小于 magpie 给 `authorize()` 的 1 分钟
+ * （magpie 的 `pluginBegin()` 里 `context.WithTimeout(..., time.Minute)`），
+ * 又要给各家起登录流程留足余量（实测最慢的 workbuddy 也就 2 秒级）。
+ */
+const CREATE_TIMEOUT_MS = 45_000
+
+/**
+ * `container.start()` 的上限。
+ *
+ * 为什么也要有：`authorize()` 整个被 magpie 的 1 分钟硬超时包着
+ * （`pluginBegin()` 的 `context.WithTimeout(..., time.Minute)`），而
+ * `container.start()` 自己允许等到 40 秒（`src/container.mjs` 的 `hardDeadline`）。
+ * 40 秒 + 45 秒（`CREATE_TIMEOUT_MS`）= 85 秒，早就撞穿那 1 分钟了 ——
+ * 这条预算以前没算进来（2026-10-29 二审指出）。
+ *
+ * 取 12 秒：实测冷启动 1.4 秒，正常情况 `warmUp()` 早已起好，这里只是兜底。
+ * 注意 `start()` 是**幂等共享 promise**，在外面 race 掉它只是让本次 `authorize()`
+ * 尽快失败，不会取消真正在跑的启动，下一次调用照样复用同一个 promise。
+ */
+const START_TIMEOUT_MS = 12_000
+
+/**
+ * 给一个 promise 套上限，超时抛可读错误。
+ *
+ * 注意**不要**给这个定时器加 `unref()`：被等的 promise 真挂住时，事件循环里就只剩
+ * 这个定时器了，`unref()` 会让 Node 判定「无事可做」直接退出（表现为
+ * `Warning: Detected unsettled top-level await` + 退出码 13），超时错误永远抛不出来。
+ * 收口靠 `finally` 里的 `clearTimeout`，正常路径不会让进程多活。
+ */
+async function withDeadline(promise, ms, what) {
+  let timer
+  const guard = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} ${ms}ms 没有返回`)), ms)
+  })
+  try {
+    return await Promise.race([promise, guard])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 给一次 `container.rpc()` 套上上限，超时抛可读错误。
+ *
+ * `container.rpc()` 本身没有超时（见 `src/container.mjs` 的 `rpc()`），所以凡是
+ * 「本体可能长时间不返回」的调用都得自己套一层。
+ */
+async function withRpcDeadline(container, method, payload, ms, what) {
+  return withDeadline(container.rpc(method, payload), ms, what)
+}
+
+/**
+ * 让本体起一个登录流程，拿到「登录页地址 + 占位账号 id」。
+ *
+ * 本体是**两步式**：先同步写好一条占位账号（无凭据、`nickname === id`、
+ * `refreshable: false`）再返回 `loginUrl`，登录成功后由后台流程回填昵称与
+ * 有效期。所以这里返回的 `accountId` 此时还只是个占位，不能当成「已登录」。
+ */
+async function startNewAccount(container, provider, log) {
+  const v = await withRpcDeadline(
+    container,
+    'account.create',
+    { provider },
+    CREATE_TIMEOUT_MS,
+    'account.create',
+  )
+  const accountId = String(v?.accountId ?? '').trim()
+  const loginUrl = String(v?.loginUrl ?? '').trim()
+  if (accountId === '') {
+    throw new Error(
+      `本体没能为 ${provider} 起一个登录流程（account.create 返回 ${JSON.stringify(v).slice(0, 160)}）`,
+    )
+  }
+  // 新占位已进池：下次 ask() / accountById() 必须看到它，别拿旧缓存
+  accountsCache.delete(provider)
+
+  // ⚠️ 有一种**成功**返回也带空 loginUrl：本体 astudio 分支在「登录方式不是 web
+  // 且导入本机会话成功」时回 `{ accountId, loginUrl: '', reused: true }`
+  // （vendor/lib/jet-hub-rpc.js 的 `case 'account.create'` astudio 段），此时账号
+  // 条目**已登记**、凭据**已写入**，只是不需要授权页。早前这里把空 URL 一律当失败
+  // 抛错（2026-10-29 审查发现）：用户看到「新建失败」，池里却多了一个凭据齐全的
+  // 可用账号，而且没人清理它。
+  if (loginUrl === '') {
+    if (v?.reused === true) {
+      log?.(`[${provider}] 已导入本机会话 ${accountId}（无需授权页）`)
+      return { accountId, loginUrl: '', reused: true, incognitoOpened: false }
+    }
+    throw new Error(
+      `本体没能为 ${provider} 起一个登录流程（account.create 返回 ${JSON.stringify(v).slice(0, 160)}）`,
+    )
+  }
+
+  log?.(`[${provider}] 新建账号 ${accountId}，登录页 ${loginUrl}`)
+  return { accountId, loginUrl, reused: false, incognitoOpened: v?.incognitoOpened === true }
+}
+
+/**
+ * 摸一次登录进度。三种终态都要认：
+ * · `{done:false}` —— 还在等（含「占位已被删但没记失败」的情形，靠超时兜）；
+ * · `{done:true, success:true}` —— 成功；
+ * · `{done:true, success:false, error}` —— 失败，`error` 是本体给的人话。
+ */
+async function pollLoginOnce(container, accountId) {
+  // 单次轮询必须有上限，否则一次挂住的 rpc 会让整个等待永不返回（见上方常量注释）。
+  let timer
+  // ⚠️ 这里**不能** `timer.unref()`：unref 过的定时器不算活跃句柄，一旦 `rpc()`
+  // 真的挂住，事件循环里就只剩这一个「不算数」的定时器，Node 会判定无事可做
+  // 直接退出（实测：`Warning: Detected unsettled top-level await` + 进程空转退出）。
+  // 正常的收口靠下面的 finally clearTimeout，不会让进程多活 15 秒。
+  const guard = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`login.poll ${LOGIN_POLL_TIMEOUT_MS}ms 没有返回`)),
+      LOGIN_POLL_TIMEOUT_MS,
+    )
+  })
+  try {
+    const v = await Promise.race([container.rpc('login.poll', { accountId }), guard])
+    return { done: v?.done === true, success: v?.success, error: v?.error }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 阻塞等本体那边登录完成。
+ * @returns `{ ok: true }` 或 `{ ok: false, error }`
+ */
+async function waitForLogin(container, provider, accountId, log) {
+  const deadline = Date.now() + NEW_ACCOUNT_WAIT_MS
+  let lastError = ''
+  for (;;) {
+    try {
+      const s = await pollLoginOnce(container, accountId)
+      if (s.done) {
+        if (s.success === false) {
+          return { ok: false, error: String(s.error || '浏览器里没有完成授权') }
+        }
+        accountsCache.delete(provider)
+        log?.(`[${provider}] 新账号 ${accountId} 已登录`)
+        return { ok: true }
+      }
+    } catch (e) {
+      // 单次轮询失败不算终态（容器刚起来 / 路由短暂不可用），接着等
+      lastError = String(e?.message ?? e)
+    }
+    if (Date.now() >= deadline) {
+      // 不足 1 分钟时说秒 —— 直接 Math.round(ms/60000) 会得到「等了 0 分钟」
+      const waited = NEW_ACCOUNT_WAIT_MS >= 60_000
+        ? `${Math.round(NEW_ACCOUNT_WAIT_MS / 60_000)} 分钟`
+        : `${Math.round(NEW_ACCOUNT_WAIT_MS / 1_000)} 秒`
+      return {
+        ok: false,
+        error: `等了 ${waited}还没在浏览器里完成授权${lastError === '' ? '' : `（最后一次轮询失败：${lastError}）`}`,
+      }
+    }
+    await new Promise((r) => setTimeout(r, LOGIN_POLL_MS))
+  }
+}
+
+/**
+ * 放弃这次新建：把本体留下的占位账号收掉。
+ *
+ * ⚠️ 删之前**再摸一次** `login.poll`：本体 `account.create` 一返回就把占位写进
+ * 池里了，而用户可能恰在超时那一刻登录完成 —— 那次凭据是真金白银，删账号会
+ * 连带 `credentials.unset`，**不可逆**。轮询都问不出来时也按「保守不删」处理
+ * （宁可留一条占位让用户在控制台删，也不误删一个刚登录好的号）。
+ */
+async function abandonAccount(container, provider, accountId, log) {
+  // 返回三态而不是布尔：
+  // · 'kept'    —— 再摸一次 poll 发现「其实已经登录成功了」，账号**没删**；
+  // · 'unknown' —— 状态问不出来，保守不删；
+  // · 'deleted' —— 确认没登录，占位已清掉（或清失败了，两者对调用方等价）。
+  // 为什么必须是三态：早前这里返回 undefined，调用方一律 `throw new Error(waited.error)`
+  // ⇒ 用户明明在超时那一刻登录成功了、账号也真留在池里，magpie 里那条记录却是红的，
+  // 下一次「接已有账号」的 `ask()` 里会突然冒出一个陌生号（2026-10-29 审查发现）。
+  try {
+    const s = await pollLoginOnce(container, accountId)
+    // ⚠️ 判据必须与 `waitForLogin()` 里那条**逐字一致**：`done === true` 不等于成功。
+    // 本体 `login.poll` 里 `loginFailureOf()` 优先于一切进度判据 —— 用户关掉授权页、
+    // 点拒绝、设备码输错超时，都会记下终态失败，此后每次 poll 都回
+    // `{ done: true, success: false, error: '授权页被关掉了' }`。
+    // 早前这里只判 `done === true` ⇒ 用户**任何**主动放弃都被当成「其实登录成功了」，
+    // magpie 里留下一条绿色的「已新建」记录，而账号根本不存在（2026-10-29 二审发现）。
+    if (s.done === true && s.success !== false) {
+      log?.(`[${provider}] 放弃新建时发现 ${accountId} 其实已登录成功，保留它`)
+      return 'kept'
+    }
+  } catch {
+    log?.(`[${provider}] 放弃新建时问不到 ${accountId} 的状态，保守起见不删`)
+    return 'unknown'
+  }
+  try {
+    await container.rpc('account.delete', { accountId })
+    accountsCache.delete(provider)
+    log?.(`[${provider}] 放弃新建，已清掉占位账号 ${accountId}`)
+  } catch (e) {
+    log?.(`[${provider}] 清占位账号 ${accountId} 失败：${e?.message ?? e}`)
+  }
+  return 'deleted'
+}
+
+/**
+ * 账号在 magpie 里显示成什么。
+ *
+ * 昵称优先（用户认得 `betsy030`，不认得 `workbuddy-bb3380f3`），后接 id 尾巴
+ * 便于与 DSH / 控制台对上；已停用的标出来（否则用户会奇怪「为什么挑了它却 502」）。
+ */
+function accountLabel(a) {
+  const nick = String(a?.nickname ?? '').trim()
+  const id = String(a?.id ?? '')
+  const tail = id.includes('-') ? id.slice(id.lastIndexOf('-') + 1) : id
+  const base = nick !== '' && nick !== id ? `${nick}（${tail}）` : id
+  return a?.enabled === false ? `${base} · 已停用` : base
+}
+
+/**
+ * magpie 账号记录里的「这是哪个 DSH 账号」。
+ *
+ * 三个来源都认，顺序不能反：
+ * 1. `metadata.dshAccountId` —— **实际生效的那一个**。宿主 `save()` 只落
+ *    `metadata`（把 `ask()` 收上来的 inputs 与 `result.metadata` 并进去），
+ *    `result.uid` 会被丢弃；
+ * 2. `uid` —— 宿主目前不写，但 `scripts/seed-auth.mjs` 直接写 auth.json 的
+ *    那条带它，所以照样认（将来宿主若开始写，这里自然生效）；
+ * 3. `key` 尾巴 —— 最后的退路（`jet-hub-local:<provider>/<accountId>`）。
+ *
+ * ⚠️ 用 `||` 不用 `??`：`uid: ''` 是「有字段但没值」，`??` 会让它遮蔽后面
+ * 有效的 `metadata.dshAccountId`，静默退化成「不钉」（用户会看到「我明明选
+ * 了账号却按池内顺序选号」）。
+ */
+function dshAccountIdOf(record, provider) {
+  const direct = String(record?.metadata?.dshAccountId || record?.uid || '').trim()
+  if (direct !== '') return direct
+  const key = String(record?.key || record?.metadata?.key || '')
+  const prefix = `jet-hub-local:${provider}/`
+  if (key.startsWith(prefix)) return key.slice(prefix.length)
+  return ''
+}
 
 /**
  * 取某家渠道的余额读数，**按账号 id 精确匹配**。
@@ -496,6 +903,55 @@ function humanizeUsageError(error) {
 }
 
 /**
+ * 同名同单位的积分包合并成一条。
+ *
+ * 本体（以及上游）会把「签到奖励」这类小额包**逐次**列出来：实测 trae 一个账号
+ * 有 20+ 条 `{name:'签到奖励', total:100, remaining:100}`，每条都变成一个 window，
+ * magpie 就把卡片撑成一长列 —— 用户看到的是「积分包占比太大」，整块用量页被
+ * 一堆 100/100 淹没，真正的「每月登录赠送 500」反而找不到。
+ *
+ * 合并语义：`total` / `remaining` 求和，`resetsAt` 取**最早**到期的那一份
+ * （最近要过期的先提醒），只有整组都 `active === false` 才标 `aside`。
+ * 合并后 `count > 1` 的条在名字后面加 `×N`，让人知道它代表几个包。
+ */
+function mergePackages(list) {
+  const byKey = new Map()
+  for (const p of list) {
+    const name = String(p?.name ?? '积分')
+    const unit = String(p?.unit ?? '')
+    const total = Number(p?.total) || 0
+    const remaining = Number(p?.remaining) || 0
+    const used = Number(p?.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
+    const until = Number(p?.deductionEndTime)
+    const key = `${name}\u0000${unit}`
+    const cur = byKey.get(key)
+    if (cur === undefined) {
+      byKey.set(key, {
+        name,
+        unit,
+        total,
+        remaining,
+        used,
+        count: 1,
+        // 组内**单个包**的最大额度 —— 排序用它而不是平均值，见 toMagpieUsage 的注释
+        each: total,
+        allInactive: p?.active === false,
+        until: Number.isFinite(until) && until > 0 ? until : undefined,
+      })
+      continue
+    }
+    cur.total += total
+    cur.remaining += remaining
+    cur.used += used
+    cur.count += 1
+    if (total > cur.each) cur.each = total
+    cur.allInactive = cur.allInactive && p?.active === false
+    if (Number.isFinite(until) && until > 0 && (cur.until === undefined || until < cur.until)) cur.until = until
+  }
+  return [...byKey.values()]
+}
+
+/**
  * 把本体的余额读数翻译成 magpie 的 `auth.usage` 返回形状。
  */
 function toMagpieUsage(reading, provider) {
@@ -508,15 +964,33 @@ function toMagpieUsage(reading, provider) {
   // ⚠️ 过滤 total=0 的空套餐：本体照样会返回 `{total:0, remaining:0}` 的条目
   //    （astudio 的「会员积分」实测就是这样），画成卡片就是「0/0、可用 100%」，
   //    纯误导。有 remaining 没有 total 的（按量计费）保留。
-  const packages = (Array.isArray(b.packages) ? b.packages : []).filter(
-    (p) => (Number(p?.total) || 0) > 0 || (Number(p?.remaining) || 0) > 0,
+  const packages = mergePackages(
+    (Array.isArray(b.packages) ? b.packages : []).filter(
+      (p) => (Number(p?.total) || 0) > 0 || (Number(p?.remaining) || 0) > 0,
+    ),
   )
+  // 排序：主额度在前、aside（已失效）压到最后。
+  //
+  // ⚠️ 判据是**组内单包最大额度**（`each`），既不是合并后的总余额，也不是平均值：
+  // · 总余额不行：「签到奖励 ×20 = 2000」按总额会排到「每月登录赠送 = 500」前面，
+  //   但前者是 20 个 100 的小包，后者才是真正的主套餐。
+  // · 平均值不行：某家返回「1 个 500 的大包 + 19 个 1 的小包」时平均被稀释到 25，
+  //   主套餐会被压到小包后面（2026-10-29 三审指出的脆弱点）。
+  // · 最大值天然把「至少有一个大包」的组排在「全是一堆小包」的组前面。
+  packages.sort((a, b2) => {
+    const aAside = a.allInactive ? 1 : 0
+    const bAside = b2.allInactive ? 1 : 0
+    if (aAside !== bAside) return aAside - bAside
+    if (a.each !== b2.each) return b2.each - a.each
+    return b2.remaining - a.remaining
+  })
   const windows = packages.map((p) => {
-    const total = Number(p?.total) || 0
-    const remaining = Number(p?.remaining) || 0
-    const used = Number(p?.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
+    const total = Number(p.total) || 0
+    const remaining = Number(p.remaining) || 0
+    const used = Number(p.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
     const w = {
-      name: String(p?.name ?? '积分'),
+      // 合并过的条目标上 ×N，否则「签到奖励 3650/3650」会让人以为是单个包
+      name: p.count > 1 ? `${p.name} ×${p.count}` : p.name,
       // used 是**已用百分比**（0–100），magpie 用它画进度条并写「剩余 100%」。
       // ⚠️ 别填 remaining —— 实测 astudio 会变成「0 / 6,200 · 剩余 100%」这种
       //    自相矛盾的卡片（显示剩余 0、进度条却是满的）。
@@ -528,10 +1002,9 @@ function toMagpieUsage(reading, provider) {
       unit: String(p?.unit ?? ''),
     }
     // 到期：`deductionEndTime` 是毫秒时间戳，`cycleEndTime` 是本地时间串
-    const until = Number(p?.deductionEndTime)
-    if (Number.isFinite(until) && until > 0) w.resetsAt = until
+    if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
     // 过期/未生效的套餐不算「用完就停」，标 aside 让 magpie 别当主额度
-    if (p?.active === false) w.aside = true
+    if (p.allInactive) w.aside = true
     return w
   })
 
@@ -689,6 +1162,8 @@ export function makePlugin(dshProvider) {
       } catch { /* 日志失败不影响业务 */ }
     }
     const container = containerFor(options, log)
+    // 后台起容器：用户点「连接」时它多半已经就绪，GUI 不会卡在「正在开始登录…」
+    warmUp(container, log)
 
     /**
      * 读 magpie 里用户拨的开关（`auth.options` 声明的那些）。
@@ -745,13 +1220,26 @@ export function makePlugin(dshProvider) {
         provider: id,
 
         /**
-         * 一个 provider 一个账号槽：重复「连接」只复用同一个槽，
-         * 不会在 magpie 里堆出 `<id>#a1b2c3` 这种重复账号。
+         * **一个 provider 多个账号槽**（2026-10-29 改，原为 `single: true`）。
+         *
+         * 改的原因（用户实测报「在 magpie 中无法新建账号」）：`single: true` 让
+         * 宿主的 `signInKey()` 每次都返回 `accountsOf(provider)[0]`，于是「连接」
+         * 永远覆盖同一条记录 —— magpie 里看起来
+         * 就是「加不出第二个账号」。
+         *
+         * 但单改这一行不够：本体选号只看**池内数组顺序**（`account-pool.js:1961`
+         * 注释原文「账号列表的数组顺序就是候选优先级」），池里没有「钉住某号」
+         * 的字段。所以本插件配套做了两件事：
+         *  ① `authorize(inputs)` 把用户挑的 DSH 账号 id 编进 key 与 uid；
+         *  ② `loader(getAuth)` 读当前账号，请求前在 `container.runPinned()` 的
+         *     作用域里转发 —— 选号被收窄到那一个账号（见 `container.mjs` 的
+         *     `_pinAccounts`）。
+         * 三条合起来，「在 magpie 里挑哪个账号，请求就真的走哪个」才成立。
          */
-        single: true,
+        single: false,
 
         /**
-         * magpie 供应商编辑器里的开关（契约 `_mp_host.js:1833` 的 `optionsOf`）。
+         * magpie 供应商编辑器里的开关（契约 `optionsOf()`）。
          *
          * 用户在 magpie 里拨开关 → magpie 存起来 → 插件用
          * `input.magpie.option(provider, key)` 读（不重启就生效）。
@@ -789,7 +1277,42 @@ export function makePlugin(dshProvider) {
             type: 'api',
             keyless: true,
             label: `连接本机 DSH 账号（${dshProvider}，无需输入）`,
-            async authorize() {
+
+            /**
+             * 签入前先问「哪一个是你要的账号」。
+             *
+             * 契约（宿主 `nextPrompt()`）：返回
+             * `{ type, key, message, placeholder, options }` 或 null；返回非 null
+             * 时 magpie 会把它渲染成选择框/输入框，用户答完再带着
+             * `inputs[key]` 重调 `authorize()`。
+             *
+             * `type: 'select'` 会被前端渲染成一排按钮（magpie 前端渲染 prompt 的
+             * `renderPluginAsk`，前端版本相关、行号会漂移，故不写具体行号），
+             * 每个 `options[].value` 通过
+             * `POST /api/plugin-signin/prompt` 回填进 `inputs`。
+             *
+             * ⚠️ **必须能返 null**：一家渠道只有一个账号（或本体里查不到账号）时
+             * 不该弹选择框 —— 那会让「就一个号」的用户多点一次。也正因为如此，
+             * `inputs[ACCOUNT_INPUT]` 已经答过时不能再问（否则死循环）。
+             */
+            async ask(inputs = {}) {
+              if (typeof inputs?.[ACCOUNT_INPUT] === 'string') return null
+              const rows = await listAccountsOf(container, dshProvider, log)
+              if (rows.length === 0) return null // 路由组 / 未登录：没有可选账号
+              if (rows.length === 1) return null // 只有一个号：直接签它，别多点一次
+              return {
+                type: 'select',
+                key: ACCOUNT_INPUT,
+                message: `选一个要接进 magpie 的 ${dshProvider} 账号（DSH 里共 ${rows.length} 个）`,
+                options: rows.map((a) => ({
+                  label: accountLabel(a),
+                  value: String(a?.id ?? ''),
+                  hint: a?.enabled === false ? '在 DSH 里已停用，接进来后请求会 502' : undefined,
+                })),
+              }
+            },
+
+            async authorize(inputs = {}) {
               // 这里可以等（用户点了按钮），所以把两个目录都拉全。
               const all = await liveAll(container, log)
               const n = Object.keys(modelsOf(dshProvider, all)).length
@@ -804,17 +1327,145 @@ export function makePlugin(dshProvider) {
                   `本体里的 ${dshProvider} 没有可用模型：确认这个账号在 DSH 里已登录，或先在 /v1/models 里看它是否有模型`,
                 )
               }
+
+              // 用户挑的账号（`ask()` 收上来的）。没挑 / 挑的那个已经不在了 ⇒ 不钉，
+              // 退回「整家一个槽」的老行为 —— 陈旧记录不该让整家渠道不可用。
+              const picked = String(inputs?.[ACCOUNT_INPUT] ?? '').trim()
+              const hit = picked === '' ? undefined : await accountById(container, dshProvider, picked, log)
+              if (picked !== '' && hit === undefined) {
+                log(`[${dshProvider}] 选的账号 ${picked} 不在池里了（可能已在 DSH 删除），按整家签入`)
+              }
+
+              const key = hit === undefined
+                // 没有具体账号：老形状的标记 key（不钉号，按池内顺序选）
+                ? `jet-hub-local:${dshProvider}:direct`
+                // 有具体账号：key 里带上账号 id，`dshAccountIdOf()` 靠它认回来
+                : `jet-hub-local:${dshProvider}/${hit.id}`
+
               return {
                 type: 'success',
                 // magpie 的 api 型账号要存一个 key；直连模式下它只是个标记，
                 // 发请求时不带它、也不校验它（进程内调用，没有 HTTP 边界）。
-                key: `jet-hub-local:${dshProvider}:direct`,
-                accountId: `DSH · ${dshProvider} · 上游 ${wide} 个模型（当前可用 ${n}）`,
-                metadata: { via: 'jet-hub', provider: dshProvider },
+                key,
+                accountId: hit === undefined
+                  ? `DSH · ${dshProvider} · 上游 ${wide} 个模型（当前可用 ${n}）`
+                  : `${accountLabel(hit)} · 上游 ${wide} 个模型（当前可用 ${n}）`,
+                // `uid` 与 `metadata.dshAccountId` 都写，但**真正生效的是 metadata**：
+                // 宿主 `save()` 的 api 分支只落 `{type, key, metadata}`，`result.uid`
+                // 与 `result.accountId` 都会被丢弃。所以
+                //   · 判重靠 `settle()` 的 secret 分支（`secretOf` 对 api 型取 `key`，
+                //     即 key 字符串相等）—— 这也是为什么 key 里必须编进账号 id，
+                //     否则同一账号再点一次「连接」会堆出第二条；
+                //   · `usage(getAuth)` 定位账号靠 `metadata.dshAccountId`；
+                //   · `uid` 留着是给「直接编辑 auth.json / 用 scripts/seed-auth.mjs
+                //     导入」的场景对齐字段。
+                ...(hit === undefined ? {} : { uid: String(hit.id) }),
+                metadata: {
+                  via: 'jet-hub',
+                  provider: dshProvider,
+                  ...(hit === undefined ? {} : { dshAccountId: String(hit.id) }),
+                },
               }
             },
           },
-        ],
+
+          /**
+           * 在 magpie 里**新建**一个 DSH 账号（浏览器授权）。
+           *
+           * 上面那个 `api` 型方法只能「接一个已经在 DSH 里的号」；用户要的是
+           * 「在 magpie 里也能新建」，所以再声明这一条。magpie 看到一个 provider
+           * 有**两个**方法时，`startPluginSignIn` 会先弹「How do you sign in to <name>?」
+           * 让用户选方法（magpie 前端渲染在 `signing.state === 'method'` 分支），
+           * 选完才走对应流程 —— 不需要 magpie 侧任何改动。
+           *
+           * ⚠️ 这个方法**没有 `ask()`**：新建账号没得选。
+           */
+          ...(NO_NEW_ACCOUNT.has(dshProvider)
+            ? []
+            : [{
+              type: 'oauth',
+              label: `在浏览器里新建一个 ${dshProvider} 账号（授权后自动接入）`,
+
+              /**
+               * 起一次登录流程，把登录页交给 magpie 打开。
+               *
+               * 只能做到「拿到 URL 就返回」：这里有 1 分钟硬超时（见上面段注释），
+               * 等用户登录是 `callback()` 的任务 —— 宿主拿到这个对象后会 **立刻**在
+               * 后台调 `callback()`（magpie 侧 `pluginBegin()` 里的
+               * `go func() { saved, err := plugin.Finish(...) }`）。
+               *
+               * `opened` 从本体拿：代码仓（codearts）那家会自己拉起无痕窗，
+               * 此时必须说 `opened: true`，否则 magpie 会再开一个带旧 cookie 的窗口。
+               */
+              async authorize() {
+                // 容器可能还没起（用户在 magpie 里第一次点「新建」）——
+                // `account.create` 内部走 `rpc()`，那条路径自己 `start()`，这里先等更稳。
+                //
+                // 必须套上限：`start()` 允许等到 40 秒，加上 `CREATE_TIMEOUT_MS` 的
+                // 45 秒就是 85 秒，早撞穿 magpie 给 `authorize()` 的 1 分钟硬超时
+                // （2026-10-29 二审指出预算没算这一段）。12 + 45 = 57 秒，留 3 秒余量。
+                await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+                const { accountId, loginUrl, reused, incognitoOpened } = await startNewAccount(
+                  container,
+                  dshProvider,
+                  log,
+                )
+
+                return {
+                  url: loginUrl,
+                  // magpie 会在 spinner 卡片里显示这句话
+                  instructions:
+                    `在打开的页面里登录要新建的 ${dshProvider} 账号。`
+                    + '完成后这一行会自动变成已签入，不需要回来点什么。',
+                  opened: incognitoOpened,
+                  /**
+                   * 阻塞到用户授权完成。
+                   *
+                   * 成功：拿到那个新账号的真实记录（昵称 / 已回填的有效期），
+                   * 返回 `{ type: 'success', key, accountId, uid, metadata }` 交给宿主 `save()`。
+                   * 失败：把本体给的人话原样丢回去（宿主 `failed()` 会截前
+                   * 500 字显示在 magpie 里），并把占位账号收掉。
+                   */
+                  async callback() {
+                    // 「导入本机会话」那条路（astudio 且登录方式不是 web）：账号与凭据
+                    // 在 `account.create` 返回时就都齐了，没有授权页可等，直接收口。
+                    if (reused) {
+                      accountsCache.delete(dshProvider)
+                      log?.(`[${dshProvider}] 新账号 ${accountId} 走的是本机会话导入`)
+                    } else {
+                      const waited = await waitForLogin(container, dshProvider, accountId, log)
+                      if (!waited.ok) {
+                        // 没登成：把占位收掉（内部会先再摸一次 poll，防止误删刚登录好的号）
+                        const fate = await abandonAccount(container, dshProvider, accountId, log)
+                        // 'kept' = 收尾时发现用户其实已经登录成功了 —— 那就当成功处理，
+                        // 别让 magpie 把一条可用的账号标成失败。
+                        if (fate !== 'kept') throw new Error(waited.error)
+                      }
+                    }
+
+                    const hit = await accountById(container, dshProvider, accountId, log)
+                    let wide = 0
+                    try {
+                      fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+                      wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
+                      writeCache(log)
+                    } catch { /* 全量拉不到不影响签入 */ }
+
+                    return {
+                      type: 'success',
+                      // key 里编进账号 id：`dshAccountIdOf()` 靠它认回「这条 magpie 账号是哪个
+                      // DSH 账号」，同时宿主 `settle()` 的 secret 分支（比 key 字符串）据此判重。
+                      key: `jet-hub-local:${dshProvider}/${accountId}`,
+                      accountId: `${accountLabel(hit ?? { id: accountId })}·已新建`
+                        + (wide > 0 ? `·上游 ${wide} 个模型` : ''),
+                      uid: accountId,
+                      metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: accountId },
+                    }
+                  },
+                }
+              },
+            }]),
+          ],
 
         /**
          * 发请求：把 magpie 转来的 OpenAI 请求**进程内**直连投给本体 llm 服务，
@@ -825,7 +1476,31 @@ export function makePlugin(dshProvider) {
          * 也没有本机端口要探活。（`PLACEHOLDER_BASE` 仍然要留：magpie 会拿它判
          * 「这个 provider 有没有地方可发」，空串会被判成 `nowhere to send`。）
          */
-        async loader() {
+        async loader(getAuth) {
+          /**
+           * 这个 loader 实例属于哪个 DSH 账号（空串 = 整家一个槽，不钉）。
+           *
+           * 宿主按 key 缓存 loader（宿主 `loaders.set(key, opts)`），
+           * 且第一个参数 `getAuth` 就是「取本账号记录」的函数 —— 所以每个
+           * magpie 账号各拿一个 loader 实例，能各自知道自己是谁。
+           *
+           * ⚠️ 不 await：`getAuth` 每次调用都读一次 `plugin-auth.json`（宿主
+           * `authCopy(key)`），放在请求热路径上会变成每次请求多一次同步读盘。
+           * 账号在签入后不会变，第一次解析成功就缓存住。
+           */
+          let pinnedId
+          const pinnedAccount = async () => {
+            if (pinnedId !== undefined) return pinnedId
+            if (typeof getAuth !== 'function') return (pinnedId = '')
+            try {
+              const record = await getAuth()
+              return (pinnedId = dshAccountIdOf(record, dshProvider))
+            } catch {
+              // 读不到就**不缓存**（下次还有机会），本次按整家选号
+              return ''
+            }
+          }
+
           return {
             baseURL: PLACEHOLDER_BASE,
             async fetch(fetchInput, init = {}) {
@@ -843,7 +1518,13 @@ export function makePlugin(dshProvider) {
               }
 
               const upstream = { ...parsed, model: toUpstreamModel(parsed.model, dshProvider) }
-              return container.forward('/chat/completions', { ...init, body: JSON.stringify(upstream) })
+              // 把选号收窄到「这个 magpie 账号对应的 DSH 账号」——
+              // 见 `container.mjs` 的 `_pinAccounts`：本体选号只看池内顺序、
+              // 没有钉住字段，所以只能在请求作用域里把候选集换成那一个。
+              const pin = await pinnedAccount()
+              return container.runPinned(pin, () =>
+                container.forward('/chat/completions', { ...init, body: JSON.stringify(upstream) }),
+              )
             },
           }
         },

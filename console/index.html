@@ -21,7 +21,6 @@
       <button data-tab="accounts">账号</button>
       <button data-tab="credits">积分</button>
       <button data-tab="models">模型</button>
-      <button data-tab="providers">供应商</button>
       <button data-tab="usage">用量</button>
       <button data-tab="settings">设置</button>
       <button data-tab="backup">备份</button>
@@ -162,19 +161,6 @@
       </div>
     </section>
 
-    <!-- ══════════ 供应商 ══════════ -->
-    <section id="tab-providers" class="tab">
-      <h1>供应商 <span class="sub">顺序 / 启用 / 状态</span></h1>
-      <div class="bar">
-        <button id="pvLoad" class="primary">读取全部状态</button>
-        <button id="pvSaveOrder">保存当前顺序</button>
-        <span id="pvMsg" class="msg"></span>
-      </div>
-      <div class="tablewrap"><table id="pvTable"></table></div>
-      <h2>顺序</h2>
-      <div id="pvOrder" class="chips"></div>
-    </section>
-
     <!-- ══════════ 用量 ══════════ -->
     <section id="tab-usage" class="tab">
       <h1>用量账本 <span class="sub">token 台账 / 历史 / 徽章偏好</span></h1>
@@ -203,8 +189,6 @@
     <section id="tab-settings" class="tab">
       <h1>设置</h1>
       <div class="rows">
-        <div class="row"><div><b>网关启用</b><p>关掉后本体不再对外提供 /v1 转发。</p></div><label class="sw"><input type="checkbox" id="setGateway"><i></i></label></div>
-        <div class="row"><div><b>允许局域网访问</b><p>默认只监听回环 127.0.0.1。开了同网段其它机器也能连。</p></div><label class="sw"><input type="checkbox" id="setAllowLan"><i></i></label></div>
         <div class="row"><div><b>渠道原生搜索</b><p>让上游自己做联网检索（不是 magpie 的 web_search）。</p></div><label class="sw"><input type="checkbox" id="setSearch"><i></i></label></div>
         <div class="row"><div><b>面板入口</b><p>在 DSH 里这个面板挂在侧栏还是设置页。</p></div><select id="setPanel"><option value="sidebar">sidebar</option><option value="settings">settings</option></select></div>
         <div class="row"><div><b>MiniMax XFF</b><p>发给 MiniMax 的 X-Forwarded-For，空表示不伪造。</p></div><input id="setXff" class="grow"></div>
@@ -319,7 +303,7 @@
       <div id="lmSmsMsg" class="msg"></div>
     </div>
     <div id="lmOauth">
-      <p>浏览器没自动打开时，复制下面的地址手动访问，授权完成后本页会自动继续。</p>
+      <p id="lmHint">浏览器没自动打开时，复制下面的地址手动访问，授权完成后本页会自动继续。</p>
       <div class="code" id="lmUrl"></div>
       <div class="bar">
         <button id="lmCopy">复制地址</button>

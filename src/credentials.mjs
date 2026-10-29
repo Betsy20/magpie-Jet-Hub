@@ -107,6 +107,76 @@ export function writeRefsInto(text, changed) {
   return out.join('\n')
 }
 
+/**
+ * 把 refs 写回 .credentials.yaml，**允许新增 ref**。
+ *
+ * `writeRefsInto` 只改已存在的 ref（找不到就抛错），那是运行时 token 续期的
+ * 正确语义 —— 续期不该凭空造出一个 ref。但导入备份时必须能落地本机从来没有
+ * 过的 ref（换机、换账号池都是从零开始的），所以这里补一层「没有就追加」：
+ *
+ *  - 已存在的 ref 交给 `writeRefsInto` 走原有逻辑（保留其余字节原样）；
+ *  - 新增的 ref 插在 refs 段的**末尾**（紧跟最后一个 ref，`records:` 之前）。
+ *
+ * 值里的换行一律折成空格：JSON 字符串内部的裸换行只可能是排版空白
+ * （真正的换行在 JSON 里是 `\n` 两个字符），折行后 JSON 依然合法，
+ * 而 refs 段保持「一个 ref 一行」的可读形态。
+ */
+export function upsertRefsInto(text, changed) {
+  const refs = parseRefs(text)
+  const existing = new Map()
+  const added = new Map()
+  for (const [k, v] of changed) (refs.has(k) ? existing : added).set(k, v)
+  if (added.size === 0) return writeRefsInto(text, existing)
+
+  const withExisting = existing.size > 0 ? writeRefsInto(text, existing) : text
+  const lines = withExisting.split(/\r?\n/)
+  const start = lines.findIndex((l) => /^refs:\s*$/.test(l))
+  if (start < 0) throw new Error(`${CRED_BASENAME}: 找不到 refs: 段`)
+
+  // 找 refs 段里最后一个**完整条目**的结束行：遇 records: / 下一个顶层 key /
+  // 文件尾就停。
+  //
+  // ⚠️ 不能只记「以两个空格 + ref 名开头的行」（2026-10-29 实测真缺陷）：
+  // 值可能是跨多行的单引号标量（本机真实文件里 `BUDDY_ACCOUNT_49872581` 就跨 3 行），
+  // 续行不以 `  KEY:` 开头。只记首行会把新 ref 插进标量首行与续行**之间**，
+  // 把值劈成两半 —— JSON 由合法变非法，且新 ref 也没落地。
+  // 实际踩过：拿真实 .credentials.yaml 副本 + 1 条新 ref 跑，BUDDY 的值从
+  // 2864 字符掉到 2729，`✗ 凭据写回校验失败`。换机导入恰恰全是新增 ref，
+  // 必然触发。所以这里套用与 `writeRefsInto` 完全相同的引号闭合判定。
+  let end = start + 1
+  let lastEntry = start
+  while (end < lines.length) {
+    const line = lines[end]
+    if (/^\s*records:\s*$/.test(line) || /^[A-Za-z_]+\s*:\s*$/.test(line)) break
+    const m = /^ {2}([A-Za-z0-9_#.\-{}]+):\s*(.*)$/.exec(line)
+    if (!m) { end++; continue }
+    let closeAt = end
+    const q = m[2][0]
+    if (q === "'" || q === '"') {
+      const isClose = (s) => (q === "'" && /(^|[^'])'\s*$/.test(s) && !/''\s*$/.test(s))
+        || (q === '"' && /[^"\\]"\s*$/.test(s))
+      let j = end
+      let closed = isClose(m[2].slice(1))
+      while (!closed && j + 1 < lines.length) {
+        j++
+        if (isClose(lines[j])) { closed = true; break }
+      }
+      // 引号没闭合说明文件本身是坏的，退回「插在首行后」不再往下吞。
+      if (closed) closeAt = j
+    }
+    lastEntry = closeAt
+    end = closeAt + 1
+  }
+
+  const fresh = []
+  for (const [k, v] of added) {
+    const flat = String(v).replace(/\r?\n/g, ' ').replace(/'/g, "''")
+    fresh.push(`  ${k}: '${flat}'`)
+  }
+  const out = [...lines.slice(0, lastEntry + 1), ...fresh, ...lines.slice(lastEntry + 1)]
+  return out.join('\n')
+}
+
 /** 读写 .credentials.yaml 的凭据服务实现。 */
 export class FileCredentialProvider extends Service {
   constructor(ctx, options = {}) {

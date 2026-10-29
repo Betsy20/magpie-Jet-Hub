@@ -164,14 +164,112 @@ jet-hub-codearts#d4e5f6      → codearts-a40ab885
 别把这里的家数和本插件注册的 24 家混淆：**24 是本插件注册的供应商数，19 才是
 账号池里有账号的家数**。
 
-> ⚠️ **一句实话**：本体自己的 HTTP 网关没有「按请求指定账号」的入口 ——
-> 账号是适配器内部用 `getAvailableAccount(provider, modelId, excludeAccountIds)`
-> 按启用状态与限流现选的（`vendor/lib/account-pool.js:2249`，候选顺序即 Jet Hub 里
-> 拖拽设定的手动顺序）。所以这些行在 magpie 里是**看得见**（与 DSH / 控制台里的
-> 账号池一致、能看停用状态），但挑某一行**不会**改变本体实际用哪个账号。
+> **挑哪一行就真的走哪个账号**（2026-10-29 起）：`scripts/seed-auth.mjs` 摊平出来的
+> 每一行都带着 `uid = <DSH 账号 id>`（2 个路由组 + 3 家未登录渠道是占位行，不带 uid），
+> 插件的 `loader(getAuth)` 会读出「当前这个
+> magpie 账号是谁」，在请求作用域里把本体的选号收窄到那一个账号
+> （`src/container.mjs` 的 `_pinAccounts` + `AsyncLocalStorage`）。
+>
+> 为什么需要这一层：本体自己的选号 `getAvailableAccount(provider, modelId,
+> excludeAccountIds)`（`vendor/lib/account-pool.js:2249`）只认**池内数组顺序**
+> —— 池里没有 `pin` / `sticky` / `preferredAccount` 这类「钉住某个账号」的字段，
+> 候选顺序就是 Jet Hub 里拖拽设定的手动顺序。不用 `account.reorder` 去改顺序，
+> 是因为那是**全局持久副作用**（会改掉你手动拖过的排序），而且两个请求钉不同账号
+> 时会互踩。`AsyncLocalStorage` 是请求级的，天然并发安全。
+>
+> 两条边界：① 钉住的账号已不在池里（在 DSH 删了）→ 退回池内顺序，不让整家 502；
+> ② 钉住的账号已停用 / 凭据不可用 → 返回空，不绕过 `enabled` 判据。
+> 回归测试：`tests/t-account-pin.mjs`（15 项，含并发隔离、钉住死号仍被死号过滤拦住、
+> 两个选号入口的限流判据一致）。
+>
+> **哪些行钉不住**（钉不住 = 整家一起用、按池内顺序选号，不影响使用）：
+> ① `scripts/seed-auth.mjs` 的 5 条占位（2 个路由组 + 3 家本机未登录的渠道
+> autoclawintl / codely / gemini），`key` 是 `jet-hub-local:<provider>`、无 `/id` 后缀；
+> ② 你**没挑账号**（或挑的那个号已不在池里）时点「连接」生成的 4 条
+> `jet-hub-local:<provider>:direct` —— 判据是 `src/plugin.mjs` 的 `authorize()` 里
+> `hit === undefined`，`key` 带 `:direct` 后缀。
+> 这两类共 **9 条**（实测 `plugin-auth.json`）。
+>
+> 另有一类**能钉住但格式旧**的：如 `jet-hub-trae` 缺顶层 `uid`，但带
+> `metadata.dshAccountId` —— `dshAccountIdOf()` 认这个字段，所以照样钉得住。
+>
+> 想要钉住，就重新点一次「连接」并挑账号 —— 那会写成
+> `jet-hub-local:<provider>/<账号 id>` + `uid`。
 
 路由组（`jet-hub` 自动选号、`jet-hub-aggregate` 聚合）本体里没有自己的账号，
 请求由池里其它渠道承接，所以它们那行写的是「路由组 · 请求由池内其它渠道承接」。
+
+### 在 magpie 里新建账号
+
+每家能建账号的渠道在 magpie 供应商编辑器里点「Sign in / 连接」时，会先弹出
+**两个方法**让你选：
+
+| 方法 | 做的事 |
+|---|---|
+| 连接本机 DSH 账号（`type: 'api'`） | 接一个已有的账号 —— 先用 `ask()` 让你挑一个（`选一个要接进 magpie 的 workbuddy 账号（DSH 里共 20 个）`），挑完把该账号 id 编进 key |
+| 在浏览器里新建一个 xxx 账号（`type: 'oauth'`） | 让本体真的**建一个新号** —— 调本体 `account.create` 拿登录页，你去浏览器里登录，完成后这一行自动变成已签入 |
+
+**四家没有「新建」**：`jet-hub` / `jet-hub-aggregate`（路由组，请求由池内其它
+渠道承接，本体里没有自己的账号）与 `jet-hub-modelscope` / `jet-hub-opencode`
+（Key 型，走各自的 `*.addAccount`）。对这四家调 `account.create` 本体回
+`unknown provider`，所以插件干脆不声明这个方法 —— 免得用户点了才看到报错。
+其余 **20 家都能建**（实测逐家 `account.create` 都给出了登录流程）。其中
+19 家返回 `loginUrl`；**astudio 是个例外**：当你本机已登录 AStudio、且登录方式
+不是 `web` 时，本体走「导入本机会话」，返回 `{ accountId, loginUrl: '',
+reused: true }` —— 账号条目与凭据此刻都已经就位，只是没有授权页可开。插件把
+`reused: true` 当成功出口，`callback()` 里跳过等待直接收口。
+
+链路的两端为什么长这样：
+
+- `authorize()` **只等 `account.create`，不等用户**。magpie 侧
+  `pluginBegin()` 用 `context.WithTimeout(..., time.Minute)` 把整个
+  `plugin.Authorize` 包住，在里面等用户必然撞 1 分钟硬超时 —— 那正是之前
+  GUI 卡在「正在开始登录…」的成因之一。拿到 `{url, instructions, opened}`
+  就返回，用户去浏览器里操作。
+- 等用户是 `callback()` 的事：magpie 拿到上面那个对象后会**立刻**在后台调
+  `go func() { saved, err := plugin.Finish(...) }`，插件在 `callback()` 里轮询
+  本体 `login.poll` 直到三种终态之一 —— 还在等（继续轮询）、成功（返回
+  `{type:'success', key, uid, metadata}`）、失败（把本体给的人话原样抛回去，
+  宿主会截前 500 字显示在 magpie 里）。
+- 超时取 **9 分钟**（`NEW_ACCOUNT_WAIT_MS`）：magpie 自己的插件签入超时是
+  10 分钟（`signInTimeout`），必须赶在它之前收口，否则用户只看到一句「超时」
+  而不知道是自己没登录完。
+- **单次 `login.poll` 另设 15 秒上限**（`LOGIN_POLL_TIMEOUT_MS`）。`container.rpc()`
+  自己没有超时，而 `login.poll` 内部会走 `credentials.resolve()`（officeace /
+  astudio 还有「凭据不可用时现换一次」的联网分支）。有这道守卫兜底，**不会再
+  「永不返回」**：一次挂住会在 15 秒被打断、记成「这一次没问到」继续等。
+- **`account.create` 另设 45 秒上限**（`CREATE_TIMEOUT_MS`）。本体是「先登记
+  占位、再 `await` 各家 `startLogin()`」（qoder / loomy / raccoon / minimaxintl /
+  gemini / officeace / autoclaw / astudio 都是这个形状），某家卡住就是「占位已
+  进池、`rpc()` 不返回」。
+- **`container.start()` 也设 12 秒上限**（`START_TIMEOUT_MS`）。`start()` 自己
+  允许等到 40 秒，加上 create 的 45 秒就是 85 秒 —— 早撞穿 magpie 给
+  `authorize()` 的 1 分钟硬超时。12 + 45 = 57 秒，留 3 秒余量（实测冷启动 1.4 秒，
+  12 秒纯属兜底）。注意 `start()` 是幂等共享 promise，在外面 race 掉它只让本次
+  `authorize()` 尽快失败，不会取消真正在跑的启动。
+- 失败时 `callback()` 会收掉本体留下的占位账号（`account.create` 一返回就把
+  一条无凭据的占位写进池里了）。**删之前再摸一次 `login.poll`**：用户可能恰在
+  超时那刻登录成功，而 `account.delete` 连带 `credentials.unset`，**不可逆**。
+  `abandonAccount()` 因此返回三态：`kept`（其实已经登录成功，保留，调用方改走
+  成功路径）/ `unknown`（问不出来，保守不删）/ `deleted`（确认没登录，已清掉）。
+  ⚠️ `kept` 的判据是 **`done === true && success !== false`**，不能只判 `done`：
+  本体 `login.poll` 里 `loginFailureOf()` 优先于一切进度判据，你关掉授权页 / 点
+  拒绝 / 设备码输错超时，都会记终态失败，此后每次 poll 都回
+  `{ done: true, success: false }` —— 只判 `done` 会把**每一次主动放弃**都当成
+  「其实登录成功了」，在 magpie 里留一条绿色但指向不存在账号的记录。
+- **残留边界**：`login.poll` **持续**失败（路由挂了 / 凭据库坏 / 网络层 5xx）时，
+  `abandonAccount()` 会按「保守不删」留下占位，需要你在控制台手动删掉那条。
+  这是刻意的取舍 —— 宁可留一条占位，也不误删一个刚登录好的号。
+- `opened` 从本体拿（codearts 那家会自己拉起无痕窗），否则 magpie 会再开一个
+  带旧 cookie 的窗口，「新建」永远只能建出同一个号。
+
+回归测试：`tests/t-new-account.mjs`（142 项；四家豁免、只拿 URL 就返回、
+空 `loginUrl` 的 `reused` 成功出口、三种终态、删除前三态、两道单次上限、
+20/24 家的方法形状）。跑法 `node tests/t-new-account.mjs`。
+
+测试自己会把 `DSH_HOME` 与 `DSH_OFFICEACE_HOME` 指到临时目录（工厂里
+`containerFor()` 拿不到 `home` 时会回退 `homedir()`，`warmUp()` 又在后台真起容器），
+所以跑测试**不会**动你的 `~/.dsh` 缓存，也不会碰 `~/.dsh-officeace` 的会话。
 
 ## 凭据：不需要再登一次
 
@@ -188,6 +286,44 @@ jet-hub-codearts#d4e5f6      → codearts-a40ab885
 1. `resolve()` 必须返回 `{ value }` 包装对象 —— 返回裸字符串会让所有账号被判"未配置"，chat 全 502
 2. `.credentials.yaml` 的值可能是跨多行的单引号标量，必须做 YAML 折行折叠
 3. 写入必须落回 `.credentials.yaml`，否则 refresh 出的新 token 只活在内存里
+
+## 从 dsh-providers-hub 的备份导入
+
+`dsh-providers-hub` 导出的备份是一份自包含快照（`format: 'dsh-codearts-auth/backup'`）：
+账号池 + 每条账号引用的凭据 + 模型黑名单 + 永久锁定表。本插件用它自己那两处落点
+（`.credentials.yaml` 的 `refs:` 段、`~/.dsh/jet-hub/state.json`），所以导入就是**翻译**：
+
+```bash
+node scripts/import-backup.mjs <备份文件.json> --list      # 先看里面有什么
+node scripts/import-backup.mjs <备份文件.json> --dry-run   # 再看会改什么
+node scripts/import-backup.mjs <备份文件.json>             # 真写（默认 merge）
+```
+
+- `--mode merge`（默认）：**账号只增加不覆盖，凭据只补不抢**。
+  - 账号：按 `id` 判重，已存在的跳过。
+  - 凭据：本机**缺**的 ref 用备份补上（哪怕这个账号本来就在 —— 缺凭据等于那个号
+    其实登不上，旧 token 也比没有强）；本机**已有值**的 ref 一律保留，因为运行时
+    refresh 会把新 token 写回同一 ref，用几天前的备份盖掉它等于把 refresh_token
+    打回上一代，直接登不上。唯一的例外是 ref 被**别的**账号占着 —— 这种逐条点名
+    `! <ref> 已被本机账号 X 占用（备份里的 Y 也想用）`，绝不覆盖。
+  - 模型黑名单与永久锁定表不碰。
+- `--mode replace`：整体还原 —— 账号池、模型黑名单、永久锁定表全部换成备份里的值。
+  这是换机/重装场景，本机现有账号会被丢弃。永久锁定表落在独立文档
+  `~/.dsh/jet-hub/permanent-locks.json`（`{schema, locks}`），不是 `state.json` 的字段。
+- 加密备份（前端导出时加的壳：PBKDF2 310000 + SHA-256 派生密钥、AES-256-GCM、
+  密文尾部 16 字节是 GCM tag）直接喂给脚本即可，口令按 `--passphrase` →
+  环境变量 `JET_HUB_BACKUP_PASSPHRASE` → 交互输入 的顺序取：
+
+  ```bash
+  JET_HUB_BACKUP_PASSPHRASE='…' node scripts/import-backup.mjs backup.enc.json
+  ```
+
+- 写完账号池后脚本会接着跑一次 `scripts/seed-auth.mjs`，把账号摊平进 magpie 的
+  `plugin-auth.json`（`--no-seed` 可跳过）。两处文件写入前都留
+  `.bak-import-<时间戳>` 备份，写完回读校验，值对不上直接报错退出。
+
+> 顺序很重要：**账号池与凭据先落地，magpie 才看得到**。反过来只改 `plugin-auth.json`
+> 的话，magpie 卡片上会出现一堆账号，但容器里没有它们，chat 一律 502。
 
 ## 模型名
 
@@ -216,6 +352,24 @@ jet-hub/auto                     ← 本体的自动选号路由组
 3. 都没有 → 返回静态表（16 条），启动甩到后台
 
 `authorize()` 与 `usage()` 由用户点击/后台触发，允许长时间，走 `liveModels()` 真等。
+
+### 用量卡上的积分包会合并同名项
+
+上游一个账号常返回几十个同名小包（实测 trae 一个账号 20+ 条 `签到奖励 100`），
+每条都映射成一个 window 的话，magpie 用量卡会被撑成一长列 `100 / 100`，
+真正的主套餐反而看不见（用户 2026-10-29 报「用量积分包占比太大了」）。
+
+`toMagpieUsage()` 因此先过一遍 `mergePackages()`：按 `name + unit` 合并，
+额度求和、名字加 `×N`、到期时间取组内**最早**（最近要过期的先提醒）。
+排序按**组内单个包的最大额度**降序，所以「至少有一个大包」的组排在「全是一堆小包」的组前面 ——
+不能按合并后总额排，否则 `签到奖励 ×20 = 2000` 会把 `每月登录赠送 500` 顶下去。
+`active: false` 的整组压到最后并标 `aside`。
+
+同名包的到期时间如果不止一个，卡片只显示**最早**的那个（保守：宁可让用户以为
+快到期了，也不让额度悄悄过期）。这是刻意的取舍，不是 bug。
+
+实测 trae：23 条 → 2 条（`每月登录赠送 500 / 500` + `签到奖励 ×20 2000 / 2000`）。
+回归测试见 `tests/t-usage.mjs` 第 6 节。
 
 ## 侧栏页面
 
@@ -255,7 +409,7 @@ jet-hub/auto                     ← 本体的自动选号路由组
 
 页面只能**只读**（`providers:list` + `usage:summary`），这是 magpie 写死的：
 受管页面的 CSP 是 `sandbox allow-scripts` + `connect-src 'none'` + `frame-src 'none'`
-（见官方 `docs/subsystems/plugin-runtime.md`），页面既发不出请求，也嵌不进 iframe，
+（见 magpie 上游仓库的 `docs/subsystems/plugin-runtime.md`，非本仓文件），页面既发不出请求，也嵌不进 iframe，
 更没有调用插件的写入口（`magpie.actions` 只是往页面里 `postMessage` 菜单事件）。
 
 所以**登录 / 换号 / 续期 / 积分领取 / 模型开关 / 账号池 / 备份导入导出**都在插件自己的
@@ -265,9 +419,9 @@ jet-hub/auto                     ← 本体的自动选号路由组
 http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 ```
 
-> 一条限制先说清：供应商页里的账号行在 magpie 里是**只读展示** —— 挑某一行
-> **不会**改变实际用哪个账号（本体网关没有按请求指定账号的入口，见上面
-> 「账号也按 provider 分开」那段），换号要用本控制台「账号」标签的停用 / 启用 / 排序。
+> 供应商页里挑哪个账号，请求就真的走哪个（见上面「账号也按 provider 分开」那段）。
+> 控制台的「账号」标签仍是**批量管理**的地方：停用 / 启用 / 排序 / 续期 / 复测 /
+> 删除 —— 这些是 magpie 侧没有的。
 
 准确地址写在 `~/.config/magpie/jet-hub-console.json` 的 `url` 字段 —— 但**只有拿到首发端口
 18500 的那个宿主会写它**（2026-10-28 起；因为 18500 被占而漂移到 18501+ 的实例不再覆盖它，
@@ -286,9 +440,15 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
 响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）。
 
-控制台是八个标签的管理界面，覆盖本体可调度的 RPC —— **覆盖率与方法总数不写进本文**：
+控制台是**七个**标签的管理界面，覆盖本体可调度的 RPC —— **覆盖率与方法总数不写进本文**：
 由 `tests/t-rpc-cover.mjs` 从源码解析后自动统计（主 `switch` 与前缀改道两批都算进去），
 两个数随代码走，写死在文档里必然过期：
+
+> **哪些事不在这里做**：magpie 自己已经有的界面，控制台**不再重复摆一遍**。
+> 供应商的启用/停用与拖拽排序走 magpie 的「Providers」页；网关端口、局域网共享、
+> 允许的 IP、网页白名单走 magpie 的 Settings › Network and sharing。
+> `tests/t-rpc-cover.mjs` 里的 `DELEGATED` 表逐条记着「哪个方法交给了哪个界面」，
+> 并反向断言控制台**没有**把它们接回去 —— 想加回来就得先删表里的那一行并说清理由。
 
 | 标签 | 能做什么 |
 |---|---|
@@ -296,20 +456,18 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 | 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置，以及 per-账号的**出口代理**（见下） |
 | 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含**每个有账号的渠道**的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
 | 模型 | 模型开关（单条 / 勾选批量 / 全开全关 / 清理失效）；聚合路由的候选目录、排序模式、到期排序、当前渠道、拒绝表，以及**候选级逐个打开/拒绝/调序** |
-| 供应商 | 全部 provider 的模型数/账号数/启用状态、逐个停用启用、顺序保存 |
 | 用量 | token 账本（6 项汇总 + 明细）、历史、删除某天、徽章偏好 |
-| 设置 | 网关启用、局域网、渠道原生搜索、面板入口、MiniMax XFF、验证码三件套 |
+| 设置 | 渠道原生搜索、面板入口、MiniMax XFF、验证码三件套 |
 | 备份 | 账号总数/缺有效期统计、导出下载、merge/replace 导入 |
 
 ![控制台 · 账号](docs/console-accounts.png)
 ![控制台 · 积分](docs/console-credits.png)
 ![控制台 · 模型](docs/console-models.png)
-![控制台 · 供应商](docs/console-providers.png)
 ![控制台 · 用量](docs/console-usage.png)
 ![控制台 · 设置](docs/console-settings.png)
 ![控制台 · 备份](docs/console-backup.png)
 
-（八张按标签顺序排，概览那张在本节开头。全部由 `scripts/shot-console.cjs` 直接
+（七张按标签顺序排，概览那张在本节开头。全部由 `scripts/shot-console.cjs` 直接
 覆盖写同一个文件名，所以重拍不需要改 README。）
 
 三个**格式陷阱**（都实测踩过，本体不会报错，只会静默做错事）：
@@ -321,9 +479,35 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 3. `account.resetAll` / `account.retestAll` / `buddy.compensationStatus` / `buddy.claimCompensation` /
    `cline.requestLog` / `onboarding.*` 都**必须**带 `accountId`（本体在守卫之后才解析凭据）。
 
-改完控制台后跑一次 `node scripts/shot-console.cjs`：它用 Edge headless + CDP 逐个点开八个标签、
+改完控制台后跑一次 `node scripts/shot-console.cjs`：它用 Edge headless + CDP 逐个点开七个标签、
 断言表格行数/卡片数/按钮数/错误消息，并把每页截到 `docs/console-<tab>.png`。
 `node scripts/run-console.mjs` 则单独起一个容器 + 控制台（不重启 magpie），打印 `CONSOLE_URL`。
+
+#### 「添加账号」点了没反应时看这里
+
+账号页右上角「添加账号」调 `account.create`，本体返回一个 `loginUrl`，控制台把它
+摆进弹窗并顺手 `window.open` 一下。**浏览器会拦掉这个自动弹窗**：`window.open` 是在
+`await` 之后调的，用户的点击手势已经失效，Chrome / Edge 一律返回 `null`（实测无痕
+窗口里必被拦）。所以弹窗这时会换成「浏览器拦下了自动弹窗（授权页必须由你亲手点开）」
+—— 点下面的**「在新窗口打开」**（那是 `<a href>` 的真实点击，一定放行），或复制
+地址到新标签页访问，授权完成后本页会自动继续。
+
+另一件与它相关的事：`account.create` 会**立刻**在池里写一条占位账号（无凭据），
+好让 `login.poll` 能查到。占位条目的昵称**通常是 id**（15 家），
+**`autoclaw` 是唯一的例外** —— 它写固定文案 `AutoClaw (登录中...)`
+（`vendor/lib/jet-hub-rpc.js` 的短信登录路径），所以判据里带了一张昵称白名单
+（`PLACEHOLDER_NICKNAMES`），否则这一家的占位永远删不掉。
+
+你点「关闭」放弃授权时，控制台会先问一次本体；没登录成功就把那条占位删掉 —— 否则每点一次「添加账号」再关掉，账号表里就多一行
+「启用 / 到期 — / 凭据 ref 空」的幽灵账号。
+
+判据是四条同时成立才删（昵称等于 id **或命中占位昵称白名单**、无到期时间、
+不可续期、10 分钟内新建），删前还会再问一次 `login.poll` —— 因为本体
+`finishLogin` 是「先落凭据、后回填池条目」两步，中间那段时间池条目看着仍像占位，
+只靠四字段判据会误删一个其实已经登录成功的账号（`removeAccount` 会连带
+`credentials.unset`，不可逆）。回归测试见 `tests/t-login-reclaim.mjs`（26 项，
+含 autoclaw 固定文案占位、`closeLogin → reclaimPlaceholder` 的存在性锚点、
+以及「没返回 loginUrl」那条 throw 之前必须先清状态）。
 
 #### 两家 Key 型渠道加账号走各自的 `*.addAccount`
 
@@ -407,6 +591,111 @@ MiniMax 国际站用 `redirect:'manual'` 看 307 那一跳判有没有被分流�
 > `PROVIDER_IDS` 之类的常量对象就会炸。所以常量表都留在 `src/plugin.mjs`，
 > 需要单测内部函数请直接 import 那里。
 
+## GitHub 巡检（每 30 分钟）
+
+`scripts/gh-patrol.mjs` 每 30 分钟扫一遍本仓库的 issue / PR 收件箱，**只读**：
+不发评论、不打标签、不关单、不改任何远端状态。它做的事只有三件 ——
+抓取 → 和上次快照比对 → 把变化落盘并打印。
+
+### 它报什么、不报什么
+
+| 情况 | 报不报 | 说明 |
+|---|---|---|
+| 新开 issue / 新开 PR | 报 | 落在报告的「新增」段 |
+| 新评论、加/删标签、状态变、草稿转正 | 报 | 落在「有更新」段（指纹比对） |
+| 条目被关闭 / PR 被合并 | 报 | 落在「已关闭 / 已合并」段 |
+| 只是改了标题 | **不报** | 有意为之：标题改动几乎总伴随 `updated_at` 刷新，重复报一次是噪音 |
+| 什么都没变 | 不报（只打一行） | 避免每 30 分钟刷一屏 |
+
+首次运行会建立基线并明确标注「本次为首次」，之后只报增量。这条很重要：
+没有基线的巡检会把全部存量误报成「新增」，一次就把人劝退。
+
+### 手动跑
+
+```bash
+# 巡检 origin 指向的仓库（在仓库目录内跑即可）
+node scripts/gh-patrol.mjs
+
+# 指定仓库 / 强制全量输出 / 只要机器可读 JSON / 有变化时弹 Windows 通知
+node scripts/gh-patrol.mjs --repo owner/name
+node scripts/gh-patrol.mjs --all
+node scripts/gh-patrol.mjs --json
+node scripts/gh-patrol.mjs --notify
+```
+
+退出码：`0` 正常（无论有无新增）· `1` 抓取失败 · `2` 缺凭证或认不出仓库。
+
+### 凭证从哪来
+
+按优先级：
+
+1. 环境变量 `GH_TOKEN` / `GITHUB_TOKEN`；
+2. `git credential fill`（和 `git push` 用同一套凭据）。
+
+**第二条是关键**：它让巡检直接复用你已经在 git 里配好的 GitHub 凭据，
+不需要再存一份明文 token，也不需要装 `gh` CLI（这台机器上没有）。
+取不到凭证时脚本以退出码 2 明确失败，不会退化成匿名请求 —— 匿名调用
+api.github.com 在共享出口 IP 上会直接吃 403（实测过）。
+
+### 落盘在哪
+
+全部在 `~/.dsh/jet-hub/patrol/`（用 `GH_PATROL_STATE_DIR` 可覆盖，测试靠它隔离）：
+
+| 文件 | 内容 |
+|---|---|
+| `state.json` | 上次快照，增量比对的依据。删掉它等于「重新建立基线」 |
+| `latest.md` | 最近一次巡检的完整 Markdown 报告，随时可读 |
+| `history.jsonl` | 每次巡检一行（时间 / open 数 / 三组计数），便于回溯趋势 |
+| `patrol.log` | 计划任务的 stdout / stderr（含失败原因） |
+
+### 注册成计划任务
+
+```powershell
+# 默认每 30 分钟，从下一个整半点开始
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-patrol-task.ps1
+
+# 换间隔 / 换仓库根 / 卸载
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-patrol-task.ps1 -IntervalMinutes 15
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-patrol-task.ps1 -RepoRoot "D:\dsh-build\magpie-Jet-Hub"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-patrol-task.ps1 -Uninstall
+```
+
+任务名 `DSH-GitHub-Patrol`，跑在**当前用户**的交互式令牌下（`InteractiveToken`，
+不需要管理员权限，也不需要存密码）。开机错过的时间点会由 `StartWhenAvailable`
+补跑一次；笔记本用电池时也照跑（`StopIfGoingOnBatteries=false`）。
+
+#### 两个踩过的坑（改脚本前必读）
+
+1. **`-RepetitionDuration ([TimeSpan]::MaxValue)` 会炸。** 它序列化成
+   `P99999999DT23H59M59S`，超出任务计划程序 XML 的 Duration 上限，注册报
+   `HRESULT 0x80041318`。表达「无限重复」的正确写法是**省略 `<Duration>` 元素**，
+   所以这个脚本走 `Register-ScheduledTask -Xml` 而不是 `-Trigger`。
+2. **`.ps1` 必须存成带 BOM 的 UTF-8。** 否则 PowerShell 5.1 按 ANSI 解码，
+   文件里的中文注释会把后面的引号吃掉，报一堆 `字符串缺少终止符` 之类的
+   解析错误 —— 看起来像语法错，其实是编码错。
+
+### 验证它真的在跑
+
+```bash
+# 立刻触发一次，看退出码与日志
+powershell -NoProfile -Command "Start-ScheduledTask -TaskName 'DSH-GitHub-Patrol'; Start-Sleep 12; Get-ScheduledTaskInfo -TaskName 'DSH-GitHub-Patrol' | Select LastRunTime,LastTaskResult,NextRunTime"
+cat ~/.dsh/jet-hub/patrol/patrol.log
+```
+
+`LastTaskResult=0` 是成功；非 0 先去 `patrol.log` 找原因（最常见的是凭据失效）。
+
+### 契约测试
+
+```bash
+node tests/t-patrol.mjs
+```
+
+不联网、不要凭证，专测巡检最容易出错的地方：`normalize` 区分 issue/PR
+（GitHub 的 `/issues` 接口会把 PR 一起返回）、`fingerprint` 认不认得出
+「新评论 / 加标签 / 状态变 / 草稿转正」、`diffSnapshots` 的三组分类，
+以及 `issue#5` 与 `pr#5` 编号撞车时不能互相覆盖。这个文件已并入
+`scripts/test-all.mjs` 的 UNIT 列表。
+
 ## 测试
 
 ```bash
@@ -426,11 +715,14 @@ node scripts/test-all.mjs --all
 # models() 不阻塞（必须 < 2s，否则会被 magpie 的 20s 超时打断）
 "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-models-nowait.mjs
 
-# 死号过滤判据（13 条断言，不联网）
+# 死号过滤判据（27 条断言，不联网）
 "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-dead-account.mjs
 
-# .credentials.yaml 写回不吞行（14 条断言，不联网）
+# .credentials.yaml 写回不吞行（23 条断言，不联网）
 "C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-writerefs.mjs
+
+# 「在 magpie 里新建账号」这条链路（四家豁免 / 只拿 URL 就返回 / 三种终态 / 删除前三道闸门，不联网）
+"C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe" tests/t-new-account.mjs
 
 # 经 magpie 网关 3425 真转发（非流式 / 流式 / 工具调用 / 路由组）
 python tests/t-gateway.py
@@ -477,8 +769,8 @@ key 在启动 web 实例时打印出来：
 - `zcode` 可能报"上游并发限流"：本体自带退避，属上游限流，非插件缺陷。
 - 本体的 Jet Hub **设置界面**（`lib/client/jet-hub.js`）是 DSH 的前端 UI，搬不过来；
   magpie 里由本插件自己的侧栏页 + 本地控制台替代 —— 登录、续期、停用 / 启用 / 换号都在
-  本地控制台里做，**功能上不再需要回 DSH**；但**在 magpie 里挑账号行不算换号** ——
-  那些行是只读展示，见上面「控制台：完整功能走本地服务」那一段的限制。
+  本地控制台里做，**功能上不再需要回 DSH**。在 magpie 里挑账号行会真的换号
+  （请求级钉住），但**批量**的停用 / 排序 / 续期 / 删除仍要走本地控制台。
 - 侧栏「模型」页是**快照**，不随账号变化自动更新；页面里显示的也是快照时间。
   真正的实时模型清单与控制台在本地 HTTP 服务里（`console/`）。
 - 侧栏页能读的只有 `providers:list` 与 `usage:summary` 两项（magpie 的白名单，
@@ -623,18 +915,21 @@ src/attachments.mjs    附件服务：本体的图片收发都走 ctx.attachment
 src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
 vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/ + locale/ + 上游 LICENSE）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
-console/               控制台界面（八个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
+console/               控制台界面（七个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
+scripts/import-backup.mjs  导入 dsh-providers-hub 的备份（账号池 + 凭据 + 黑名单）
 scripts/snapshot-models.mjs  重新生成 page/models.js
-scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headless + CDP）
+scripts/shot-console.cjs     控制台七标签实拍 + DOM 断言（Edge headless + CDP）
 scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
+scripts/gh-patrol.mjs        GitHub issue/PR 收件箱巡检（只读，每 30 分钟由计划任务驱动）
+scripts/install-patrol-task.ps1  把上面的巡检注册成 Windows 计划任务（或 -Uninstall 卸载）
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-attachments / t-seed-auth / t-console / t-direct / t-gateway / t-rpc-cover / ui-check）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-account-pin / t-new-account / t-writerefs / t-usage / t-checkin / t-options / t-attachments / t-seed-auth / t-import-backup / t-login-reclaim / t-console / t-direct / t-gateway / t-rpc-cover / t-patrol / ui-check）
 LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
 vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
 docs/screenshot.png    侧栏页面实拍（`tests/ui-check.cjs` 的截图）
-docs/console-*.png     控制台实拍：八标签 + Key / 代理两个弹窗（`scripts/shot-console.cjs` 直接覆盖写）
+docs/console-*.png     控制台实拍：七标签 + Key / 代理两个弹窗（`scripts/shot-console.cjs` 直接覆盖写）
 docs/archive/          不再被 README 引用的旧截图留档
 ```
 

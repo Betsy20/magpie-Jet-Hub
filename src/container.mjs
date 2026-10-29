@@ -13,6 +13,7 @@
 // 所以这里显式 `DSH_OPENAI_GATEWAY_ENABLED=0`：不占端口、不需要随机 apiKey、
 // 不需要 40 秒就绪轮询。请求由 `src/llm-bridge.mjs` 直接投给本体 llm 服务。
 import { pathToFileURL } from 'node:url'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Context } from '@deepseek-ai/cordis'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -34,6 +35,32 @@ import { chatCompletion, modelsPayload, llmReady, jsonResponse, errorResponse } 
  * 当前只有 loomy —— 具体理由见 `isDeadAccount` 内注释。
  */
 const DEAD_JUDGE_UNTRUSTED = new Set(['loomy'])
+
+/**
+ * 「本次请求钉住哪个账号」的请求作用域。
+ *
+ * ## 为什么需要它（真实缺陷，2026-10-29 实测）
+ *
+ * magpie 的供应商编辑器里，一个 provider 的账号行是**用户可点选**的 ——
+ * 用户在 magpie 里挑了「账号 B」，期望接下来的请求真的走 B。但直连模式下
+ * 本体选号走的是 `AccountPool.getAvailableAccount(provider, modelId)`，
+ * 它的判据**只有池内数组顺序**（`vendor/lib/account-pool.js:1961` 注释原文：
+ * 「账号列表的数组顺序就是候选优先级」），池里没有任何「钉住某个账号」的字段
+ * （全文件 grep `pin|sticky|preferredAccount|forcedAccount` 零命中）。
+ *
+ * ⇒ 光在 magpie 侧建多条账号记录是不够的：那些记录只是「看得见」，
+ * 真正发请求时仍然是本体按顺序挑第一个可用号。要让「挑哪个就用哪个」成立，
+ * 必须在**请求期**把候选集收窄到那一个账号。
+ *
+ * ## 为什么用 AsyncLocalStorage 而不是改池顺序
+ *
+ * 改池顺序（`account.reorder` 把选中账号顶到池首）有两个真实代价：
+ *  ① 它是**全局持久**的副作用 —— 一次 magpie 请求会改掉本体账号池的落盘顺序，
+ *     影响控制台与 DSH 里的手动排序（用户手动拖过的顺序被静默覆盖）；
+ *  ② 并发不安全 —— 两个 magpie 请求钉不同账号时会互相踩。
+ * AsyncLocalStorage 是**请求作用域**的：并发请求各自钉各自的号，不改任何盘上状态。
+ */
+const pinnedScope = new AsyncLocalStorage()
 
 /**
  * 对外网关默认地址 —— magpie 主程序自己的 OpenAI 兼容网关。
@@ -85,6 +112,27 @@ export class JetHubContainer {
     this.userGateway = String(
       options.userGateway ?? process.env.JET_HUB_USER_GATEWAY ?? DEFAULT_USER_GATEWAY,
     ).replace(/\/+$/, '')
+  }
+
+  /**
+   * 在「钉住某个账号」的作用域里跑一段异步逻辑。
+   *
+   * `accountId` 是本体账号池里的条目 id（`workbuddy-bb3380f3` 这种）。
+   * 传空串 / undefined 就是普通调用（不钉，按池内顺序选号）。
+   *
+   * ⚠️ 必须用 `run()` 而不是「设一个全局变量再还原」：magpie 的请求是并发的，
+   * 全局变量会让 A 请求钉的号漏到 B 请求上。AsyncLocalStorage 沿 Promise 链
+   * 传播，每个请求各拿各的值。
+   */
+  runPinned(accountId, fn) {
+    const id = String(accountId ?? '').trim()
+    if (id === '') return fn()
+    return pinnedScope.run({ accountId: id }, fn)
+  }
+
+  /** 当前作用域钉住的账号 id（没钉就是空串）。 */
+  static pinnedAccountId() {
+    return String(pinnedScope.getStore()?.accountId ?? '')
   }
 
   /**
@@ -224,6 +272,19 @@ export class JetHubContainer {
     //
     // 判据刻意保守：只有「明确标了不可续期」**且**「有效期已过」才算死号。
     // 缺 `expiresAt` 的、或 refreshable 为 true 的一律放行（可能还能刷成功）。
+    //
+    // 5.5) 按账号钉住（magpie 里用户挑了哪个账号，请求就必须真的走哪个）
+    //
+    // ⚠️ **必须在死号过滤之前装**（2026-10-29 审查发现并改正）：两层包装是
+    // 栈式叠加，后装的在外层。钉号那层会把结果直接替换成被钉的那一条、
+    // 不再问内层 —— 如果钉号在外层，用户钉了一个已过期且不可续期的账号时，
+    // 死号过滤被整个绕过，整家渠道立刻 502（而 `_filterDeadAccounts` 存在的
+    // 理由正是拦这种号，见 VERIFICATION.md 里 codearts 的 `STS5.1806`）。
+    //
+    // 正确顺序：钉号先装（内层，把候选收窄到一个），死号后装（外层，把死号
+    // 并进 `excludeAccountIds` 传给内层，内层见自己被排除就返回 null）。
+    this._pinAccounts(ctx)
+
     this._filterDeadAccounts(ctx)
 
     // 6) 本地控制台：对外暴露本体注册的管理 API（/api/jet-hub）与 console/ 界面。
@@ -424,6 +485,94 @@ export class JetHubContainer {
           .map((a) => a.id),
       )
       return dead.size === 0 ? rows : rows.filter((r) => !dead.has(r.entry?.id))
+    }
+  }
+
+  /**
+   * 把「本请求钉住的那个账号」变成选号时的**唯一候选**。
+   *
+   * ## 为什么必须包在池上（而不是在 `forward()` 里传参）
+   *
+   * 选号发生在**适配器内部**（21 处 `getAvailableAccount` 调用，见
+   * `vendor/lib/account-pool.js:2249`），`forward()` → `chatCompletion()` →
+   * `llm.stream()` 这条链上**没有任何账号参数位**（`toGenerateOptions()` 的
+   * 签名里也没有）。所以要影响选号，只能包池的两个选号入口 —— 与死号过滤
+   * 同一个手法（改 vendor 会让「跟上游升级」变成手工合并）。
+   *
+   * ## 钉不住时怎么办（刻意选择）
+   *
+   * 钉的账号在池里找不到（用户刚在 DSH 里删了它）→ **退回不钉**，照常按
+   * 池内顺序选号。理由：一个陈旧的 magpie 账号记录不该让整家渠道 502。
+   * 这条会在日志里留一行，便于排查「我挑的号没生效」。
+   */
+  _pinAccounts(ctx) {
+    const pool = ctx.accountPool
+    if (pool === undefined) {
+      this.log('警告：ctx.accountPool 未就绪，按账号钉住未安装')
+      return
+    }
+    if (pool.__dshHubPinned === true) return
+    pool.__dshHubPinned = true
+    const self = this
+
+    /** 本次请求钉的账号条目（未钉 / 找不到都返回 undefined）。 */
+    const pinnedEntryOf = (provider) => {
+      const want = JetHubContainer.pinnedAccountId()
+      if (want === '') return undefined
+      const hit = pool.readAccounts().find((a) => a.id === want && a.provider === provider)
+      if (hit === undefined) {
+        self.log(`钉住的账号 ${want} 不在 ${provider} 的池里（可能已在 DSH 里删除），本次按池内顺序选号`)
+      }
+      return hit
+    }
+
+    const origGet = pool.getAvailableAccount.bind(pool)
+    pool.getAvailableAccount = async function (provider, modelId, excludeAccountIds) {
+      const pin = pinnedEntryOf(provider)
+      if (pin === undefined) return origGet(provider, modelId, excludeAccountIds)
+      // 显式排除集仍然尊重（调用方说「这个号试过了」时不能又挑回它）。
+      if (excludeAccountIds !== undefined && new Set(excludeAccountIds).has(pin.id)) return null
+      // 限流判据与本体一致：空 modelId 跳过，未到期才算可用。
+      if (modelId && pin.modelRateLimits) {
+        const resetAt = pin.modelRateLimits[modelId]
+        if (resetAt !== undefined && resetAt !== 0 && Date.now() < resetAt) return null
+      }
+      if (pin.enabled === false) return null
+      try {
+        // ⚠️ 用 `_pinAccounts(ctx)` 拿到的 ctx，**不要用 `this.ctx`**：
+        // 这个包装函数被调用时 `this` 是 pool，真实 pool 恰好也有 `.ctx`，
+        // 但那是实现细节（`vendor/lib/account-pool.js` 的实例字段），
+        // 依赖它会让测试的假池（没有 `.ctx`）静默返回 null。
+        const resolved = await ctx.credentials.resolve(pin.credentialRef)
+        if (!resolved) return null
+        return { entry: pin, credential: JSON.parse(resolved.value) }
+      } catch (error) {
+        self.log(`钉住的账号 ${pin.id} 凭据不可用：${error?.message ?? error}`)
+        return null
+      }
+    }
+
+    const origList = pool.listAvailableCredentials.bind(pool)
+    pool.listAvailableCredentials = async function (provider, modelId) {
+      const pin = pinnedEntryOf(provider)
+      if (pin === undefined) return origList(provider, modelId)
+      // 判据必须与上面 getAvailableAccount 的包装**逐条对齐**（本体
+      // `vendor/lib/account-pool.js:2331` 的 listAvailableCredentials 也是
+      // enabled + modelRateLimits 双判据）。只判 enabled 的话，钉了一个在
+      // 当前模型上限流未到期的号，getAvailableAccount 返回 null 而这里还
+      // 返回它，两个入口对同一请求给出相反答案。
+      if (pin.enabled === false) return []
+      if (modelId && pin.modelRateLimits) {
+        const resetAt = pin.modelRateLimits[modelId]
+        if (resetAt !== undefined && resetAt !== 0 && Date.now() < resetAt) return []
+      }
+      try {
+        const resolved = await ctx.credentials.resolve(pin.credentialRef)
+        if (!resolved) return []
+        return [{ entry: pin, credential: JSON.parse(resolved.value) }]
+      } catch {
+        return []
+      }
     }
   }
 

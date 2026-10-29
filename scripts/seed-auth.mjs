@@ -14,12 +14,18 @@
  *   jet-hub-codearts             → codearts-8e65da6c
  *   …
  *
- * ## ⚠️ 一句实话
+ * ## 挑哪一行就真的走哪个账号（2026-10-29 起）
  *
- * 本体自己的 HTTP 网关**没有「按请求指定账号」的入口**（账号是适配器内部用
- * `getAvailableAccount(provider, model)` 按启用状态与限流现选的）。所以这些行
- * 的价值是**看得见**（与 DSH / 控制台里的账号池一致、能看停用状态），
- * 在 magpie 里挑某一行**不会**改变本体实际用哪个账号。
+ * 本体内部选号走 `getAvailableAccount(provider, modelId, excludeAccountIds)`
+ * （vendor/lib/account-pool.js:2249），它按**池内数组顺序**取第一个可用账号。
+ * 插件因此在请求作用域里钉号（`src/container.mjs` 的 `_pinAccounts` +
+ * `AsyncLocalStorage`）：magpie 里点哪一行，那一行对应的 DSH 账号就会被顶成
+ * 该次请求的唯一候选。所以这些行不再只是「看得见」—— 挑某一行**就是**换用
+ * 哪个账号发请求。
+ *
+ * 占位行例外：2 个路由组（`jet-hub` / `jet-hub-aggregate`）与 3 家未登录的
+ * 渠道（autoclawintl / codely / gemini）没有对应账号，它们的 `key` 不带
+ * `/id` 后缀、也没有 `uid`，挑它们等于不钉号（按池内顺序走）。
  *
  *   node scripts/seed-auth.mjs            # 写入（先备份）
  *   node scripts/seed-auth.mjs --dry-run  # 只报告会改什么

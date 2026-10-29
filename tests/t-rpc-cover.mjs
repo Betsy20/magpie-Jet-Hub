@@ -366,12 +366,44 @@ console.log(`  控制台未接: ${unused.length}${unused.length ? '\n    ' + unu
 //   规则 A：主 switch 里的方法**一个都不许未接** —— 控制台的主要操作面，漏接即红。
 //   规则 B：前缀改道那一批允许未接（控制台还没有账号级代理 / 匿名账号的 UI），
 //           但**只报告不失败**，接上了自动从清单里消失。
+//   规则 C：`DELEGATED` 表里的方法**已明确交给 magpie 自己的界面**，控制台不再接
+//           是**有意为之**，不算缺口。这张表是**具名的、逐条的**，不是笼统豁免 ——
+//           每加一条都要写清「magpie 哪个界面接手了」，否则规则 A 会一直红着
+//           逼人回来解释（2026-10-29 用户要求「重复的功能控制台移除掉」）。
 // 所以「现在缺几个」永远等于本测试这次打印的数，文档不要抄死数字。
-const unusedMain = unused.filter((m) => mainMethodSet.has(m))
-const unusedPrefix = unused.filter((m) => !mainMethodSet.has(m))
+const DELEGATED = new Map([
+  ['provider.status', 'magpie「Providers」页的供应商行（模型数 / 账号数 / 启用状态）'],
+  ['provider.setEnabled', 'magpie「Providers」页的行内开关（provider/on · provider/off）'],
+  ['provider.getOrder', 'magpie「Providers」页的拖拽顺序（本体 providerOrder 只是 DSH 里的显示顺序）'],
+  ['provider.setOrder', 'magpie「Providers」页的拖拽顺序'],
+  ['gateway.setEnabled', 'magpie Settings › Network and sharing（网关本身由 magpie 持有）'],
+  ['gateway.setAllowLan', 'magpie Settings › Network and sharing 的局域网共享开关（settings/lan）'],
+])
+const unusedMain = unused.filter((m) => mainMethodSet.has(m) && !DELEGATED.has(m))
+const delegatedUnused = unused.filter((m) => DELEGATED.has(m))
+const unusedPrefix = unused.filter((m) => !mainMethodSet.has(m) && !DELEGATED.has(m))
+// 存在性锚点：表里每一条都必须**真的**是本体方法。少了这条，某条方法被删/改名后
+// `unusedMain` 与 `delegatedStillWired` 都不会命中 —— 测试全绿，表静默过期，
+// 一直谎报「交给 magpie 了」（2026-10-29 审查发现）。
+const delegatedMissing = [...DELEGATED.keys()].filter((m) => !methods.includes(m))
+ok(delegatedMissing.length === 0,
+  `DELEGATED 表里的 ${DELEGATED.size} 个方法都真实存在`
+  + (delegatedMissing.length ? `；找不到：${delegatedMissing.join(', ')}` : ''))
 ok(unusedMain.length === 0,
-  `主 switch 的 ${mainMethodSet.size} 个方法控制台全都接了`
+  // 被减数只能算「主 switch 里的」那部分 —— 否则 DELEGATED 一旦加进前缀方法，
+  // 数字就偏（2026-10-29 审查发现）。
+  `主 switch 里控制台该接的 ${mainMethodSet.size - delegatedUnused.filter((m) => mainMethodSet.has(m)).length} 个方法全都接了`
   + (unusedMain.length ? `；未接 ${unusedMain.length} 个：${unusedMain.join(', ')}` : ''))
+if (delegatedUnused.length) {
+  console.log(`  交给 magpie 界面（控制台不接，${delegatedUnused.length} 个）：`)
+  for (const m of delegatedUnused) console.log(`    ${m} → ${DELEGATED.get(m)}`)
+}
+// 反向锚点：DELEGATED 里的每一条都必须**真的**未接 —— 否则说明控制台又接回去了，
+// 那张表就成了谎话（用户明确要求移除的东西又冒出来）。
+const delegatedStillWired = [...DELEGATED.keys()].filter((m) => used.includes(m))
+ok(delegatedStillWired.length === 0,
+  `交给 magpie 的 ${DELEGATED.size} 个方法控制台确实都没接`
+  + (delegatedStillWired.length ? `；又接回去了：${delegatedStillWired.join(', ')}` : ''))
 // 未接项只可能来自前缀改道（规则 A 通过时这一条自动成立，留着当交叉校验）
 ok(unusedPrefix.every((m) => prefixCases.includes(m)),
   `未接项全部属于前缀改道（${unusedPrefix.length} 个）`)

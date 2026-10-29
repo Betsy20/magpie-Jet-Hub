@@ -24,6 +24,9 @@
 >    `JET_HUB_USER_GATEWAY` 覆盖（见 README 末尾）。正文里把它当插件内部网关来描述
 >    的地方，同样按第 1 条理解。
 >
+> 3. **正文里 "N 通过 / 0 失败 / 0 跳过" 的 N 是当时那次运行的数字。** 单测数量一路
+>    在长（9 → 12 → 13 → 14），这些旧读数**不回填**，以最新一节的读数为准。
+>
 > 要看**改造后**的现测取证：`tests/t-direct.mjs`（直连链路）与 `tests/t-gateway.py`
 > （经 3425 真转发）的真跑输出，以及「二十」之后的节。本文不逐条回改 —— 那会把
 > "当时到底跑出了什么"这段证据抹掉。
@@ -301,7 +304,7 @@ CodeArts（DSH） / Jet Hub（本体直装）
 
 ```
 $ magpie-bun tests/t-dead-account.mjs
-13 条断言全部通过
+13 条断言全部通过      # 当时版本；现为 27 条
 
 $ magpie-bun tests/_diag（一次性）
 [log] 跳过 codearts 的 1 个死号
@@ -354,8 +357,8 @@ vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/，
 page/                  index.html / page.js / page.css / icon.svg
 tests/t-plugin.mjs     插件契约全链路（含真转发）
 tests/t-models-nowait.mjs  models() 延迟门禁
-tests/t-dead-account.mjs   死号过滤判据（13 条断言，不联网）
-tests/t-writerefs.mjs      .credentials.yaml 写回不吞行（14 条断言）
+tests/t-dead-account.mjs   死号过滤判据（27 条断言，不联网）
+tests/t-writerefs.mjs      .credentials.yaml 写回不吞行（23 条断言）
 tests/t-gateway.py     经 magpie 3425 的四项端到端
 tests/ui-check.cjs        CDP 界面实拍（已取代 tests/shot.cjs，后者从仓库移除）
 ```
@@ -393,7 +396,7 @@ D:\dsh-build\magpie-Jet-Hub  on
 
 $ magpie-bun tests/t-plugin.mjs      → 导出名单 DISPLAY_NAME/JetHubPlugin/PROVIDER，
                                        config → name: Jet Hub，models 51，真转发 HTTP 200
-$ magpie-bun tests/t-dead-account.mjs → 13 条断言全部通过
+$ magpie-bun tests/t-dead-account.mjs → 13 条断言全部通过（当时；现为 27 条）
 $ magpie-bun tests/t-writerefs.mjs    → 全部通过
 
 网关 127.0.0.1:3425（python 真发）：
@@ -480,7 +483,7 @@ $ magpie-bun tests/t-writerefs.mjs    → 全部通过
 ## 十二、接上本体的完整管理 RPC：控制台（2026-10-28）
 
 ### 背景：页面这一层做不到
-用户要求「我需要全部功能」（m06256）。查官方 `docs/subsystems/plugin-runtime.md` 确认受管页面
+用户要求「我需要全部功能」（m06256）。查 magpie 上游仓库的 `docs/subsystems/plugin-runtime.md`（非本仓文件）确认受管页面
 是 `sandbox allow-scripts` + 自有 CSP `connect-src 'none'` + `frame-src 'none'`，只能读
 `providers:list` / `usage:summary`，且 `magpie.actions` 只是往页面 postMessage 菜单事件、
 不是调用插件的写入口。⇒ **任何写操作（登录/换号/续期/积分/备份）都不可能从侧栏页面发起。**
@@ -578,12 +581,24 @@ codearts 各 2），其它插件 24 条记录一字未动。
 - `jet-hub-workbuddy/deepseek-v4.1-flash` → HTTP 200，`model: workbuddy/deepseek-v4.1-flash`
 - `jet-hub-codearts/deepseek-v4.1-flash` → HTTP 200，`model: codearts/deepseek-v4.1-flash`
 
-### 一个必须说清的限制
-本体自己的 HTTP 网关**没有按请求指定账号的入口** —— 账号由适配器内部
-`getAvailableAccount(provider, model)` 按 `enabled` 与 `modelRateLimits` 现选
-（`vendor/lib/account-pool.js:2249`）。所以 magpie 里那些账号行是**看得见**
-（与 DSH / 控制台账号池一致、能看停用状态），但**选某一行不改变实际用哪个账号**。
-写进 README 与本文档，不装作可切换。
+### ~~一个必须说清的限制~~（2026-10-29 已解除）
+
+> ⚠️ **本节结论已作废。** 以下是 2026-10-28 当时的**原文**，一字未改，仅为留档：
+>
+> > 本体自己的 HTTP 网关**没有按请求指定账号的入口** —— 账号由适配器内部
+> > `getAvailableAccount(provider, model)` 按 `enabled` 与 `modelRateLimits` 现选
+> > （`vendor/lib/account-pool.js:2249`）。所以 magpie 里那些账号行是**看得见**
+> > （与 DSH / 控制台账号池一致、能看停用状态），但**选某一行不改变实际用哪个账号**。
+> > 写进 README 与本文档，不装作可切换。
+>
+> **2026-10-29 已解除**：插件改成 `single: false` 多账号签入 + 请求级钉号
+> （`src/container.mjs` 的 `_pinAccounts` 用 `AsyncLocalStorage` 收窄候选集），
+> 现在**挑哪一行就真的走哪个账号**。
+>
+> 顺带订正原文里的一处：`getAvailableAccount` 现在是**三参**
+> `getAvailableAccount(provider, modelId, excludeAccountIds)`
+> （`vendor/lib/account-pool.js:2249`），原文写的两参是当时的签名。
+> 详见本文档「在 magpie 里「新建账号」没有语义 → 改成按账号钉住」那一节（原编号第二十四节）。
 
 ### 测试
 `node scripts/test-all.mjs` → **5 通过 / 0 失败**（新增 `tests/t-seed-auth.mjs`：
@@ -676,7 +691,22 @@ node scripts/test-all.mjs --all  → 8 通过 / 0 失败 / 0 跳过
    `toMagpieCheckin` 映射到 magpie 六种 outcome（`already-claimed`→`done`、
    `exhausted`→`done`、其它→`failed` + 原文 message）。
 
-### 修掉的两个真缺陷
+### 修掉的三个真缺陷
+0. **一个包一条 window，把卡片撑爆**（2026-10-29，用户报「用量积分包占比太大了」）：
+   trae 一个账号返回 **20+ 条** `{name:'签到奖励', total:100}`，每条都变成一个 window，
+   用量卡被撑成一长列 `100 / 100`，真正的「每月登录赠送 500」反而被挤到看不见。
+   → 新增 `mergePackages(list)`：按 `name + unit` 合并，`total`/`remaining`/`used` 求和、
+   `count` 累加、`until` 取**最早**（最近要过期的先提醒）、只有整组都 `active === false`
+   才 `allInactive`。window 名字在 `count > 1` 时追加 `×N`。
+   排序按组内**单包最大额度** `each`（`mergePackages` 里 `if (total > cur.each) cur.each = total`）
+   降序。为什么不是合并后总余额、也不是平均值：
+   - 总余额不行 —— 「签到奖励 ×20 = 2000」会压过「每月登录赠送 = 500」，但前者是 20 个
+     100 的小包，后者才是主套餐；
+   - 平均值不行 —— 某家返回「1 个 500 + 19 个 1」时平均被稀释到 25，主套餐会被压到小包后面
+     （2026-10-29 三审指出的脆弱点）；
+   - 最大值天然把「至少有一个大包」的组排在「全是一堆小包」的组前面。
+   实测 trae：23 条 window → **2 条**（`每月登录赠送 500 / 500` + `签到奖励 ×20 2000 / 2000`）。
+   真实环境 workbuddy 也有同名重复包（`Bonus Pack ×2`），合并同样生效。
 1. **空套餐 0/0 画出误导卡**：astudio 返回 `{total:0, remaining:0}` 的「会员积分」，
    卡片显示「0/0 · 可用 100%」。→ 过滤 `total>0 || remaining>0`。
 2. **`used` 填成 remaining 导致自相矛盾**：卡片显示「0 / 6,200 · 剩余 100%」
@@ -697,7 +727,9 @@ WorkBuddy 整卡显示
 
 ---
 
-## 十三、控制台：八个标签，覆盖本体可调度 RPC
+## 十三·丙、控制台：七个标签，覆盖本体可调度 RPC
+
+> 编号说明：本文件历史章节里「十二」「十三」各有重号（HEAD 版本即如此，跨文件引用按标题文字而非编号，故未整体重编）。本节用「十三·丙」避免再加一个「十三」。
 
 ### 背景
 `auth.usage` / `auth.checkin` 只能覆盖「积分」一栏；用户要的是**全部功能**。
@@ -706,7 +738,14 @@ magpie 侧栏页的 `connect-src 'none'` 是写死的（`_mp_pluginpage.go:228`�
 
 ### 结构
 `console/index.html` + `console/console.js`（约 1200 行）+ `console/console.css`，
-左栏八个标签：概览 / 账号 / 积分 / 模型 / 供应商 / 用量 / 设置 / 备份。
+左栏七个标签：概览 / 账号 / 积分 / 模型 / 用量 / 设置 / 备份。
+
+> **2026-10-29 用户要求「重复的功能控制台移除掉」后的变更**：删掉「供应商」整个标签
+> （magpie 的「Providers」页能做启用/停用、拖拽排序、看模型数与账号数），
+> 设置页删掉「网关启用」「允许局域网」两项（magpie Settings › Network and sharing
+> 才是它们的界面，直连模式下本体网关本来就被 `DSH_OPENAI_GATEWAY_ENABLED=0` 关掉）。
+> `tests/t-rpc-cover.mjs` 新增具名的 `DELEGATED` 表登记这 6 个方法交给谁，
+> 并反向断言控制台没有把它们接回去。
 
 ### 三个格式陷阱（都实测踩过，本体不报错、只静默做错事）
 1. **`aggregate.setOrder` 的条目是 `provider\u0000realId`（NUL 分隔）**。
@@ -729,7 +768,7 @@ magpie 侧栏页的 `connect-src 'none'` 是写死的（`_mp_pluginpage.go:228`�
 
 ### 验证（Observed，`node scripts/shot-console.cjs`）
 行数 / 卡片数 / 按钮数**随账号与模型状态变**，每跑一次 `shot-console.cjs` 都会重新打印
-并重拍八张图，所以这里只留**一次具体运行的记录**，不当作常量：
+并重拍七张图，所以这里只留**一次具体运行的记录**，不当作常量：
 
 | 标签 | 2026-10-28 11:39–11:40 那次运行 |
 |---|---|
@@ -737,7 +776,6 @@ magpie 侧栏页的 `connect-src 'none'` 是写死的（`_mp_pluginpage.go:228`�
 | accounts | rows 1 / btns 16 |
 | credits | rows 19 |
 | models | rows 15 / btns 31 |
-| providers | rows 23 / btns 25 |
 | usage | rows 20 |
 | settings | btns 3 |
 | backup | rows 56 |
@@ -749,7 +787,7 @@ magpie 侧栏页的 `connect-src 'none'` 是写死的（`_mp_pluginpage.go:228`�
 accounts rows 2、models rows 9。**这类旧数别再沿用** —— 账号池和模型目录后来都长过。
 文档写作时现测 `/__meta`：24 个 provider、`models` 892、`liveModels` 35、内嵌网关 18390。
 
-八张图逐张 `read_image` 确认过内容正确，落在 `docs/console-<tab>.png`。
+七张图逐张 `read_image` 确认过内容正确，落在 `docs/console-<tab>.png`。
 
 ### 覆盖率
 本体方法总数与控制台的覆盖率**不再手写**，由 `tests/t-rpc-cover.mjs` 从源码解析后
@@ -778,7 +816,7 @@ accounts rows 2、models rows 9。**这类旧数别再沿用** —— 账号池�
   变量；传 `provider:'loomy'` 时两个名字回包一致。
 
 ### 工具转正
-- `_shot-console.cjs` → `scripts/shot-console.cjs`（八标签实拍 + DOM 断言）
+- `_shot-console.cjs` → `scripts/shot-console.cjs`（七标签实拍 + DOM 断言）
 - `_run-console.mjs` → `scripts/run-console.mjs`（单独起容器 + 控制台，不重启 magpie）
 - 删除临时探针 `_probe-all.mjs` / `_probe-write.mjs` / `_probe-cand.mjs` / `_probe-cand2.mjs`
 
@@ -880,7 +918,10 @@ $ node scripts/shot-console.cjs
 页面 JS 报错: （无）
 ```
 `docs/console-overview.png` 实拍：`provider 19` / `模型 863 上游全量（网关可用 36）`。
-`docs/console-providers.png` 实拍：aggregate 17/6、buddy 21/20、workbuddy 32/30、cline 541/… 全部为全量数。
+~~docs/console-providers.png~~（已移档到 `docs/archive/screenshot-console-providers.png`）实拍：aggregate 17/6、buddy 21/20、workbuddy 32/30、cline 541/… 全部为全量数。
+（**2026-10-29 起「供应商」标签已从控制台移除**，上面那行 `[providers]` 与那张图一起作废，
+只作为当时那次运行的记录留在这里；现在跑 `shot-console.cjs` 不会再点这个标签，
+旧图已移到 `docs/archive/screenshot-console-providers.png` 留档。）
 （上面这组同样是**当次**的数：19 家 / 863 个模型。模型目录后来涨到 24 家 / 892 个，
 复跑会和这里不一样 —— 那是数据变了，不是这段记录失效。）
 `node scripts/test-all.mjs` → **7 通过 / 0 失败 / 0 跳过**。
@@ -1078,7 +1119,7 @@ $ node scripts/snapshot-models.mjs
 
 $ curl /api/providers | jet-hub provider 数: 24 ｜模型合计: 893
 
-$ node scripts/shot-console.cjs        # 八标签全部 err:[]
+$ node scripts/shot-console.cjs        # 七标签全部 err:[]
 $ node tests/ui-check.cjs              # 侧栏六标签均渲染正常，24 个供应商
 ```
 
@@ -2372,7 +2413,7 @@ AStudio 与 WorkBuddy-SG 两行没有图片标记、每一行推理档位都是�
 | 层 | 事实 | 出处 |
 |---|---|---|
 | 宿主 | `provider.models()` 返回**整体替换**，不与 models.dev 的 capabilities 合并 | 宿主 `info()` 尾部 `out.models = Object.fromEntries(...)` |
-| 宿主落盘 | 只认 `limit.context` / `limit.output` / `capabilities.reasoning` / `capabilities.input.image` | `host-6eabac8b763e.js:2027-2035` |
+| 宿主落盘 | 只认 `limit.context` / `limit.output` / `capabilities.reasoning` / `capabilities.input.image` | 宿主 `infoOf()` 里读 `limit` / `capabilities` 那一段（行号随宿主版本漂移，见本机 `plugin-host/` 下 5 个版本） |
 | 插件 | `modelEntry()` 原先只给 `{name, limit:{context: 128_000 硬编码, output: 8192}, tool_call}` | `src/plugin.mjs` 改前 |
 
 **数据源实测：`listModels()` 里根本没有窗口**
@@ -2519,3 +2560,757 @@ VP8X 与 VP8 30），并在测试里固定三种子格式。
 **一处仍然要人做的一步**：magpie 主程序不重载插件，`~/.config/magpie/plugin-providers.json`
 的 mtime 停在 `07:45:35`（本次改动后 `08:10` 仍未变，`touch` 无效、`magpie plugin` 无 reload
 子命令）。**重启 magpie** 后 3425 那条才不再报附件错。
+
+## 二十三、「添加账号」点了像没反应（2026-10-29，已修）
+
+用户报：控制台新建不了账号。
+
+**先排除的方向（全部 Observed）**：`account.create` 本身没坏。用 curl 直打
+`POST http://127.0.0.1:18500/api/jet-hub` 逐家试，18 家都正常返回 `loginUrl`：
+
+```
+accio      https://www.accio-ai.com/login?return_url=http%3A%2F%2F127.0.0.1%3A53665%2Fauth%2Fcallback&state=…
+astudio    http://127.0.0.1:53670/astudio/login                    （本地页，HTTP 200 text/html）
+loomy      http://127.0.0.1:58413/wechat/qr                        （本地页，HTTP 200）
+raccoon    http://127.0.0.1:60995/raccoon/login                    （本地页，HTTP 200）
+autoclaw   http://127.0.0.1:53673/autoclaw/login                   （本地页，HTTP 200）
+buddy / workbuddy / trae / zcode / qoder / qodercn / minimax /
+minimaxintl / officeace / codely / gemini / lobsterai / codearts   外站授权页
+```
+
+只有三类按设计不建：`aggregate` / `jet-hub-auto`（路由组，本来没有自己的账号）、
+`modelscope` / `opencode`（Key 型，走各自 `addAccount`）。
+
+**根因一：`window.open` 被浏览器拦掉，页面什么也不说（Observed）**
+
+CDP 实测点 `#accAdd`：弹窗 `#loginModal` 确实弹出来了（视口内 427,257 560×292），
+`#lmState` = 「等待授权…」，但劫持 `window.open` 记到：
+
+```
+[{"url":"https://www.accio-ai.com/login?...","returned":"NULL(被拦)"}]   目标页数 8 → 8
+```
+
+原因在 `console/console.js` 的 `startLogin()`：它是先 `await rpc('account.create')`
+拿到 `loginUrl`，**再**调 `window.open` —— 此时用户的点击手势已失效，Chrome/Edge
+一律返回 `null`。原代码把返回值丢了，`catch` 注释还写着「界面里已经给了地址与按钮」，
+所以页面上看不出任何异常，用户只看到「点了没反应」。
+
+修法：接住返回值，`=== null` 时把提示换成「浏览器拦下了自动弹窗（授权页必须由你
+亲手点开）。点下面的「在新窗口打开」，或复制地址到新标签页访问…」，状态改成
+「等你打开授权页…」。「在新窗口打开」是 `<a href>` 的真实点击，一定放行。
+
+**根因二：放弃授权会留下幽灵账号（Observed，本段实测发现）**
+
+`account.create` 会**立刻**在池里写一条占位条目（`nickname === id`、无凭据、
+`enabled: true`、无 `expiresAt`；**`autoclaw` 是唯一例外**，它写固定文案
+`AutoClaw (登录中...)`，见下面的三审补充），好让 `login.poll` 能查到 —— 本体只在登录**失败**
+路径自己删。用户点「关闭」放弃授权时没人删：
+
+```
+点一次「添加账号」再关掉 → state.json 多一条 accio-xxxxxxxx（实测 4 条）
+这些行在账号表里显示「启用 / 到期 — / 凭据 ref 空」，永远选不中
+```
+
+修法：新增模块级 `loginAccountId`；`closeLogin()` 先 `rpc('login.poll')` 问一次，
+已成功就保留，否则 `rpc('account.delete')` 回收；`startLogin()` 开头先收掉上一条
+stale（连点两次「添加账号」不再累积）；登录成功 / 失败路径都把它置 `undefined`，
+避免把刚拿到凭据的账号当「放弃」删掉。
+
+**验证（CDP 真跑，headless Edge）**
+
+```
+开始前 accio 账号数: 1 (accio-2e8cb773)
+弹窗 hidden: false
+提示文案: 浏览器拦下了自动弹窗（授权页必须由你亲手点开）。点下面的「在新窗口打开」…
+状态: 等你打开授权页…
+弹窗打开期间 accio 账号数: 2        ← 占位已写入，符合本体设计
+关闭后 hidden: true
+关闭后 accio 账号数: 1 (accio-2e8cb773)   ← 占位已回收
+页面异常: （无）
+```
+
+顺带清掉了实测污染与历史遗留的 4 个 id 的**占位副本**（`codearts-8e65da6c`、`buddy-cc0962ad`、
+`accio-2e8cb773`、`codearts-a40ab885`）。注意：这 4 个 id 本身仍在池里、且都带凭据
+（删掉的是同名的无凭据副本，正身保留），账号总数保持 **56**。
+
+**边界**：`#lmOpen` 的点击走浏览器默认行为，控制台无法知道用户有没有真点；5 分钟
+超时后仍需用户手动关闭（那时才会回收占位）。`aggregate` / `jet-hub-auto` /
+`modelscope` / `opencode` 四家仍按设计不走这条流程。
+
+### 二审又抓出两处真实缺陷（都是我这一轮引入的，已修）
+
+这两条不在第一轮审查的清单里，是二审针对「P1 的修复本身」再查时发现的 ——
+**修复引入的回归比原缺陷更危险**，所以单独记一笔。
+
+**① 900ms 收尾定时器会误关并误删「下一次」登录（必修）**
+
+登录成功分支原本是：
+
+```js
+loginAccountId = undefined
+setTimeout(() => { closeLogin(); loadAccounts() }, 900)
+```
+
+HEAD 版无害（`closeLogin` 只关 UI），但抽出 `reclaimPlaceholder` 之后，`closeLogin`
+变成「关 UI + 回收占位账号」。而这 900ms 里用户完全可能又点了一次「添加账号」——
+那时 `loginAccountId` / `loginTimer` 已经是**下一次**的了，定时器一响就
+`clearInterval` 掉新轮询、关掉新弹窗、并把新登录的占位账号当「放弃授权」删掉。
+
+修法：定时器开头先快照 `settledId`，回调里若 `loginAccountId !== undefined`
+说明期间开了新登录 → 直接返回；否则只关 UI，**不再走 `closeLogin()`**。
+
+**② 四字段判据挡不住 `finishLogin` 的两步窗口（必修）**
+
+本体 `finishLogin` 是两步：先 `persistLogin` 把凭据落盘，之后才 `fillAccountEntry`
+回填池条目（回填失败只 warn 不抛）。而 `login.poll` 的成功判据是「凭据能 resolve」，
+**不是**池条目三字段。于是在「凭据已写、池条目未回填」这段时间里，四字段判据会把它
+判成占位并删号，随后本体才把凭据写进来 —— 终态是「池里没账号 + 凭据库里一条孤儿
+凭据」，`removeAccount` 会连带 `credentials.unset`，**不可逆**。
+
+修法：`reclaimPlaceholder` 删之前再问一次 `login.poll`，`done === true` 就保留；
+poll 抛错也保留（保守不删）。
+
+顺带把 `isPlaceholder` 从布尔改成三态 `'yes' | 'no' | 'unknown'`，对齐本体自己的
+惯例（`vendor/lib/jet-hub-rpc.js` 的 `loginCredentialLanded` 返回
+`'yes' | 'no' | 'unknown'`，其注释记着历史 P0：「只有一个布尔 ⇒ 读凭据失败与确证
+没有凭据同样为 false ⇒ 静默收口会把健康账号连凭据一起删掉」）。现在
+`account.list` 抛错返 `'unknown'` 而不是 `'no'`，调用方只有 `'yes'` 才继续往下判。
+
+**回归测试**：新增 `tests/t-login-reclaim.mjs`（26 项，已挂进 `scripts/test-all.mjs`
+的 UNIT）。判据不是复制粘贴 —— 它从 `console/console.js` 源码文本里截出
+`isPlaceholder` / `reclaimPlaceholder` 用 `new Function` 求值，源码改了测试就跟着变，
+不会出现「测试绿但代码早变了」。900ms 定时器那段内联在轮询闭包里截不出来，所以分两步：
+先断言源码里确实有身份校验（改回去就红），再用等价复刻跑新旧两版，**证明旧版真的会
+误删下一次登录**（`旧版：把新登录的占位账号删了（必修 1 复现）` / `新版：没删任何账号`）。
+
+### 三审又抓出两处（2026-10-29，已修）
+
+**必修 ①：`autoclaw` 的占位永远删不掉**
+
+`isPlaceholder` 的昵称判据是「昵称 === id」，但 `autoclaw` 的短信登录路径
+（`vendor/lib/jet-hub-rpc.js` 的 `nickname: 'AutoClaw (登录中...)'`）写的是固定文案
+⇒ 判据恒 false ⇒ 直接返 `'no'`，**连 `login.poll` 都不问**。用户点「添加账号」→
+选 autoclaw → 直接关掉，那条幽灵条目永久留在池里 —— 正是第一轮 P1 要治的病，
+对这一家没治好。
+
+三审的实测（从源码截 `isPlaceholder` + `reclaimPlaceholder` 求值，喂各家真实占位形状）：
+
+```
+trae      isPlaceholder=yes  polls=1 deletes=1  nickname="trae-abc"
+autoclaw  isPlaceholder=no   polls=0 deletes=0  nickname="AutoClaw (登录中...)"   ← 漏删
+buddy     isPlaceholder=yes  polls=1 deletes=1  nickname="buddy-abc"
+astudio   isPlaceholder=yes  polls=1 deletes=1  nickname="astudio-abc"
+```
+
+修法：加一张 `PLACEHOLDER_NICKNAMES = new Set(['AutoClaw (登录中...)'])` 白名单，
+昵称判据改成「等于 id **或** 命中白名单」。以后上游新增别的写法把它加进去即可。
+回归测试补了「autoclaw 固定文案占位 → yes」与「真的删掉」两条。
+
+**必修 ②：「没返回 loginUrl」的 throw 泄漏状态、弹窗卡死**
+
+`startLogin()` 在 `loginAccountId` / `loginProvider` 已赋值、`#loginModal` 已
+`hidden = false` 之后，若 `loginUrl` 为空就 `throw new Error('本体没有返回 loginUrl')`
+—— 此时轮询定时器还没建立，外层只 `say('#accMsg', …)` 不清理任何状态：
+
+- 弹窗永远停在「等待授权…」且没有任何轮询，只能手动关；
+- `loginAccountId` 残留，下次点「添加账号」会被 `startLogin()` 开头当「放弃授权」
+  交给 `reclaimPlaceholder` 回收（虽然 `login.poll` 二次确认会兜住，但语义已经错了）。
+
+可达路径：`astudio` 在本机已导入 AStudio 会话时返回
+`{ accountId, loginUrl: '', reused: true }`（空串是 falsy）。本机没装 AStudio 客户端
+所以当前不可达，换一台装了并登录过的机器就可达。
+
+修法：throw 之前先 `loginAccountId = undefined` / `loginProvider = undefined` /
+`$('#loginModal').hidden = true`，错误文案也补上「这个渠道可能复用了本机已有的登录
+会话」。回归测试用 `indexOf` 定位那条 throw 并断言它前面 400 字符里确实有清状态的两句
+（不用正则 —— 这段里有引号和 `$`，转义太容易写错）。
+
+**顺带修的三条建议级**
+
+1. `tests/t-login-reclaim.mjs` 补两条存在性锚点：`closeLogin()` 里那行
+   `reclaimPlaceholder(abandoned, provider)`（三审实测：把它整条注释掉，原来 19 项
+   依然全绿 —— 也就是第一轮 P1 若回归，测试抓不到；现在用 `^\s{2}reclaimPlaceholder\(
+   abandoned, provider\)\s*$` 带 `m` 标志，注释行不算命中）。
+2. `tests/t-usage.mjs` 第 6 节的 aside 夹具改成「已失效包总额**更大**」
+   （900 > 500）—— 原来失效包更小，aside 判据即使被删掉、靠额度比较也能得出同样
+   顺序，断言恒真；改后实测删掉 `if (aAside !== bAside) …` 会红 2 项。
+3. `console/console.js` 的 `login.poll` 失败分支补 `clearInterval(loginTimer)` +
+   `loginTimer = undefined`，与成功/超时分支写法一致。
+
+### 四审（2026-10-29，1 必修 + 4 建议，已全部处理）
+
+四审逐条变异验证了三审那批修复，确认**必修 ①② 都已闭合**（M-B 删白名单判据 → 红 2 项；
+M-C 删清状态三行 → 红 1 项；M-A 注释掉 `reclaimPlaceholder` → 红 1 项；M-F 删 aside
+判据 → 红 2 项），并抓出新问题：
+
+**必修 · 文档三处仍在说旧判据**（本轮改 `each` 时漏同步）
+
+| 位置 | 原文 | 现状 |
+|---|---|---|
+| `README.md:338` | 排序按**单包平均额度**降序 | 已改「组内单个包的最大额度」 |
+| `VERIFICATION.md:701` | 排序按**单包平均额度** `total / Math.max(1, count)` | 已改写公式与三条理由 |
+| `tests/t-usage.mjs:99` | ③ 排序按**单包平均额度** | 已改 |
+
+`VERIFICATION.md` 那句最严重 —— 它把 `total / Math.max(1, count)` 写死了，而代码里这个
+公式**已经不存在**（`grep "Math.max(1" src/plugin.mjs` 零命中）。
+
+**建议 ② `tests/t-login-reclaim.mjs` 的弱断言（已修）**
+
+原断言 `src.includes('loginAccountId = undefined') && src.includes('loginProvider = undefined')`
+是全文件搜索，而这两个字符串在源码里各出现 4 次以上 ⇒ **closeLogin 完全不清理也是绿的**
+（M-H 变异实测：删掉 closeLogin 里那两行，25 项全绿）。改成切出 `closeLogin` 函数体再断言，
+M-H 现在红 1 项。
+
+**建议 ③ throw 前的断言漏查一项（已修）**
+
+原断言只查 `loginProvider = undefined` 与 `hidden = true`，**没查 `loginAccountId`** ——
+而它残留正是这条缺陷的核心后果。M-D 变异（只删那一行）原来 25 项全绿，现在红 1 项。
+
+**建议 ④ `each` 判据缺可红夹具（已补）**
+
+原来的 trae 夹具（主套餐 `each=500` vs 签到组 `each=100`）在「最大值」和「平均值」两种
+判据下顺序相同，测不出差别（M-G 变异全绿）。补了一个**平均值会被稀释**的场景：一个 500 的
+大包 + 19 个 1 的小包合成一组（`each=500`、`avg≈25.9`），另一家单个 300 的包
+（`each=avg=300`）—— 最大值判据下大包组在前，平均值判据下另一家在前。M-G 现在红 1 项：
+
+```
+✗ 1 处不符：each 判据：含大包的合并组应排第一，实际第一条是 另一家
+```
+
+**建议 ⑤ 注释事实错误 + 白名单维护纪律（已修）**
+
+`console/console.js` 原写「`vendor/lib/jet-hub-store.js` 一处」，实测第 15 处是
+`vendor/lib/accio-auth.js:525`（`jet-hub-store.js` 里 `addAccount` 只出现在注释文字中）。
+另补了一段维护触发条件：动 `account.create` 分支时必须 `grep -n "pool.addAccount({" -A 6
+vendor/lib/*.js` 逐处看 `nickname` 取值。四审同时确认 16 处占位写法**全部**被「等于 id」
+或白名单覆盖（14 处 `nickname: id` + 1 处 autoclaw 固定文案 + 1 处 accio `nickname: options.accountId`），
+没有第三类；`opencode-auth.js` 的 `'匿名通道'` 走 `ensureDefaultAnonymousSlot`、带凭据，
+不是占位，不在判据范围内。
+
+**建议 ①（同名包到期时间信息丢失）→ 决定保持现状 + 补文档**
+
+四审核了 magpie 的 window 契约：`src/plugin.mjs` 的 `auth.usage` 注释只声明 `windows?`，
+**没有字段列表**，多一个非常规字段不会被渲染也不会报错 —— 也就是「加了没用」。
+而 `resetsAt` 取最早是**保守且安全**的（用户不会误以为额度能多留）。真实数据里同名包
+绝大多数同批发放、到期相近（trae 的 20 条 `签到奖励` 只相差 1 天）。所以不加代码，
+在 `README.md:340` 补一句说明：
+
+> 同名包的到期时间如果不止一个，卡片只显示**最早**的那个（保守：宁可让用户以为快到期了，
+> 也不让额度悄悄过期）。这是刻意的取舍，不是 bug。
+
+---
+
+## 二十四、在 magpie 里「新建账号」没有语义 → 改成按账号钉住（2026-10-29）
+
+### 现象
+
+用户在 magpie 的供应商编辑器里点「连接」/「Sign in」，界面停在
+「请在浏览器中完成 Jet Hub · WorkBuddy 登录 / 正在开始登录…」不动；即使签入成功，
+同一个 provider 在 magpie 里也永远只有**一条**账号记录，点几次「连接」都覆盖它。
+
+用户的原话点破了要害：**「magpie 新建账号是由插件决定的」**。
+
+### 根因（三件事叠在一起）
+
+1. 插件声明 `auth.single: true` ⇒ 宿主 `signInKey()`（`host-*.js`）每次都返回
+   `accountsOf(provider)[0] ?? provider`，点几次「连接」都落到同一条记录上。
+2. `authorize()` 无论谁点、点几次都返回**同一个** `key`（`jet-hub-local:<provider>:direct`），
+   `settle()` 按 accountId / secret 判重 ⇒ 永远不会长出第二条。
+3. 就算 magpie 里真有两条记录，**本体选号也只看池内数组顺序**
+   （`vendor/lib/account-pool.js:1961` 注释「账号列表的数组顺序就是候选优先级」），
+   池里没有 `pin` / `sticky` / `preferredAccount` / `forcedAccount` 任何字段
+   （全文件 grep 零命中）⇒ 挑 B 仍然走 A。
+
+### 为什么「卡在正在开始登录…」只是冷启动
+
+前端 `signing.state` 停在 `starting`（magpie 前端 `app.js` 渲染 spinner 处（`signing.state === "starting"` 分支）的 `t("Starting the sign-in…")`），
+它只在 `POST /api/plugin-signin` 返回后才推进；那条路径调本插件 `authorize()`，
+而 `authorize()` 第一句是 `await liveAll(container, log)` = `container.start()`，
+**冷启动 20–30 秒**。
+
+后端与插件都没坏，三条实测反证：
+
+| 路径 | 结果 |
+|---|---|
+| `magpie web` 的 `POST /api/plugin-signin`（宿主已热） | **0.048 s** 返回 `{"state":"done"}`，冷调 0.72 s |
+| CLI `magpie plugin login jet-hub-workbuddy` | **13.7 s** 成功 |
+| 直接调 `authorize(undefined)` | node **2712 ms** / bun **1960 ms**，均 success |
+
+### 修法（四层，缺一层都不成）
+
+| 层 | 改动 | 作用 |
+|---|---|---|
+| `src/plugin.mjs` | `single: true` → `single: false` | 允许 magpie 里出现多条账号记录 |
+| `src/plugin.mjs` | 新增 `ask(inputs)` 返回 `{type:'select', key:'dshAccount', options}` | 签入时让用户从 DSH 账号池里挑一个（宿主 `nextPrompt` 契约；前端 `renderPluginAsk` 渲染成一排按钮） |
+| `src/plugin.mjs` | `authorize(inputs)` 按选中账号编 `key`/`uid` | `key = jet-hub-local:<provider>/<dshAccountId>`、`uid = <dshAccountId>`，两条记录不再被判重 |
+| `src/plugin.mjs` | `loader()` → `loader(getAuth)`，转发前 `container.runPinned(id, …)` | 宿主按 key 缓存 loader（`host-*.js` 的 `loaders.set(key, opts)`，行号随宿主版本漂移），每个 magpie 账号各一个实例，能各自知道自己是谁 |
+| `src/container.mjs` | 新增 `_pinAccounts(ctx)` + `runPinned()` + `AsyncLocalStorage` | 在请求作用域里把本体的两个选号入口（`getAvailableAccount` / `listAvailableCredentials`）收窄到被钉那一个 |
+| `src/plugin.mjs` | 新增 `warmUp()`，工厂被加载时后台起容器 | 用户点「连接」时容器多半已就绪，显著降低 GUI 停在 `starting` 的概率（容器起来前点仍会冷启动，需真 GUI 复验） |
+
+**为什么用 `AsyncLocalStorage` 而不是 `account.reorder`**（两条都是真的）：
+① reorder 是全局持久副作用，会改掉用户在 Jet Hub 里手动拖过的排序；
+② reorder 并发不安全，两个请求钉不同账号时会互踩。`AsyncLocalStorage` 是请求级的。
+
+**向后兼容**：`ask()` 未答 / 只有一个账号 / 路由组无账号时返回 `null`；`authorize()` 与
+`loader()` 在**无参**调用时行为与改造前一致（`tests/t-plugin.mjs` 就是这么调的）。
+
+### 验证（Observed）
+
+`tests/t-account-pin.mjs`（新增，11 项 → 审查后 15 项，假池不联网）：
+
+```
+基线（不钉号）：
+  ✓ 不钉时按池内顺序选第一个 —— 这就是「挑 B 却走 A」的根源
+钉住具体账号：
+  ✓ 钉住 bbb222 后选号真的走 bbb222（不再是池首的 aaa111）
+  ✓ 拿到的是被钉那个账号自己的凭据（不是池首那个的）
+  ✓ listAvailableCredentials 也只给被钉的那一个（临期折算 / 余额查询不会串号）
+边界与安全：
+  ✓ 钉的是 cline 的号 → 对 workbuddy 无效，照常按池内顺序（不跨家串号）
+  ✓ 钉的账号已不在池里 → 退回池内顺序（陈旧记录不该让整家不可用）
+  ✓ 钉住一个已停用的账号 → 返回 null（不会绕过 enabled 判据）
+  ✓ 调用方显式排除被钉的号时返回 null（不忽略 exclude 集）
+  ✓ 空串 / 空白 / undefined 都等于不钉（按池内顺序）
+并发隔离（AsyncLocalStorage 的存在理由）：
+  ✓ 两个并发请求各钉各的号，互不串（全局变量实现会在这里挂）
+幂等：
+  ✓ 重复安装幂等（不套两层包装）
+```
+
+真容器验证（`JET_HUB_NO_ADDR_FILE=1`，workbuddy 池内 20 个账号）：
+
+```
+池内前 3 个 = workbuddy-bb3380f3(enabled=true) / workbuddy-3e9d021b(enabled=true) / workbuddy-f325da61(enabled=true)
+不钉 → 选中 = workbuddy-bb3380f3
+钉住 workbuddy-3e9d021b → 选中 = workbuddy-3e9d021b
+钉住 workbuddy-f325da61 → 选中 = workbuddy-f325da61
+结论：钉住生效 = true
+钉住后 listAvailableCredentials 条数 = 1 （应为 1，且是 workbuddy-3e9d021b ）→ workbuddy-3e9d021b
+并发： workbuddy-3e9d021b / workbuddy-f325da61 → 隔离 = true
+```
+
+多账号语义（`ask()` / `authorize()` 实调）：
+
+```
+single = false
+ask({}) → type=select, key=dshAccount
+  message = 选一个要接进 magpie 的 workbuddy 账号（DSH 里共 20 个）
+  option: {"label":"betsy030（bb3380f3）","value":"workbuddy-bb3380f3"}
+  共 20 个选项
+ask({dshAccount:"x"}) = null            ← 已答过不再追问（防死循环）
+authorize({}) → key = jet-hub-local:workbuddy:direct（整家槽，向后兼容）
+authorize({dshAccount:workbuddy-bb3380f3}) → key = jet-hub-local:workbuddy/workbuddy-bb3380f3, uid = workbuddy-bb3380f3
+authorize({dshAccount:workbuddy-3e9d021b}) → key = jet-hub-local:workbuddy/workbuddy-3e9d021b, uid = workbuddy-3e9d021b
+key 不同 = true ｜ uid 不同 = true
+```
+
+全量离线测试：`node scripts/test-all.mjs` → **13 通过 / 0 失败 / 0 跳过**
+（审查后新增 `t-login-reclaim.mjs`，从 12 变 13；这是本节写就时的读数，
+之后第二十五节又加了 `t-new-account.mjs`，现为 15 通过）。
+
+### 边界
+
+- 「整家槽」（不挑账号直接签入）仍然保留：`key` 仍是 `jet-hub-local:<provider>:direct`，
+  不钉号，按本体默认顺序选号。两种记录可以并存。
+- 钉住的账号在 DSH 里被删除后，magpie 那条记录不会自动消失；请求时退回池内顺序
+  （不让整家 502），需要清理请手动在 magpie 里移除该账号。
+- `aggregate` / `jet-hub-auto` 两个路由组没有自己的账号，`ask()` 返回 `null`，走整家槽。
+- magpie 主程序**不热重载插件**，改完要重启 magpie 才生效。
+- 升级后若之前用整家槽连过，magpie 里会多出一条旧的 `jet-hub-local:<provider>:direct`
+  记录，与新挑账号的 `/<id>` 记录并存成**两个同名渠道**。这是设计如此（`settle()`
+  的判重按 key 相等，两种 key 天然不同）；新的那条优先级更高，旧的留着无害，
+  看着碍眼就在 magpie 里手动移除它。
+- **钉不住的记录**（整家一起用、按池内顺序选号）实测 9 条：`scripts/seed-auth.mjs`
+  的 5 条占位（2 个路由组 + 3 家本机未登录渠道），加 4 条 `:direct` 整家槽。
+  另有格式旧但仍能钉的（如 `jet-hub-trae` 缺顶层 `uid` 但带 `metadata.dshAccountId`，
+  `dshAccountIdOf()` 认这个字段）。
+
+### 审查发现并修正的两处真实缺陷（2026-10-29，子智能体审查）
+
+**① 两层 pool 包装的安装顺序反了 —— 钉住死号会绕过死号过滤。**
+`_start()` 里原本 `_filterDeadAccounts()` 先装、`_pinAccounts()` 后装。两层包装是
+栈式叠加，**后装的在外层**，所以钉号在外层：它把结果直接替换成被钉的那一条、
+不再问内层。于是用户钉了一个「已过期且不可续期」的账号时，死号过滤被整个绕过，
+整家渠道立刻 502 —— 而 `_filterDeadAccounts` 存在的理由正是拦这种号
+（codearts 的 `STS5.1806`）。
+
+修法：把 `_pinAccounts()` 挪到 `_filterDeadAccounts()` **之前**（钉号在内层收窄候选，
+死号过滤在外层把死号并进 `excludeAccountIds` 传给内层，内层见自己被排除就返 null）。
+`tests/t-account-pin.mjs` 新增回归锁：钉住死号 → `getAvailableAccount` 必须返 null、
+`listAvailableCredentials` 必须为空。
+
+**② `listAvailableCredentials` 包装漏了 `modelRateLimits` 判据。**
+`getAvailableAccount` 的包装复刻了本体三条判据（`excludeAccountIds` / `modelRateLimits`
+/ `enabled`），但 `listAvailableCredentials` 的包装只判了 `enabled`。结果钉了一个在
+当前模型上限流未到期的号时，两个入口对同一请求给出**相反**答案。
+生产路径上暂不可达（唯一调用点 `vendor/lib/aggregate-expiry.js` 传空 modelId，
+而空 modelId 在本仓库语义是「不按模型过滤」），但两个包装必须语义一致。
+已补齐，并在测试假池里照抄本体的三条判据 + 新增两条限流用例。
+
+---
+
+## 二十五、在 magpie 里也能新建账号（2026-10-29）
+
+### 现象
+
+m05344 用户原话：**「只能添加已有账号，不能新建账号」**。截图是 magpie 供应商页
+WorkBuddy 一行：点「连接」后弹出一排 `betsyXXX` 按钮让用户挑，挑完就签入 ——
+只能从 DSH 已有的 20 个号里选，没有任何「建一个新号」的入口。
+
+### 根因
+
+上面第二十四节把 `single: true` 改成 `single: false` 并加了 `ask()` 选账号，
+解决了「加不出第二条」的问题，但**仍然只有一条 `type: 'api'` 的方法**，而
+magpie 的「新增账号」在插件体系里就是 `auth.methods[]` 的函数：
+
+- 只有 `api` 型 → 只能「拿一个 key / 接一个已有号」，没有「发起一次授权流程」的能力；
+- `oauth` 型才有 `authorize() → {url, ...}` + `callback()` 这套「去浏览器里操作」
+  的语义，magpie 会开 URL、后台等回调、完成后落一条签入记录。
+
+所以「不能新建」不是 magpie 的限制，是插件只声明了一种方法。
+
+### 实测：哪些家真的能建（20/24）
+
+`C:/Users/Betsy/AppData/Local/Temp/probe-create.mjs`（magpie-bun 1.4.4，逐个
+`POST http://127.0.0.1:18500/api/jet-hub` 的 `account.create`）：
+
+| 结果 | 家数 | 渠道 |
+|---|---|---|
+| 返回 `{accountId, loginUrl}` | **20** | accio / astudio / autoclaw / autoclawintl / buddy / cline / codearts / codely / gemini / lobsterai / loomy / minimax / minimaxintl / officeace / qoder / qodercn / raccoon / trae / workbuddy / zcode |
+| `unknown provider` | **4** | `aggregate` / `jet-hub-auto`（路由组，本体里没有自己的账号）、`modelscope` / `opencode`（Key 型，走各自 `*.addAccount`） |
+
+探针造的占位账号已全部 `account.delete` 清掉，账号池回 56。
+
+### 修法：给 20 家再声明一条 `oauth` 型方法
+
+`src/plugin.mjs` 的 `methods` 数组现在是：
+
+```js
+methods: [
+  { type: 'api', keyless: true, ask(), authorize() },   // 接一个已有号（第二十四节）
+  ...(NO_NEW_ACCOUNT.has(dshProvider) ? [] : [{         // 新建一个号（本节）
+    type: 'oauth',
+    authorize() { ... },   // 只拿 URL
+    callback()  { ... },   // 阻塞等用户
+  }]),
+],
+```
+
+`NO_NEW_ACCOUNT = new Set(['aggregate', 'jet-hub-auto', 'modelscope', 'opencode'])`
+—— 对这四家调 `account.create` 本体直接回 `unknown provider`，所以干脆不声明，
+免得用户点了才看到报错。
+
+magpie 侧**不需要任何改动**：`startPluginSignIn` 看到 `ms.length > 1` 时会先渲染
+「How do you sign in to {name}?」让用户选方法（`signing.state === 'method'` 分支），
+选完才走对应流程。
+
+### 链路设计上的关键约束
+
+| 约束 | 依据 | 违反的后果 |
+|---|---|---|
+| `authorize()` **只等 `account.create`，不等用户** | magpie `pluginBegin()` 用 `context.WithTimeout(..., time.Minute)` 把整个 `plugin.Authorize` 包住 | 必然撞 1 分钟硬超时（正是之前 GUI 卡在「正在开始登录…」的成因） |
+| 等用户在 `callback()` 里 | 非 code 型时 `pluginBegin()` 起 `go func() { saved, err := plugin.Finish(wait, a.Session, "") }` —— magpie 拿到 `authorize()` 的返回值就**立刻**在后台调 `callback()` | 用户登录完了也没人收口 |
+| 超时取 **9 分钟**，小于 magpie 的 10 分钟 | `signInTimeout = 10 * time.Minute`（`internal/provider/signin.go:48`） | 用户只看到一句「超时」，不知道是自己没登录完 |
+| **单次 `login.poll` 另设 15 秒上限**（`LOGIN_POLL_TIMEOUT_MS`） | `container.rpc()` 自己没有超时（只是 `route.fetch()`），而 `login.poll` 内部走 `credentials.resolve()`，officeace / astudio 还有「凭据不可用时现换一次」的联网分支 | 一次轮询挂住 ⇒ 等待链停在 `await` 上，`deadline` 判据走不到。**有守卫后不会「永不返回」**：15 秒被打断、记成「这一次没问到」继续等 |
+| **`account.create` 另设 45 秒上限**（`CREATE_TIMEOUT_MS`） | 本体是「先登记占位、再 `await` 各家 `startLogin()`」（qoder / loomy / raccoon / minimaxintl / gemini / officeace / autoclaw / astudio 都是这个形状） | 某家 `startLogin` 卡住 ⇒ 占位已进池、`rpc()` 不返回 ⇒ `authorize()` 挂住，magpie 1 分钟硬超时到点取消、插件还在 await |
+| 失败删占位前**再摸一次 `login.poll`** | `account.delete` 连带 `credentials.unset`，不可逆；用户可能恰在超时那刻登录成功 | 误删一个刚登录好的号且凭据一起没了 |
+| 空 `loginUrl` 且 `reused: true` 是**成功**出口 | 本体 astudio 分支在「登录方式不是 `web` 且 `importLocalSession()` 成功」时回 `{ accountId, loginUrl: '', reused: true }`，账号条目与凭据此刻都已就位 | 用户看到「新建失败」，池里却多了一个凭据齐全的可用账号，且没人清理 |
+| `abandonAccount()` 返回三态 | 收尾那次 `poll` 若说「已完成」，账号其实已经登录成功、也真留在池里 | 只返回布尔 ⇒ 调用方一律 throw ⇒ magpie 把一条**可用**账号标成失败，下一次 `ask()` 里冒出陌生号 |
+| `kept` 的判据必须是 `done === true && success !== false` | 本体 `login.poll` 里 `loginFailureOf()` **优先于一切进度判据**：用户关掉授权页 / 点拒绝 / 设备码输错超时都记终态失败，此后每次 poll 都回 `{ done: true, success: false }` | 只判 `done` ⇒ **每一次主动放弃**都被当成「其实登录成功了」⇒ magpie 里留一条绿色的「已新建」记录，而账号根本不存在（2026-10-29 二审发现） |
+| `container.start()` 也要套 `withDeadline`（`START_TIMEOUT_MS = 12s`） | `start()` 自己允许等到 40 秒（`src/container.mjs` 的 `hardDeadline`），40 + 45 = 85 秒 > magpie 给 `authorize()` 的 1 分钟 | 本体 llm 40 秒没起来时，`authorize()` 必然撞穿 1 分钟硬超时；12 + 45 = 57 秒留 3 秒余量（2026-10-29 二审指出预算没算这一段） |
+
+`opened` 从本体 `account.create` 的 `incognitoOpened` 取（codearts 那家会自己
+`openIncognitoWindow` 拉起无痕窗）：magpie 侧 `plugins.go` 是
+`if w != nil && !st.Opened { failed = openError(w, st.URL) }` —— 说 `opened: true`
+它就不开窗，否则会再开一个带旧 cookie 的窗口，「新建」永远只能建出同一个号。
+
+### 实测：`authorize()` 真的只拿 URL
+
+`probe-oauth.mjs` 直接调 `JetHubClinePlugin` 的 `methods[1].authorize({})`：
+
+```
+[cline] 新建账号 cline-b2d251c4，登录页 https://authkit.cline.bot/device?user_code=GXCG-RSCT
+耗时 2488 ms
+返回: {
+  "url": "https://authkit.cline.bot/device?user_code=GXCG-RSCT",
+  "instructions": "在打开的页面里登录要新建的 cline 账号。完成后这一行会自动变成已签入，不需要回来点什么。",
+  "opened": false,
+  "callback": "function"
+}
+cline 账号: cline-14b988df(1765502914@qq.com), …, cline-b2d251c4(占位)
+清理占位: cline-b2d251c4 → 清理后 cline 账号数: 6
+```
+
+2.5 秒返回（含容器冷启动），占位账号按本体设计立刻进池，`account.delete` 能干净收掉。
+
+### 自查与审查发现并修掉的两处真实缺陷：单次调用没有上限
+
+写完之后自查「如果 `login.poll` 这一次永远不返回会怎样」，答案是会漏账号：
+
+- `container.rpc()`（`src/container.mjs` 的 `async rpc(method, payload)`）**没有超时**，
+  它就是 `await route.fetch(req)` 再 `resp.json()`；
+- `login.poll` 内部会 `await ctx.credentials.resolve(ref)`，officeace / astudio 还有
+  「凭据不可用时现换一次」的联网分支 —— 真能挂住；
+- 挂住 ⇒ `waitForLogin()` 卡在 `await pollLoginOnce(...)`，`deadline` 判据永远走不到；
+  magpie 那边 10 分钟到点、`plugin.Finish` 收超时，而插件的 `callback()` 还在等 ⇒
+  `abandonAccount()` 永远不会被调用 ⇒ **本体那条占位账号永远留在池里**。
+
+修法：`pollLoginOnce()` 用 `Promise.race` 套一个 `LOGIN_POLL_TIMEOUT_MS = 15_000`
+的守卫定时器，超时当「这一次没问到」处理（与单次 rpc 抛错同一路径），
+`finally` 里 `clearTimeout`。
+
+**同一形状的第二处（子智能体审查发现）**：`account.create` 也没有上限。本体
+`account.create` 里 15 处 `pool.addAccount` 之后仍有 `await` 的分支有 8 家
+（qoder / loomy / raccoon / minimaxintl / gemini / officeace / autoclaw / astudio），
+某家 `startLogin()` 长时间不返回就是「占位已进池、`rpc()` 不返回」。修法：抽出
+`withRpcDeadline(container, method, payload, ms, what)`，`account.create` 套
+`CREATE_TIMEOUT_MS = 45_000`（必须小于 magpie 给 `authorize()` 的 1 分钟）。
+
+⚠️ 这里踩过一个坑：一开始给定时器加了 `timer.unref()`，结果 `rpc()` 真挂住时
+事件循环里只剩这个「不算活跃句柄」的定时器，Node 判定无事可做**直接退出**
+（实测 `Warning: Detected unsettled top-level await`，进程空转退出、`test-all` 报
+`exit 13`）。`unref()` 已删除，收口靠 `finally clearTimeout`。
+
+### 二审又抓出两处（新建账号这一轮引入的，已修）
+
+**① `abandonAccount()` 的 `kept` 判据漏了 `success`。** 原写法 `if (s.done === true)`。
+本体 `login.poll` 里 `loginFailureOf()` **优先于一切进度判据** —— 用户关掉授权页、
+点拒绝、设备码输错超时，都会记下终态失败，此后每次 poll 都回
+`{ done: true, success: false, error: '授权页被关掉了' }`（`LOGIN_FAILURE_TTL_MS` 是
+30 分钟，撑满 9 分钟等待绰绰有余）。于是**用户任何一次主动放弃**都被当成
+「其实登录成功了」：
+
+```
+waitForLogin → {"ok":false,"error":"授权页被关掉了"}
+[log] [cline] 放弃新建时发现 cline-abc 其实已登录成功，保留它
+abandonAccount → fate='kept'   →   callback 会 throw 吗：false
+accountById → undefined（账号根本不存在）
+✗ callback() 返回 {"type":"success","accountId":"cline-abc·已新建",…}
+```
+
+后果比原先那个「超时那刻刚好登录成功」的极端场景严重得多 —— 那是极罕见，这是
+**最常见路径**，且 magpie 里会留一条绿色成功但指向不存在账号的记录。同一份 `s`，
+`waitForLogin()` 里判了 `success === false`，`abandonAccount()` 没判，两处判据不一致。
+修法一行：`if (s.done === true && s.success !== false) {`。测试侧原先零覆盖
+（把判据改成正确写法，测试照样全绿），已补三条用例：`{done:true, success:false}`
+→ `fate !== 'kept'`、`fate === 'deleted'`、占位真被删。
+
+**② `authorize()` 的 1 分钟预算没算 `container.start()`。** `start()` 自己允许等到
+40 秒（`src/container.mjs` 的 `hardDeadline`），`CREATE_TIMEOUT_MS` 是 45 秒，
+40 + 45 = 85 秒 —— 早撞穿 magpie 给 `authorize()` 的 1 分钟硬超时。此前那句
+「45 秒必须小于 1 分钟」的论证只算了 create 一段。修法：抽出通用的
+`withDeadline(promise, ms, what)`（`withRpcDeadline` 改成它的薄封装），给
+`container.start()` 套 `START_TIMEOUT_MS = 12_000`。12 + 45 = 57 秒，留 3 秒余量；
+实测冷启动 1.4 秒，12 秒纯属兜底。注意 `start()` 是**幂等共享 promise**，在外面
+race 掉它只让本次 `authorize()` 尽快失败，不会取消真正在跑的启动。
+
+顺带把测试侧的预算断言改成**读源码真值**：测试为了跑得快会把
+`CREATE_TIMEOUT_MS` 替换成 120ms，拿 `make()` 返回的值做算术永远绿，等于没测。
+
+**③ 文档两处变异红项数写错**（「12 项」「3 项」），实测是 6 项和 3 项，已按实测订正
+成完整表格。
+
+**④ 测试侧缺 `DSH_OFFICEACE_HOME` 隔离**（二审顺带指出）：officeace 的凭据目录
+走 `DSH_OFFICEACE_HOME`，**不受 `DSH_HOME` 约束**（`vendor/lib/officeace-auth.js`
+的 `officeaceHome()`）。不隔离的话，第 7 节真起容器时会去读真实
+`~/.dsh-officeace/session.json`，还可能发起一次 STS 续期 —— refresh_token 是一次性的，
+一旦被消费用户的号就掉线。已在 `tests/t-new-account.mjs` 头部指到临时空目录。
+
+### 回归测试
+
+新增 `tests/t-new-account.mjs`（不联网、不碰真实 `~/.dsh`），判据**从
+`src/plugin.mjs` 源码文本截出来用 `new Function` 求值**，不是复制粘贴 ——
+源码改了测试跟着变。共 **142 项**断言（其中 20 家 × 3 项是方法形状的循环断言）：
+
+1. `NO_NEW_ACCOUNT` 恰好 4 家且正是那四家；`workbuddy` 不在名单里；
+2. `startNewAccount()`：正常透传 `accountId` / `loginUrl` / `incognitoOpened`、
+   清掉该家账号缓存、缺 `loginUrl` 抛人话错误并带上本体原文、本体拒绝时错误不被吞；
+3. `waitForLogin()`：`done+success` → ok；`done+success:false` → 用本体的人话；
+   本体没给原因时补兜底；`done:false` 不算终态继续等；**单次轮询抛错不算终态**；
+   一直等 → 超时文案说清「没在浏览器里完成」；
+4. `abandonAccount()`：poll 说完成且 `success !== false` → 绝不删且返回 `kept`；
+   **poll 回 `{done:true, success:false}`（用户主动关掉授权页）→ 不能当 `kept`，
+   要按确认失败收掉占位**；poll 抛错 / 挂住 → 保守不删且返回 `unknown`；
+   确证未完成 → 删且返回 `deleted`；
+5. 空 `loginUrl` 的分辨：`reused: true` 当成功出口、无 `reused` 仍抛错、
+   连 `accountId` 都没有时 `reused` 也救不了；
+6.2 `authorize()` 的超时预算：源码里读真值 `START_TIMEOUT_MS + CREATE_TIMEOUT_MS
+   < 60000ms`（不能用 `make()` 里被替换成 120ms 的值做算术，那恒绿等于没测）；
+   `withDeadline()` 对挂住的 promise 会按传入毫秒打断并抛可读错误、正常路径原样透传；
+6. 源码守卫：**先剥注释再匹配**（裸正则会拿注释里的函数名当「调用」），
+   `authorize()` 段里不出现 `waitForLogin`、真的调了 `startNewAccount(`、有
+   `opened:`；`withDeadline()` 段里**不出现 `.unref(`**（有的话超时错误永远抛不出来，
+   进程直接 exit 13）；`callback()` 段里真的 `await waitForLogin(`、真的调了
+   `abandonAccount(`、认 `fate !== 'kept'`、对 `reused` 走成功出口；
+7. `oauth` 方法形状：20 家有、4 家无、无 `ask()`、label 含「新建」；
+8. 已挂进 `scripts/test-all.mjs` 的 `UNIT`。
+
+第 5.5 节专门盖单次轮询上限：假容器吐 `'hang'`（返回一个永不 resolve 的 Promise），
+断言「挂住的 poll 会被超时打断」「一次挂住不算终态、下一轮成功就成功」
+「全程挂住 → 到点给出人话失败而不是永不返回」，并断言整体耗时在测试时限内收口。
+第 5.6 节同样盖 `account.create` 上限（`create: 'hang'`）。
+
+测试自身还有三道保险（都是审查指出后补的）：
+
+- **看门狗**：`watchdog(p, ms, what)` 给被测调用套一层测试侧上限。被测代码要是
+  没有自己的超时，`await` 会挂死、node 以 `exit 13`
+  （`Detected unsettled top-level await`）退出 —— 那是红，但红得看不出是哪条断言。
+  包一层后变成一条可读的失败。
+- **替换守卫**：四处 `body.replace('const NEW_ACCOUNT_WAIT_MS = 9 * 60 * 1000', …)`
+  是精确字符串匹配，源码改一个空格（`9*60*1000`）就静默不生效、测试拿着 9 分钟
+  真值跑（表现为挂死而不是报红）。所以每条替换后都走 `ok()` 记一条红再
+  `process.exit(1)` —— 四审指出原来只 `console.error`，`CREATE_TIMEOUT_MS` 改名时
+  红的是 stderr 那行、0 条断言计数，看不出是哪一条。
+- **退出即清理**：`cleanupTmp()` 挂在 `process.on('exit')` 上，不只在文件末尾调一次。
+  中途的替换守卫（`process.exit(1)`）和未捕获异常都会跳过末尾那行，四审实测两种
+  异常路径各在 `%TEMP%` 留一个空目录。
+
+变异验证（每条改完立刻 `finally` 还原、`md5` 双确认，基线
+`682ae5a96f2de2ab5c324a52b9c898d7`）：
+
+| 变异 | 红项数 |
+|---|---|
+| 删掉真实 `startNewAccount` 调用只留注释 | 2 |
+| 删掉真实 `waitForLogin` 调用只留注释 | 1 |
+| `abandonAccount` 收回布尔（丢掉 `kept`） | 2 |
+| 空 `loginUrl` 一律当失败（丢掉 `reused` 出口） | 6 |
+| 去掉 `account.create` 的 `withRpcDeadline` | 3 |
+| `kept` 判据退回 `done === true`（丢掉 `success:false`） | 4 |
+| 去掉 `container.start()` 的 `withDeadline` | 2 |
+| `START_TIMEOUT_MS` 改名（读不到常量） | 2 |
+| `CREATE_TIMEOUT_MS` 改名（替换守卫变红） | 2 |
+| `START_TIMEOUT_MS = 20_000`（超预算） | 2 |
+| `START_TIMEOUT_MS = 20_000.5`（小数） | 2 |
+| `START_TIMEOUT_MS = 20e3`（科学计数法） | 2 |
+| 给 `withDeadline` 的定时器加 `unref()` | 2 |
+| 给 `withRpcDeadline` 加 `unref()` | 2 |
+| 给 `pollLoginOnce` 加 `unref()` | 2 |
+| `const u = timer.unref.bind(timer); u()`（别名写法） | 2 |
+| `withDeadline` / `withRpcDeadline` / `pollLoginOnce` 任一改名 | 2 |
+
+**十七条都能变红。** 前五条之外的来历：`START_TIMEOUT_MS` 那四条与 `unref` 四条是
+三审（2026-10-29）指出后补的 —— 盖「源码里读不到常量时不能崩 `ReferenceError`
+（那会 exit=1 却 0 条 ✗）、正则要能吃小数与科学计数法、有人手滑把 `unref()` 加回
+定时器」；最后两条是四审（2026-10-29）指出后补的 —— 原来 `unref` 守卫只切到
+`withDeadline` 一个函数，给 `withRpcDeadline` / `pollLoginOnce` 加 `unref()` 全绿
+放行（`pollLoginOnce` 是真实风险点：它另写了一遍同样的 `setTimeout` + `Promise.race`），
+切段用两个 `indexOf` 也没守卫。更早两条是二审补的：用户**任何**主动放弃授权都会被
+当成「其实登录成功了」，以及 `start()` 的 40 秒没算进 `authorize()` 的 1 分钟预算
+（40 + 45 = 85 秒）。
+
+三审还抓到一个**真实污染**：第 7 节调 24 个工厂时 `containerFor()` 拿不到 `home`
+就回退 `homedir()`，`warmUp()` 又在后台真起容器 —— 实测第 2548ms 写出了
+真实 `~/.dsh/cache/models-dev.json`（52990 字节），而本文件 985ms 就跑完，
+**纯靠侥幸没污染**。现在文件头就把 `DSH_HOME` 与 `DSH_OFFICEACE_HOME` 指到临时目录，
+并在第 7 节显式传 `{ home: TMP_HOME }`；实测跑完真实 `models-dev.json` 的
+`mtime_ns` 与 `size` 前后完全一致（`1793245109344625700 / 52990`）。
+
+跑法：`node tests/t-new-account.mjs` → `✓ 全部通过（新建账号链路：四家豁免、
+只拿到 URL 就返回、三种终态、删除前三道闸门）`。
+
+### 全量测试
+
+`node scripts/test-all.mjs` → **15 通过 / 0 失败 / 0 跳过**
+（t-writerefs 84ms、t-dead-account 114ms、t-account-pin 157ms、t-usage 8457ms、
+t-checkin 4685ms、t-options 130ms、t-attachments 106ms、t-plugin 3460ms、
+t-models-nowait 45149ms、t-seed-auth 294ms、t-import-backup 1250ms、
+t-login-reclaim 2284ms、t-new-account 943ms、t-rpc-cover 76ms、t-patrol 62ms）。
+
+### 一个必须说清的边界
+
+**`oauth` 方法真的会在本体里建账号并写凭据**。它调的是本体的
+`account.create`，与本体的 Jet Hub 界面里点「添加账号」完全同一条路径 ——
+所以用户在 magpie 里建出来的号，回 DSH 的 Jet Hub 里也能看到、能用。
+不想要了要**去控制台或 DSH 删**，删除会连带清凭据。
+
+另有两处历史遗留的「无凭据占位」这次被顺手清掉
+（`codely-972673af` / `officeace-900efe1b`，`createdAt` 落在 2026-10-29 14:30，
+是上一轮探针留下的，`nickname === id` 且 `.credentials.yaml` 里连 ref 都没有）：
+`account.delete` 两条都回 `{"ok":true}`，账号池回 **56**、无凭据占位 **0**。
+
+## 二十六、GitHub 收件箱巡检（2026-10-29，新增能力）
+
+需求：每 30 分钟自动看一遍本仓库的 issue / PR 收件箱。**只读**，不改远端任何状态。
+
+### 为什么不是 DSH 的 schedule
+
+DSH 自带 `@deepseek-ai/dsh-schedule` + `@deepseek-ai/dsh-tool-schedule`，
+看起来是现成答案，实际在这台机器上**用不了**，查证过程：
+
+1. `~/.dsh/profiles/node_modules/@deepseek-ai/` 下 250 个条目里，`dsh-schedule`、
+   `dsh-tool-schedule`、`dsh-tool-jobs`、`dsh-client-ui-schedule`、`dsh-goal`
+   **全是指向 `/d/DSH Desktop/resources/app/node_modules/...` 的失效符号链接**
+   —— 真实安装路径是 `/d/DSH`（没有 ` Desktop` 后缀），链接全断。
+2. `~/.dsh/profiles/desktop/cordis.patch.yml` 与 `web/cordis.patch.yml` 里
+   grep `schedule` 无结果，`~/.dsh/storages/` 下也没有 schedule 存储
+   → 服务**没有实际挂载**。
+3. 内置 `dsh-web-app/cordis.patch.yml:140-141` 与 `presets/standard.patch.yml:36-37`
+   确实声明了这两个服务，但当前会话的工具列表里没有 `schedule_*`
+   → 声明了没生效。
+
+修它要动用户现有的 DSH profile 依赖，收益不抵风险，所以改用 **Windows 计划任务**：
+它本来就属于操作系统，不依赖任何 DSH 进程活着，笔记本重启也还在。
+
+### 为什么不用 `gh` CLI
+
+这台机器上 **`gh` 未安装**（`command not found`），也没有 `~/.config/gh`。
+所以脚本走 Node 内置 `fetch` 直连 `api.github.com`。
+
+凭证走 `git credential fill` —— 和 `git push` 用同一套凭据，
+不额外存明文 token。实测非交互上下文（计划任务里）也能取到（`GOT len=40`）。
+
+⚠️ **必须认证**：匿名请求 `api.github.com` 在本机出口 IP（203.10.98.186）上
+直接吃 403 rate limit exceeded，所以脚本取不到凭证时以退出码 2 明确失败，
+不会退化成匿名请求。
+
+### 增量判据（这是整个脚本最容易错的地方）
+
+`fingerprint = state | updatedAt | comments | labels | draft`
+
+- 标题**有意不进**指纹。理由：改标题几乎必然刷新 `updated_at`，
+  已由那一项覆盖；而把标题塞进来会让「编辑标题」和「新评论」混成同一类事件。
+  这条取舍在 `tests/t-patrol.mjs` 里被**显式锁定**，防止以后被无声改掉。
+- key 用 `${kind}#${number}` 而非裸 `number`。GitHub 的 issue 与 PR **共享编号空间**，
+  但 `/issues` 接口会把两者一起返回；只按 number 做 key 会丢条目。
+  实测构造 `issue#5` + `pr#5` → 快照里正确占两条。
+
+### 验证结果
+
+- `node scripts/gh-patrol.mjs` 首跑：「open 0（issue 0 / PR 0）」+「首次巡检，已建立基线」；
+  二跑：「无变化」。
+- 伪造旧快照（塞一条不存在的 `issue#42`）再跑 → 报告正确输出
+  「## 已关闭 / 已合并（1）· issue#42 一个虚构的旧 issue」，证明「消失即关闭」这条链路通。
+- 用 `renderReport` 直接喂 2 新增 / 1 更新 / 1 关闭的混合数据 → 五个分段
+  （新增 / 有更新 / 已关闭·已合并 / 当前待处理 PR / 当前待处理 Issue）全部按预期渲染，
+  草稿 PR 带「草稿」标记。
+- 计划任务注册后 `Start-ScheduledTask` 手动触发：
+  `LastRunTime=10/29/2026 14:46:22`、`LastTaskResult=0`、
+  `NextRunTime=10/29/2026 15:00:00`；`patrol.log` 收到
+  `[gh-patrol] Betsy20/magpie-Jet-Hub 无变化 · open 0（issue 0 / PR 0）· 限额剩 4991`
+  —— 说明**非交互上下文里凭证也取得到**，这是最值得验的一条。
+- `Get-ScheduledTask` 回读确认：`Execute=cmd.exe`、
+  `Arguments=/d /c ""D:\nodejs\node.exe" "...\scripts\gh-patrol.mjs" --notify >> "...\patrol.log" 2>&1"`、
+  `WorkDir=D:\dsh-build\magpie-Jet-Hub`、`Repetition: interval=PT30M duration=[]`
+  —— **duration 为空正是「无限重复」的正确表达**。
+
+### 两个真踩的坑
+
+1. **`-RepetitionDuration ([TimeSpan]::MaxValue)` 注册失败。**
+   报 `任务的 XML 包含格式不正确或超出范围的值。(10,42):Duration:P99999999DT23H59M59S`
+   / `HRESULT 0x80041318`。它序列化成 `P99999999DT23H59M59S`，超 XML Duration 上限。
+   正确写法是**省略 `<Duration>` 元素**，所以脚本改用 `Register-ScheduledTask -Xml`。
+2. **`.ps1` 不带 UTF-8 BOM 会被 PowerShell 5.1 按 ANSI 解码**（实测 5.1.26100.9711），
+   文件里的中文注释吃掉后面的引号，报 `字符串缺少终止符`、
+   `"&&"不是此版本中的有效语句分隔符` —— 看起来像语法错，其实是编码错。
+   `scripts/install-patrol-task.ps1` 必须以带 BOM 的 UTF-8 保存。
+   另外 `$PSScriptRoot` 在被 bash 以 `-File` 调起时可能为空（`Join-Path` 会拿到
+   null 直接抛错），所以脚本给了多候选路径兜底并支持 `-RepoRoot` 显式传。
+
+### 契约测试
+
+`node tests/t-patrol.mjs` → `✓ gh-patrol 契约全部通过（normalize / fingerprint / diffSnapshots）`
+
+不联网、不要凭证，覆盖：issue/PR 区分、`user:null` → `ghost`、
+标签兼容对象与裸字符串、五类变化都算变化、标题不算变化、
+首跑全算新增、稳定态三组皆空、混合态三组计数、issue#5 与 pr#5 不撞车。
+已并入 `scripts/test-all.mjs` 的 `UNIT`。

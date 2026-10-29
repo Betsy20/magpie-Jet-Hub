@@ -391,13 +391,144 @@ async function compAction(btn, which) {
 
 /* --- 登录流程 --- */
 let loginTimer
+// 正在登录的账号 id。`account.create` 会**立刻**在池里写一条占位条目（无凭据、
+// 昵称就是 id），好让 login.poll 能查到；本体只在登录失败时自己删它。用户点
+// 「关闭」放弃授权时没人删 —— 那些占位就变成池里一行「启用 / 无到期 / 凭据 ref
+// 空」的幽灵账号（实测：点一次添加账号再关掉，state.json 就多一条
+// accio-xxxxxxxx）。所以关闭时由这里负责回收。
+let loginAccountId
+/** 这次登录弹窗对应的 provider —— 回收占位账号时要按 provider 查池。 */
+let loginProvider
 
 const SMS_PROVIDERS = new Set(['loomy', 'autoclaw'])
+
+/**
+ * 这条账号是不是「还没登录成功的占位条目」？—— 直接查账号池，不信 `login.poll` 的时序。
+ *
+ * ⚠️ 不能用「有没有 `credentialRef`」当判据：accio 的占位条目**照写**
+ * `credentialRef: refName`（`vendor/lib/accio-auth.js` 的 `startLogin`，注释说
+ * 「占位条目必须在返回 loginUrl 之前登记」），只是那条 ref 在
+ * `.credentials.yaml` 里还没有值。其余家走 RPC 登记，形状相同。
+ *
+ * 占位条目的真实形状（实测 state.json）：
+ *   { id, provider, nickname: <与 id 完全相同>, enabled: true,
+ *     credentialRef: <有>, refreshable: false, createdAt, 无 expiresAt }
+ * 登录成功后 `finishLogin` 会把 nickname 换成真实昵称、refreshable 置真、
+ * 补上 expiresAt —— 三条一起变，所以三条一起判。
+ *
+ * 昵称判据有两个可接受值：**等于 id**（15 家），或命中
+ * `PLACEHOLDER_NICKNAMES`（autoclaw 的 `'AutoClaw (登录中...)'`）。
+ *
+ * 宁可漏删也不误删：`removeAccount` 会连带 `credentials.unset`，不可逆。
+ * 所以再加一道时间窗：只回收**刚刚创建**的（10 分钟内）。历史遗留的怪账号
+ * （实测池里有 4 条 nickname === id 但有 expiresAt 的真账号）一律不碰。
+ */
+const PLACEHOLDER_MAX_AGE_MS = 10 * 60 * 1000
+
+/**
+ * 占位条目的昵称白名单 —— 除「昵称就等于 id」之外的写法。
+ *
+ * 15 家走 `nickname: id`（`vendor/lib/jet-hub-rpc.js` 里 14 处
+ * `nickname: id` + `vendor/lib/accio-auth.js:525` 一处），但 autoclaw 的短信
+ * 登录路径写的是**固定文案**（`vendor/lib/jet-hub-rpc.js` 的
+ * `nickname: 'AutoClaw (登录中...)'`）—— 只按「昵称 === id」判会把它判成 `'no'`，
+ * 于是用户点「添加账号」→ 选 autoclaw → 直接关掉，那条 `AutoClaw (登录中...)`
+ * 就永远留在池里（三审实测复现）。
+ *
+ * 这里只登记**已确证**的固定文案。
+ *
+ * ⚠️ 维护触发条件：动 `vendor/lib/jet-hub-rpc.js` 的 `account.create` 分支时，
+ * 必须 `grep -n "pool.addAccount({" -A 6 vendor/lib/*.js` 把每一处的 `nickname`
+ * 取值看一遍 —— 一旦出现第三种写法（既不是 id、也不在这张表里），这一家的占位
+ * 就永远删不掉。`login.poll` 二次确认和 10 分钟时间窗都**不是**兜底：判成 `'no'`
+ * 之后根本走不到 poll 那一步，时间窗只会让判据更严。
+ */
+const PLACEHOLDER_NICKNAMES = new Set(['AutoClaw (登录中...)'])
+
+/**
+ * 三态判据，对齐本体自己的惯例（`vendor/lib/jet-hub-rpc.js` 的
+ * `loginCredentialLanded` 返回 `'yes' | 'no' | 'unknown'`，其注释记着历史 P0：
+ * 「只有一个布尔 ⇒ 读凭据失败与确证没有凭据同样为 false ⇒ 静默收口会把
+ * 健康账号连凭据一起删掉」）。
+ *
+ * 这里只回答「是不是占位」，但**读不到池条目时返 `'unknown'` 而不是 `'no'`**，
+ * 让调用方能区分「确证不是占位」与「问不出来」—— 后者一律不删。
+ */
+async function isPlaceholder(accountId, provider) {
+  let v
+  try {
+    v = await rpc('account.list', { provider })
+  } catch {
+    return 'unknown'
+  }
+  const hit = (v?.accounts ?? []).find((a) => String(a?.id ?? '') === String(accountId))
+  // 池里找不到 = 它已经不在池里了（本体自己删过 / 别处删过），不是「占位」。
+  if (!hit) return 'no'
+  const nick = String(hit.nickname ?? '')
+  const sameName = nick === String(hit.id ?? '') || PLACEHOLDER_NICKNAMES.has(nick)
+  const noExpiry = hit.expiresAt === undefined || hit.expiresAt === null || hit.expiresAt === 0
+  const notRefreshable = hit.refreshable !== true
+  const created = Number(hit.createdAt)
+  const fresh = Number.isFinite(created) && Date.now() - created < PLACEHOLDER_MAX_AGE_MS
+  return sameName && noExpiry && notRefreshable && fresh ? 'yes' : 'no'
+}
+
+/**
+ * 收掉一条「还没登录成功的占位账号」—— 但只在它确实是占位时才删。
+ *
+ * `account.create` 会**立刻**在池里写一条占位条目（好让 `login.poll` 能查到），
+ * 本体只在登录失败路径自己删；用户放弃授权时没人删，于是每点一次「添加账号」
+ * 再关掉就多一条幽灵账号。
+ *
+ * ⚠️ 控制台的「关闭」只是关掉前端弹窗，**不会通知本体** —— 本体没有
+ * `login.cancel` 这类 RPC（全库只有 `login.poll` / `login.sendSms` /
+ * `login.submitSms`）。accio 那条路虽然有 `close()` 回调会 `fail()` 并
+ * `removePlaceholder`，但那个回调只有本体自己的超时定时器会触发，前端关弹窗
+ * 够不着它。所以占位账号只能由控制台在这里回收。
+ *
+ * 所有「要回收占位账号」的路径都走这里（关弹窗、连续点添加账号），
+ * 两条路径策略必须一致，否则总有一条会误删刚拿到凭据的号。
+ */
+function reclaimPlaceholder(accountId, provider) {
+  if (!accountId) return Promise.resolve()
+  return isPlaceholder(accountId, provider)
+    .then(async (ghost) => {
+      // 'yes' 才继续往下判；'no' 确证不是占位、'unknown' 问不出来 —— 都不删。
+      if (ghost !== 'yes') return loadAccounts()
+      // ⚠️ 删前必须再问一次 `login.poll`（2026-10-29 二审发现的真实缺陷）。
+      //
+      // 池条目的四字段判据有一个挡不住的窗口：本体 `finishLogin` 是**两步** ——
+      // 先 `persistLogin` 把凭据落盘，之后才 `fillAccountEntry` 回填池条目，
+      // 且回填失败只 warn 不抛。而 `login.poll` 的成功判据是「凭据能 resolve」，
+      // **不是**池条目三字段。所以在「凭据已写、池条目未回填」这段时间里，
+      // 四字段判据会把它判成占位并删掉，随后本体才把凭据写进来 ——
+      // 终态是「池里没账号、凭据库里留一条孤儿凭据」，不可逆。
+      //
+      // `done === true` 说明凭据已经落地，保留；只有「还没落地」才删。
+      try {
+        const s = await rpc('login.poll', { accountId })
+        if (s?.done === true) return loadAccounts()
+      } catch {
+        // poll 都问不出来就保守处理：不删。
+        return loadAccounts()
+      }
+      return rpc('account.delete', { accountId }).then(() => loadAccounts())
+    })
+    .catch(() => {
+      /* 已经不在池里（本体自己删过 / 别处删过）就不管了 */
+    })
+}
 
 function closeLogin() {
   clearInterval(loginTimer)
   loginTimer = undefined
   $('#loginModal').hidden = true
+  const abandoned = loginAccountId
+  const provider = loginProvider
+  loginAccountId = undefined
+  loginProvider = undefined
+  if (!abandoned) return
+  reclaimPlaceholder(abandoned, provider)
 }
 
 /**
@@ -734,15 +865,28 @@ async function addAnonymousChannel(btn) {
 }
 
 async function startLogin(provider) {
+  // 先把上一次没关的登录弹窗收干净 —— 必须在 KEY_CHANNELS 判断之前：
+  // 否则「开着 OAuth 弹窗把渠道切到 modelscope 再点添加」会两个弹窗叠着，
+  // 而 .modal 没有 z-index、#loginModal 在 DOM 里更靠后，旧的登录弹窗会把
+  // key 弹窗整个盖住，用户看到的还是「等待授权…」—— 正是本次要修的症状。
+  const stale = loginAccountId
+  if (stale) closeLogin()
   if (KEY_CHANNELS[provider]) {
     openKeyModal(provider)
     return
   }
+  // 上一次登录没关就直接又点了「添加账号」：上面 closeLogin 已经把那条占位
+  // 账号交给 reclaimPlaceholder 回收（它用 isPlaceholder 的四条判据确认「还是占位」，
+  // 不会误删刚拿到凭据的号 —— 登录成功会把 nickname 换成真昵称、refreshable 置真、
+  // 补上 expiresAt，三条一起变，四条判据就不再同时成立）。
   const v = await rpc('account.create', { provider })
   const { accountId, loginUrl } = v ?? {}
+  loginAccountId = accountId
+  loginProvider = provider
   $('#lmProvider').textContent = provider
   $('#lmState').textContent = '等待授权…'
   $('#lmState').className = 'msg'
+  $('#lmHint').textContent = '浏览器没自动打开时，复制下面的地址手动访问，授权完成后本页会自动继续。'
   $('#loginModal').hidden = false
   $('#lmSms').hidden = true
   $('#lmOauth').hidden = false
@@ -755,13 +899,48 @@ async function startLogin(provider) {
   } else if (loginUrl) {
     $('#lmUrl').textContent = loginUrl
     $('#lmOpen').href = loginUrl
+    // 浏览器会拦掉「不在用户手势里」的 window.open：这里是 await 之后调的，
+    // 手势已经失效，Chrome/Edge 会直接拦下并返回 null。被拦时页面什么都没
+    // 发生，用户会以为「添加账号点了没用」—— 所以被拦时把提示换成让他点
+    // 「在新窗口打开」（那是 <a> 的真实点击，一定放行）。
+    //
+    // ⚠️ 不能用 `window.open(url, '_blank', 'noreferrer')` 来测：`noreferrer`
+    // 隐含 `noopener`，按 HTML 规范这种情形 window.open **必须**返回 null，
+    // 与有没有被拦无关 —— 拿它当判据等于恒真，提示会跟事实反着说
+    // （实测：返回 null 的同时窗口确实开了）。这里不带 noopener 拿到真实
+    // 返回值，再立刻把 opener 摘掉做同样的隔离。
+    let opened = null
     try {
-      window.open(loginUrl, '_blank', 'noreferrer')
+      opened = window.open(loginUrl, '_blank')
+      if (opened) {
+        try {
+          opened.opener = null
+        } catch {
+          /* 跨源窗口不让改 opener 就算了，不影响使用 */
+        }
+      }
     } catch {
-      /* 沙箱里可能被拦，界面里已经给了地址与按钮 */
+      /* 沙箱里可能直接抛，按被拦处理 */
+    }
+    if (!opened) {
+      $('#lmHint').textContent = '浏览器拦下了自动弹窗（授权页必须由你亲手点开）。点下面的「在新窗口打开」，或复制地址到新标签页访问，授权完成后本页会自动继续。'
+      $('#lmState').textContent = '等你打开授权页…'
+      $('#lmState').className = 'msg'
     }
   } else {
-    throw new Error('本体没有返回 loginUrl')
+    // ⚠️ 抛之前必须把状态收干净（2026-10-29 三审发现的真实泄漏）。
+    // 到这里 `loginAccountId` / `loginProvider` 已经赋值、`#loginModal` 也已经
+    // `hidden = false`，但轮询定时器还没建立 —— 直接抛会让弹窗永远停在
+    // 「等待授权…」且没有任何轮询，同时 `loginAccountId` 残留到下一次点
+    // 「添加账号」时被当成「放弃授权」去回收（可能误伤）。
+    //
+    // 可达路径：astudio 在本机已导入 AStudio 会话时返回
+    // `{ accountId, loginUrl: '', reused: true }`（`vendor/lib/jet-hub-rpc.js`
+    // 的 astudio 分支），空串是 falsy 就走这里。
+    loginAccountId = undefined
+    loginProvider = undefined
+    $('#loginModal').hidden = true
+    throw new Error('本体没有返回 loginUrl（这个渠道可能复用了本机已有的登录会话，去 DSH 的 Jet Hub 里看看是否已经加上了）')
   }
   const started = Date.now()
   clearInterval(loginTimer)
@@ -770,6 +949,7 @@ async function startLogin(provider) {
       $('#lmState').textContent = '超时（5 分钟），可关闭后重试'
       $('#lmState').className = 'msg err'
       clearInterval(loginTimer)
+      loginTimer = undefined
       return
     }
     try {
@@ -777,13 +957,34 @@ async function startLogin(provider) {
       if (s?.done === true) {
         clearInterval(loginTimer)
         if (s.success === false) {
+          // 本体在失败路径里自己把占位账号删了，这里别再删一次。
+          clearInterval(loginTimer)
+          loginTimer = undefined
+          loginAccountId = undefined
           $('#lmState').textContent = `登录失败：${s.error ?? '未知原因'}`
           $('#lmState').className = 'msg err'
         } else {
           $('#lmState').textContent = '✓ 登录成功'
           $('#lmState').className = 'msg ok'
+          // 账号已经拿到凭据，别再当成「放弃授权」删掉。
+          //
+          // ⚠️ 收尾定时器必须带身份校验（2026-10-29 二审发现的真实回归）：
+          // 这 900ms 里用户完全可能又点了一次「添加账号」并开了一次新登录。
+          // 那时 `loginAccountId` / `loginTimer` 已经是**下一次**的了，
+          // 无条件调 `closeLogin()` 会关掉新弹窗、clearInterval 掉新轮询，
+          // 并且把新登录的占位账号当成「放弃授权」删掉 —— 实测现象是
+          // 「新弹窗闪一下就没了、账号消失」。
+          const settledId = loginAccountId
+          loginAccountId = undefined
           setTimeout(() => {
-            closeLogin()
+            // 期间又开了新登录 ⇒ 这次收尾已经过时，什么都不做。
+            if (loginAccountId !== undefined) return
+            if (settledId !== undefined) {
+              // 没开新登录：只关 UI，不再走 closeLogin（那会回收账号）。
+              clearInterval(loginTimer)
+              loginTimer = undefined
+              $('#loginModal').hidden = true
+            }
             loadAccounts()
           }, 900)
         }
@@ -1142,48 +1343,6 @@ async function modBulkChecked(btn, disabled) {
   }
 }
 
-/* ═══════════════════ 供应商 ═══════════════════ */
-
-let PROV_ORDER = []
-
-async function loadProviders(btn) {
-  try {
-    await busy(btn, async () => {
-      const [o, s] = await Promise.all([rpc('provider.getOrder'), rpc('provider.status', { providers: META.providers.map((p) => p.id) })])
-      PROV_ORDER = o?.order ?? []
-      const st = s?.statuses ?? {}
-      $('#pvTable').innerHTML = `<thead><tr><th>provider</th><th>模型</th><th>账号</th><th>启用</th><th>操作</th></tr></thead><tbody>${PROV_ORDER.map((id) => {
-        const x = st[id] ?? {}
-        const closed = x.closed === true
-        return `<tr>
-          <td class="mono">${esc(id)}</td>
-          <td class="mono">${x.models?.total ?? 0}<div class="muted">关 ${x.models?.disabled ?? 0}</div></td>
-          <td class="mono">${x.accounts?.total ?? 0}<div class="muted">启用 ${x.accounts?.enabled ?? 0}</div></td>
-          <td>${closed ? '<span class="pill off">关</span>' : '<span class="pill on">开</span>'}</td>
-          <td><div class="ops"><button data-pv="${esc(id)}" data-on="${closed ? '1' : ''}">${closed ? '启用' : '停用'}</button></div></td>
-        </tr>`
-      }).join('')}</tbody>`
-      $('#pvOrder').innerHTML = PROV_ORDER.map((id) => `<span class="chip"><b>${esc(id)}</b></span>`).join('')
-      say('#pvMsg', `${PROV_ORDER.length} 个 provider`, 'ok')
-    })
-  } catch (e) {
-    say('#pvMsg', String(e.message ?? e), 'err')
-  }
-}
-
-async function onProvToggle(e) {
-  const btn = e.target.closest('button[data-pv]')
-  if (!btn) return
-  const id = btn.dataset.pv
-  const enabled = btn.dataset.on === '1'
-  try {
-    await busy(btn, () => rpc('provider.setEnabled', { provider: id, enabled }))
-    await loadProviders()
-  } catch (err) {
-    say('#pvMsg', String(err.message ?? err), 'err')
-  }
-}
-
 /* ═══════════════════ 用量账本 ═══════════════════ */
 
 async function ledgerLoad(btn, which) {
@@ -1296,14 +1455,11 @@ async function badgeSave(btn) {
 
 async function loadSettings() {
   try {
-    const [gw, ns, pe, xff] = await Promise.all([
-      rpc('gateway.getEnabled').catch(() => ({})),
+    const [ns, pe, xff] = await Promise.all([
       rpc('nativeSearch.getEnabled').catch(() => ({})),
       rpc('panelEntry.get').catch(() => ({})),
       rpc('minimax.getXff').catch(() => ({})),
     ])
-    $('#setGateway').checked = (gw?.enabled ?? gw?.desired ?? false) === true
-    $('#setAllowLan').checked = gw?.allowLan === true
     $('#setSearch').checked = ns?.enabled === true
     if (pe?.entry) $('#setPanel').value = pe.entry
     $('#setXff').value = xff?.xff ?? ''
@@ -1315,15 +1471,9 @@ async function loadSettings() {
 
 async function saveSetting(what, value) {
   try {
-    // 直连模式下本体自带网关被 `DSH_OPENAI_GATEWAY_ENABLED=0` 关掉，
-    // 插件根本不经过它。此时改这个开关**不会**改变转发路径，
-    // 必须当场说清，否则用户点了没反应还以为保存失败。
-    if (what === 'gateway' && META.gateway?.mode === 'direct') {
-      say('#setMsg', '直连模式：插件进程内直接调本体 llm 服务，不走本体网关，这个开关不生效', 'err')
-      return
-    }
-    if (what === 'gateway') await rpc('gateway.setEnabled', { enabled: value })
-    if (what === 'allowLan') await rpc('gateway.setAllowLan', { allowLan: value })
+    // 网关启用 / 允许局域网已从这里移除：magpie 的 Settings › Network and sharing
+    // 才是那两项的界面。直连模式下本体网关本来就被 DSH_OPENAI_GATEWAY_ENABLED=0
+    // 关掉、插件根本不经过它，在这里改也改不动任何东西。
     if (what === 'search') await rpc('nativeSearch.setEnabled', { enabled: value })
     if (what === 'panel') await rpc('panelEntry.set', { entry: value })
     if (what === 'xff') await rpc('minimax.setXff', { xff: value })
@@ -1441,7 +1591,6 @@ const TAB_LOADERS = {
   accounts: () => loadAccounts(),
   backup: () => loadBackup(),
   settings: () => loadSettings(),
-  providers: () => loadProviders($('#pvLoad')),
   models: () => loadModels($('#modLoad')),
   usage: () => {
     ledgerLoad($('#tlLoad'), 'load')
@@ -1647,19 +1796,10 @@ async function boot() {
   $('#accCompStatus').addEventListener('click', (e) => compAction(e.currentTarget, 'status'))
   $('#accCompClaim').addEventListener('click', (e) => compAction(e.currentTarget, 'claim'))
 
-  // 供应商
-  $('#pvLoad').addEventListener('click', (e) => loadProviders(e.currentTarget))
-  $('#pvTable').addEventListener('click', onProvToggle)
-  $('#pvSaveOrder').addEventListener('click', async (e) => {
-    try {
-      await busy(e.currentTarget, async () => {
-        await rpc('provider.setOrder', { order: PROV_ORDER })
-        say('#pvMsg', '顺序已保存', 'ok')
-      })
-    } catch (err) {
-      say('#pvMsg', String(err.message ?? err), 'err')
-    }
-  })
+  // 供应商：控制台不再提供 —— magpie 自己的「Providers」页就是那个界面
+  // （启用 / 停用、拖拽排序、看模型数与账号数）。本体的 provider.setOrder 只是
+  // DSH 界面里的显示顺序，在 magpie 里看不见；provider.setEnabled 的「关掉一家」
+  // 等价操作在「模型」标签的全关按钮里（model.setAllDisabled）。
 
   // 用量
   $('#tlLoad').addEventListener('click', (e) => ledgerLoad(e.currentTarget, 'load'))
@@ -1667,9 +1807,9 @@ async function boot() {
   $('#tlDelete').addEventListener('click', (e) => ledgerLoad(e.currentTarget, 'delete'))
   $('#badgeSave').addEventListener('click', (e) => badgeSave(e.currentTarget))
 
-  // 设置
-  $('#setGateway').addEventListener('change', (e) => saveSetting('gateway', e.target.checked))
-  $('#setAllowLan').addEventListener('change', (e) => saveSetting('allowLan', e.target.checked))
+  // 设置：网关启用 / 允许局域网这两项已移除 —— magpie 的
+  // Settings › Network and sharing 就是它们的界面（端口、局域网共享、允许的 IP、
+  // 网页白名单都在那儿）。控制台再摆一遍只会两处打架。
   $('#setSearch').addEventListener('change', (e) => saveSetting('search', e.target.checked))
   $('#setPanel').addEventListener('change', (e) => saveSetting('panel', e.target.value))
   $('#setXff').addEventListener('change', (e) => saveSetting('xff', e.target.value.trim()))
