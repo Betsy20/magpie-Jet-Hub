@@ -70,6 +70,14 @@ export function isolate() {
     NODE_ENV: 'test',
     // 插件自己的附件目录（`src/attachments.mjs:86 defaultAttachmentDir()`）
     JET_HUB_ATTACHMENT_DIR: join(root, 'attachments'),
+    // ⚠️ 2026-10-30 补的第三层，也是最隐蔽的一层：**只改 `home` / `DSH_*` 不够**。
+    // 上游有几家（cline、autoclaw）的凭据落在 `~/.config/magpie/.dsh/`
+    // ——`~` 是 `os.homedir()`，与 `DSH_HOME` 无关。不改 `USERPROFILE`/`HOME`
+    // 时它们照读用户真实凭据并**静默续期**：实测跑一轮 `test-all`，
+    // `AUTOCLAW_ACCOUNT_D819CD06` 与 `CLINE_ACCOUNT_FEA86265` 的 access_token
+    // 都被换新、`expires_at` 被推后。
+    USERPROFILE: root,
+    HOME: root,
   }
   // 记下原值，供 live 段落恢复（否则那几段会以为自己还在沙箱里，读不到凭据）
   const saved = {}
