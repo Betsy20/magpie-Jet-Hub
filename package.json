@@ -1,0 +1,69 @@
+{
+  "name": "magpie-jet-hub",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "把 deepseek-harness-codearts 插件本体（24 个 provider 的路由中枢）原样装进 magpie：内嵌 cordis 容器运行本体，复用其账号池、静默续期、积分选号与本地 OpenAI 兼容网关，凭据直接共用 DSH 的 .credentials.yaml，不依赖 DSH 进程",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "src",
+    "vendor",
+    "page",
+    "console",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "magpie",
+    "deepseek-harness",
+    "dsh",
+    "providers-hub",
+    "plugin"
+  ],
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.5",
+    "@deepseek-ai/cosmokit": "^1.8.5",
+    "@deepseek-ai/dsh-commands": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-credentials": "^0.2.1-rc.2",
+    "@deepseek-ai/dsh-llm": "^0.2.1-rc.2",
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Betsy20/magpie-Jet-Hub.git"
+  },
+  "homepage": "https://github.com/Betsy20/magpie-Jet-Hub#readme",
+  "bugs": {
+    "url": "https://github.com/Betsy20/magpie-Jet-Hub/issues"
+  },
+  "upstream": {
+    "name": "dsh-providers-hub",
+    "repository": "https://github.com/iJetLi/dsh-providers-hub",
+    "npm": "deepseek-harness-codearts",
+    "npmAliases": [
+      "dsh-providers-hub",
+      "dsh-codearts-auth"
+    ],
+    "version": "2.9.261029",
+    "note": "vendor/ 取自这个 npm 包；与上游的差异只有 gemini-oauth.* 两个常量拆成两段拼接（值相等）与省掉 README.md / cordis.patch.yml，详见 README「vendor/ 的来源与许可」"
+  },
+  "magpie": {
+    "maxConcurrency": 8,
+    "page": {
+      "title": "Jet Hub",
+      "titles": {
+        "zh": "Jet Hub（本体直装）"
+      },
+      "file": "page/index.html",
+      "icon": "page/icon.svg"
+    },
+    "permissions": [
+      "providers:list",
+      "usage:summary"
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Jet Hub">
+  <rect width="32" height="32" rx="7" fill="#5b3df5"/>
+  <circle cx="16" cy="16" r="3.2" fill="#fff"/>
+  <circle cx="16" cy="7.4" r="2.2" fill="#c9bcff"/>
+  <circle cx="24.6" cy="11.7" r="2.2" fill="#c9bcff"/>
+  <circle cx="24.6" cy="20.3" r="2.2" fill="#c9bcff"/>
+  <circle cx="16" cy="24.6" r="2.2" fill="#c9bcff"/>
+  <circle cx="7.4" cy="20.3" r="2.2" fill="#c9bcff"/>
+  <circle cx="7.4" cy="11.7" r="2.2" fill="#c9bcff"/>
+  <g stroke="#c9bcff" stroke-width="1.6" stroke-linecap="round" opacity="0.85">
+    <path d="M16 10.6v2.4M18.8 12.2l1.9-1.1M18.8 19.8l1.9 1.1M16 21.4v2.4M13.2 19.8l-1.9 1.1M13.2 12.2l-1.9-1.1"/>
+  </g>
+</svg>
