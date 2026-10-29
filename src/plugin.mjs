@@ -243,6 +243,55 @@ function fallbackFor(dshProvider) {
 }
 
 /**
+ * 未申报输出上限时的兜底值。
+ *
+ * ⚠️ **绝不能再兜底成 8192**（历史遗留的硬编码）。magpie 的路由组会按**选中成员**
+ * 的 `limit.output` 夹请求里的 `max_tokens`，实证在 `~/.config/magpie/routing/`：
+ *
+ * | 渠道 | 走组时最大输出 | 直连时最大输出 |
+ * |---|---|---|
+ * | `jet-hub-lobsterai/deepseek-flash`（未申报 → 曾被兜底 8192） | **8192**（623 次全 ≤8192） | 40000 |
+ * | `jet-hub-workbuddy/deepseek-v4.1-flash`（申报 128000） | 40000 | — |
+ *
+ * 也就是同一 provider/模型、「走组」永远出不了 8192，而「直连」同一参数能到 40000。
+ * 被夹到 8192 的推理模型会把整个预算烧在 reasoning 上、`content` 为空、
+ * `finish_reason=length` ⇒ 客户端（DSH）报「已达到输出 token 上限」，用户看到的是
+ * 每几轮就被截断一次。
+ *
+ * 真值来源（见 `vendor/lib/officeace-product.js` 的注释）：DeepSeek-V4.1/V4-Flash 是
+ * `max_tokens range is [1, 393216]`，GLM-5.x 是 `[0, 131072]`。
+ * 系列认不出就**不申报**（省略 `limit.output`）—— 少一个字段只是让 magpie 按「未声明」
+ * 处理，编一个 8192 却会让每次落到该成员的请求都被无端夹断。
+ */
+const OUTPUT_FALLBACKS = [
+  // 不限 `$`：同族还有带后缀的变体（`deepseek-v4.1-flash-1017`、`deepseek-v4-flash-0731`、
+  // `deepseek-v4-flash-vision-exp`），它们的真实上限与主型号一致。宁可报大一点
+  // （报大只是不夹，上游自己会截），也不能报小 —— 报小就是这次的故障。
+  [/deepseek.*flash/i, 393_216],
+  // 同样不限行首：AutoClaw / Accio 的 id 是 `zai_glm-5.3-flash`、`glm-5-3-flash`。
+  [/glm-5/i, 131_072],
+]
+
+/**
+ * 解析单次输出上限：显式申报优先，其次按模型系列兜底，都不认识就返回 `undefined`
+ * （调用方据此**省略** `limit.output`，而不是编一个值）。
+ *
+ * @param {string} id 模型名（已剥 provider 前缀）
+ * @param {number|null|undefined} declared 本体/静态表申报的值
+ * @returns {number|undefined}
+ */
+function outputLimit(id, declared) {
+  if (typeof declared === 'number' && Number.isFinite(declared) && declared > 0) return declared
+  for (const [pattern, value] of OUTPUT_FALLBACKS) {
+    if (pattern.test(id)) return value
+  }
+  return undefined
+}
+
+/** 供回归测试直接验兜底口径（`tests/t-plugin.mjs`），不参与插件契约。 */
+export { outputLimit }
+
+/**
  * magpie 的模型条目。
  *
  * ⚠️ 宿主 `provider.models` 钩子的返回是**整体替换**（`out.models =
@@ -256,23 +305,31 @@ function fallbackFor(dshProvider) {
  * 这里只有 `name` / `limit`（硬编码 128K / 8192）/ `tool_call`，于是 53 个模型
  * 全显示 128K，真窗口是 1M。
  *
+ * ⚠️ **`limit.output` 与 `limit.context` 口径必须一致：不知道就别编。**
+ * 2026-10-29 那次只把 `context` 改成真值，`output` 的 `?? 8192` 留了下来 ——
+ * 这个 8192 会被 magpie 的路由组当成「该成员单次最多出 8192」，成为
+ * 「已达到输出 token 上限」的根因（详见 {@link OUTPUT_FALLBACKS}）。
+ *
  * @param {string} id 模型名（已剥 provider 前缀）
  * @param {{name?:string, limit?:{context?:number, output?:number}, tool_call?:boolean}} [def] 静态兜底表里的声明
  * @param {{context?:number, output?:number, input?:string[], reasoning?:boolean}} [meta] 从本体现采的能力元数据
  */
 function modelEntry(id, def, meta) {
   const context = meta?.context ?? def?.limit?.context
-  const output = meta?.output ?? def?.limit?.output
+  const output = outputLimit(id, meta?.output ?? def?.limit?.output)
   const input = Array.isArray(meta?.input) && meta.input.length > 0 ? meta.input : ['text']
   // 上游没声明模态时保守按纯文本（与本体各适配器「不声明即 text」同口径）：
   // 宁可少报能力，也别让用户发一张注定被上游拒绝的图。
   const hasImage = input.includes('image')
   const reasoning = meta?.reasoning ?? def?.reasoning ?? false
   const toolCall = def?.tool_call ?? true
+  // magpie 界面的「上下文」列直接读 limit.context；`output` 只在知道真实上限时才发
+  // （发 0 会被读成「确认不能输出」，发编造的 8192 会让路由组把请求夹断）。
+  const limit = { context: context ?? 0 }
+  if (output !== undefined) limit.output = output
   const entry = {
     name: def?.name ?? id,
-    // magpie 界面的「上下文」列直接读 limit.context。
-    limit: { context: context ?? 0, output: output ?? 8192 },
+    limit,
     tool_call: toolCall,
     capabilities: {
       temperature: true,
@@ -461,8 +518,16 @@ async function listAccountsOf(container, provider, log) {
   } catch (e) {
     // 路由组（aggregate / jet-hub-auto）本体里没有自己的账号池 ⇒ `unknown provider`。
     // 这不是错误，是「这家没有账号可选」，返回空数组让调用方走「整家一个槽」。
+    //
+    // ⚠️ **失败不进缓存**（2026-10-30 修）。原先这里 `rows = []` 之后照样落到
+    // 下面那行 `accountsCache.set`，于是「容器刚起、账号池还没加载完」时的一次
+    // 失败会把空数组缓存满 `ACCOUNTS_TTL_MS`（15 秒）。这 15 秒里 `ask()` 的
+    // `rows.length === 0` 命中 ⇒ 用户点「连接」**根本看不到账号选择列表**，被
+    // 静默签成「整家一个槽」—— 正是用户最初报的「我选了 B 却走了 A」。
+    // `warmUp()` 只是降低概率（异步、不保证 `ask()` 时预热已完成），兜不住。
+    // 空数组只在**成功但确实没账号**时才值得缓存。
     log?.(`[${provider}] 列账号失败：${e?.message ?? e}`)
-    rows = []
+    return []
   }
   accountsCache.set(provider, { at: Date.now(), rows })
   return rows
@@ -906,13 +971,18 @@ function humanizeUsageError(error) {
  * 同名同单位的积分包合并成一条。
  *
  * 本体（以及上游）会把「签到奖励」这类小额包**逐次**列出来：实测 trae 一个账号
- * 有 20+ 条 `{name:'签到奖励', total:100, remaining:100}`，每条都变成一个 window，
+ * 有 31 条 `{name:'签到奖励', total:100}`，每条都变成一个 window，
  * magpie 就把卡片撑成一长列 —— 用户看到的是「积分包占比太大」，整块用量页被
  * 一堆 100/100 淹没，真正的「每月登录赠送 500」反而找不到。
  *
  * 合并语义：`total` / `remaining` 求和，`resetsAt` 取**最早**到期的那一份
  * （最近要过期的先提醒），只有整组都 `active === false` 才标 `aside`。
  * 合并后 `count > 1` 的条在名字后面加 `×N`，让人知道它代表几个包。
+ *
+ * ⚠️ 「最早到期」会抹掉组内其余包的日期（实测 trae 的 31 条签到奖励到期日
+ * 分散在 10-31 到 11-30 整整一个月），所以这里把**每一份的到期时间都留下**
+ * （`untils`），交给 `toMagpieUsage` 在排序和文案里用 —— 用户 m07331 要的是
+ * 「看到每个积分包的过期时间，并按到期顺序展示」。
  */
 function mergePackages(list) {
   const byKey = new Map()
@@ -923,6 +993,7 @@ function mergePackages(list) {
     const remaining = Number(p?.remaining) || 0
     const used = Number(p?.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
     const until = Number(p?.deductionEndTime)
+    const hasUntil = Number.isFinite(until) && until > 0
     const key = `${name}\u0000${unit}`
     const cur = byKey.get(key)
     if (cur === undefined) {
@@ -936,7 +1007,9 @@ function mergePackages(list) {
         // 组内**单个包**的最大额度 —— 排序用它而不是平均值，见 toMagpieUsage 的注释
         each: total,
         allInactive: p?.active === false,
-        until: Number.isFinite(until) && until > 0 ? until : undefined,
+        until: hasUntil ? until : undefined,
+        // 组内每个包的到期时间（去重升序）。合并后仍要能逐个报出来。
+        untils: hasUntil ? [until] : [],
       })
       continue
     }
@@ -946,9 +1019,61 @@ function mergePackages(list) {
     cur.count += 1
     if (total > cur.each) cur.each = total
     cur.allInactive = cur.allInactive && p?.active === false
-    if (Number.isFinite(until) && until > 0 && (cur.until === undefined || until < cur.until)) cur.until = until
+    if (hasUntil) {
+      cur.untils.push(until)
+      if (cur.until === undefined || until < cur.until) cur.until = until
+    }
   }
+  for (const g of byKey.values()) g.untils.sort((a, b) => a - b)
   return [...byKey.values()]
+}
+
+/**
+ * 把毫秒时间戳写成卡片一行放得下的日期（本地时区）。
+ *
+ * 平时只写 `10-30`；但**不是今年的必须带年份** —— 否则 `2034-12-28` 会显示成
+ * `12-28`，用户会当成一个多月后到期。这不是假想：workbuddy 的
+ * `Free Plan Subscription` 实测到期就是 2034-12-28。
+ *
+ * `now` / `forceYear` 两个参数只为可测与跨年区间对称（同一组的首尾跨年时，
+ * 两端都带年份，读起来才不会一半有一半没有）。
+ */
+function dateLabel(ms, now = Date.now(), forceYear = false) {
+  const d = new Date(ms)
+  if (!Number.isFinite(d.getTime())) return ''
+  const md = `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const showYear = forceYear === true || d.getFullYear() !== new Date(now).getFullYear()
+  return showYear ? `${d.getFullYear()}-${md}` : md
+}
+
+/**
+ * 一条 window 的显示名 —— 名字里带上到期信息。
+ *
+ * 为什么塞进 name 而不是只靠 resetsAt：magpie 的卡片行只渲染 `name` + 进度条
+ * + 额度（`app.js` 的 `accountQuotaLine`），`resetsAt` 只进 tooltip，且只有
+ * 用量 ≥80% 时才在行内补一句「resets in …」。想让用户**看一眼就知道哪个包
+ * 先过期**，只能写进 name。
+ *
+ * 文案分三种：
+ * · 组内只有一个到期日 → `10-30 到期`
+ * · 组内到期日分散 → `10-31~11-30 到期`（实测 trae 的 31 条签到奖励正好横跨
+ *   整整一个月，只报最早那一天会让用户以为其余的一起在 10-30 消失）
+ * · 没有到期时间 → 不写（astudio 的星火积分、qoder 的资源包实测都没有）
+ */
+function windowName(pkg) {
+  const base = pkg.count > 1 ? `${pkg.name} ×${pkg.count}` : pkg.name
+  const days = Array.isArray(pkg.untils) ? pkg.untils : []
+  if (days.length === 0) return base
+  const firstMs = days[0]
+  const lastMs = days[days.length - 1]
+  const now = Date.now()
+  // 同一组的首尾跨年 ⇒ 两端都带年份，避免 `11-04~04-01` 这种看着像倒着走的写法
+  const crossYear = new Date(firstMs).getFullYear() !== new Date(lastMs).getFullYear()
+  const first = dateLabel(firstMs, now, crossYear)
+  if (first === '') return base
+  const last = dateLabel(lastMs, now, crossYear)
+  if (last === '' || last === first) return `${base} · ${first} 到期`
+  return `${base} · ${first}~${last} 到期`
 }
 
 /**
@@ -969,18 +1094,31 @@ function toMagpieUsage(reading, provider) {
       (p) => (Number(p?.total) || 0) > 0 || (Number(p?.remaining) || 0) > 0,
     ),
   )
-  // 排序：主额度在前、aside（已失效）压到最后。
+  // 排序：**快到期的排前面**，aside（已失效）压到最后。
   //
-  // ⚠️ 判据是**组内单包最大额度**（`each`），既不是合并后的总余额，也不是平均值：
+  // 首判据是到期时间（用户 m07331：「按到期顺序展示」）—— 先过期的先花，
+  // 让用户一眼看到「哪个包马上要浪费」。magpie 的卡片行**只画前 2 条**
+  // （`app.js` 的 `accountQuotaLine` 里 `ws.slice(0, 2)`），所以排序不是装饰：
+  // 排在第三位之后的包连名字都只能进 tooltip。
+  //
+  // 无到期时间的（astudio 的「星火积分」、qoder 的「资源包」实测都没有）
+  // 排在**有到期的之后**：它们不会被浪费，不着急。
+  //
+  // 同档再按**组内单包最大额度**（`each`）降序 —— 既不是合并后的总余额，
+  // 也不是平均值：
   // · 总余额不行：「签到奖励 ×20 = 2000」按总额会排到「每月登录赠送 = 500」前面，
   //   但前者是 20 个 100 的小包，后者才是真正的主套餐。
   // · 平均值不行：某家返回「1 个 500 的大包 + 19 个 1 的小包」时平均被稀释到 25，
   //   主套餐会被压到小包后面（2026-10-29 三审指出的脆弱点）。
   // · 最大值天然把「至少有一个大包」的组排在「全是一堆小包」的组前面。
+  const untilRank = (p) => (Number.isFinite(p.until) && p.until > 0 ? p.until : Number.POSITIVE_INFINITY)
   packages.sort((a, b2) => {
     const aAside = a.allInactive ? 1 : 0
     const bAside = b2.allInactive ? 1 : 0
     if (aAside !== bAside) return aAside - bAside
+    const au = untilRank(a)
+    const bu = untilRank(b2)
+    if (au !== bu) return au < bu ? -1 : 1
     if (a.each !== b2.each) return b2.each - a.each
     return b2.remaining - a.remaining
   })
@@ -989,8 +1127,8 @@ function toMagpieUsage(reading, provider) {
     const remaining = Number(p.remaining) || 0
     const used = Number(p.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
     const w = {
-      // 合并过的条目标上 ×N，否则「签到奖励 3650/3650」会让人以为是单个包
-      name: p.count > 1 ? `${p.name} ×${p.count}` : p.name,
+      // 名字带到期日（`签到奖励 ×31 · 10-30 到期`），理由见 windowName 的注释
+      name: windowName(p),
       // used 是**已用百分比**（0–100），magpie 用它画进度条并写「剩余 100%」。
       // ⚠️ 别填 remaining —— 实测 astudio 会变成「0 / 6,200 · 剩余 100%」这种
       //    自相矛盾的卡片（显示剩余 0、进度条却是满的）。
@@ -1128,7 +1266,12 @@ function modelsOfFull(dshProvider, rows) {
     const base = row?.name ?? bare
     // 已在上游关掉的模型照样列出（用户要全量），但把状态写进名字，
     // 免得选中后打不通却不知道为什么。
-    out[bare] = modelEntry(row?.disabled === true ? `${base} · 已在 Jet Hub 关闭` : base, undefined, metaOf(id))
+    // ⚠️ 第 1 参必须是**模型 id**（`bare`）而不是展示名：`modelEntry` 用它做
+    // 系列兜底（{@link OUTPUT_FALLBACKS}）。以前这里传的是展示名，于是
+    // `deepseek-flash` 这类 id 根本匹配不到兜底表，「未申报 output」的渠道
+    // 一直是漏的。展示名走 `def.name`。
+    const label = row?.disabled === true ? `${base} · 已在 Jet Hub 关闭` : base
+    out[bare] = modelEntry(bare, label === bare ? undefined : { name: label }, metaOf(id))
   }
   return out
 }
@@ -1330,10 +1473,21 @@ export function makePlugin(dshProvider) {
 
               // 用户挑的账号（`ask()` 收上来的）。没挑 / 挑的那个已经不在了 ⇒ 不钉，
               // 退回「整家一个槽」的老行为 —— 陈旧记录不该让整家渠道不可用。
+              // 用户挑的账号（`ask()` 收上来的）。没挑 ⇒ 不钉，退回「整家一个槽」的
+              // 老行为。**挑了但找不到 ⇒ 抛错让用户重选**（2026-10-30 修）。
+              //
+              // 原先这里是「找不到就 log 一行、照样按整家签入」，后果是：用户以为
+              // 自己钉了 A，实际走的是池内顺序（可能是 B）—— 与 `ask()` 那次静默
+              // 退化是同一类故障，只是换了个触发点（账号在 DSH 里被删、或
+              // `account.list` 那 15 秒缓存里刚好没有它）。用户看不到任何异常，
+              // 只会觉得「怎么又走了别的号」。宁可让这一次签入失败并说清原因。
               const picked = String(inputs?.[ACCOUNT_INPUT] ?? '').trim()
               const hit = picked === '' ? undefined : await accountById(container, dshProvider, picked, log)
               if (picked !== '' && hit === undefined) {
-                log(`[${dshProvider}] 选的账号 ${picked} 不在池里了（可能已在 DSH 删除），按整家签入`)
+                throw new Error(
+                  `你选的账号 ${picked} 已经不在 ${dshProvider} 的账号池里了（可能刚在 DSH 里被删除，或那次列账号没成功）。`
+                  + `请重新点「连接」，在弹出的列表里重新选一个。`,
+                )
               }
 
               const key = hit === undefined
@@ -1545,7 +1699,13 @@ export function makePlugin(dshProvider) {
         async usage(getAuth) {
           try {
             const account = typeof getAuth === 'function' ? await getAuth() : undefined
-            const want = String(account?.uid ?? account?.metadata?.dshAccountId ?? '')
+            // 统一走 `dshAccountIdOf`（2026-10-30 修）：原先这里手写
+            // `account?.uid ?? account?.metadata?.dshAccountId`，与 `dshAccountIdOf`
+            // 有两处不一致 —— ① 用 `??` 不用 `||`，`uid: ''` 会遮蔽后面有效的
+            // `metadata.dshAccountId`；② 优先序相反（这里 uid 优先，那边
+            // metadata 优先）；③ 少了「key 尾巴」这条退路。真实数据目前 0 条
+            // `uid: ''`、0 条两者冲突，所以还没炸，但那是运气不是设计。
+            const want = dshAccountIdOf(account, dshProvider)
             const reading = await balanceOf(container, dshProvider, want, log)
             if (reading === undefined) {
               // 路由组 / 本体里没有账号的渠道：说清「这里没有可查的积分」，别编数字
@@ -1587,7 +1747,8 @@ export function makePlugin(dshProvider) {
         async checkin(getAuth) {
           try {
             const account = typeof getAuth === 'function' ? await getAuth() : undefined
-            const want = String(account?.uid ?? account?.metadata?.dshAccountId ?? '')
+            // 与 `usage()` 同源，统一走 `dshAccountIdOf`（理由见那边注释）
+            const want = dshAccountIdOf(account, dshProvider)
             const v = await container.rpc('credits.claimAll', { provider: dshProvider })
             const rows = Array.isArray(v?.results) ? v.results : []
             const mine = rows.find((r) => String(r?.accountId ?? '') === want) ?? (want === '' ? rows[0] : undefined)

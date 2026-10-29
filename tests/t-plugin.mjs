@@ -1,6 +1,19 @@
 // 测插件入口：模拟 magpie 宿主（遍历导出 + 无参探测）后按契约调用。
 // 现在是「一个本体 provider 一个插件工厂」，所以要逐个验证契约一致。
 import * as mod from '../index.mjs'
+import { outputLimit } from '../src/plugin.mjs'
+import { readFileSync } from 'node:fs'
+
+// ⚠️ 本文件调 24 个工厂会**真起容器**（`warmUp()` 后台跑），所以必须隔离：
+// 不隔离的话 `resolveHome(undefined)` 会退回 `homedir()`，把本体的 `DSH_HOME`
+// 直指用户真实凭据目录 —— 实测跑一次本文件，`~/.dsh/.credentials.yaml` 与
+// `jet-hub/state.json` 两个文件的哈希都变了（4 个 cline 账号的 access_token
+// 被真实轮换）。隔离的三层做法与踩过的坑写在 `tests/_iso.mjs` 文件头。
+//
+// 传 `iso.options()` 而不是 `{}` 是关键那一步：`{}` 正是事故成因。
+import { isolate, live, skipLive } from './_iso.mjs'
+
+const iso = isolate()
 
 const fns = Object.entries(mod).filter(([, v]) => typeof v === 'function')
 const notFns = Object.entries(mod).filter(([, v]) => typeof v !== 'function')
@@ -12,11 +25,13 @@ const problems = []
 const described = []
 /** 上游没声明窗口的家（codely 就是：只有模态，没有 context/maxTokens）。 */
 const noContext = []
+/** `${工厂名}/${模型名}` → `limit.output`，护栏用。 */
+const outputById = new Map()
 for (const [name, fn] of fns) {
   // 宿主行为：无参探测调用，不能抛
   let plugin
   try {
-    plugin = await fn({ client: { app: { log: () => {} } } }, {})
+    plugin = await fn({ client: { app: { log: () => {} } } }, iso.options())
   } catch (e) {
     problems.push(`${name}: 无参调用抛错 ${e?.message ?? e}`)
     continue
@@ -50,9 +65,62 @@ for (const [name, fn] of fns) {
       // 是上游事实。所以只把「一家都没有」当失败 —— 那才是能力链路整体断了。
       const withContext = rows.filter((m) => (m?.limit?.context ?? 0) > 0).length
       if (rows.length > 0 && withContext === 0) noContext.push(name)
+      for (const [mid, m] of Object.entries(models)) outputById.set(`${name}/${mid}`, m?.limit?.output)
     }
   }
   described.push(`${id} ← ${name} | ${p?.name} | 静态模型 ${Object.keys(p?.models ?? {}).length}`)
+}
+
+// ⚠️ 回归护栏：未申报 `limit.output` 的渠道不许再被兜底成 8192 —— 那是「请求已被
+// 夹断」的指纹。magpie 的路由组按**选中成员**的 output 夹 `max_tokens`，实测路由日志
+// （`~/.config/magpie/routing/`）：`jet-hub-lobsterai/deepseek-flash` 走组 623 次输出
+// 上限全 ≤8192，而同一模型直连同参数能到 40000；同组的 `jet-hub-workbuddy`
+// （申报 128000）走组能到 40000。被夹到 8192 的推理模型会把预算全烧进 reasoning，
+// `content` 为空、`finish_reason=length` ⇒ 客户端报「已达到输出 token 上限」。
+//
+// 直接测兜底口径（不走目录缓存），缓存竞态不会让这条护栏失效。
+const OUTPUT_CASES = [
+  // [模型 id, 申报值, 期望值, 说明]
+  ['deepseek-flash', undefined, 393_216, 'LobsterAI 上游不申报 output'],
+  ['deepseek-v4.1-flash', undefined, 393_216, 'CodeArts 上游不申报 output'],
+  ['DeepSeek-V4.1-Flash', undefined, 393_216, 'Loomy 上游不申报 output'],
+  ['deepseek-v4.1-flash', undefined, 393_216, 'OfficeAce 上游不申报 output'],
+  ['deepseek-v4.1-flash-1017', undefined, 393_216, '同族带后缀变体'],
+  ['deepseek-v4-flash-vision-exp', undefined, 393_216, '同族带后缀变体'],
+  ['GLM-5.3', undefined, 131_072, 'GLM-5 系'],
+  ['zai_glm-5.3-flash', undefined, 131_072, 'GLM-5 系（带前缀）'],
+  // 申报过的值必须原样保留，不能被兜底表覆盖。
+  ['deepseek-v4.1-flash', 128_000, 128_000, 'WorkBuddy 申报 128000'],
+  ['deepseek-v4.1-flash', 64_000, 64_000, 'Trae 申报 64000'],
+  ['sn-deepseek-v4-1-flash-1017', 100_000, 100_000, 'Raccoon 申报 100000'],
+  // 认不出的系列：不申报（undefined），而不是编一个 8192。
+  ['qfmodel', undefined, undefined, 'Qoder qfmodel 无据可查'],
+]
+for (const [id, declared, want, why] of OUTPUT_CASES) {
+  const got = outputLimit(id, declared)
+  if (got !== want) problems.push(`outputLimit(${id}, ${declared}) = ${got}，应为 ${want}（${why}）`)
+}
+// 源码级：`output` 不许再有 `?? 8192` 兜底（改回它就等于把故障改回来）。
+{
+  const src = readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8')
+  if (/output\s*\?\?\s*8192/.test(src)) {
+    problems.push('src/plugin.mjs 里仍有 `output ?? 8192` 兜底 —— 路由组会把请求夹到 8192')
+  }
+  // 全量目录那条路径必须把**模型 id** 交给 modelEntry（展示名匹配不到兜底表）。
+  if (/out\[bare\]\s*=\s*modelEntry\(\s*(?!bare\b)/.test(src)) {
+    problems.push('modelsOfFull 又把展示名当 id 传给 modelEntry —— 系列兜底会全部落空')
+  }
+}
+// 目录侧抽样：受影响的四家在真实目录里必须带上真值（目录缓存可能不含该模型，故只抽检）。
+for (const [key, want] of [
+  ['JetHubLobsteraiPlugin/deepseek-flash', 393_216],
+  ['JetHubCodeartsPlugin/deepseek-v4.1-flash', 393_216],
+  ['JetHubLoomyPlugin/DeepSeek-V4.1-Flash', 393_216],
+  ['JetHubOfficeacePlugin/deepseek-v4.1-flash', 393_216],
+]) {
+  if (!outputById.has(key)) continue
+  const got = outputById.get(key)
+  if (got !== want) problems.push(`${key}: 目录里 limit.output 应为 ${want}，实际 ${got}`)
 }
 
 console.log('--- 19 个 provider ---')
@@ -85,13 +153,22 @@ const CANDIDATES = [
 
 let ok = false
 const failures = []
+// 真转发要真凭据 —— 隔离沙箱里没有 `.credentials.yaml`，跑必 502。
+// 所以改成显式 opt-in：默认跳过并打印说明，`JET_HUB_LIVE=1` 才跑。
+// ⚠️ 开了它就**会碰真实账号**（隔离被这一项主动放弃）：可能轮换 access_token
+// （正常续期、不可回滚但无害），也可能消费一次性 refresh_token（**会逼用户
+// 重新登录**，本机 officeace 那次 STS5.1806 就是这么来的）。别写进 CI。
+if (!live()) {
+  skipLive('真转发（需要真实凭据）')
+  process.exit(0)
+}
 for (const [exportName, id] of CANDIDATES) {
   const fn = mod[exportName]
   if (typeof fn !== 'function') {
     failures.push(`${id}: 找不到导出 ${exportName}`)
     continue
   }
-  const plugin = await fn({ client: { app: { log: () => {} } } }, {})
+  const plugin = await fn({ client: { app: { log: () => {} } } }, iso.options())
   const t0 = Date.now()
   let acc
   try {
