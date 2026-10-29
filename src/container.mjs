@@ -21,6 +21,7 @@ import { homedir } from 'node:os'
 import { FileCredentialProvider } from './credentials.mjs'
 import { ConnectionSeam } from './connection.mjs'
 import { startHubServer } from './hub-server.mjs'
+import { JetHubAttachmentStore } from './attachments.mjs'
 import { chatCompletion, modelsPayload, llmReady, jsonResponse, errorResponse } from './llm-bridge.mjs'
 
 /**
@@ -136,6 +137,18 @@ export class JetHubContainer {
       ctx.plugin(m.default ?? m)
     }
     await new Promise((r) => setTimeout(r, 300))
+
+    // 2.5) 附件服务（`ctx.attachments`）：本体收发图片全走它
+    //
+    //      ⚠️ 必须在 `ctx.plugin(mod)` **之前** provide：本体的
+    //      `makeReadImage(ctx)` / `makeReadImageRequest(ctx)` 是在 apply 时
+    //      `ctx.get('attachments')` 拿一次并闭包住的，晚一步就永远是 undefined
+    //      —— 表现是纯文本正常、一发图就报「当前 profile 未装载附件服务」。
+    //
+    //      实现的契约见 `src/attachments.mjs` 文件头（内容寻址落盘 + 原字节读回，
+    //      不做缩放：本体对「没有 readImageRequest」有现成的回退）。
+    this.attachments = new JetHubAttachmentStore()
+    ctx.provide('attachments', this.attachments)
 
     // 3) 本体
     // 必须转成 file:// URL：Node 的 ESM loader 拒绝裸 Windows 路径（'d:' 被当协议），
@@ -577,7 +590,7 @@ export class JetHubContainer {
         })
       }
       try {
-        return await chatCompletion(this.llm, body, init?.signal)
+        return await chatCompletion(this.llm, body, init?.signal, this.attachments)
       } catch (error) {
         return errorResponse(error)
       }

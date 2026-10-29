@@ -2429,3 +2429,93 @@ node scripts/test-all.mjs --all  → 12 通过 / 0 失败 / 1 跳过（页面 UI
 `inputModalities`，不返回 `context`／`defaultMaxTokens`，所以它的 `limit.context`
 仍是 0。`tests/t-plugin.mjs` 因此只把「**一家都没有**窗口」判成失败，并在输出里
 点明是哪一家。
+
+## 二十二、图片发不出去：「当前 profile 未装载附件服务」（2026-10-29，已修）
+
+用户报：`本轮运行失败 Jet Hub · LobsterAI: 当前 profile 未装载附件服务
+（@deepseek-ai/dsh-attachment-local），无法接收图片。`
+
+**先排除的方向**：这句里点名的包在 DSH 里是装好的（`@deepseek-ai/dsh-base` 的
+`cordis.patch.yml:146-147` 就插了 `attachment-local`，用户此前在 DSH 里贴图也是成功的），
+`~/.dsh/profiles/desktop/cordis.patch.yml` 全文没有 attachment 字样 —— 不是 DSH 配置问题。
+
+**根因（Observed）**：那句话有两份副本，一份在 DSH 的 `dsh-providers-hub`，另一份在
+**本项目 vendor 的本体**（`vendor/lib/openai-gateway/messages.js:206`）。而本体这句的
+触发条件是 `bridge === undefined`，桥是本插件主动传空的：
+
+```js
+// src/llm-bridge.mjs:105-106（改之前，注释原文）
+// 第 5 个参数是图片桥（{ bridge, limits }）。插件没有装载 attachments 服务，传空对象：
+// 纯文本照常，收到图片时由本体按「未装载附件服务」如实报错，不静默丢图。
+const generate = await toGenerateOptions(body, signal, reasoningEffort, maxTokens, {})
+```
+
+本体的图片收发**只走 `ctx.attachments`**（入站 `images.js:toImageBlock` → `bridge.saveImage`；
+出站 `index.js:340 makeReadImage` → `attachments.readImage`），magpie 宿主不提供它。
+⇒ 直连改造（`16e9f24`）把 HTTP 网关换成进程内 `ctx.llm` 之后，图片链路就没接上过。
+
+**复现（改动前，走 3425）**
+
+```bash
+curl -s -X POST http://127.0.0.1:3425/v1/chat/completions -H 'Content-Type: application/json' \
+  -d '{"model":"jet-hub-lobsterai/deepseek-flash","messages":[{"role":"user","content":[{"type":"text","text":"这是什么"},{"type":"image_url","image_url":{"url":"data:image/png;base64,<1x1>"}}]}]}'
+# → 400 {"error":{"code":"unsupported_content","message":"Jet Hub · LobsterAI: 当前 profile 未装载附件服务…"}}
+# jet-hub-loomy/DeepSeek-V4.1-Flash → 同样 400
+# loomy/DeepSeek-V4.1-Flash（不带 jet-hub- 前缀，走 magpie 自己的渠道）→ 200 ⇒ 只有本插件的段进本插件
+```
+
+**修法**：新增 `src/attachments.mjs`（`JetHubAttachmentStore`），在
+`src/container.mjs` 的 `ctx.plugin(mod)` **之前** `ctx.provide('attachments', store)`，
+`forward()` 把它传给 `chatCompletion`，`llm-bridge` 据此拼出真桥：
+
+```js
+const images = attachments?.saveImage === undefined
+  ? {}
+  : { bridge: { saveImage: (input) => attachments.saveImage(input) }, limits: attachments.imageLimits }
+```
+
+顺序不能反：本体的 `makeReadImage(ctx)` 在 apply 时把服务闭包捕获一次，晚一步就永远 undefined。
+
+**契约（读 `vendor/lib` 得到，全部 Observed）**
+
+| 方向 | 方法 | 返回 |
+|---|---|---|
+| 入站 | `saveImage({ data: Uint8Array, mediaType })` | `{ attachmentId:'sha256:<64hex>', mediaType, width, height, bytes }` |
+| 出站 | `readImage(ref, signal?)` | `{ data, ref: { mediaType, … } }`（本体读的是 `stored.ref.mediaType`） |
+| 出站可选 | `readImageRequest()` | 永远 `undefined`（本体自己回退原图） |
+
+**验证（真跑）**
+
+```bash
+node tests/t-attachments.mjs     → ✓ 附件服务契约与本体对接均正确   (exit 0)
+node tests/t-direct.mjs          → 结论：✓ 直连链路正常            (exit 0)
+```
+
+```
+# 单测：手搓六种图片头部（无图像库），尺寸真值
+PNG 3×2 / JPEG 640×480 / GIF 12×7 / WebP-VP8X 100×50 / VP8L 5×9 / VP8 320×240
+ref = {"attachmentId":"sha256:31d491c7aa04d4ab236a1ce9a857584021f57413d5b58fae97885969fa456dc1",
+       "mediaType":"image/png","width":3,"height":2,"bytes":45}
+本体重排后的图片块 = {"type":"image","attachment":{…同上…}}
+无桥报错 = 当前 profile 未装载附件服务（@deepseek-ai/dsh-attachment-local），无法接收图片。
+
+# 端到端（真容器 + 真上游，图用仓库自带的 ZCode PNG 216→128×128）
+✓ 容器提供了 attachments 服务
+✓ 本体的 ctx 拿得到 attachments
+· 带图请求：buddy/deepseek-v4.1-flash → HTTP 200
+✓ 带图请求不再报「未装载附件服务」 — HTTP 200
+✓ 图片落盘到了附件目录 — df3aba17…499.json, df3aba17…499.png
+```
+
+单测过程中**测试抓到一个真 bug**：WebP 解析的长度闸把 `VP8L` 也按 30 字节卡，而一张
+1×1 的无损 WebP 只有 25 字节，会被误判成「不是图片」。已按子格式分开判长度（VP8L 25 /
+VP8X 与 VP8 30），并在测试里固定三种子格式。
+
+**边界**：限额与本体同源（20 MB / 20 张 / 8192 px / png·jpeg·webp·gif）—— 不一致会出现
+「本体放行、插件拒绝」；`readImage` 重算 sha256 对账，被改过的对象抛 `ATTACHMENT_CORRUPTED`；
+只收 data URL（`http(s)` 由本体自己拒，防 SSRF）；不做缩放（引 sharp 的代价大于收益，
+本体有回退路径）。
+
+**一处仍然要人做的一步**：magpie 主程序不重载插件，`~/.config/magpie/plugin-providers.json`
+的 mtime 停在 `07:45:35`（本次改动后 `08:10` 仍未变，`touch` 无效、`magpie plugin` 无 reload
+子命令）。**重启 magpie** 后 3425 那条才不再报附件错。

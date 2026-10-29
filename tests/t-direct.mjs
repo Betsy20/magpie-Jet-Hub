@@ -12,10 +12,11 @@
 // 侧写隔离与 `t-console.mjs` 同源（JET_HUB_NO_ADDR_FILE + 家目录改道），
 // 因为这里也真起容器、也会走到写地址文件那段代码。
 import { homedir, tmpdir } from 'node:os'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JetHubContainer } from '../src/container.mjs'
+import { ZCODE_PNG_BASE64 } from '../src/zcode-icon.mjs'
 
 const entryPath = fileURLToPath(new URL('../vendor/lib/index.js', import.meta.url))
 const log = (m) => console.log('  ·', m)
@@ -105,6 +106,45 @@ try {
     ok('流式有且只有一个 [DONE]', doneCount === 1, `${doneCount} 个`)
     ok('流式以 [DONE] 收尾', raw.trimEnd().endsWith('data: [DONE]'), JSON.stringify(raw.slice(-40)))
     ok('流式有 chunk 帧', raw.includes('chat.completion.chunk'), `${raw.split('\n\n').length} 块`)
+  }
+
+  // 3.5) 图片入站（附件服务）—— 直连之后最容易断的一环
+  //
+  // 断的表现非常隐蔽：**纯文本一切正常**，一发图就 400「当前 profile 未装载
+  // 附件服务（@deepseek-ai/dsh-attachment-local）」。因为本体的图片收发全走
+  // `ctx.attachments`，而插件以前没提供这个服务（给本体传空桥）。
+  //
+  // 断言只钉三件与账号无关的事：本体 `ctx` 真拿到了服务、图真落盘了、报错
+  // **不再是那句话**。上游对某张图接受与否是模型/账号的事，不是这条链路的契约。
+  ok('容器提供了 attachments 服务', typeof container.attachments?.saveImage === 'function')
+  ok('本体的 ctx 拿得到 attachments', typeof container.ctx?.get?.('attachments')?.saveImage === 'function')
+
+  const imageModel = [...(container.modelMeta ?? [])]
+    .find(([, meta]) => (meta?.input ?? []).includes('image'))?.[0] ?? model
+  if (imageModel === undefined) {
+    console.log('NOT RUN 图片入站（没有任何模型，多半是没登录）')
+  } else {
+    const imageRes = await container.forward('/v1/chat/completions', {
+      body: JSON.stringify({
+        model: imageModel,
+        max_tokens: 24,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: '这张图里是什么？一句话。' },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${ZCODE_PNG_BASE64}` } },
+          ],
+        }],
+      }),
+    })
+    const imageJson = await imageRes.json()
+    const imageError = String(imageJson?.error?.message ?? '')
+    log(`带图请求：${imageModel} → HTTP ${imageRes.status} ${imageError.slice(0, 80)}`)
+    ok('带图请求不再报「未装载附件服务」', !imageError.includes('未装载附件服务'), `HTTP ${imageRes.status} ${imageError.slice(0, 160)}`)
+    const objects = existsSync(join(container.attachments.dir, 'objects'))
+      ? readdirSync(join(container.attachments.dir, 'objects'))
+      : []
+    ok('图片落盘到了附件目录', objects.some((f) => f.endsWith('.json')) && objects.some((f) => f.endsWith('.png')), objects.join(', ') || '(空)')
   }
 
   // 4) 错误路径：不支持的方法要回 404 而不是挂住

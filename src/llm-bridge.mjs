@@ -80,9 +80,10 @@ export function llmReady(llm) {
  * @param {object} llm     本体 `ctx.llm`（LlmRuntime）
  * @param {object} body    OpenAI 请求体，`model` 必须已带 provider 前缀
  * @param {AbortSignal} [signal]
+ * @param {object} [attachments] 附件服务（`src/attachments.mjs`），入站图片落盘用；缺省＝不支持图片
  * @returns {Promise<Response>} 流式时是 `text/event-stream`，否则是 `application/json`
  */
-export async function chatCompletion(llm, body, signal) {
+export async function chatCompletion(llm, body, signal, attachments) {
   if (!llmReady(llm)) throw new Error('magpie-jet-hub: 本体 llm 服务未就绪，无法直连')
 
   const route = parseModelRoute(body?.model)
@@ -102,10 +103,18 @@ export async function chatCompletion(llm, body, signal) {
     ? normalizeMaxTokens(requestedMaxTokens, route.provider, route.model)
     : undefined
 
-  // 第 5 个参数是图片桥（`{ bridge, limits }`）。插件没有装载 attachments 服务，
-  // 传空对象：纯文本照常，收到图片时由本体按「未装载附件服务」如实报错，
-  // 不静默丢图。
-  const generate = await toGenerateOptions(body, signal, reasoningEffort, maxTokens, {})
+  // 第 5 个参数是图片桥（`{ bridge, limits }`）。有附件服务就把入站的
+  // `image_url` 落盘成 DSH 的 `ImageBlock`；没有则传空对象 —— 纯文本照常，
+  // 收到图片时由本体按「未装载附件服务」如实报错，不静默丢图（静默丢图会让
+  // 用户以为模型看到了图，而答案其实是基于文本生成的）。
+  //
+  // ⚠️ 必须把 `limits` 一起给：本体用 `images.limits ?? DEFAULT_IMAGE_LIMITS`
+  // 做入站校验，而插件落盘时按自己的 `imageLimits` 再校验一次 —— 两份表要是
+  // 不是一个来源，就会出现「本体放过、插件拒绝」这种自相矛盾的报错。
+  const images = attachments?.saveImage === undefined
+    ? {}
+    : { bridge: { saveImage: (input) => attachments.saveImage(input) }, limits: attachments.imageLimits }
+  const generate = await toGenerateOptions(body, signal, reasoningEffort, maxTokens, images)
   const fullId = `${route.provider}/${route.model}`
   const stream = llm.stream(markGatewayChannel(generate))
 

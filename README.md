@@ -550,6 +550,46 @@ image true / reasoning true`，`astudio/xopdsv4flash0731in` = `1048576 / 100000 
 能力元数据跟目录一起落盘到 `~/.config/magpie/jet-hub-models.json` 的 `meta` 字段，
 冷启动首屏就有真窗口，不必等本体 20–30 秒起来。
 
+## 图片（附件服务 `src/attachments.mjs`）
+
+**纯文本一直好、一发图就 400「当前 profile 未装载附件服务（@deepseek-ai/dsh-attachment-local），无法接收图片」**。
+这不是 DSH 环境缺包 —— 那句话出自本项目 vendor 的本体，触发点是自己人：
+
+```js
+// src/llm-bridge.mjs（改之前）
+toGenerateOptions(body, signal, reasoningEffort, maxTokens, {})   // ← 第 5 参空桥
+```
+
+本体的图片**收发都只走 `ctx.attachments`**（入站 `images.js:toImageBlock` 调
+`bridge.saveImage`，出站 `index.js:makeReadImage` 调 `attachments.readImage`），而
+magpie 的宿主**不提供**这个服务，所以插件得自己实现一个再 `ctx.provide`。
+
+契约（`vendor/lib` 实测，不是猜的）：
+
+| 方向 | 插件要提供 | 返回 |
+|---|---|---|
+| 入站：客户端 → 本体 | `saveImage({ data: Uint8Array, mediaType })` | `{ attachmentId, mediaType, width, height, bytes }` |
+| 出站：本体 → 上游 | `readImage(ref, signal?)` | `{ data, ref: { mediaType, … } }` ← **必须是 `ref.mediaType`，不是顶层 `mediaType`** |
+| 出站可选 | `readImageRequest()` | 直接返回 `undefined`（见下） |
+
+- **`attachmentId` 是内容寻址的 `sha256:<64hex>`**，落盘 `<dir>/objects/<hash>.<ext>`
+  加一份同名 `.json` 元数据（先写 `.tmp-*` 再 rename）。同一张图二次落盘直接复用元数据，
+  `objects/` 不会越存越多。`readImage` 会**重算 sha256 对账**，被改过就抛
+  `ATTACHMENT_CORRUPTED` 而不是把坏字节发给上游。
+- **尺寸自己解析头部**（PNG / JPEG / GIF / WebP 三种子格式），不引 `sharp` 之类的原生
+  依赖 —— 插件要能在一个没编译工具链的机器上直接跑。测试覆盖六种头部的真值尺寸。
+- **限额与本体同源**（20 MB / 单条 20 张 / 8192 px / png·jpeg·webp·gif）。两边不一致会
+  出现最难受的一种错：本体放行、插件拒绝。
+- **不做缩放**：`readImageRequest` 永远返回 `undefined`，本体自己有回退路径（拿不到就发
+  原图）。要缩放就得引 sharp，代价大于收益。
+- **只收 data URL**：`http(s)` 外链由本体自己拒（防 SSRF），插件不用管。
+- 附件目录：`JET_HUB_ATTACHMENT_DIR`，默认 `~/.config/magpie/jet-hub-attachments`。
+- 必须**在 `ctx.plugin(mod)` 之前** `ctx.provide('attachments', …)`：本体的
+  `makeReadImage(ctx)` 在 apply 时把服务闭包捕获一次，晚一步就永远是 `undefined`。
+
+回归守卫两处：`tests/t-attachments.mjs`（单测 + 与本体真实对接，含「无桥必须抛那句话」）、
+`tests/t-direct.mjs` 的「3.5) 图片入站」（真容器真上游发一张图，断言不再报附件错、图真落盘）。
+
 ## 供应商图标（`src/icons.mjs`）
 
 **每家一个图标**，不是 24 个 provider 共用插件自己那个。三种来源：
@@ -579,6 +619,7 @@ src/plugin.mjs         插件工厂：config / auth / provider
 src/container.mjs      内嵌 cordis 容器，加载本体并转发
 src/credentials.mjs    把 .credentials.yaml 桥成 credentials 服务
 src/connection.mjs     补 connection 服务，让本体的 jet-hub-rpc 端点注册起来
+src/attachments.mjs    附件服务：本体的图片收发都走 ctx.attachments，宿主不提供，插件自己实现
 src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
 vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/ + locale/ + 上游 LICENSE）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
@@ -589,7 +630,7 @@ scripts/shot-console.cjs     控制台八标签实拍 + DOM 断言（Edge headle
 scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-seed-auth / t-console / t-direct / t-gateway / t-rpc-cover / ui-check）
+tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-writerefs / t-usage / t-checkin / t-options / t-attachments / t-seed-auth / t-console / t-direct / t-gateway / t-rpc-cover / ui-check）
 LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
 vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
 docs/screenshot.png    侧栏页面实拍（`tests/ui-check.cjs` 的截图）
