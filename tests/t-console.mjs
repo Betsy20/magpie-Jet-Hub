@@ -17,6 +17,14 @@
 // 而本用例要读真实账号池（`account.list` 要有账号），所以 `home` 仍传真实家目录 ——
 // 传临时目录会让「有账号」这条断言变成永假。副作用因此由上面两条腿挡住，另加
 // 「真配置内容指纹跑前跑后一致」这条硬断言，任何漏写都会变红。
+//
+// ⚠️ 2026-10-30 补一条：**凭据目录本身也是用户的**。用真实 `home` 跑本用例会经
+// `account.list` 拉一遍账号，上游据此**真实轮换** `~/.dsh/jet-hub/state.json` 里的
+// `expiresAt`（实测跑一次 2 行 `expiresAt` 变、`refresh-journal.jsonl` 追加记录）。
+// 这是「要真账号就得真数据」的固有代价，挡不掉，只能不默认跑：
+// 与 `tests/_iso.mjs` 的 `live()` 同源，要求显式 `JET_HUB_LIVE=1` 才继续，
+// 否则打印跳过并退出 0 —— 让「默认不碰用户文件」成为可验证的硬契约。
+import { live, skipLive } from './_iso.mjs'
 import { homedir, tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
@@ -45,6 +53,15 @@ const savedEnv = { USERPROFILE: process.env.USERPROFILE, HOME: process.env.HOME,
 process.env.USERPROFILE = tempHome
 process.env.HOME = tempHome
 process.env.JET_HUB_NO_ADDR_FILE = '1'
+
+// ⚠️ 本用例用**真实** home 起容器（要读真实账号池），于是会经 `account.list`
+// 触发上游真实续期：实测 `~/.dsh/jet-hub/state.json` 的 `expiresAt` 被改写、
+// `refresh-journal.jsonl` 追加记录。这是「要真账号就得真数据」的固有代价，
+// 挡不掉，只能不默认跑。与 `tests/_iso.mjs` 的 `live()` 同源。
+if (!live()) {
+  skipLive('控制台端到端（真容器 + 真账号，会真实续期）')
+  process.exit(0)
+}
 
 let failed = 0
 function ok(name, cond, extra = '') {

@@ -6,6 +6,11 @@
 import { DSH_PROVIDERS, PLUGINS, PROVIDER_IDS } from '../src/plugin.mjs'
 import { iconProviders } from '../src/icons.mjs'
 
+// ⚠️ 本文件建插件实例会真起容器，必须隔离（理由见 `tests/_iso.mjs` 文件头）。
+import { isolate } from './_iso.mjs'
+
+const iso = isolate()
+
 let failed = 0
 const ok = (cond, msg) => {
   console.log(`${cond ? '✓' : '✗'} ${msg}`)
@@ -18,7 +23,7 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
 // ---- 1) 契约形状 -------------------------------------------------------------
 {
   const mk = Object.fromEntries(PLUGINS)
-  const p = await mk['jet-hub-astudio'](noop, {})
+  const p = await mk['jet-hub-astudio'](noop, iso.options())
   const opts = p.auth.options
   ok(Array.isArray(opts) && opts.length > 0, `auth.options 是数组（${opts?.length} 项）`)
   ok(opts.length <= 16, 'auth.options 不超过 MAX_OPTIONS=16')
@@ -37,7 +42,7 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
   const mk = Object.fromEntries(PLUGINS)
   const icons = new Map()
   for (const [id, factory] of PLUGINS) {
-    const p = await factory(noop, {})
+    const p = await factory(noop, iso.options())
     icons.set(id, p.auth.icon)
   }
   ok(icons.size === PROVIDER_IDS.length, `24 个 provider 都拿到了工厂（${icons.size}）`)
@@ -65,10 +70,10 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
   const mk = Object.fromEntries(PLUGINS)
   const factory = mk['jet-hub-workbuddy']
   // 先让容器把两个目录都拉到（authorize 会等），否则两份都只有缓存里的旧值
-  await factory(withOptions({ prefer_full: true, dead_account_skip: true }), {})
+  await factory(withOptions({ prefer_full: true, dead_account_skip: true }), iso.options())
 
-  const on = await factory(withOptions({ prefer_full: true }), {})
-  const off = await factory(withOptions({ prefer_full: false }), {})
+  const on = await factory(withOptions({ prefer_full: true }), iso.options())
+  const off = await factory(withOptions({ prefer_full: false }), iso.options())
 
   const a = await on.provider.models({ models: {} })
   const b = await off.provider.models({ models: {} })
@@ -92,8 +97,8 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
 {
   const mk = Object.fromEntries(PLUGINS)
 
-  const plugOn = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: true }), {})
-  const plugOff = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: false }), {})
+  const plugOn = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: true }), iso.options())
+  const plugOff = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: false }), iso.options())
 
   // 工厂内部是模块级单例容器，所以两个插件对象拿到的是同一个实例；
   // 最后一次工厂调用的闭包生效（同一宿主下 input 是同一份）。
@@ -109,7 +114,7 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
   ok(otherVal !== false, `其它 provider 仍跳过死号（deadSkipCheck('qoder') = ${String(otherVal)}）`)
 
   // 再拨回 true，同一个容器的回调必须立刻变回真（现读，不用重启）。
-  const plugBack = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: true }), {})
+  const plugBack = await mk['jet-hub-codearts'](withOptions({ dead_account_skip: true }), iso.options())
   const backVal = (plugBack._internal?.container ?? c).deadSkipCheck('codearts')
   ok(backVal !== false, `拨回 true 后立即恢复过滤（实测 ${String(backVal)}）`)
 }
@@ -118,7 +123,7 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
 // ---- 3) 宿主没给 input.magpie 时不能崩 ---------------------------------------
 {
   const mk = Object.fromEntries(PLUGINS)
-  const p = await mk['jet-hub-qoder']({}, {})
+  const p = await mk['jet-hub-qoder']({}, iso.options())
   const rows = await p.provider.models({ models: {} })
   ok(rows !== undefined && typeof rows === 'object', '没有 input.magpie 时 models() 仍返回对象（不抛错）')
 }

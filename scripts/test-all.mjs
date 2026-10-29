@@ -13,7 +13,7 @@ const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z
 const ROOT = path.dirname(HERE)
 const TESTS = path.join(ROOT, 'tests')
 
-const UNIT = ['t-writerefs.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-import-backup.mjs', 't-login-reclaim.mjs', 't-new-account.mjs', 't-rpc-cover.mjs', 't-patrol.mjs']
+const UNIT = ['t-writerefs.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-import-backup.mjs', 't-login-reclaim.mjs', 't-new-account.mjs', 't-rpc-cover.mjs', 't-patrol.mjs']
 const ENV = [
   { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
   // 直连层回归：真起容器跑一次 chat（流式 + 非流式）。取代了原来「内嵌网关端口」
@@ -73,6 +73,13 @@ for (const c of cases) {
   // 它绝不是这个文件的所有者；带这个开关让所有子用例彻底闭嘴（插件侧的正式开关，
   // 由内核在 2026-10-28 加）。t-console 自己也设了，这里是第二道闸：以后再加真起
   // 容器的用例，不用记得逐个人工设。
+  //
+  // `JET_HUB_LIVE=1`（**仅 `--all`**）：`t-console` / `t-direct` 用真实 home 起容器
+  // （要真账号池才能验控制台与真 chat），于是会经 `account.list` 触发上游**真实续期**
+  // —— 实测 `~/.dsh/jet-hub/state.json` 的 `expiresAt` 被改写、`refresh-journal.jsonl`
+  // 追加。这是「要真账号就得真数据」的固有代价，挡不掉，所以默认（不跑 ENV 组时）
+  // 绝不注入；只有 `--all` 这种「明确要求连环境一起验」的场合才打开。
+  const liveEnv = all ? { JET_HUB_LIVE: '1' } : {}
   const runOnce = (attempt) => {
     const capPath = path.join(ROOT, `.tmp-test-all-${process.pid}-${c.file}-${attempt}.log`)
     const capFd = fs.openSync(capPath, 'w')
@@ -83,7 +90,7 @@ for (const c of cases) {
         cwd: ROOT,
         stdio: ['ignore', capFd, capFd],
         timeout: 600_000,
-        env: { ...process.env, JET_HUB_NO_ADDR_FILE: '1' },
+        env: { ...process.env, JET_HUB_NO_ADDR_FILE: '1', ...liveEnv },
       })
     } finally {
       fs.closeSync(capFd)

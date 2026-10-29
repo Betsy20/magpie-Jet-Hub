@@ -6,12 +6,19 @@
 //      它的结果是固定的 failed，不会给任何账号产生副作用。
 import * as mod from '../src/plugin.mjs'
 
+// ⚠️ 本文件会真起容器，必须隔离（否则 `resolveHome(undefined)` 退回 `homedir()`，
+// 把本体 `DSH_HOME` 指向用户真实凭据目录 —— 实测会真实轮换 access_token）。
+// 三层隔离与踩过的坑写在 `tests/_iso.mjs` 文件头。
+import { isolate, live, skipLive } from './_iso.mjs'
+
+const iso = isolate()
+
 const problems = []
 const ok = (cond, msg) => { if (!cond) problems.push(msg) }
 
 // ---- 1) 映射层 -------------------------------------------------------------
 const map = mod.PLUGINS[0][1]
-const probe = await map({}, {})
+const probe = await map({}, iso.options())
 const toMagpieCheckin = probe._internal?.toMagpieCheckin
 ok(typeof toMagpieCheckin === 'function', '_internal 应导出 toMagpieCheckin')
 
@@ -42,17 +49,24 @@ if (typeof toMagpieCheckin === 'function') {
 
 // ---- 2) 契约层：每个 provider 都要有 checkin -------------------------------
 for (const [id, fn] of mod.PLUGINS) {
-  const plugin = await fn({}, {})
+  const plugin = await fn({}, iso.options())
   ok(typeof plugin.auth.checkin === 'function', `${id}: 缺 auth.checkin`)
 }
 
 // ---- 3) 真调用：workbuddy 明确不支持签到（无副作用）------------------------
-const wb = mod.PLUGINS.find(([i]) => i === 'jet-hub-workbuddy')[1]
-const wbPlugin = await wb({}, {})
-const r = await wbPlugin.auth.checkin(async () => ({ uid: 'workbuddy-1bffa583' }), { id: 'jet-hub-workbuddy' })
-console.log('workbuddy checkin =', JSON.stringify(r))
-ok(r.outcome === 'failed', `workbuddy 不支持签到，应为 failed，实际 ${r.outcome}`)
-ok(typeof r.message === 'string' && r.message !== '', 'failed 必须带 message 说明原因')
+// 真调用要真凭据（隔离沙箱里没有 ⇒ 默认跳过）。
+// ⚠️ 即使上游说「不支持签到」，这条链路也真发了一次 RPC —— 所以必须是 opt-in。
+if (live()) {
+  iso.restore()
+  const wb = mod.PLUGINS.find(([i]) => i === 'jet-hub-workbuddy')[1]
+  const wbPlugin = await wb({}, {})
+  const r = await wbPlugin.auth.checkin(async () => ({ uid: 'workbuddy-1bffa583' }), { id: 'jet-hub-workbuddy' })
+  console.log('workbuddy checkin =', JSON.stringify(r))
+  ok(r.outcome === 'failed', `workbuddy 不支持签到，应为 failed，实际 ${r.outcome}`)
+  ok(typeof r.message === 'string' && r.message !== '', 'failed 必须带 message 说明原因')
+} else {
+  skipLive('真调用 checkin（workbuddy）')
+}
 
 if (problems.length) {
   console.log('✗ ' + problems.length + ' 处不符：')

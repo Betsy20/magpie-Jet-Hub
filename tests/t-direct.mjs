@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JetHubContainer } from '../src/container.mjs'
 import { ZCODE_PNG_BASE64 } from '../src/zcode-icon.mjs'
+import { live, skipLive } from './_iso.mjs'
 
 const entryPath = fileURLToPath(new URL('../vendor/lib/index.js', import.meta.url))
 const log = (m) => console.log('  ·', m)
@@ -31,6 +32,13 @@ const savedEnv = {
 process.env.USERPROFILE = tempHome
 process.env.HOME = tempHome
 process.env.JET_HUB_NO_ADDR_FILE = '1'
+
+// ⚠️ 同 t-console：本用例也用**真实** home 跑真 chat，会真实续期凭据。
+// 默认跳过，`JET_HUB_LIVE=1 node tests/t-direct.mjs` 才跑。
+if (!live()) {
+  skipLive('直连链路（真容器 + 真 chat，会真实续期）')
+  process.exit(0)
+}
 
 let failed = 0
 function ok(name, cond, extra = '') {
