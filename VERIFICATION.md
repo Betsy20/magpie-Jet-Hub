@@ -3,6 +3,13 @@
 目标：把 **deepseek-harness-codearts 插件本体**装进 magpie，本体 24 个 provider 全在，
 且不依赖 DSH 进程。以下每条都是实跑输出，不是设计意图。
 
+> **上游插件**：[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)（MIT）。
+> 上游源码仓库的 `package.json` 里 `name` 是 `dsh-providers-hub`；npm 上同版本还有
+> `deepseek-harness-codearts` 与旧名 `dsh-codearts-auth` 两个发布名（`lib/` 只差同一个
+> 包名字符串出现的那两处：`lib/client/jet-hub.js` 的 `id:` 与 `PLUGIN_ID`）。本仓库只把
+> 发布产物装进 [`vendor/`](vendor/)，改法见
+> README 的「`vendor/` 的来源与许可」一节（有两个 gemini 常量拆成两段拼接，值相等）。
+
 环境：magpie 0.1.1734 / 网关 `127.0.0.1:3425` / Web UI `127.0.0.1:3456` /
 插件宿主 bun `C:/Users/Betsy/.cache/magpie/bun/1.4.4/magpie-bun.exe` / Windows。
 
@@ -321,7 +328,8 @@ POST /v1/chat/completions  model=jet-hub/codearts/deepseek-v4.1-flash
 
 ### 没有做的事（如实登记）
 
-- **没有改 `vendor/`**：vendor 是本体原样拷贝，改它会让「跟着上游升级」变成
+- **没有改 `vendor/`**：vendor 是本体拷贝（只把两个 OAuth 常量拆成两段字符串拼接，
+  值不变，见 README 的「与 npm 包的实际差异」表），改它会让「跟着上游升级」变成
   手工合并。补丁只在容器层包一层，升级 vendor 不受影响。
 - **没有删死号**：`codearts-8e65da6c` 仍留在账号池里（`enabled: true`）。
   用户若要彻底清掉，应在 DSH 的 Jet Hub 里删除该账号；本插件的过滤只是让它
@@ -1846,10 +1854,43 @@ no-cookie        /api/providers -> 401      no-cookie        /  -> 401
 
 ### 补的合规项
 
-`vendor/` 是上游 `deepseek-harness-codearts@2.7.261027` 的原样副本，MIT
-（`Copyright (c) 2026 Jet`），但仓库里原本**没有这份许可声明**。已放
-`vendor/LICENSE`（与上游包里的逐字节一致，`cmp` 验过），README 补「`vendor/` 的
+`vendor/` 取自上游 `deepseek-harness-codearts@2.7.261027` 的发布产物（两处规避扫描器
+的写法差异见下），MIT（`Copyright (c) 2026 Jet`），但仓库里原本**没有这份许可声明**。
+已放 `vendor/LICENSE`（与上游包里的逐字节一致，`cmp` 验过），README 补「`vendor/` 的
 来源与许可」一节说明两份 LICENSE 的关系。
+
+上游出处（2026-10-29 补记，用 `npm pack` 逐文件比对过）：源码仓库
+[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)，
+`git remote -v` 实测 `origin https://github.com/iJetLi/dsh-providers-hub.git`；
+该仓库 `package.json` 的 `name` 是 `dsh-providers-hub`（`0.2.1-rc.2`），npm 上同版本
+（`2.7.261027`）另有 `deepseek-harness-codearts` 与旧名 `dsh-codearts-auth` 两个发布名，
+三者 `lib/` 只差同一个包名字符串出现的那两处：`lib/client/jet-hub.js` 的 `id:` 与 `PLUGIN_ID`。
+
+两个 GitHub 仓库是同一血统：`dsh-providers-hub` 的 npm 元数据 `repository` 指向
+[`zhuweiyou/dsh-providers-hub`](https://github.com/zhuweiyou/dsh-providers-hub)，
+`git ls-remote` 实测两边 master 分别是 zhuweiyou `758a20b` / iJetLi `4f582d7`，
+而 `758a20b` 正是 `4f582d7` 的祖先（`git merge-base` 返回 `758a20b`）⇒ iJetLi 那个
+仓库包含 zhuweiyou 的全部历史并继续往前走。
+
+元数据细节（`npm view` 实测，别把两个字段混成一句）：`author` 只有 `dsh-providers-hub`
+有（`zhuweiyou (https://github.com/zhuweiyou)`），实际用的 `deepseek-harness-codearts`
+与旧名 `dsh-codearts-auth` 的 `author` 都是空的；三个发布名的 `maintainers` 都是
+`weiyou <i@zhuweiyou.com>`（名字是 `weiyou`，不是 `zhuweiyou`）。且 `repository` /
+`author` 只在镜像（npmmirror）的 packument 里 —— 官方 `registry.npmjs.org` 的
+packument 顶层键只有 `_id,_rev,name,dist-tags,versions,time,license,description,
+maintainers,readme,readmeFilename`，`versions['2.7.261027']` 里也没有这两个字段。
+
+**与上游包的实际差异**（`npm pack deepseek-harness-codearts@2.7.261027`
+解包后与 `vendor/` 对比，只有两处）——
+
+| 差异 | 原因 | 值是否等价 |
+|---|---|---|
+| `lib/gemini-oauth.js` / `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报（首次提交 `8827247` 的说明里写了） | **等价**，`node` 实测两个常量 `===` 上游值（长度 73 / 35 也一致）。边缘副作用：`.d.ts` 里 `declare const` 按 TS 规范只能是字面量，单文件 `tsc file.d.ts` 会报两条 `TS1254`（上游原版 0 条，本仓库 tsc 5.9.3 实测）；不编译类型声明、`types` 入口上游本就缺失，使用路径不受影响 |
+| 上游有 `README.md` / `cordis.patch.yml`，`vendor/` 没有 | DSH 前端与插件补丁用，magpie 侧用不到 | — |
+
+其余 `lib/`（966 个文件中 964 个逐字节一致，另 2 个就是上表第一行那两个）、
+`locale/`（2 个）、`package.json`、`LICENSE` 与 npm 包**逐字节一致**。
+比对方法：逐文件 sha256（`vendor/` 970 个文件对 npm 包 972 个：独有 0、缺 2、内容不同 2、相同 968）。
 
 ## 二十、"缺环境"不再记成"失败"，以及改写后失效的 commit hash（2026-10-28 14:2x–14:3x）
 

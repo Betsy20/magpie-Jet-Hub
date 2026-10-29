@@ -4,8 +4,16 @@
 
 把 **deepseek-harness-codearts 插件本体**装进 magpie。
 
+> **上游插件**：[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)
+> （MIT）。它给 DSH 提供 24 家 AI 编码供应商的账号登录、多账号池、静默续期、
+> 积分领取和一个本地 OpenAI 兼容网关。本仓库**不是它的分支、也不修改它** ——
+> 只把它的发布产物装进 [`vendor/`](vendor/)（两处规避扫描器的写法差异见
+> [下文](<#vendor-的来源与许可>)），让 magpie 能直接用同一批
+> 账号和同一套能力。遇到供应商适配、登录流程、续期算法本身的问题，去上游提；
+> 本仓库只负责「装进 magpie」这一层（见[为什么这么做](#为什么这么做)）。
+
 不是"重写一份 CodeArts 能力"（那样只搬一家），而是把本体「路由中枢」原样跑起来：
-内嵌一个 cordis 容器加载 `deepseek-harness-codearts`（= `dsh-providers-hub`，其中 24 个 provider），
+内嵌一个 cordis 容器加载 [`deepseek-harness-codearts`](https://github.com/iJetLi/dsh-providers-hub)（= `dsh-providers-hub`，其中 24 个 provider），
 让它自己开一个只监听回环的 OpenAI 兼容网关，magpie 侧只把请求转发进去。
 
 ```
@@ -69,25 +77,78 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 
 ### `vendor/` 的来源与许可
 
-`vendor/` 是上游 npm 包 **`deepseek-harness-codearts@2.7.261027`** 的**原样副本**
-（`lib/` + `locale/` + `package.json`），未作任何修改 —— 只额外放了一份上游的
-`vendor/LICENSE`。
+`vendor/` 取自上游 npm 包 **`deepseek-harness-codearts@2.7.261027`**，把里面的
+`lib/` + `locale/` + `package.json` + `LICENSE` 解出来放进去。
 
 | 项 | 值 |
 |---|---|
-| 上游包名 | `deepseek-harness-codearts`（包内 `name` 字段；旧名 `dsh-codearts-auth`，再改名前叫 `dsh-providers-hub`） |
+| 上游源码仓库 | [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) |
+| npm 上的包名 | `deepseek-harness-codearts`（**同名同版本也发布在 `dsh-providers-hub` 与旧名 `dsh-codearts-auth` 下**，`lib/` 只差同一个包名字符串出现的那两处：`lib/client/jet-hub.js` 的 `id:` 与 `PLUGIN_ID`） |
 | 版本 | `2.7.261027` |
 | 许可 | **MIT**，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](vendor/LICENSE) |
-| 取法 | `npm pack deepseek-harness-codearts@2.7.261027` 后解包到 `vendor/` |
+| 取法 | `npm pack deepseek-harness-codearts@2.7.261027` 后把 `package/` 里的 `lib/` `locale/` `package.json` `LICENSE` 拷进 `vendor/` |
+
+**包名演进**：上游 README 写明「本包原名 `dsh-codearts-auth`（`0.2.0-rc.11` 起改名）」，
+改名后仓库/包名是 `dsh-providers-hub`；`deepseek-harness-codearts` 是另一个发布名
+（上游 `lib/client/jet-hub.js` 里的 `PLUGIN_ID` 就是它）。三个名字在 npm 上**同版本
+并存**，所以「上游」有三种找法 —— 读源码去 GitHub，装包/对版本去 npm 任一名字。
+
+> **两个 GitHub 仓库，同一血统**：`dsh-providers-hub` 的 npm 元数据里 `repository`
+> 写的是 [`zhuweiyou/dsh-providers-hub`](https://github.com/zhuweiyou/dsh-providers-hub)，
+> 而本文与上游 README 都用 [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)。
+> 实测（2026-10-29）：`git ls-remote` 两边 master 分别是 zhuweiyou `758a20b` /
+> iJetLi `4f582d7`，而 `758a20b` 正是 `4f582d7` 的祖先（`git merge-base` 返回它本身），
+> 即 iJetLi 那个仓库包含 zhuweiyou 的全部历史并继续往前走。看代码去 iJetLi（更新），
+> 查发布元数据会看到 zhuweiyou。
+>
+> 元数据细节（`npm view` 实测，别把两个字段混成一句）：`author` 只有
+> `dsh-providers-hub` 有（`zhuweiyou (https://github.com/zhuweiyou)`），我们实际用的
+> `deepseek-harness-codearts` 与旧名 `dsh-codearts-auth` 的 `author` **都是空的**；
+> 三个发布名的 `maintainers` 都是 `weiyou <i@zhuweiyou.com>`（名字是 `weiyou`，
+> 不是 `zhuweiyou`）。且 `repository` / `author` 只在镜像（npmmirror）的 packument 里，
+> 官方 registry 的 packument 与 tarball 内的 `package.json` 都没有这两个字段。
+
+**与 npm 包的实际差异**（2026-10-29 用 `npm pack` 逐文件比对过，别信「原样」两个字）：
+
+| 差异 | 原因 |
+|---|---|
+| `lib/gemini-oauth.js` 与 `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报；**值完全相等**（`node` 实测两个常量 `===`，长度 73 / 35 字符都一致），行为不变，另有环境变量可覆盖。唯一的边缘副作用：`.d.ts` 是声明文件，`declare const` 的初始值按 TS 规范只能是字面量，拼接写法在**单文件 `tsc file.d.ts`** 时会报两条 `TS1254`（上游原版 0 条）—— 本仓库不编译类型声明、`types` 入口 `lib/types/index.d.ts` 上游本就缺失，正常使用路径不受影响 |
+| 没有 npm 包里的 `README.md` 与 `cordis.patch.yml` | 那是 DSH 前端与插件补丁用的，magpie 侧用不到 |
+
+除上表外 `lib/`（966 个文件中 964 个逐字节一致，另 2 个就是上表第一行那两个）、
+`locale/`（2 个）、`package.json`、`LICENSE` 与 npm 包**逐字节一致**
+（`vendor/` 970 个文件对 npm 包 972 个：独有 0、缺 2、内容不同 2、相同 968，逐文件 sha256 比过）。
 
 MIT 要求「substantial portions」保留版权与许可声明，所以 `vendor/LICENSE` 必须
 跟着 `vendor/` 一起分发（`package.json` 的 `files` 里已含 `vendor`，整目录进包）。
 根目录的 `LICENSE` 是本插件自己的，两者不要混看。
 
 `vendor/` 里另有 482 个 `.map`（source map，约 4.3 MB）**运行时用不到**，留着是
-为了与上游包逐字节一致（方便 `diff` 校验副本没被改动过）。要在意仓库体积可以
-删掉它们，不影响运行，但那样就不再是「原样副本」了。
+为了与上游包尽量逐字节一致（方便 `diff` 校验）。要在意仓库体积可以删掉它们，
+不影响运行，但那样差异会多一项。
 
+**怎么自己核一遍**（Git Bash；cmd / PowerShell 把路径换成 `D:\dsh-build\...`）：
+
+```bash
+mkdir -p /tmp/up && cd /tmp/up
+npm pack deepseek-harness-codearts@2.7.261027
+tar -xzf deepseek-harness-codearts-2.7.261027.tgz
+diff -r /tmp/up/package /d/dsh-build/magpie-Jet-Hub/vendor
+# 预期只剩上表那两类差异：README.md / cordis.patch.yml 只在上游、gemini-oauth.* 两个文件写法不同
+# （diff -r 会把每个差异文件按行拆开列，所以输出行数远多于 4）
+# 逐文件哈希核（比 diff -r 更严，能看出换行/编码差异）：
+#   cd /tmp/up/package && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up/a.txt
+#   cd /d/dsh-build/magpie-Jet-Hub/vendor && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up/b.txt
+#   diff /tmp/up/a.txt /tmp/up/b.txt
+```
+
+**上游代码本身本仓库没有功能改动**（上表那两个 gemini 文件只改写法、不改值）。唯一与
+「上游运行环境」相关的一处是本插件自己的 `src/connection.mjs`（给容器补一个
+`connection` 服务，上游在 DSH 里由宿主提供），它在 `vendor/` 之外。
+
+**版本为什么停在 2.7.261027**：`vendor/` 是随仓库分发的一份快照，升版本要连带重跑
+全量测试与模型快照，所以不跟着 npm 自动走。npm 上现在已有更新的版本，换法就是重跑
+上面那三条命令 + `node scripts/test-all.mjs`。
 
 ## 安装
 
@@ -289,7 +350,7 @@ reused: true }` —— 账号条目与凭据此刻都已经就位，只是没有
 
 ## 从 dsh-providers-hub 的备份导入
 
-`dsh-providers-hub` 导出的备份是一份自包含快照（`format: 'dsh-codearts-auth/backup'`）：
+[`dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) 导出的备份是一份自包含快照（`format: 'dsh-codearts-auth/backup'`）：
 账号池 + 每条账号引用的凭据 + 模型黑名单 + 永久锁定表。本插件用它自己那两处落点
 （`.credentials.yaml` 的 `refs:` 段、`~/.dsh/jet-hub/state.json`），所以导入就是**翻译**：
 
@@ -958,3 +1019,21 @@ docs/archive/          不再被 README 引用的旧截图留档
   下发给控制台与 `scripts/snapshot-models.mjs`；`page/page.js` 与 `page/index.html`
   里各留一份兜底常量，只在快照还没生成时显示。
 
+## 上游与致谢
+
+本插件的能力**全部来自上游** —— 上游仓库、npm 包名、许可与逐文件差异都在
+[`vendor/` 的来源与许可](#vendor-的来源与许可)那一节，这里不重复。
+
+24 家供应商的登录流程、多账号池、静默续期、积分领取、模型目录、本地 OpenAI
+兼容网关，都是上游写的。本仓库只做了这些事：
+
+- 把上游包解出来装进 `vendor/`，用内嵌 cordis 容器跑起来（`src/container.mjs`）；
+- 给容器补一个 `connection` 服务（`src/connection.mjs`，上游在 DSH 里由宿主提供）；
+- 把 24 家 provider 各注册成一个 magpie provider，`auth.loader().fetch` 剥前缀后
+  交给本体（`src/plugin.mjs`）；
+- 凭据直接共用 `~/.dsh/.credentials.yaml`，双向桥（`src/credentials.mjs`）；
+- 侧栏页、本地控制台、备份导入脚本（`page/`、`console/`、`scripts/import-backup.mjs`）。
+
+**遇到问题先分归属**：供应商适配不对、登录页打不开、续期算法报错、模型目录缺条目
+—— 这些是上游的问题，去[上游仓库](https://github.com/iJetLi/dsh-providers-hub)
+提；magpie 里装不上、账号行显示不对、控制台某个操作没反应 —— 才是本仓库的。

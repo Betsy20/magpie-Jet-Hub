@@ -32,6 +32,25 @@
     "@deepseek-ai/schemastery": "^3.18.4"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Betsy20/magpie-Jet-Hub.git"
+  },
+  "homepage": "https://github.com/Betsy20/magpie-Jet-Hub#readme",
+  "bugs": {
+    "url": "https://github.com/Betsy20/magpie-Jet-Hub/issues"
+  },
+  "upstream": {
+    "name": "dsh-providers-hub",
+    "repository": "https://github.com/iJetLi/dsh-providers-hub",
+    "npm": "deepseek-harness-codearts",
+    "npmAliases": [
+      "dsh-providers-hub",
+      "dsh-codearts-auth"
+    ],
+    "version": "2.7.261027",
+    "note": "vendor/ 取自这个 npm 包；与上游的差异只有 gemini-oauth.* 两个常量拆成两段拼接（值相等）与省掉 README.md / cordis.patch.yml，详见 README「vendor/ 的来源与许可」"
+  },
   "magpie": {
     "maxConcurrency": 8,
     "page": {
