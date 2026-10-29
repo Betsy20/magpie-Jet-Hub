@@ -78,7 +78,20 @@ export interface PollMinimaxOptions {
  * ⚠️ **两种「还在等」的形态都要认**（见文件头注释）。
  */
 export declare function pollMinimaxDeviceToken(auth: MinimaxDeviceAuthorization, options?: PollMinimaxOptions): Promise<MinimaxCredential>;
-/** 续期。 */
+/**
+ * 续期。
+ *
+ * ⚠️⚠️ **失败必须抛结构化错误**（2026-10-27 审计修）：
+ * 修前是裸 `new Error('MiniMax 续期失败：' + error)` —— 状态码只在文案里，
+ * 而上游的终态判据只能靠 message 正则，于是 `503` 报文里出现 `expired`
+ * 就把健康账号判死（详见 `refresh-failure.ts` 模块头的三条实测）。
+ * 现在用 {@link refreshFailureFromResponse} 把 `status` + OAuth `error` 带出来，
+ * 判据读结构化字段而不是捞词。
+ *
+ * ⚠️ **传输层失败原样上抛**（不包装）：`fetch` 抛的 `TypeError('fetch failed')`
+ * 真因在 `cause` 链上（`certificate has expired` 等），包装会丢 cause
+ * ⇒ 判据的「先排传输层」那一步失效。`isRefreshTransportFailure` 沿 cause 链读码。
+ */
 export declare function refreshMinimaxCredential(refreshToken: string, fetcher?: typeof fetch, product?: MinimaxProduct): Promise<MinimaxCredential>;
 /**
  * 把上游 `/oauth2/device/authorize` 的 `login_url` **钉死**成「只允许回到本授权页」，

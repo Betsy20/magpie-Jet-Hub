@@ -90,6 +90,23 @@ export declare const CODEARTS_REASONING_EFFORTS: readonly {
  * 与 `trae-adapter.ts` 是既有问题，本次只修这一处新增注释）。
  */
 export declare const CODEARTS_DEFAULT_EFFORT = "on";
+/** 该模型在本进程内是否已被「补头成功」证明过要带 `maas_type: benefit`。 */
+export declare function codeArtsBenefitLearnedFor(model: string): boolean;
+/** 记下「该模型补头后成功」；只由成功路径调用。 */
+export declare function markCodeArtsBenefitLearned(model: string): void;
+/** 清空学习集合（仅供单测隔离）。 */
+export declare function resetCodeArtsBenefitLearned(): void;
+/**
+ * 领取福利（跨请求去重版）。返回 `claimCodeArtsBenefit` 的原字符串。
+ *
+ * ⚠️ 去重窗口内**复用同一个 Promise**，因此并发的三条请求只会真正发一次写请求。
+ * ⚠️ 失败结果也复用（避免「失败 → 立刻重试」放大写请求）；窗口过了才重新领。
+ */
+export declare function claimCodeArtsBenefitShared(credential: CodeArtsCredential, fetcher: typeof fetch, options?: {
+    signal?: AbortSignal;
+}): Promise<string>;
+/** 清空领取去重表（仅供单测隔离）。 */
+export declare function resetCodeArtsBenefitClaimFlight(): void;
 /**
  * 本表查不到时**必须**给的那个窗口（`undefined` 在本家是不可接受的）。
  *
@@ -479,6 +496,13 @@ export declare function isSseQuotaExhaustedErrorCode(code: string, message: stri
  */
 export declare function isBenefitNotFoundBody(body: string): boolean;
 /**
+ * 错误体是否是「该模型只按 benefit 通道注册」（`InferHub.002002009.404`）。
+ *
+ * 与 {@link isBenefitNotFoundBody} 互为镜像：一个说「该带头却没带」，
+ * 一个说「不该带却带了」。判据同样按**实测全等**，不放松成前缀。
+ */
+export declare function isModelNotRegisteredBody(body: string): boolean;
+/**
  * 从错误体提取可分类的 detail 文本（OpenAI 风格 error 或 CodeArts error_code/error_msg）。
  *
  * ⚠️ **本次只「加腿」，且如实标注证据强度**：新增顶层字符串 `error` 一条。
@@ -790,6 +814,28 @@ export declare class CodeArtsAdapter extends LlmAdapter {
      */
     private syncCatalogEntries;
     listModels(_provider: string): Promise<readonly LlmModelInfo[]>;
+    /**
+     * 「这份 `listAllModels()` **确认**来自远端完整读取」——供 `model.list` 的
+     * 「已下架」判据用（见 `ModelCatalogSource.catalogConfirmedRemote` 的注释）。
+     *
+     * ## 判据（两条腿都必须成立，缺一即 `false`）
+     *
+     * 1. `remoteModels !== undefined` —— 至少成功读到过一次远端目录。
+     *    ⚠️ `syncCatalogEntries()` 在未落地时回退**编译期兜底表**，那是远端目录的
+     *    **子集**（Issue IKJW33 的实测形态）⇒ 不能当「在售集合」。
+     * 2. `remoteComplete === true` —— 接线层经 `catalogComplete` 上报「**两个**
+     *    目录端点都取全」。只有一个端点成功时目录同样是子集。
+     *
+     * ## 保守方向
+     *
+     * 冷启动 / 远端降级 / 残缺时返回 `false` ⇒ `model.list` **放弃**判据、照旧补回
+     * 黑名单条目。代价是可能多留一个「点开会 404」的幽灵条目；反向的代价是用户在售
+     * 模型从设置页**彻底消失且无法重新打开**（不可自愈）⇒ 两害相权取其轻。
+     *
+     * ⚠️ 本方法必须能被 `withDeadModelPruning` 的 Proxy **原样透传**（它有接线守卫：
+     * `dead-model-store.spec.ts` 的「catalogConfirmedRemote 经包装后仍可调用」）。
+     */
+    catalogConfirmedRemote(): boolean;
     resolveModel(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;
     prepareCall(provider: string, model: string, signal?: AbortSignal): Promise<{
         model: LlmResolvedModelInfo;

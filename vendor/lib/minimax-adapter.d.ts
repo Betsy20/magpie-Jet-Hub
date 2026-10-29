@@ -125,6 +125,16 @@ export interface MinimaxAdapterOptions {
      */
     onCatalogLoaded?: () => void;
     /**
+     * 告警出口（2026-10-27 审计补，与 `autoclaw-adapter.ts` / `astudio-adapter.ts` 同型）。
+     *
+     * ⚠️ 存在的理由是**「预判续期失败后降级发送」必须留痕**：那条降级把
+     * 「续期失败」从「请求失败」里摘了出来，若静默，用户看到请求成功、
+     * 却不知道凭据其实没续上（下一轮还会撞同一个问题）。日志是唯一的归因线索。
+     *
+     * ⚠️ 省略时退回 `console.warn`（**不是**吞掉）—— 与 autoclaw 同约定。
+     */
+    warn?: (message: string) => void;
+    /**
      * 按**账号 id** 取该账号的出口（MiniMax 国际站代理支持）。
      *
      * ## 为什么要有它

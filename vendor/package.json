@@ -1,6 +1,6 @@
 {
   "name": "deepseek-harness-codearts",
-  "version": "2.7.261027",
+  "version": "2.9.261029",
   "description": "DeepSeek Harness plugin: one hub for AI coding providers — account login, multi-account pools, silent credential refresh, credit claiming, and a local OpenAI-compatible gateway",
   "type": "module",
   "main": "lib/index.js",

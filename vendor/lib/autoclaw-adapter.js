@@ -493,8 +493,22 @@ export class AutoclawAdapter extends LlmAdapter {
         }
         if (!response.ok && (response.status === 401 || response.status === 403) && this.options.refresh) {
             try {
-                await this.options.refresh();
-                const refreshed = await this.resolveCredential(model);
+                /**
+                 * ⚠️⚠️ **把「本次实际用的凭据」交给回调，并优先用它的返回值重发**
+                 * （2026-10-27 审计修的 P1，详见 `AutoclawAdapterOptions.refresh`）。
+                 *
+                 * 修前是 `await this.options.refresh()` 然后**重新** `resolveCredential`：
+                 * ① 回调内部自己问池要号（与请求用的号是两套规则）；
+                 * ② 重发前又选一次号（即使续对了也可能挑回另一个号）。
+                 * 实测三次 401 ⇒ 三次 `AUTH`，被白轮换的是**无关账号**的 RT。
+                 */
+                const renewed = await this.options.refresh(credential);
+                // ⚠️ 只有「形状可用」的返回值才采信：空 token 等于没续，
+                //    交给下面的 `resolveCredential` 兜底（与旧行为一致）。
+                const refreshed = renewed !== undefined && typeof renewed.access_token === 'string'
+                    && renewed.access_token.length > 0
+                    ? renewed
+                    : await this.resolveCredential(model);
                 if (refreshed && refreshed.access_token.length > 0) {
                     credential = refreshed;
                     const retryHeaders = buildAutoclawHeaders({
@@ -512,8 +526,24 @@ export class AutoclawAdapter extends LlmAdapter {
                     });
                 }
             }
-            catch {
-                // 忽略重试失败，交由下方错误检测
+            catch (error) {
+                /**
+                 * ⚠️⚠️ **绝不能完全静默**（2026-10-27 第二轮审计打穿）。
+                 *
+                 * 修前这里是裸 `catch {}`，注释写着「忽略重试失败，交由下方错误检测」。
+                 * 而「下方错误检测」只会看见**第一次** response 的 401 并如实报 `AUTH`
+                 * —— 于是「续期为什么没成功」这条**唯一能指路的信息**彻底消失。
+                 *
+                 * 实测的后果链（P0）：`index.ts` 的 refresh 闭包在「反查不到本次使用的账号」
+                 * 时会**显式抛错**，那个错误被这里吃掉 ⇒ **一次上游都不发、用户看到 401、
+                 * 日志零字**，比修复前的「静默空转」更难查（修前至少还会试一次
+                 * `defaultCredentialRef`）。
+                 *
+                 * ⇒ 现在留一条 warn。**仍然不外抛**（重试失败不该改变主路径的错误分类：
+                 * 用户该看到的是第一次那个 401 的语义），但日志里必须能查到**为什么**没重发。
+                 */
+                this.warnImpl(`[autoclaw] 401 后的续期/重发失败，本次不重发（将按首次响应报错）：`
+                    + `${error instanceof Error ? error.message : String(error)}`);
             }
         }
         if (!response.ok) {
