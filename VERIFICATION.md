@@ -361,11 +361,13 @@ index.mjs              入口，只导 JetHubPlugin / PROVIDER / DISPLAY_NAME
 src/plugin.mjs         插件工厂：config / auth(api) / provider + 三档 models
 src/container.mjs      内嵌 cordis 容器 + 动态端口 + 转发
 src/credentials.mjs    .credentials.yaml ↔ credentials 服务桥（含三个坑的注释）
-vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/，17 MB）
+vendor/                本体（deepseek-harness-codearts 2.9.261029 的 lib/，18 MB）
 page/                  index.html / page.js / page.css / icon.svg
 tests/t-plugin.mjs     插件契约全链路（含真转发）
 tests/t-models-nowait.mjs  models() 延迟门禁
 tests/t-dead-account.mjs   死号过滤判据（27 条断言，不联网）
+tests/t-account-cache.mjs  列账号失败不缓存 / 选中的账号没了要抛错 / usage 与 checkin
+                           同源取账号 id（2026-10-30 新增，从源码截段求值，不联网）
 tests/t-writerefs.mjs      .credentials.yaml 写回不吞行（23 条断言）
 tests/t-gateway.py     经 magpie 3425 的四项端到端
 tests/ui-check.cjs        CDP 界面实拍（已取代 tests/shot.cjs，后者从仓库移除）
@@ -701,7 +703,8 @@ node scripts/test-all.mjs --all  → 8 通过 / 0 失败 / 0 跳过
 
 ### 修掉的三个真缺陷
 0. **一个包一条 window，把卡片撑爆**（2026-10-29，用户报「用量积分包占比太大了」）：
-   trae 一个账号返回 **20+ 条** `{name:'签到奖励', total:100}`，每条都变成一个 window，
+   trae 一个账号返回 **20+ 条** `{name:'签到奖励', total:100}`（2026-10-30 精确测到是
+   **31 条**，当时只记了个下限，不影响下面任何结论），每条都变成一个 window，
    用量卡被撑成一长列 `100 / 100`，真正的「每月登录赠送 500」反而被挤到看不见。
    → 新增 `mergePackages(list)`：按 `name + unit` 合并，`total`/`remaining`/`used` 求和、
    `count` 累加、`until` 取**最早**（最近要过期的先提醒）、只有整组都 `active === false`
@@ -715,6 +718,12 @@ node scripts/test-all.mjs --all  → 8 通过 / 0 失败 / 0 跳过
    - 最大值天然把「至少有一个大包」的组排在「全是一堆小包」的组前面。
    实测 trae：23 条 window → **2 条**（`每月登录赠送 500 / 500` + `签到奖励 ×20 2000 / 2000`）。
    真实环境 workbuddy 也有同名重复包（`Bonus Pack ×2`），合并同样生效。
+
+   > **2026-10-30 变更**：这一段的**排序**已被「按到期时间排序」替换，到期时间也不再
+   > 只取最早那个 —— 见[文末第二十七章](#二十七用量卡看不到积分包到期时间也不按到期排序2026-10-30已修)。
+   > `mergePackages` 的合并逻辑（同名 + 同单位 → 一条、额度求和、`×N`）没变，
+   > 只是 `until`（最早）之外现在还收全套到期日 `untils`（升序）。额度 `each` 判据
+   > 降为「同一到期档内」的次判据，仍然生效。
 1. **空套餐 0/0 画出误导卡**：astudio 返回 `{total:0, remaining:0}` 的「会员积分」，
    卡片显示「0/0 · 可用 100%」。→ 过滤 `total>0 || remaining>0`。
 2. **`used` 填成 remaining 导致自相矛盾**：卡片显示「0 / 6,200 · 剩余 100%」
@@ -1854,7 +1863,7 @@ no-cookie        /api/providers -> 401      no-cookie        /  -> 401
 
 ### 补的合规项
 
-`vendor/` 取自上游 `deepseek-harness-codearts@2.7.261027` 的发布产物（两处规避扫描器
+`vendor/` 取自上游 `deepseek-harness-codearts@2.9.261029` 的发布产物（两处规避扫描器
 的写法差异见下），MIT（`Copyright (c) 2026 Jet`），但仓库里原本**没有这份许可声明**。
 已放 `vendor/LICENSE`（与上游包里的逐字节一致，`cmp` 验过），README 补「`vendor/` 的
 来源与许可」一节说明两份 LICENSE 的关系。
@@ -1863,13 +1872,13 @@ no-cookie        /api/providers -> 401      no-cookie        /  -> 401
 [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)，
 `git remote -v` 实测 `origin https://github.com/iJetLi/dsh-providers-hub.git`；
 该仓库 `package.json` 的 `name` 是 `dsh-providers-hub`（`0.2.1-rc.2`），npm 上同版本
-（`2.7.261027`）另有 `deepseek-harness-codearts` 与旧名 `dsh-codearts-auth` 两个发布名，
+（`2.9.261029`）另有 `deepseek-harness-codearts` 与旧名 `dsh-codearts-auth` 两个发布名，
 三者 `lib/` 只差同一个包名字符串出现的那两处：`lib/client/jet-hub.js` 的 `id:` 与 `PLUGIN_ID`。
 
 两个 GitHub 仓库是同一血统：`dsh-providers-hub` 的 npm 元数据 `repository` 指向
 [`zhuweiyou/dsh-providers-hub`](https://github.com/zhuweiyou/dsh-providers-hub)，
-`git ls-remote` 实测两边 master 分别是 zhuweiyou `758a20b` / iJetLi `4f582d7`，
-而 `758a20b` 正是 `4f582d7` 的祖先（`git merge-base` 返回 `758a20b`）⇒ iJetLi 那个
+`git ls-remote` 实测两边 master 分别是 zhuweiyou `758a20bc` / iJetLi `6fa74723`，
+而 `758a20bc` 正是 `6fa74723` 的祖先（`git merge-base` 返回 `758a20bc`）⇒ iJetLi 那个
 仓库包含 zhuweiyou 的全部历史并继续往前走。
 
 元数据细节（`npm view` 实测，别把两个字段混成一句）：`author` 只有 `dsh-providers-hub`
@@ -1878,9 +1887,9 @@ no-cookie        /api/providers -> 401      no-cookie        /  -> 401
 `weiyou <i@zhuweiyou.com>`（名字是 `weiyou`，不是 `zhuweiyou`）。且 `repository` /
 `author` 只在镜像（npmmirror）的 packument 里 —— 官方 `registry.npmjs.org` 的
 packument 顶层键只有 `_id,_rev,name,dist-tags,versions,time,license,description,
-maintainers,readme,readmeFilename`，`versions['2.7.261027']` 里也没有这两个字段。
+maintainers,readme,readmeFilename`，`versions['2.9.261029']` 里也没有这两个字段。
 
-**与上游包的实际差异**（`npm pack deepseek-harness-codearts@2.7.261027`
+**与上游包的实际差异**（`npm pack deepseek-harness-codearts@2.9.261029`
 解包后与 `vendor/` 对比，只有两处）——
 
 | 差异 | 原因 | 值是否等价 |
@@ -1888,9 +1897,9 @@ maintainers,readme,readmeFilename`，`versions['2.7.261027']` 里也没有这两
 | `lib/gemini-oauth.js` / `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报（首次提交 `8827247` 的说明里写了） | **等价**，`node` 实测两个常量 `===` 上游值（长度 73 / 35 也一致）。边缘副作用：`.d.ts` 里 `declare const` 按 TS 规范只能是字面量，单文件 `tsc file.d.ts` 会报两条 `TS1254`（上游原版 0 条，本仓库 tsc 5.9.3 实测）；不编译类型声明、`types` 入口上游本就缺失，使用路径不受影响 |
 | 上游有 `README.md` / `cordis.patch.yml`，`vendor/` 没有 | DSH 前端与插件补丁用，magpie 侧用不到 | — |
 
-其余 `lib/`（966 个文件中 964 个逐字节一致，另 2 个就是上表第一行那两个）、
+其余 `lib/`（974 个文件中 972 个逐字节一致，另 2 个就是上表第一行那两个）、
 `locale/`（2 个）、`package.json`、`LICENSE` 与 npm 包**逐字节一致**。
-比对方法：逐文件 sha256（`vendor/` 970 个文件对 npm 包 972 个：独有 0、缺 2、内容不同 2、相同 968）。
+比对方法：逐文件 sha256（`vendor/` 978 个文件对 npm 包 980 个：独有 0、缺 2、内容不同 2、相同 976）。
 
 ## 二十、"缺环境"不再记成"失败"，以及改写后失效的 commit hash（2026-10-28 14:2x–14:3x）
 
@@ -2828,16 +2837,24 @@ vendor/lib/*.js` 逐处看 `nickname` 取值。四审同时确认 16 处占位�
 没有第三类；`opencode-auth.js` 的 `'匿名通道'` 走 `ensureDefaultAnonymousSlot`、带凭据，
 不是占位，不在判据范围内。
 
-**建议 ①（同名包到期时间信息丢失）→ 决定保持现状 + 补文档**
+**建议 ①（同名包到期时间信息丢失）→ ~~决定保持现状 + 补文档~~ ⇒ 2026-10-30 已改代码**
+
+> **2026-10-30 变更（本条的结论已被推翻，保留原文仅供参考）**：下方「不加代码」「只显示
+> 最早那个」「刻意的取舍」三条**全部作废** —— 用户随后明确要求「用量卡片要能看到每个
+> 积分包的过期时间，并按到期顺序展示」，代码已改成 `untils` + `dateLabel` + 按到期排序，
+> 详见[文末第二十七章](#二十七用量卡看不到积分包到期时间也不按到期排序2026-10-30已修)。
+> 原文引用的 `README.md:340` 那句话也已在同一次改动里删除（行号早已漂移，不再指向它）。
+> 另外原文「trae 的 20 条 `签到奖励` 只相差 1 天」是**事实错误**：实测该账号有 **31 条**，
+> `untils` 首 `1793377140000`（本地 2026-10-31）、末 `1795968005000`（本地 2026-11-30），
+> **横跨整整 30 天**。
 
 四审核了 magpie 的 window 契约：`src/plugin.mjs` 的 `auth.usage` 注释只声明 `windows?`，
 **没有字段列表**，多一个非常规字段不会被渲染也不会报错 —— 也就是「加了没用」。
-而 `resetsAt` 取最早是**保守且安全**的（用户不会误以为额度能多留）。真实数据里同名包
-绝大多数同批发放、到期相近（trae 的 20 条 `签到奖励` 只相差 1 天）。所以不加代码，
-在 `README.md:340` 补一句说明：
+而 `resetsAt` 取最早是**保守且安全**的（用户不会误以为额度能多留）。~~所以不加代码，
+在 `README.md:340` 补一句说明：~~
 
-> 同名包的到期时间如果不止一个，卡片只显示**最早**的那个（保守：宁可让用户以为快到期了，
-> 也不让额度悄悄过期）。这是刻意的取舍，不是 bug。
+> ~~同名包的到期时间如果不止一个，卡片只显示**最早**的那个（保守：宁可让用户以为快到期了，
+> 也不让额度悄悄过期）。这是刻意的取舍，不是 bug。~~
 
 ---
 
@@ -3408,3 +3425,333 @@ schedule_create({
 标签兼容对象与裸字符串、五类变化都算变化、标题不算变化、
 首跑全算新增、稳定态三组皆空、混合态三组计数、issue#5 与 pr#5 不撞车。
 已并入 `scripts/test-all.mjs` 的 `UNIT`。
+
+---
+
+## 二十七、用量卡看不到积分包到期时间、也不按到期排序（2026-10-30，已修）
+
+用户原话：「用量卡片要能看到每个积分包的过期时间，并按到期顺序展示」。
+
+### 现象与根因（Observed）
+
+改之前 `toMagpieUsage()` 已经把几十个同名小包合并成一条，但两个信息被丢掉了：
+
+1. **到期日只取组内最早那一个**（`mergePackages` 的 `until`），并写进 `w.resetsAt`。
+2. **排序只看额度**（`each`），完全没用到期时间。
+
+为什么会变成「用户看不见」——magpie 的渲染契约（`internal/gui/assets/app.js`
+的 `accountQuotaLine`，逐行读过）：
+
+```js
+const ws = familyWindows(counted)
+... ws.slice(0, 2).map(...)        // 一行只画前 2 条，其余只进 line.title
+el("span","aq-n", t(w.name))       // 行内只出现 name
+// resetsAt 只进 m.title（tooltip）
+// 且只有 used >= 80 才追加 el("span","aq-r", resetInText(at))
+```
+
+三条结论直接决定了改法：
+
+- `resetsAt` **不进行内文案**，只在 tooltip 里 —— 用户不悬停就看不到；
+- 只有用量 ≥ 80% 才会补一句「resets in …」—— 而积分包基本都是 0% 用的；
+- 一行**只画前 2 条** —— 排在第三位之后的包连名字都只能进 tooltip，
+  所以**排序不是装饰**，排错等于隐藏。
+
+**`runsOutAt` 也救不了这件事**（2026-10-30 二审纠正，原先这里写的「Go 侧没有这个字段、
+属上游预留未接」不成立）：`app.js:13523` 的 `runsOutText(w, …)` 与 `app.js:18278-18283`
+都是**真实渲染调用**，后者还会把 `out + " · " + untilText(w.runsOutAt)` 画到行内。
+问题在于**语义**：它只能表达**一个**最早到期点（`app.js:14094-14097` 要求
+`w.runsOutAt` 在未来且 `w.runsOut > 0`），表达不了同组 31 个包分散在一个月里的到期；
+而且在紧凑的 `accountQuotaLine` 里它**只进 tooltip**（`app.js:13524`
+`if (out) m.title = tipLines(m.title, out)`），不悬停同样看不见。
+所以「让用户一眼看到到期时间」唯一可行的做法仍然是**把日期写进 `name`**。
+
+### 真实数据（Observed，探针直接打 `credits.balances` RPC）
+
+| provider / 账号 | packages | 到期分布 |
+|---|---|---|
+| trae | 32 | `每月登录赠送` 500 到 **2026-10-31 23:59**（`1793462399000`）；其余 31 条 `签到奖励` 各 100，到期日**横跨 10-31 到 11-30 整整一个月**（首 `1793377140000`、末 `1795968005000`） |
+| buddy / buddy-cc0962ad | 39 | 38 条「裂变包」到期日 10-31 到 11-30 分散，另有 `CodeBuddy个人体验版` 到 **2034-12-16** |
+| workbuddy / betsy022 | 3 | `Free Plan Subscription` 100 到 **2034-12-28**，两个 `Bonus Pack` 分别到 2027-03-28 与 **2026-11-04** |
+| astudio | 2 | `星火积分` 35000 **无到期时间**；`赠送积分` 6200 到 **2026-11-20** |
+| qoder | 1 | `资源包` 1400 **无到期时间** |
+
+> 日期一律是 `dateLabel()` 会渲染出来的**本地日期**（Asia/Shanghai，`src/plugin.mjs`
+> 用 `getMonth()/getDate()` 取值）。先前本表写的是 UTC 日期，**整体早一天**，已按实跑纠正。
+
+两件事只有看了真实数据才知道：
+
+- 「取最早一个到期日」对 trae 等于把**横跨一个月**的信息压成一天；
+- 「只有 MM-DD」会把 2034 年显示成 `12-28`，用户读成一个月后到期。
+
+### 修法
+
+1. `mergePackages()` 每组新增 `untils: number[]`（每个包的 `deductionEndTime` 都收进来，
+   结尾升序排序），保留 `until`（最早）供 `resetsAt` 用。
+2. 新增 `dateLabel(ms, now, forceYear)`：今年只写 `MM-DD`，**非今年带年份**；
+   组内首尾跨年时两端都带年份（`2026-11-04~2027-04-01 到期`），
+   避免 `11-04~04-01` 看着像倒着走。
+3. 新增 `windowName(pkg)`：`名字 [×N] [· 起始~最晚 到期]`，三种文案见 README。
+4. `toMagpieUsage()` 的排序换成四段：
+   1. `aside`（`active:false` 整组）压最后；
+   2. **到期更早的在前**（无到期时间 = `+Infinity`，排在所有有到期的之后 ——
+      它们不会被浪费，不着急浪费提示没意义）；
+   3. 同一到期档按 `each`（组内单包最大额度）降序；
+   4. 再按合并后剩余额度降序。
+
+   注意第 2 步的实现是 `untilRank()`（`src/plugin.mjs:150`）把「没有到期时间」
+   映射成 `Number.POSITIVE_INFINITY`，所以所有无到期的组在这一档是**并列的同一个值**，
+   不是「排序键缺失」—— 它们之间的先后由第 3、4 步决定，结果是**确定**的（不会随机）。
+   实测 `astudio`（赠送积分 11-20 到期 + 星火积分无到期）与 `qoder`（资源包无到期）
+   都按这条落到预期位置。
+
+### 实测输出（Observed）
+
+真实账号（`tests/t-usage.mjs` 用的是夹具，**不是**真实账号，见下方说明）：
+
+```
+trae / trae-6abc47e6 / 147******19
+  签到奖励 ×31 · 10-31~11-30 到期  ->  3100 / 3100 credits
+  每月登录赠送 · 10-31 到期        ->  500 / 500 credits
+buddy / buddy-cc0962ad
+  CodeBuddy个人版国内运营裂变包 ×38 · 10-31~11-30 到期 -> 4614.12000027 / 4706 credits
+  CodeBuddy个人体验版 · 2034-12-16 到期              -> 500 / 500 credits
+workbuddy / workbuddy-da6e750a / betsy022
+  Bonus Pack ×2 · 2026-11-04~2027-03-28 到期  ->  130 / 130 credit
+  Free Plan Subscription · 2034-12-28 到期    ->  100 / 100 credits
+astudio / astudio-93e5ee1e / 134******03
+  赠送积分 · 11-20 到期                       ->  6200 / 6200 credit
+  星火积分（独立池，不参与主池合计）           ->  35000 / 35000 credit   (无到期时间)
+qoder / qoder-9492988e / Betsy20
+  资源包                                      ->  1400 / 1400 credits    (无到期时间)
+```
+
+签到组排到主套餐前面，因为它的最早到期点（`1793377140000`）早于主套餐
+（`1793462399000`）—— 两者都渲染成 `10-31`，同一天内更早，正是用户要的语义。
+`2034-12-16` / `2026-11-04~2027-03-28` 说明年份与跨年分支都真的走到了。
+`astudio` / `qoder` 那两条证明「无到期时间」分支渲染成**不带日期**的名字。
+
+> ⚠️ **别把夹具输出当实测**（2026-10-30 二审指出）：`node tests/t-usage.mjs` 的 stdout
+> 里 trae 是 `签到奖励 ×20 · 10-30~11-18 到期 2000 / 2000`，那是 `tests/t-usage.mjs`
+> 的 22 条夹具算出来的（`small` 20 条 ×100，`deductionEndTime` 从 `1793292923000`
+> 逐日 +86400000），**与真实账号无关**。此前本节把夹具输出直接标成「实测输出」，
+> 与上面「真实数据」表里写的 31 条自相矛盾，已按真实 RPC 读数重写。
+
+### 测试（`tests/t-usage.mjs` 第 6 节）
+
+新增断言（都从 `src/plugin.mjs` 截段 `new Function` 求值，不复制粘贴）：
+
+- 名字里必须出现「到期」；
+- **到期更早的组排第一**（trae 夹具里小包组 1793292923000 早于主套餐 1793462399000）；
+- **到期判据必须压过额度判据**：主套餐 500 但到期更晚、小包 50 个 100 但先到期
+  ⇒ 小包组第一。这条是反向断言 —— 把到期判据删掉、只剩 `each`，顺序会反过来；
+- 主套餐额度更大**且**到期更早时排第一（防「到期判据被整个删掉」）；
+- 同档（都无到期时间）仍按额度降序（保住旧语义）；
+- `dateLabel` 三个分支：今年 → `11-04`、非今年 → `2034-12-28`、非法时间 → 空串；
+- `windowName` 跨年 → `Bonus Pack ×2 · 2026-11-04~2027-03-28 到期`。
+
+原来那条「主套餐（单包 500）应排在 20 个 100 的小包前面」已**改写**为
+「到期更早的组排第一」，并在测试文件里注明这是**需求变更后的预期结果，不是回归** ——
+否则下一个人会以为它坏了又改回去。
+
+全量：`node scripts/test-all.mjs` → **16 通过 / 0 失败 / 0 跳过**。
+
+## 二十八、上游发新版：`vendor/` 快照从 2.7.261027 升到 2.9.261029（2026-10-30）
+
+用户原话：「https://github.com/iJetLi/dsh-providers-hub 上游已经更新了，同步更新」。
+
+### 版本事实（Observed，2026-10-30 现测）
+
+```bash
+$ npm view deepseek-harness-codearts version
+2.9.261029
+$ for n in deepseek-harness-codearts dsh-providers-hub dsh-codearts-auth; do npm view "$n" version; done
+2.9.261029
+2.9.261029
+2.9.261029
+$ curl -s https://registry.npmjs.org/deepseek-harness-codearts | node -e '…拿 dist-tags.latest…'
+2.9.261029
+```
+
+三个发布名同版本并存这条规律没变（见 README「包名演进」）。官方 registry 的
+packument 里 `versions['2.9.261029']` 仍然**没有** `repository` / `author` 两个字段，
+`maintainers` 仍是 `weiyou <i@zhuweiyou.com>` —— 与 2.7 时实测的结论一致，不是回归。
+
+### 换了什么（逐文件 sha256 比对，不是看 changelog）
+
+`lib/` + `locale/` 全线更新，`package.json` 与 `LICENSE` 逐字节未变：
+
+| 项 | 旧（2.7.261027） | 新（2.9.261029） |
+|---|---|---|
+| `vendor/` 文件总数 | 970 | 978 |
+| `lib/` | 966 | 974 |
+| `locale/` | 2 | 2 |
+| `.map`（source map） | 482 / 约 4.3 MB | 486 / 约 3.3 MB |
+| `vendor/` 总大小 | 17 MB | 18 MB |
+| 依赖 | `@deepseek-ai/cosmokit` `@deepseek-ai/schemastery` `jose` `undici` | **同左，一字未变** |
+| `peerDependencies` | `cordis` `dsh-commands` `dsh-credentials` `dsh-llm` `schemastery` | **同左** |
+
+**新增 8 个文件**（全部是 4 件套 `.js` + `.d.ts` + 两个 `.map`）：
+`lib/refresh-failure.*`、`lib/minimax-refresh-journal.*`。**删除 0 个**。
+
+**改动规模前几名**（按行数差）：`lib/client/jet-hub.js` +787、`lib/minimax-auth.js` +752、
+`lib/llm-adapter.js` +352、`lib/autoclaw-auth.js` +205、`lib/autoclaw-credits.js` +194、
+`lib/index.js` +182、`lib/codearts-credits.js` +107、`lib/models.js` +88、
+`lib/jet-hub-rpc.js` +86、`lib/openai-gateway/tencent-fingerprint.js` +83。
+
+### 本插件依赖的契约点逐条复核（都还在，签名没变）
+
+升级 vendor 的风险全在「本插件按行号/函数名假设了上游实现」。逐条核过：
+
+| 契约点 | 2.9 实测 |
+|---|---|
+| `ctx.connection ?? ctx.get('connection')` + `connection.fetch.register` | `vendor/lib/jet-hub-rpc.js:1468-1470` 仍在，`registerJetHubEndpoints` 在 `:1081` 的 `ctx.inject(['connection'], …)` 里调 |
+| `ctx.provide('accountPool', pool)` | `vendor/lib/index.js:5619` |
+| `AccountPool.getAvailableAccount(provider, modelId, excludeAccountIds)` | `vendor/lib/account-pool.js:2249`，签名一致 |
+| `AccountPool.listAvailableCredentials(provider, modelId)` | `vendor/lib/account-pool.js:2331`，签名一致 |
+| `src/llm-bridge.mjs` 从 vendor 直接 import 的 5 个模块 | `openai-gateway/messages.js` `stream.js` `channel.js` `models.js` `effort-view.js` 都在，导出的 13 个名字（`parseModelRoute` / `toGenerateOptions` / `normalizeReasoningEffort` / `normalizeMaxTokens` / `toOpenAiSse` / `collectOpenAiCompletion` / `failureToOpenAiError` / `markGatewayChannel` / `collectGatewayModels` / `toOpenAiModels` / `effortView` 等）逐个 grep 到 |
+| 新增 8 个文件的依赖 | 只用 `node:fs/promises` / `node:os` / `node:path`，**没有引入新的第三方包** |
+
+### 唯一要手工重做的事：gemini client 常量拆分
+
+`lib/gemini-oauth.js` / `.d.ts` 里两个 Google OAuth 默认 client 常量，上游是**单行字面量**，
+本仓库历来拆成两段字符串拼接（规避 GitHub push protection 误报，见 README「与 npm 包的
+实际差异」）。同步脚本必须重新拆一遍，否则 `vendor/` 会带着真实 secret 直接推上去。
+
+拆法与切分点沿用原样：`CLIENT_ID` 前 4 字符 + 余下 69、`CLIENT_SECRET` 前 4 字符 + 余下 31。
+
+**等值验证（Observed，`node` 实测）**：
+
+```bash
+$ node -e "Promise.all([import('./vendor/lib/gemini-oauth.js'),
+    import('file:///…/up290/package/lib/gemini-oauth.js')]).then(([a,b]) => {
+    console.log(a.GEMINI_DEFAULT_CLIENT_ID === b.GEMINI_DEFAULT_CLIENT_ID,
+                a.GEMINI_DEFAULT_CLIENT_SECRET === b.GEMINI_DEFAULT_CLIENT_SECRET)})"
+true true
+# 长度也一致：73 / 35
+```
+
+### 结果
+
+| 项 | 结果 |
+|---|---|
+| `vendor/` 对上游包 | 978 对 980 个文件：独有 0、缺 2（`README.md` / `cordis.patch.yml`，magpie 侧用不到）、内容不同 2（就是上表那两个 gemini 文件）、相同 976 |
+| 本体版本自报 | 容器 `/__meta` 的 `version` = `2.9.261029`（`vendor/package.json` 直读） |
+| 24 家 provider | 全起，provider 数 24 |
+| 上游全量目录 | **891 条**（旧 895）。差异：上游删了 5 条（`aggregate/deepseek-v4-pro`、`aggregate/glm-5`、`codearts/GLM-5`、`codearts/deepseek-v4-pro`、`codearts/glm-5.3-flash`），新增 1 条（`codearts/deepseek-v4.1-flash-1017`）。**这是上游目录变化，不是插件丢模型** |
+| 各 provider 条数 | `cline=542 trae=42 modelscope=38 aggregate=37 lobsterai=33 buddy=32 workbuddy=32 opencode=17 qoder=17 accio=15 qodercn=14 loomy=11 codearts=10 astudio=9 officeace=8 raccoon=7 codely=5 minimax=5 minimaxintl=5 autoclaw=4 autoclawintl=4 zcode=2 gemini=1 jet-hub-auto=1` |
+| `node scripts/test-all.mjs` | **16 通过 / 0 失败 / 0 跳过** |
+| `node scripts/snapshot-models.mjs` | 891 个模型 / 24 个 provider，`page/models.js` 里 `version` 变 `2.9.261029` |
+
+### 同步方法（下次升版本照做）
+
+```bash
+mkdir -p /tmp/up && cd /tmp/up
+npm pack deepseek-harness-codearts@<新版本>
+tar -xzf deepseek-harness-codearts-<新版本>.tgz
+```
+
+然后把 `package/lib` `package/locale` `package/package.json` `package/LICENSE` 覆盖进
+`vendor/`（`README.md` / `cordis.patch.yml` 不要），**重新拆 gemini 两个常量**，再跑：
+
+```bash
+node scripts/test-all.mjs
+node scripts/snapshot-models.mjs
+```
+
+⚠️ 覆盖前先 `cp -r vendor /tmp/vendor-before-sync` —— `vendor/` 里除了那两处 gemini 拆分
+还有本仓库自己的历史（若有），直接 `cp -r` 覆盖不会留痕，出问题只能靠备份回退。
+
+⚠️ 不要用 `git checkout vendor/` 做「临时还原」，同 `src/plugin.mjs`：它会连未提交的
+同步结果一起回滚。
+
+## 二十九、DSH 每几轮就报「已达到输出 token 上限」（2026-10-30，已修）
+
+**症状**（用户报，连续截图）：DSH 里四轮回复全是「✓ 已完成」+ 橙字**「已达到输出
+token 上限」回答被截断，已有输出保留在对话中**，用时 6 分 / 3 分 14 秒 / 3 分 48 秒 /
+50 秒。用户原话：「为什么频繁中断」。
+
+**排除的方向**（都不成立）
+- 不是 DSH 申明的 `maxTokens` 太大：`cordis.patch.yml` 里
+  `group/jet-hub-deepseek-v4.1-flash` 声明 `maxTokens: 393216`，网关 `/v1/models`
+  也回 `max_output_tokens: 393216`，两层一致且都是**正常量级**。
+- 不是调用方没传 / 传错：`src/openai-gateway/server.ts` 与 `src/llm-bridge.mjs` 两边
+  都是 `body.max_completion_tokens ?? body.max_tokens` 原样下传，**不做裁剪**。
+- 不是 DSH 侧适配器不申报：宿主 `dsh-llm` 的 `resolveCallWithInfo()` 只在调用方
+  **没给** `maxTokens` 时才用 `defaultMaxTokens` 兜底 —— 这里是给了的。
+
+**根因：`modelEntry()` 给未申报的模型兜底 `limit.output = 8192`，magpie 的路由组
+按「选中成员」的这个值把请求的 `max_tokens` 夹住。**
+
+实测对照（同一后端、同一 prompt、都传 `max_tokens: 40000`）：
+
+| 请求 model | 实际后端 | finish | completion | reasoning | contentLen |
+|---|---|---|---|---|---|
+| `group/jet-hub-deepseek-v4.1-flash` | `lobsterai/deepseek-flash` | **length** | **8192** | 8192 | **0** |
+| `group/group` | `workbuddy/deepseek-v4.1-flash` | length | 40000 | 11746 | 6383 |
+| `auto/deepseek-v4.1-flash` | `deepseek-v4.1-flash` | stop | 30733 | 3089 | 113459 |
+| `jet-hub-lobsterai/deepseek-flash`（直连） | `lobsterai/deepseek-flash` | length | 40000 | 10065 | 6055 |
+
+⇒ 同一个 `lobsterai/deepseek-flash`，**走组只有 8192，直连能到 40000**。8192 全部
+烧在 `reasoning_tokens` 上、`content` 长度为 0 ⇒ 客户端收到 `finish_reason=length`
+⇒ DSH 报「已达到输出 token 上限」。
+
+**历史路由日志佐证**（`~/.config/magpie/routing/*.jsonl`，统计 `usage[].out`）：
+
+```
+jet-hub-lobsterai/deepseek-flash   走组 max= 8192（623 次）   直连 max=40000
+jet-hub-workbuddy/deepseek-v4.1-flash  走组 max=40000          —（申报 128000）
+```
+
+**为什么只有 4 家中招**：`~/.config/magpie/jet-hub-models.json` 的 `meta` 里，
+`lobsterai` / `codearts` / `loomy` / `officeace` 四家**只报 context 不报 output**
+（`vendor/lib/lobsterai-adapter.js` 的注释写明「`maxTokens` 仅当远端声明时才带，
+不编造默认值」；`vendor/lib/opencode-adapter.js` 更进一步写明**刻意不声明**
+`defaultMaxTokens`，因为 DSH 会把它当「默认输出预算」每轮直接填 —— 所以不报是
+**正确设计**）。于是 `meta.output` 是 `undefined`，落到 `modelEntry()` 的
+`output ?? 8192` 兜底。
+
+**改动**
+
+1. `src/plugin.mjs`：删掉 `limit: { context: context ?? 0, output: output ?? 8192 }` 里的
+   `?? 8192`，改为 `limit` 只在**知道真实上限**时才带 `output`（不编值）。
+2. 同一文件新增 `OUTPUT_FALLBACKS` + `outputLimit(id, declared)`：显式申报优先；
+   未申报时按**模型系列**兜底（DeepSeek-Flash 系 `393216`、GLM-5 系 `131072`，
+   真值出处见 `vendor/lib/officeace-product.js` 的注释「`max_tokens range is
+   [1, 393216]`」/「GLM 三兄弟是 `[0, 131072]`」）；**系列认不出就不申报**。
+3. 同一文件 `modelsOfFull()`：把传给 `modelEntry()` 的第 1 参从**展示名**改回**模型 id**
+   ——展示名（`DeepSeek-V4.1-Flash · x0.05`）匹配不到系列兜底表，这条路径原本
+   一直漏兜底。展示名改走 `def.name`。
+4. `tests/t-plugin.mjs`：新增 `OUTPUT_CASES` 表（12 条，含「申报值必须原样保留」
+   与「认不出的系列返回 undefined」两个反向用例）+ 源码级反向断言
+   （`output ?? 8192` 复发即失败、`modelsOfFull` 用展示名即失败）。
+
+**验证**
+
+```
+node tests/t-plugin.mjs              → ✓ 全部工厂契约一致
+node tests/_mut-output.mjs           → ✓ 7/7 KILLED
+node scripts/test-all.mjs            → 15 通过 / 1 失败
+                                       唯一失败是既有项 D-1（t-account-cache 要求四个
+                                       测试文件设 JET_HUB_NO_ADDR_FILE），与本次无关：
+                                       `git show HEAD:tests/<f> | grep -c JET_HUB_NO_ADDR_FILE`
+                                       四个文件在 HEAD 里本来就是 0。
+```
+
+变异验证的 7 条（每条都必须让 `t-plugin.mjs` 变红，全部 KILLED）：
+兜底表删 DeepSeek 系 / 删 GLM 系 / 兜底值退回 8192 / 兜底覆盖已申报值 /
+认不出的系列也编 8192 / `modelEntry` 里又写成 `?? 8192` / `modelsOfFull` 用展示名。
+
+**唯一仍然要人做的一步**：magpie 主程序不会因文件改动重载插件（同第二十一节），
+**重启 magpie 后**才生效。重启后自检：
+
+```bash
+node scripts/snapshot-models.mjs
+# 期望：lobsterai / codearts / loomy / officeace 四家的 deepseek-flash 系
+#       limit.output 从缺失变成 393216
+node D:/DSH/_verify_group_output.mjs
+# 期望：组（group/jet-hub-deepseek-v4.1-flash）的 completion_tokens 突破 8192
+```
+
+**为什么不取 8192 之外的「保守值」**：报大只是不夹（上游自己会按真实能力截），
+报小就是这次的故障。所以系列兜底一律取**已实测的真值上限**，认不出就不报。

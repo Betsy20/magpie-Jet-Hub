@@ -287,7 +287,12 @@ async function main() {
     source,
     total: models.length,
     models,
-    detail: Object.fromEntries([...byId]),
+    // ⚠️ detail 的键顺序必须跟着 models 走。byId 的插入顺序 = 宿主 RPC 的返回顺序，
+    //    上游每次给的顺序并不稳定（同一次升级重跑实测：891 个 id 一模一样的快照，
+    //    diff 却有 253 行全是位置挪动）。键顺序在这里没有功能意义 —— 页面只拿
+    //    `detail?.[m]` 按 id 查（page/page.js:201），但会让每次重跑都产出一份
+    //    看不出改了什么的大 diff，把真正的目录变化埋掉。用排过序的 models 生成。
+    detail: Object.fromEntries(models.map((id) => [id, byId.get(id)])),
     providers,
     // 控制台地址随快照一起带过去：侧栏页 CSP 是 connect-src 'none'，自己问不到端口，
     // 只能从这份快照里读（否则页面只能写死 18500，被占用后就是错地址）。

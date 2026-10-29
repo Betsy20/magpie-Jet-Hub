@@ -77,16 +77,16 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 
 ### `vendor/` 的来源与许可
 
-`vendor/` 取自上游 npm 包 **`deepseek-harness-codearts@2.7.261027`**，把里面的
+`vendor/` 取自上游 npm 包 **`deepseek-harness-codearts@2.9.261029`**，把里面的
 `lib/` + `locale/` + `package.json` + `LICENSE` 解出来放进去。
 
 | 项 | 值 |
 |---|---|
 | 上游源码仓库 | [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) |
 | npm 上的包名 | `deepseek-harness-codearts`（**同名同版本也发布在 `dsh-providers-hub` 与旧名 `dsh-codearts-auth` 下**，`lib/` 只差同一个包名字符串出现的那两处：`lib/client/jet-hub.js` 的 `id:` 与 `PLUGIN_ID`） |
-| 版本 | `2.7.261027` |
+| 版本 | `2.9.261029` |
 | 许可 | **MIT**，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](vendor/LICENSE) |
-| 取法 | `npm pack deepseek-harness-codearts@2.7.261027` 后把 `package/` 里的 `lib/` `locale/` `package.json` `LICENSE` 拷进 `vendor/` |
+| 取法 | `npm pack deepseek-harness-codearts@2.9.261029` 后把 `package/` 里的 `lib/` `locale/` `package.json` `LICENSE` 拷进 `vendor/` |
 
 **包名演进**：上游 README 写明「本包原名 `dsh-codearts-auth`（`0.2.0-rc.11` 起改名）」，
 改名后仓库/包名是 `dsh-providers-hub`；`deepseek-harness-codearts` 是另一个发布名
@@ -96,10 +96,12 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 > **两个 GitHub 仓库，同一血统**：`dsh-providers-hub` 的 npm 元数据里 `repository`
 > 写的是 [`zhuweiyou/dsh-providers-hub`](https://github.com/zhuweiyou/dsh-providers-hub)，
 > 而本文与上游 README 都用 [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)。
-> 实测（2026-10-29）：`git ls-remote` 两边 master 分别是 zhuweiyou `758a20b` /
-> iJetLi `4f582d7`，而 `758a20b` 正是 `4f582d7` 的祖先（`git merge-base` 返回它本身），
-> 即 iJetLi 那个仓库包含 zhuweiyou 的全部历史并继续往前走。看代码去 iJetLi（更新），
-> 查发布元数据会看到 zhuweiyou。
+> 实测（2026-10-30）：两边 master 分别是 zhuweiyou `758a20bc`（2026-10-25 停在这里）/
+> iJetLi `6fa74723`（2026-10-30），`git merge-base` 返回 `758a20bc` 本身
+> （`git merge-base --is-ancestor` 通过）⇒ iJetLi 那个仓库包含 zhuweiyou 的全部历史
+> 并继续往前走，领先 39 个提交。看代码去 iJetLi（更新），查发布元数据会看到 zhuweiyou
+> （`repository` / `homepage` / `bugs` 都指向它，而且只出现在**镜像** npmmirror 的
+> packument 顶层，官方 registry 没有）。
 >
 > 元数据细节（`npm view` 实测，别把两个字段混成一句）：`author` 只有
 > `dsh-providers-hub` 有（`zhuweiyou (https://github.com/zhuweiyou)`），我们实际用的
@@ -115,15 +117,15 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 | `lib/gemini-oauth.js` 与 `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报；**值完全相等**（`node` 实测两个常量 `===`，长度 73 / 35 字符都一致），行为不变，另有环境变量可覆盖。唯一的边缘副作用：`.d.ts` 是声明文件，`declare const` 的初始值按 TS 规范只能是字面量，拼接写法在**单文件 `tsc file.d.ts`** 时会报两条 `TS1254`（上游原版 0 条）—— 本仓库不编译类型声明、`types` 入口 `lib/types/index.d.ts` 上游本就缺失，正常使用路径不受影响 |
 | 没有 npm 包里的 `README.md` 与 `cordis.patch.yml` | 那是 DSH 前端与插件补丁用的，magpie 侧用不到 |
 
-除上表外 `lib/`（966 个文件中 964 个逐字节一致，另 2 个就是上表第一行那两个）、
+除上表外 `lib/`（974 个文件中 972 个逐字节一致，另 2 个就是上表第一行那两个）、
 `locale/`（2 个）、`package.json`、`LICENSE` 与 npm 包**逐字节一致**
-（`vendor/` 970 个文件对 npm 包 972 个：独有 0、缺 2、内容不同 2、相同 968，逐文件 sha256 比过）。
+（`vendor/` 978 个文件对 npm 包 980 个：独有 0、缺 2、内容不同 2、相同 976，逐文件 sha256 比过）。
 
 MIT 要求「substantial portions」保留版权与许可声明，所以 `vendor/LICENSE` 必须
 跟着 `vendor/` 一起分发（`package.json` 的 `files` 里已含 `vendor`，整目录进包）。
 根目录的 `LICENSE` 是本插件自己的，两者不要混看。
 
-`vendor/` 里另有 482 个 `.map`（source map，约 4.3 MB）**运行时用不到**，留着是
+`vendor/` 里另有 486 个 `.map`（source map，约 3.3 MB）**运行时用不到**，留着是
 为了与上游包尽量逐字节一致（方便 `diff` 校验）。要在意仓库体积可以删掉它们，
 不影响运行，但那样差异会多一项。
 
@@ -131,8 +133,8 @@ MIT 要求「substantial portions」保留版权与许可声明，所以 `vendor
 
 ```bash
 mkdir -p /tmp/up && cd /tmp/up
-npm pack deepseek-harness-codearts@2.7.261027
-tar -xzf deepseek-harness-codearts-2.7.261027.tgz
+npm pack deepseek-harness-codearts@2.9.261029
+tar -xzf deepseek-harness-codearts-2.9.261029.tgz
 diff -r /tmp/up/package /d/dsh-build/magpie-Jet-Hub/vendor
 # 预期只剩上表那两类差异：README.md / cordis.patch.yml 只在上游、gemini-oauth.* 两个文件写法不同
 # （diff -r 会把每个差异文件按行拆开列，所以输出行数远多于 4）
@@ -146,9 +148,17 @@ diff -r /tmp/up/package /d/dsh-build/magpie-Jet-Hub/vendor
 「上游运行环境」相关的一处是本插件自己的 `src/connection.mjs`（给容器补一个
 `connection` 服务，上游在 DSH 里由宿主提供），它在 `vendor/` 之外。
 
-**版本为什么停在 2.7.261027**：`vendor/` 是随仓库分发的一份快照，升版本要连带重跑
-全量测试与模型快照，所以不跟着 npm 自动走。npm 上现在已有更新的版本，换法就是重跑
-上面那三条命令 + `node scripts/test-all.mjs`。
+**版本怎么升**：`vendor/` 是随仓库分发的一份快照，不跟着 npm 自动走 —— 升版本要连带
+重跑全量测试、重拉模型快照，还要重新应用下面那条 gemini 常量拆分。换法就是重跑上面
+那三条命令、把 `lib/gemini-oauth.js` / `.d.ts` 的两个常量重新拆成两段、再跑
+`node scripts/test-all.mjs` 与 `node scripts/snapshot-models.mjs`。
+
+**同步历史**：
+
+| 日期 | 快照版本 | 结果 |
+|---|---|---|
+| 2026-10-27 | `2.7.261027` | 首次装入 |
+| 2026-10-30 | `2.9.261029` | 全量替换 `lib/` + `locale/`（新增 8 个文件：`minimax-refresh-journal.*` 与 `refresh-failure.*`），`package.json` 依赖未变，模型全量 891 条（旧 895：上游删 5 条 `aggregate/deepseek-v4-pro`、`aggregate/glm-5`、`codearts/GLM-5`、`codearts/deepseek-v4-pro`、`codearts/glm-5.3-flash`，新增 1 条 `codearts/deepseek-v4.1-flash-1017`），16 项离线测试全过 |
 
 ## 安装
 
@@ -414,23 +424,53 @@ jet-hub/auto                     ← 本体的自动选号路由组
 
 `authorize()` 与 `usage()` 由用户点击/后台触发，允许长时间，走 `liveModels()` 真等。
 
-### 用量卡上的积分包会合并同名项
+### 用量卡上的积分包：合并同名项，名字带到期日，按到期排序
 
-上游一个账号常返回几十个同名小包（实测 trae 一个账号 20+ 条 `签到奖励 100`），
+上游一个账号常返回几十个同名小包（实测 trae 一个账号 31 条 `签到奖励 100`），
 每条都映射成一个 window 的话，magpie 用量卡会被撑成一长列 `100 / 100`，
 真正的主套餐反而看不见（用户 2026-10-29 报「用量积分包占比太大了」）。
 
 `toMagpieUsage()` 因此先过一遍 `mergePackages()`：按 `name + unit` 合并，
-额度求和、名字加 `×N`、到期时间取组内**最早**（最近要过期的先提醒）。
-排序按**组内单个包的最大额度**降序，所以「至少有一个大包」的组排在「全是一堆小包」的组前面 ——
-不能按合并后总额排，否则 `签到奖励 ×20 = 2000` 会把 `每月登录赠送 500` 顶下去。
-`active: false` 的整组压到最后并标 `aside`。
+额度求和、名字加 `×N`、组内所有到期日收进 `untils` 并按升序排好。
 
-同名包的到期时间如果不止一个，卡片只显示**最早**的那个（保守：宁可让用户以为
-快到期了，也不让额度悄悄过期）。这是刻意的取舍，不是 bug。
+#### 为什么到期日写进 `name` 而不是只给 `resetsAt`
 
-实测 trae：23 条 → 2 条（`每月登录赠送 500 / 500` + `签到奖励 ×20 2000 / 2000`）。
-回归测试见 `tests/t-usage.mjs` 第 6 节。
+magpie 的卡片行（`app.js` 的 `accountQuotaLine`）只渲染 `name` + 进度条 + 额度，
+`resetsAt` **只进 tooltip**，而且只有用量 ≥ 80% 时才在行内补一句 「resets in …」。
+它一行**只画前 2 条** window（`ws.slice(0, 2)`），其余的连名字都只能进 tooltip。
+所以想让用户看一眼就知道「哪个包先要浪费」，到期日必须写进 `name`，
+排序也必须按到期排 —— 这两件事是配套的，缺一个都白做。
+
+- 组内只有一个到期日 → `10-31 到期`
+- 组内到期日分散 → `10-31~11-30 到期`（实测 trae 的 31 条签到奖励正好横跨一整月，
+  只报最早那一天会让人以为其余的一起在 10-31 消失）
+- 没有到期时间 → 不写（astudio 的「星火积分」、qoder 的「资源包」实测都没有）
+- 首尾跨年 → 两端都带年份（`2026-11-04~2027-04-01 到期`），否则 `11-04~04-01`
+  看着像倒着走；非今年的单日期也一样（workbuddy 的 `Free Plan Subscription`
+  真实到期是 2034 年，只写 `12-28` 会被读成一个月后）
+
+#### 排序：到期时间优先，额度只做同档次的次序
+
+1. `active: false` 的整组压到最后并标 `aside`；
+2. **到期更早的排前面**（无到期时间的排在所有有到期的之后 —— 它们不会被浪费，不着急）；
+3. 同一到期档内，按**组内单个包的最大额度**降序；
+4. 再其次按合并后的剩余额度。
+
+第 3 步不能按合并后总额排，否则 `签到奖励 ×20 = 2000` 会把 `每月登录赠送 500`
+顶下去；也不能按平均值，某家返回「1 个 500 大包 + 19 个 1 的小包」时平均会被稀释到 25。
+
+实测 trae 一个账号返回 **32 条**包（1 条 `每月登录赠送 500` + 31 条 `签到奖励 100`，
+到期日分散在 10-31 到 11-30）→ 合并成 **2 条**：
+`每月登录赠送 · 10-31 到期 500 / 500` + `签到奖励 ×31 · 10-31~11-30 到期 3100 / 3100`，
+签到组排前面，因为它的**最早**到期点（10-31 00:19）早于主套餐（10-31 23:59）；
+两条都显示 `10-31` 是同一天内更早，光看标签分不出来 —— 这时靠的是排序，不是日期文案。
+
+（`tests/t-usage.mjs` 的夹具用 22 条：20 个小包 + 1 个大包 + 1 个空包，
+数字与上面不同是刻意的 —— 夹具要同时覆盖「合并」「空包被过滤」「到期判据逆行」
+三件事，真实条数不影响它们。）
+
+回归测试见 `tests/t-usage.mjs` 第 6 节（含「到期判据必须压过额度判据」与
+「同档仍按额度降序」两条反向断言）。
 
 ## 侧栏页面
 
@@ -452,6 +492,10 @@ jet-hub/auto                     ← 本体的自动选号路由组
 控制台端口 `18500`、模型 `892` 个。这两个数不是拍照时的巧合 —— 它们就是
 `page/models.js` 快照里的 `consolePort` 与 `total`，所以**快照一变这张图就该重拍**，
 否则图上显示的是旧端口、旧模型数。
+
+> ⚠️ **这张图现在偏旧**：拍它时快照是 `892` 个模型，2026-10-30 升级 vendor 后
+> `page/models.js` 已是 `891` 个（上游删了 5 条、新增 1 条，见下方「同步历史」）。
+> 界面结构没变，只有这个数字变了；要紧的话重拍一张覆盖 `docs/screenshot.png` 即可。
 
 ### 六个标签
 
@@ -925,7 +969,8 @@ magpie 模型列表里那三列**只能由插件的 `provider.models()` 给**：
 image true / reasoning true`，`astudio/xopdsv4flash0731in` = `1048576 / 100000 /
 纯文本`。
 
-上游全量目录（895 条）走完 `model.list` RPC 后同样逐条 `resolveModelInfo` 补：
+上游全量目录（当时 895 条，`2.9.261029` 之后是 891 条 —— 数量变了但这条链路不变）
+走完 `model.list` RPC 后同样逐条 `resolveModelInfo` 补：
 **实测 300 条 8 ms**（读的是适配器已缓存的目录，不发网络请求），41% 能解析出窗口。
 `codely` 那家上游只声明模态、不声明窗口，所以它的 `limit.context` 仍是 0 —— 上游
 事实，不是插件缺陷（`tests/t-plugin.mjs` 因此只把「一家都没有」判成失败）。
@@ -1004,7 +1049,7 @@ src/credentials.mjs    把 .credentials.yaml 桥成 credentials 服务
 src/connection.mjs     补 connection 服务，让本体的 jet-hub-rpc 端点注册起来
 src/attachments.mjs    附件服务：本体的图片收发都走 ctx.attachments，宿主不提供，插件自己实现
 src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
-vendor/                本体（deepseek-harness-codearts 2.7.261027 的 lib/ + locale/ + 上游 LICENSE）
+vendor/                本体（deepseek-harness-codearts 2.9.261029 的 lib/ + locale/ + 上游 LICENSE）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
 console/               控制台界面（七个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录

@@ -48,7 +48,7 @@
       "dsh-providers-hub",
       "dsh-codearts-auth"
     ],
-    "version": "2.7.261027",
+    "version": "2.9.261029",
     "note": "vendor/ 取自这个 npm 包；与上游的差异只有 gemini-oauth.* 两个常量拆成两段拼接（值相等）与省掉 README.md / cordis.patch.yml，详见 README「vendor/ 的来源与许可」"
   },
   "magpie": {
