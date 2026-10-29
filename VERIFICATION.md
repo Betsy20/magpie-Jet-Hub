@@ -3273,24 +3273,77 @@ t-login-reclaim 2284ms、t-new-account 943ms、t-rpc-cover 76ms、t-patrol 62ms�
 
 需求：每 30 分钟自动看一遍本仓库的 issue / PR 收件箱。**只读**，不改远端任何状态。
 
-### 为什么不是 DSH 的 schedule
+### 为什么最初不是 DSH 的 schedule（结论已翻转，保留查证过程）
 
 DSH 自带 `@deepseek-ai/dsh-schedule` + `@deepseek-ai/dsh-tool-schedule`，
-看起来是现成答案，实际在这台机器上**用不了**，查证过程：
+看起来是现成答案，但第一轮判断为「用不了」，于是先落地成 Windows 计划任务。
+后续定位到真实根因后改回了 DSH 原生方案 —— 下面保留最初的误判与推翻它的证据。
+
+第一轮的查证与当时的结论：
 
 1. `~/.dsh/profiles/node_modules/@deepseek-ai/` 下 250 个条目里，`dsh-schedule`、
    `dsh-tool-schedule`、`dsh-tool-jobs`、`dsh-client-ui-schedule`、`dsh-goal`
    **全是指向 `/d/DSH Desktop/resources/app/node_modules/...` 的失效符号链接**
    —— 真实安装路径是 `/d/DSH`（没有 ` Desktop` 后缀），链接全断。
-2. `~/.dsh/profiles/desktop/cordis.patch.yml` 与 `web/cordis.patch.yml` 里
-   grep `schedule` 无结果，`~/.dsh/storages/` 下也没有 schedule 存储
-   → 服务**没有实际挂载**。
-3. 内置 `dsh-web-app/cordis.patch.yml:140-141` 与 `presets/standard.patch.yml:36-37`
-   确实声明了这两个服务，但当前会话的工具列表里没有 `schedule_*`
-   → 声明了没生效。
+2. `~/.dsh/profiles/desktop/cordis.patch.yml` 里 grep `schedule` 无结果，
+   `~/.dsh/storages/` 下也没有 schedule 存储 → 判定服务**没有挂载**。
+3. 内置 `dsh-web-app/cordis.patch.yml:139-140` 与 `presets/standard.patch.yml`
+   确实声明了这两个服务，但会话工具列表里没有 `schedule_*` → 判定声明没生效。
 
-修它要动用户现有的 DSH profile 依赖，收益不抵风险，所以改用 **Windows 计划任务**：
-它本来就属于操作系统，不依赖任何 DSH 进程活着，笔记本重启也还在。
+**这三条里有两条是误读**，真正的根因是第四点：
+
+4. `~/.dsh/profiles/desktop/cordis.patch.yml` 里有一块 `dsh-preset-compaction-off`
+   的托管快照（`# >>> dsh-preset-compaction-off:managed` 到 `# <<<`），它用
+   `preset-standard` 对整份 preset 做 **config 整块替换**（config 不深合并）。
+   快照生成于 2026-10-12，含 32 个插件；内置 preset 现为 33 个。差异是：
+   - 快照**缺**：`preset-standard`、`time-context`、**`tool-schedule`**、`tool-plugin-market`
+   - 快照**多**（内置已删）：`tool-ralph`、`tool-subagent-codex`、`tool-subagent-claude-code`
+   （后三项在旧快照里都是 `disabled: true`，所以移除不改变行为。）
+
+`tool-schedule` 的 `apply()` 是 `ctx.inject(["schedule"], ...)`，注入不到就整个插件
+**inert、工具静默消失、不报错** —— 这解释了「页面在、工具没有」这个现象，
+也是第一轮把「工具消失」误判成「服务没挂载」的原因。
+
+至于 250 个断链符号链接：它们不影响运行。bundle 解析走
+`resolveBundleDir`，先试安装锚点再试 profileDir，插件实际从 `app.asar` 内解析
+（asar 路径对 Node 透明），所以 `~/.dsh/profiles/node_modules` 断不断都无所谓。
+
+**修复**：跑机器上现成的 `~/.dsh/rollbacks/dsh-preset-compaction-off/sync-preset.mjs`
+重新生成快照（旧文件备份为 `cordis.patch.yml.bak-20261029-150803`），
+然后重启 DSH —— 这份 patch **不热加载**，详见下节。
+
+### 为什么必须重启 DSH 才生效
+
+- `dsh-app-boot` 有热重载能力（`recomposeProfile` / `reconcileProfilePatches`），
+  但调用方只有 `dsh-config-editor` 和 `dsh-hmr`，两者都没在当前 profile 挂载。
+- profile `package.json` 里的 `"patchReload": "live"` 在当前版本**根本没被读取**
+  —— 全 asar grep `patchReload` 零命中。
+- `dsh-app-boot/README.zh.md:49`：「随产品交付的 `web` 模板实时重载，
+  其他随附模板只在启动时应用 patch」。
+
+重启后验证：`schedule_list` 从「工具不存在」变成返回 `[]`，确认 `tool-schedule` 挂上了。
+
+### 最终采用的方案：DSH 原生自动化任务
+
+```js
+schedule_create({
+  title: "GitHub 收件箱巡检",
+  every_seconds: 1800,
+  prompt: "在 D:\\dsh-build\\magpie-Jet-Hub 跑 node scripts/gh-patrol.mjs，无变化只回一行…"
+})
+// → id: schedule-b24f71e5-1998-4383-9b00-fc4a75b335f2, kind: every, deliveryMode: host
+```
+
+`every_seconds` 下限是 60（`MIN_EVERY_INTERVAL_SECONDS`，`dsh-schedule/lib/index.js:21`），
+1800 满足。任务出现在侧栏「自动化任务」页，可在界面里暂停 / 改周期 / 删除。
+
+**补投语义**（`resolveEveryOccurrence`，`dsh-schedule/lib/index.js:595`）：
+只取「最近一次已到期的时点」，注释写明 *without enumerating missed occurrences*。
+关机三天再开也只投一次，不会一次涌出 144 条 —— 这正是巡检需要的行为。
+
+**与 Windows 计划任务的分工**：DSH 任务依赖 GUI 常驻；`DSH-GitHub-Patrol`
+已 `Disable-ScheduledTask` 停用但保留，需要「关掉 DSH 也照跑」时
+`Enable-ScheduledTask` 一条命令就能切回来。
 
 ### 为什么不用 `gh` CLI
 

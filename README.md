@@ -658,6 +658,9 @@ MiniMax 国际站用 `redirect:'manual'` 看 307 那一跳判有没有被分流�
 不发评论、不打标签、不关单、不改任何远端状态。它做的事只有三件 ——
 抓取 → 和上次快照比对 → 把变化落盘并打印。
 
+触发它的是 **DSH 原生自动化任务**（侧栏「自动化任务」页可见），不是系统计划任务。
+脚本本身不关心谁在调它，命令行直接跑和定时跑是同一条路径。
+
 ### 它报什么、不报什么
 
 | 情况 | 报不报 | 说明 |
@@ -707,9 +710,28 @@ api.github.com 在共享出口 IP 上会直接吃 403（实测过）。
 | `state.json` | 上次快照，增量比对的依据。删掉它等于「重新建立基线」 |
 | `latest.md` | 最近一次巡检的完整 Markdown 报告，随时可读 |
 | `history.jsonl` | 每次巡检一行（时间 / open 数 / 三组计数），便于回溯趋势 |
-| `patrol.log` | 计划任务的 stdout / stderr（含失败原因） |
+| `patrol.log` | 计划任务的 stdout / stderr（含失败原因）；DSH 路线下不写这个文件，结果直接回到会话里 |
 
-### 注册成计划任务
+### 挂到 DSH 自动化任务（推荐）
+
+在 DSH 会话里用 `schedule_create` 建一条 `every_seconds: 1800` 的周期任务，
+`prompt` 写「在仓库目录跑 `node scripts/gh-patrol.mjs`，无变化只回一行，有变化读
+`latest.md` 汇报」。它会出现在侧栏「自动化任务」页，可随时在界面上暂停、改周期、删除。
+
+几条实测过的行为，决定它适不适合当巡检：
+
+- **错过的时点不会逐个补投。** `dsh-schedule` 的 `resolveEveryOccurrence`
+  （`lib/index.js:595`）只取「最近一次已到期的时点」，注释写明
+  *without enumerating missed occurrences*。关机三天再开，也只投一次，
+  不会一次涌出 144 条。
+- **任务跟着会话走。** 投递到创建它的那个会话，所以那个会话要留着；
+  换会话要重建。
+- **DSH 没启动就不跑。** 这是和系统计划任务最本质的区别 —— 前者要 GUI 开着，
+  后者登录即跑。介意这点就继续用下面的计划任务方案。
+
+### 备选：注册成 Windows 计划任务
+
+DSH 的自动化任务依赖 GUI 常驻。如果希望关掉 DSH 也照跑，用这条路径：
 
 ```powershell
 # 默认每 30 分钟，从下一个整半点开始
@@ -736,6 +758,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-patrol-task.
    解析错误 —— 看起来像语法错，其实是编码错。
 
 ### 验证它真的在跑
+
+DSH 路线：看侧栏「自动化任务」里的下次触发时间，或直接读日志尾部
+
+```bash
+tail -n 5 ~/.dsh/jet-hub/patrol/patrol.log
+```
+
+计划任务路线：
 
 ```bash
 # 立刻触发一次，看退出码与日志
