@@ -113,6 +113,46 @@ function normalizePollMs(value) {
  */
 const LOGIN_PROFILE_PREFIX = 'magicrew-login-';
 /**
+ * 一次回收最多删几个目录。
+ *
+ * ## ⚠️ 为什么要有上限（实测 2026-10-31）
+ *
+ * 这个函数是**同步**的，且执行点在「用户点了连接」与「浏览器窗口出现」之间 ——
+ * 它花掉的每一毫秒都是用户盯着没反应的时间。
+ *
+ * 真机曾经攒到 **11 个目录 / 856 MB**。按实测吞吐（125 MB / 8000 个文件 ≈ 1066 ms）
+ * 推算，一次清完 ≈ **7 秒**。那比「残留占着磁盘」更糟：用户会以为按钮坏了。
+ *
+ * ⇒ 每次只清一批，剩下的留给下次登录。连点几次就清完了。
+ *
+ * 一批要花多久（2026-10-31 实测）：删除成本按**条目数**主导而不是字节数 ——
+ * 真机残留形态是 `8000 个文件 / 125 MB ≈ 15.6 KB/文件`，而一个 78 MB / 312 文件
+ * 的目录只要 43 ms，同样 78 MB 摊成 4992 个文件就要 577 ms。所以 LIMIT = 3
+ * 在真机上是 **0.6–2.1 秒**，不是「几 MB 级 < 10 ms」那么乐观。
+ * 别再往上调：那几秒全卡在「用户点连接」与「窗口出现」之间。
+ */
+const STALE_COLLECT_LIMIT = 3;
+/**
+ * 遗留目录的保留时长：Windows 1 小时，其它平台 6 小时。
+ *
+ * ## ⚠️ 为什么两个平台不一样
+ *
+ * 「只删够老的」是一条**启发式**（不是证明）：它靠「旧到不可能还有窗口在用」来
+ * 避免把正在登录的 profile 删掉 —— 那会造成比残留严重得多的问题（profile 被撕裂）。
+ *
+ * 在 Windows 上还有第二道网兜着：正被占用的文件删不掉，`rmSync` 抛
+ * EPERM/EBUSY，被 catch 吞掉。所以 1 小时是安全的，且残留能较快清掉。
+ *
+ * **POSIX 没有这道网**：`unlink` 对已打开的文件是合法操作，删除会成功，进程
+ * 继续持有那个 inode 却写不进新数据 —— 于是「删了正在用的目录」反而会成功，
+ * 只是把那个窗口弄坏。⇒ 只能靠阈值本身，取 6 小时，与
+ * `vendor/lib/login.js` 里同款清洗逻辑的既有取舍一致。
+ *
+ * 两个平台下真正在用的目录最长活不过约 10 分钟（登录 4 分钟 + 宿主等 9 分钟），
+ * 所以两个阈值都留了足够余量。
+ */
+const STALE_PROFILE_MAX_AGE_MS = (process.platform === 'win32' ? 1 : 6) * 60 * 60 * 1000;
+/**
  * 回收**上一次**遗留的一次性 profile 目录。
  *
  * ## ⚠️ 为什么需要它（实测 2026-10-31）
@@ -127,36 +167,47 @@ const LOGIN_PROFILE_PREFIX = 'magicrew-login-';
  *
  * ⇒ 一次性目录「这次保证删掉」不现实；**下次开窗前扫一遍**才是可靠兜底。
  *
- * ## ⚠️ 只删够老的（`minAgeMs`，缺省 1 小时）
+ * ## ⚠️ 只删够老的（`STALE_PROFILE_MAX_AGE_MS`：Windows 1 小时、其它 6 小时）
  *
  * 一次网页登录最长 4 分钟（`MAGICREW_BROWSER_LOGIN_TIMEOUT_MS`），宿主侧等 9 分钟
- * （`NEW_ACCOUNT_WAIT_MS`），所以 1 小时前的目录一定不是**正在用**的。
+ * （`NEW_ACCOUNT_WAIT_MS`），所以 1 小时前的目录一定不是**正在用**的 —— 详见该
+ * 常量上那段「为什么两个平台不一样」。
  *
  * 判据用**目录自身**的 mtime。它可能停在创建时刻（Edge 主要在 `Default/` 子目录里
- * 写文件，父目录的 mtime 只在直接子项增删时更新）—— 这没关系：正被占用的目录
- * 在 Windows 上 `rmSync` 会抛 EPERM/EBUSY，这里吞掉，下一次再试。
+ * 写文件，父目录的 mtime 只在直接子项增删时更新）—— 这没关系：目录由
+ * `mkdtempSync` 现建，mtime 起点就是会话开始；何况 Windows 上正被占用的目录
+ * `rmSync` 会抛 EPERM/EBUSY，这里吞掉，下一次再试。
  *
- * ## ⚠️ 成本
+ * ## ⚠️ 成本（两处，都必须知道）
  *
- * 本机 `%TEMP%` 有 **19.8 万个条目**，`readdirSync(withFileTypes)` 实测 **93ms**。
- * 登录是低频操作、且只在开窗前做一次，可以接受；但它确实不是零成本。
+ * ① 扫描：本机 `%TEMP%` 有 **19.8 万个条目**，`readdirSync(withFileTypes)` 实测
+ * **93ms**。登录是低频操作、且只在开窗前做一次，可以接受。
+ *
+ * ② 删除：这是**同步**的，见 {@link STALE_COLLECT_LIMIT} —— 所以每轮只删
+ * 一批（最多 3 个），不是「扫到多少删多少」。删除时间与残留量成正比，
+ * 没有上限的话真机那次 856 MB 会让用户点完连接干等 7 秒。
  *
  * 返回删掉的个数（0 表示没什么可回收，调用方不需要打日志）。
  */
-function collectStaleLoginProfiles(minAgeMs = 60 * 60 * 1000) {
-    const root = tmpdir();
-    if (root.length === 0)
-        return 0;
+function collectStaleLoginProfiles(minAgeMs = STALE_PROFILE_MAX_AGE_MS) {
+    // `tmpdir()` 自己也可能抛（TEMP/TMP/TEMPDIR 全指向不可用位置的极端环境）——
+    // 那和「临时目录读不了」是同一类事，都跟登录无关，一律安静返回 0。
+    let root;
     let entries;
     try {
+        root = tmpdir();
+        if (root.length === 0)
+            return 0;
         entries = readdirSync(root, { withFileTypes: true });
     }
     catch {
-        return 0; // 临时目录读不了不是登录该关心的事
+        return 0;
     }
     const cutoff = Date.now() - minAgeMs;
     let removed = 0;
     for (const entry of entries) {
+        if (removed >= STALE_COLLECT_LIMIT)
+            break; // 剩下的留给下次登录（理由见 STALE_COLLECT_LIMIT）
         if (!entry.isDirectory())
             continue;
         if (!entry.name.startsWith(LOGIN_PROFILE_PREFIX))
@@ -171,10 +222,20 @@ function collectStaleLoginProfiles(minAgeMs = 60 * 60 * 1000) {
         }
         try {
             rmSync(dir, { recursive: true, force: true, maxRetries: 2 });
-            removed += 1;
         }
         catch {
-            // 被占用 —— 下一次再说
+            continue; // 被占用 —— 下一次再说
+        }
+        // ⚠️ 不抛 ≠ 删掉了：`force: true` 会吞掉 ENOENT，而 `maxRetries` 在部分
+        // Node 版本上被静默忽略（实测 v24.15.0 完全不重试）。所以复核一次 ——
+        // 否则「没删掉」也会占掉一个 STALE_COLLECT_LIMIT 配额，配额被虚耗后
+        // 真正的残留永远排不到。
+        try {
+            statSync(dir);
+            continue; // 还在 ⇒ 不算删掉，也不消耗配额
+        }
+        catch {
+            removed += 1; // 路径已不存在 ⇒ 真的没了
         }
     }
     return removed;

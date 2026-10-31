@@ -347,14 +347,26 @@ console.log('\n13. 行为级：上次遗留的临时浏览器 profile 会被回�
   const fnSrc = loginSrc.slice(at, end + 3)
   // 前缀常量的值（下面既用它求值函数，也用它做断言）。
   const constDecl = loginSrc.match(/const LOGIN_PROFILE_PREFIX = '([^']+)'/)?.[1]
+  // 单轮上限的数值（同上）。
+  const limitDecl = Number(loginSrc.match(/const STALE_COLLECT_LIMIT = (\d+)/)?.[1])
+  // 保留时长的**表达式**（不是算好的毫秒数 —— 它按平台分叉，测试里要原样求值，
+  // 才能保证测的是真源码的取值，而不是我这台机器上算出来的那一个数）。
+  const maxAgeDecl = loginSrc.match(/const STALE_PROFILE_MAX_AGE_MS = (.+)$/m)?.[1]
+  // 「够老」的时间戳必须**由源码阈值算出来**，不能写死（比如 2 小时）：
+  // 阈值按平台分叉（Windows 1 小时 / POSIX 6 小时），写死会在 POSIX 上把
+  // 「2 小时前的目录」判成还年轻 ⇒ §13 的 5 条断言集体变红。本机恒 Windows，
+  // 仓库又没有 CI，所以这个坑会一直潜伏到别人在 Linux 上跑才炸。
+  const maxAgeMs = new Function(`return ${maxAgeDecl}`)()
+  /** 比阈值再老 1 小时：任何平台上都必然算「够老」。 */
+  const staleAt = new Date(Date.now() - maxAgeMs - 60 * 60 * 1000)
 
   const fakeRoot = fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'rv-collect-'))
   try {
-    // 三个目录 + 一个同名文件：
-    //  · magicrew-login-old   2 小时前 → 该删
-    //  · magicrew-login-new   刚刚     → 不许删（可能正在用）
-    //  · keep-me              2 小时前 → 不是本插件前缀，不许碰
-    //  · magicrew-login-file  2 小时前 → 是文件不是目录，不许碰
+    // 三个目录 + 一个同名文件（「够老」= 比源码阈值再老 1 小时，见上）：
+    //  · magicrew-login-old   够老 → 该删
+    //  · magicrew-login-new   刚刚 → 不许删（可能正在用）
+    //  · keep-me              够老 → 不是本插件前缀，不许碰
+    //  · magicrew-login-file  够老 → 是文件不是目录，不许碰
     const old = path.join(fakeRoot, 'magicrew-login-old')
     const fresh = path.join(fakeRoot, 'magicrew-login-new')
     const other = path.join(fakeRoot, 'keep-me')
@@ -362,25 +374,97 @@ console.log('\n13. 行为级：上次遗留的临时浏览器 profile 会被回�
     for (const d of [old, fresh, other]) fs.mkdirSync(d, { recursive: true })
     fs.writeFileSync(path.join(old, 'inside.txt'), 'x')
     fs.writeFileSync(notDir, 'x')
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
-    for (const p of [old, other, notDir]) fs.utimesSync(p, twoHoursAgo, twoHoursAgo)
+    for (const p of [old, other, notDir]) fs.utimesSync(p, staleAt, staleAt)
 
     // 不复制实现：把源码里**常量声明 + 函数**原样求值，只把 tmpdir 换成假根。
-    // ⚠ 常量声明必须一起带上 —— 函数体引用 `LOGIN_PROFILE_PREFIX`，
-    // 只塞函数会 ReferenceError（这正是「前缀被抽成常量」的连带后果）。
-    const constSrc = `const LOGIN_PROFILE_PREFIX = '${constDecl}'\n`
+    // ⚠ 常量声明必须一起带上 —— 函数体引用 `LOGIN_PROFILE_PREFIX` 与
+    // `STALE_COLLECT_LIMIT`，只塞函数会 ReferenceError（这正是「抽成常量」的连带后果）。
+    const constSrc = `const LOGIN_PROFILE_PREFIX = '${constDecl}'\nconst STALE_COLLECT_LIMIT = ${limitDecl}\nconst STALE_PROFILE_MAX_AGE_MS = ${maxAgeDecl}\n`
     const collect = new Function(
       'readdirSync', 'rmSync', 'statSync', 'tmpdir', 'join',
       `${constSrc}${fnSrc}\nreturn collectStaleLoginProfiles`,
     )(fs.readdirSync, fs.rmSync, fs.statSync, () => fakeRoot, path.join)
 
     const removed = collect()
-    ok(removed === 1, `删掉 1 个晚于 1 小时的旧目录（实际 ${removed}）`)
-    ok(!fs.existsSync(old), '两小时前的一次性目录被删掉了')
+    ok(removed === 1, `删掉 1 个够老的目录（实际 ${removed}）`)
+    ok(!fs.existsSync(old), '比阈值更老的一次性目录被删掉了')
     ok(fs.existsSync(fresh), '刚建好的目录一个字节没动（可能正在用）')
     ok(fs.existsSync(other), '别的前缀目录没被碰')
     ok(fs.existsSync(notDir), '同名文件没被当成目录删掉')
     ok(collect() === 0, '再扫一次没有可回收的（幂等）')
+
+    // ── 单轮上限：残留 11 个时不许一次删完（同步删除会卡住开窗）──────────
+    // 场景：真机攒到 11 个 / 856 MB，一次清完 ≈ 7 秒，全卡在「点连接」与
+    // 「窗口出现」之间。上限让它分几次清完。
+    const manyRoot = fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'rv-many-'))
+    try {
+      for (let i = 0; i < 10; i++) {
+        const d = path.join(manyRoot, `magicrew-login-${i}`)
+        fs.mkdirSync(d, { recursive: true })
+        fs.utimesSync(d, staleAt, staleAt)
+      }
+      const collectMany = new Function(
+        'readdirSync', 'rmSync', 'statSync', 'tmpdir', 'join',
+        `${constSrc}${fnSrc}\nreturn collectStaleLoginProfiles`,
+      )(fs.readdirSync, fs.rmSync, fs.statSync, () => manyRoot, path.join)
+      const first = collectMany()
+      ok(first === limitDecl, `一轮最多删 ${limitDecl} 个（实际 ${first}）`)
+      const leftAfter1 = fs.readdirSync(manyRoot).length
+      ok(leftAfter1 === 10 - limitDecl, `剩下的留给下次（还剩 ${leftAfter1} 个）`)
+      collectMany()
+      collectMany()
+      const leftAfter3 = fs.readdirSync(manyRoot).length
+      ok(leftAfter3 === 10 - limitDecl * 3, `连扫三轮到清空（还剩 ${leftAfter3} 个）`)
+    } finally {
+      fs.rmSync(manyRoot, { recursive: true, force: true })
+    }
+
+    // ── 删除复核：`force: true` 静默失败时不许计数 ──────────────────────
+    // 否则「没删掉」也占掉一个上限配额，真正的残留永远排不到。
+    const ghostRoot = fs.mkdtempSync(path.join(process.env.TEMP ?? '/tmp', 'rv-ghost-'))
+    try {
+      const d = path.join(ghostRoot, 'magicrew-login-ghost')
+      fs.mkdirSync(d, { recursive: true })
+      fs.utimesSync(d, staleAt, staleAt)
+      const collectGhost = new Function(
+        'readdirSync', 'rmSync', 'statSync', 'tmpdir', 'join',
+        `${constSrc}${fnSrc}\nreturn collectStaleLoginProfiles`,
+      )(
+        fs.readdirSync,
+        () => {}, // 假装删了但什么都不做（对齐 force:true 吞掉 ENOENT 的情形）
+        fs.statSync,
+        () => ghostRoot,
+        path.join,
+      )
+      ok(collectGhost() === 0, '没真删掉就不计数（不然配额会被虚耗）')
+      ok(fs.existsSync(d), '那个目录确实还在（证明上一条不是因为别的原因）')
+    } finally {
+      fs.rmSync(ghostRoot, { recursive: true, force: true })
+    }
+
+    // ── 取不到临时目录也必须安静返回 0 ───────────────────────────────────
+    // `tmpdir()` 自己也会抛（TEMP/TMP/TEMPDIR 全指向不可用位置的极端环境）。
+    // 那属于「登录不该关心的事」，不能让它把「点连接」整条链路带崩。
+    // 以前 `const root = tmpdir()` 写在 try 之外 —— 纯防御性缺口，这条断言锁住。
+    const collectNoTmp = new Function(
+      'readdirSync', 'rmSync', 'statSync', 'tmpdir', 'join',
+      `${constSrc}${fnSrc}\nreturn collectStaleLoginProfiles`,
+    )(
+      fs.readdirSync,
+      fs.rmSync,
+      fs.statSync,
+      () => {
+        throw new Error('TEMP 不可用')
+      },
+      path.join,
+    )
+    let noTmpResult
+    try {
+      noTmpResult = collectNoTmp()
+    } catch (e) {
+      noTmpResult = `抛了：${e?.message ?? e}`
+    }
+    ok(noTmpResult === 0, `tmpdir() 抛错时安静返回 0（实际 ${String(noTmpResult)}）`)
   } finally {
     fs.rmSync(fakeRoot, { recursive: true, force: true })
   }
@@ -400,6 +484,25 @@ console.log('\n13. 行为级：上次遗留的临时浏览器 profile 会被回�
   ok(
     (loginSrc.match(/'magicrew-login-'/g) ?? []).length === 1,
     '整个文件里该前缀只出现一次（就是那行常量声明）',
+  )
+  // 上限必须是**有限正数**：为 0 等于永不回收、无限大等于一次删到底（卡住开窗）。
+  ok(Number.isInteger(limitDecl) && limitDecl >= 1 && limitDecl <= 10,
+    `单轮上限是个合理的正数（${String(limitDecl)}）`)
+  ok(
+    /removed >= STALE_COLLECT_LIMIT/.test(loginSrc),
+    '上限真的被用于跳出循环',
+  )
+  // 删除复核：`force: true` 会吞掉 ENOENT，所以必须再 stat 一次才能确认删掉了。
+  ok(
+    /rmSync\(dir, \{ recursive: true, force: true/.test(loginSrc) &&
+      /statSync\(dir\);\s*\n\s*continue;/.test(loginSrc),
+    '删完复核路径是否真的消失（不把"没删掉"算成删掉）',
+  )
+  // 阈值必须按平台分叉：POSIX 上 unlink 打开中的文件是合法的，没有 Windows
+  // 那道「被占用就抛 EPERM」的网，只能靠更长的阈值自保。
+  ok(
+    /process\.platform === 'win32'/.test(loginSrc),
+    '保留时长按平台分叉（POSIX 没有 EPERM 那道网）',
   )
 }
 
