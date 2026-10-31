@@ -2,7 +2,7 @@
   "name": "magpie-jet-hub",
   "version": "1.0.0",
   "type": "module",
-  "description": "把 deepseek-harness-codearts 插件本体（24 个 provider 的路由中枢）原样装进 magpie：内嵌 cordis 容器运行本体，复用其账号池、静默续期、积分选号与本地 OpenAI 兼容网关，凭据直接共用 DSH 的 .credentials.yaml，不依赖 DSH 进程",
+  "description": "把 deepseek-harness-codearts 插件本体（25 个 provider 的路由中枢）原样装进 magpie：内嵌 cordis 容器运行本体，复用其账号池、静默续期、积分选号与本地 OpenAI 兼容网关，凭据直接共用 DSH 的 .credentials.yaml，不依赖 DSH 进程",
   "main": "./index.mjs",
   "exports": {
     ".": "./index.mjs"
@@ -49,7 +49,7 @@
       "dsh-codearts-auth"
     ],
     "version": "2.9.261029",
-    "note": "vendor/ 取自这个 npm 包；与上游的差异只有 gemini-oauth.* 两个常量拆成两段拼接（值相等）与省掉 README.md / cordis.patch.yml，详见 README「vendor/ 的来源与许可」"
+    "note": "vendor/ 是上游源码 commit 6fa74723d42ff605d1de349589c21a1ac4eb7ba2 的构建产物（npm install 触发 tsc + copy-assets + client/build），比 npm 包 2.9.261029 多 36 个 magicrew 文件、少 README.md / cordis.patch.yml；gemini-oauth.* 两个常量拆成两段拼接（值相等）。详见 README「vendor/ 的来源与许可」"
   },
   "magpie": {
     "maxConcurrency": 8,

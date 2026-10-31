@@ -263,6 +263,10 @@ export const WIRED_EXPIRY_PROVIDERS = Object.freeze([
     //    + `provider-registry.ts` 的 `usesExpiryWindow` / `permanentLock`。
     'minimax',
     'minimaxintl',
+    // ⚠️ Magicrew（2026-10-29）：**决定聚合候选表可见性的就是本表**。
+    //    只加 `AGGREGATE_CHANNELS` 而不加这里 ⇒ 折算恒 UNUSABLE（静默少一个候选）。
+    //    折算原语：`provider-expiry.ts` 的 `magicrew` 条目 → `magicrew-credits.ts` 的 `magicrewExpiry`。
+    'magicrew',
 ]);
 /**
  * 临期折算结果的**缓存时长**（毫秒）。用户 2026-10-07 要求加缓存，TTL 由用户在

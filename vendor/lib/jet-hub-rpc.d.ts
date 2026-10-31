@@ -41,6 +41,7 @@ import type { AccioAuth } from './accio-auth.js';
 import type { AutoclawAuth } from './autoclaw-auth.js';
 import type { ModelscopeAuth } from './modelscope-auth.js';
 import { type AstudioAuth } from './astudio-auth.js';
+import { type MagicrewAuth } from './magicrew-auth.js';
 import type { CodelyAuth } from './codely-auth-service.js';
 import type { BuddyCredential } from './buddy.js';
 import { type CheckinStatus, type ClaimOutcome, type CreditBalance } from './credits.js';
@@ -644,6 +645,14 @@ export interface JetHubAuths {
      * —— 一次做完的同步路径 ⇒ 返回体靠 `reused: true` 走前端的成功出口。
      */
     readonly astudio: AstudioAuth;
+    /**
+     * 超级麦吉（Magicrew，2026-10-29）。
+     *
+     * ⚠️ 值必须是 `index.ts` 里 `registerProviderRuntime` 那个 `registry` 数组中
+     * `['magicrew', magicrewAuth]` 的**同一个对象**，否则守卫用例布在该实例上的
+     * spy 收不到注册循环的调用（本仓库复发过 6 次）。
+     */
+    readonly magicrew: MagicrewAuth;
     readonly autoclaw: AutoclawAuth;
     /**
      * **AutoClaw 国际版**（`autoclawintl`）。
