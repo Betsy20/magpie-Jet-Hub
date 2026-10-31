@@ -27,31 +27,53 @@ for (const [id, fn] of mod.PLUGINS) {
 if (live()) {
   // 真实段落必须先**撤销隔离**：沙箱里没有 `.credentials.yaml`，不撤销就只能拿到
   // 「上游模型 / 当前可用」这种没有余额的兜底卡，等于白跑。
+  // ⚠️ 必须先丢掉隔离段建的那个容器单例：`iso.restore()` 只恢复环境变量，
+  //    而 `shared` 已经按隔离 home 钉死了，不丢的话真实段读到的还是空目录。
+  mod.__resetContainerForTest()
   iso.restore()
-  // 2) 真实读数：workbuddy 有 20 个账号，取第二个账号，必须精确匹配
-  const fn = mod.PLUGINS.find(([i]) => i === 'jet-hub-workbuddy')[1]
-  const plugin = await fn({}, {})
-  const getAuth = async () => ({
-    type: 'api',
-    key: 'jet-hub-local:workbuddy/workbuddy-9c0d1e2f',
-    uid: 'workbuddy-9c0d1e2f',
-    accountId: 'user-g7h8',
-  })
-  const u = await plugin.auth.usage(getAuth, { id: 'jet-hub-workbuddy' })
-  console.log('usage =', JSON.stringify(u).slice(0, 300))
-
-  ok(u.error === undefined || u.error === '', `workbuddy 不该报错：${u.error}`)
-  ok(typeof u.balance === 'string' && u.balance !== '', 'balance 应为非空字符串')
-  ok(u.user === 'user-g7h8', `user 应为该账号昵称，实际 ${u.user}`)
-  ok(Array.isArray(u.windows) && u.windows.length > 0, 'windows 应非空')
-  for (const w of u.windows ?? []) {
-    ok(typeof w.name === 'string' && w.name !== '', 'window 缺 name')
-    ok(w.used === null || (typeof w.used === 'number' && w.used >= 0 && w.used <= 200), `window used 越界：${w.used}`)
-    ok(typeof w.display === 'string' && w.display !== '', 'window 缺 display')
-    ok(w.amount === undefined || typeof w.amount === 'number', 'window amount 应为数字')
+  // 2) 真实读数：从账号池里**动态**挑一个已启用的 workbuddy 账号。
+  //
+  // 原来这里写死了 `workbuddy-9c0d1e2f` + 昵称 `user-g7h8`。那是**当时机器上恰好在池里**的一条，
+  // 账号一旦被删（本机 2026-10-31 已不在），这条就变成永久假失败：
+  // 读到的不是“契约坏了”而是“被试体没了”。契约本身不依赖具体哪一条：
+  // 任意一个已启用账号都应归回它自己的昵称与非空余额。
+  const statePath = `${process.env.USERPROFILE || process.env.HOME}/.dsh/jet-hub/state.json`
+  let wbAccount
+  try {
+    const st = JSON.parse(await import('node:fs').then((m) => m.readFileSync(statePath, 'utf8')))
+    wbAccount = (st.accounts || []).find(
+      (a) => a?.provider === 'workbuddy' && a?.enabled !== false && a?.credentialRef,
+    )
+  } catch {
+    wbAccount = undefined
   }
-  // 空套餐必须被过滤掉（astudio 的 total=0 条目踩过）
-  ok(!(u.windows ?? []).some((w) => w.limit === 0 && w.amount === 0), '空套餐 0/0 应被过滤')
+  if (wbAccount === undefined) {
+    skipLive('真实积分读数（workbuddy）—— 账号池里没有已启用的 workbuddy 账号')
+  } else {
+    const fn = mod.PLUGINS.find(([i]) => i === 'jet-hub-workbuddy')[1]
+    const plugin = await fn({}, {})
+    const getAuth = async () => ({
+      type: 'api',
+      key: `jet-hub-local:workbuddy/${wbAccount.id}`,
+      uid: wbAccount.id,
+      accountId: wbAccount.nickname,
+    })
+    const u = await plugin.auth.usage(getAuth, { id: 'jet-hub-workbuddy' })
+    console.log('usage =', JSON.stringify(u).slice(0, 300))
+
+    ok(u.error === undefined || u.error === '', `workbuddy 不该报错：${u.error}`)
+    ok(typeof u.balance === 'string' && u.balance !== '', 'balance 应为非空字符串')
+    ok(u.user === wbAccount.nickname, `user 应为该账号昵称 ${wbAccount.nickname}，实际 ${u.user}`)
+    ok(Array.isArray(u.windows) && u.windows.length > 0, 'windows 应非空')
+    for (const w of u.windows ?? []) {
+      ok(typeof w.name === 'string' && w.name !== '', 'window 缺 name')
+      ok(w.used === null || (typeof w.used === 'number' && w.used >= 0 && w.used <= 200), `window used 越界：${w.used}`)
+      ok(typeof w.display === 'string' && w.display !== '', 'window 缺 display')
+      ok(w.amount === undefined || typeof w.amount === 'number', 'window amount 应为数字')
+    }
+    // 空套餐必须被过滤掉（astudio 的 total=0 条目踩过）
+    ok(!(u.windows ?? []).some((w) => w.limit === 0 && w.amount === 0), '空套餐 0/0 应被过滤')
+  }
 } else {
   skipLive('真实积分读数（workbuddy）')
 }
@@ -60,6 +82,9 @@ if (live()) {
 // 保留它的理由：`user` / `balance` 这些字段只有真凭据路径才产出，是
 // 「积分真的连上了」的唯一硬证据。跑法：`JET_HUB_LIVE=1 node tests/t-usage.mjs`。
 if (live()) {
+  // ⚠️ 必须先丢掉隔离段建的那个容器单例：`iso.restore()` 只恢复环境变量，
+  //    而 `shared` 已经按隔离 home 钉死了，不丢的话真实段读到的还是空目录。
+  mod.__resetContainerForTest()
   iso.restore()
   // 3) 失败要原样报，不能吞成 0 积分。
   //
@@ -86,21 +111,30 @@ if (live()) {
 
 // ⚠️ 这一段也走真实容器/真实账号，同样 opt-in。
 if (live()) {
+  // ⚠️ 必须先丢掉隔离段建的那个容器单例：`iso.restore()` 只恢复环境变量，
+  //    而 `shared` 已经按隔离 home 钉死了，不丢的话真实段读到的还是空目录。
+  mod.__resetContainerForTest()
   iso.restore()
-  // 4) 路由组：没有可查账号，返回模型计数而不是报错
-  const fn3 = mod.PLUGINS.find(([i]) => i === 'jet-hub-aggregate')[1]
-  if (fn3) {
-    const p3 = await fn3({}, {})
-    const u3 = await p3.auth.usage(async () => ({ uid: '' }), { id: 'jet-hub-aggregate' })
-    console.log('aggregate =', JSON.stringify(u3).slice(0, 200))
-    ok(Array.isArray(u3.windows), 'aggregate 应返回 windows 数组')
-    // ⚠️ 回归守卫：直连改造删掉了 container.port，这行曾拼出
-    //    「容器 127.0.0.1:undefined」直接显示在 magpie 的用量卡上。
-    //    原来只断言 windows 是数组，所以测试全绿也没发现 —— 这里把文案钉住。
-    const display = String(u3.windows?.[0]?.display ?? '')
-    ok(display !== '', 'aggregate 的 window 缺 display')
-    ok(!display.includes('undefined'), `aggregate 的 display 出现 undefined：${display}`)
-    ok(!display.includes('127.0.0.1'), `直连模式不该再出现本地端口：${display}`)
+  // 4) 直连模式的用量卡文案：不能出现 `undefined` 与本地端口。
+  //
+  // 原来这一节拿 `jet-hub-aggregate`（路由组）当被试体，因为它没有可查账号、
+  // 用量卡只能靠模型计数兑底。路由组不再注册成 provider 后，这个被试体没了，
+  // 但它守的那个回归（直连改造删掉了 container.port，曾拼出
+  // 「容器 127.0.0.1:undefined」直接显示在用量卡上）仍然有效 —— 换成任一家
+  // 真渠道都行：只要它拿得到用量。拿不到（没登录）就跳过，不假绿。
+  const fn3pair = mod.PLUGINS.find(([, f]) => typeof f === 'function')
+  if (fn3pair) {
+    const p3 = await fn3pair[1]({}, {})
+    const u3 = await p3.auth.usage(async () => ({ uid: '' }), {})
+    const first = u3.windows?.[0]
+    if (first !== undefined) {
+      const display = String(first.display ?? '')
+      ok(display !== '', `${fn3pair[0]} 的 window 缺 display`)
+      ok(!display.includes('undefined'), `${fn3pair[0]} 的 display 出现 undefined：${display}`)
+      ok(!display.includes('127.0.0.1'), `直连模式不该再出现本地端口：${display}`)
+    } else {
+      skipLive(`${fn3pair[0]} 的 usage 没拿到 windows（该家没登录）`)
+    }
   }
 
 } else {
@@ -108,6 +142,9 @@ if (live()) {
 }
 // ⚠️ 这一段也走真实容器/真实账号，同样 opt-in。
 if (live()) {
+  // ⚠️ 必须先丢掉隔离段建的那个容器单例：`iso.restore()` 只恢复环境变量，
+  //    而 `shared` 已经按隔离 home 钉死了，不丢的话真实段读到的还是空目录。
+  mod.__resetContainerForTest()
   iso.restore()
   // 5) 空 uid 兜底：本体是逐账号兜错的，坏账号的 error 会把整张卡变成内部堆栈文案。
   //    退回账号时必须优先挑没有 error 的那条，且透出去的文案不能是裸 TypeError。
@@ -146,11 +183,16 @@ if (live()) {
   ok(from > 0 && to > from, '从 src/plugin.mjs 截不到 mergePackages/toMagpieUsage')
   if (from > 0 && to > from) {
     const body = src.slice(from, to)
+    // `NAMES` 也要当形参传进去：`toMagpieUsage` 的 `plan` 现在取
+    // `NAMES[provider] ?? provider`（2026-10-30 去掉「Jet Hub · 」前缀后不再用
+    // `DISPLAY_NAME`），漏传会 ReferenceError。值取真实表的前几项即可 ——
+    // 下面的断言只看 plan 是否带前缀，不看具体名字。
+    const NAMES_FIXTURE = { trae: 'Trae', workbuddy: 'WorkBuddy', codearts: 'CodeArts（华为云）' }
     const { toMagpieUsage, windowName, dateLabel } = new Function(
-      'DISPLAY_NAME',
+      'NAMES',
       'humanizeUsageError',
       body + String.fromCharCode(10) + 'return { mergePackages, toMagpieUsage, windowName, dateLabel }',
-    )('Jet Hub', (x) => String(x))
+    )(NAMES_FIXTURE, (x) => String(x))
 
     const big = { name: '每月登录赠送', unit: 'credits', remaining: 500, total: 500, used: 0, active: true, deductionEndTime: 1793462399000 }
     const small = Array.from({ length: 20 }, (_, i) => ({

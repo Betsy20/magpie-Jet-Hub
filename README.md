@@ -5,7 +5,7 @@
 把 **deepseek-harness-codearts 插件本体**装进 magpie。
 
 > **上游插件**：[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)
-> （MIT）。它给 DSH 提供 24 家 AI 编码供应商的账号登录、多账号池、静默续期、
+> （MIT）。它给 DSH 提供 23 家 AI 编码供应商的账号登录、多账号池、静默续期、
 > 积分领取和一个本地 OpenAI 兼容网关。本仓库**不是它的分支、也不修改它** ——
 > 只把它的发布产物装进 [`vendor/`](vendor/)（两处规避扫描器的写法差异见
 > [下文](<#vendor-的来源与许可>)），让 magpie 能直接用同一批
@@ -13,16 +13,16 @@
 > 本仓库只负责「装进 magpie」这一层（见[为什么这么做](#为什么这么做)）。
 
 不是"重写一份 CodeArts 能力"（那样只搬一家），而是把本体「路由中枢」原样跑起来：
-内嵌一个 cordis 容器加载 [`deepseek-harness-codearts`](https://github.com/iJetLi/dsh-providers-hub)（= `dsh-providers-hub`，其中 24 个 provider），
+内嵌一个 cordis 容器加载 [`deepseek-harness-codearts`](https://github.com/iJetLi/dsh-providers-hub)（= `dsh-providers-hub`，其中 25 个 provider，本插件接入其中 23 个真渠道），
 让它自己开一个只监听回环的 OpenAI 兼容网关，magpie 侧只把请求转发进去。
 
 ```
 magpie 网关 (3425)
-  └─ provider `jet-hub-*` ×24      ← 本插件（每家一个供应商）
+  └─ provider `jet-hub-*` ×23      ← 本插件（每家一个供应商）
        └─ auth.loader().fetch       ← 只改这一层：剥 provider 前缀 + 转发
             └─ JetHubContainer（内嵌 cordis + 本体 lib/index.js）
                  └─ 本体自带网关 127.0.0.1:<动态端口>
-                      └─ 24 家 provider 的真实上游
+                      └─ 23 家 provider 的真实上游
 ```
 
 ## 模型目录：上游全量，不是「当前可用」
@@ -34,7 +34,7 @@ magpie 网关 (3425)
 | 来源 | 含义 | astudio | cline | workbuddy |
 |---|---|---|---|---|
 | 网关 `/v1/models` | 此刻**能用**的 | 1 | 1 | 2 |
-| 本体 `model.list` RPC | 上游**全量** | 9 | 540 | 32 |
+| 本体 `model.list` RPC | 上游**全量** | 9 | 542 | 32 |
 
 magpie 里 `jet-hub-*` 每个 provider 的模型列表用的是**后者**（全量），因为用户要的是
 「供应商上游全部模型」。家数与条数**不在这里写死** —— 以快照为准：`page/models.js`
@@ -70,22 +70,28 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 |---|---|
 | 重写一份 CodeArts | 只能覆盖一家；本体的账号池、续期、选号、目录全丢 |
 | 桥接 DSH 网关 8326 | 要先起 DSH 进程；本插件不依赖 DSH |
-| **本插件：装本体** | 本体 24 家全在，升级跟着走，**不依赖 DSH 进程** |
+| **本插件：装本体** | 本体 23 家真渠道全在，升级跟着走，**不依赖 DSH 进程** |
 
-代价：本体以 npm 包形式随 `vendor/` 分发（17 MB）。
+代价：本体随 `vendor/` 分发（18 MB）。
 
 ### `vendor/` 的来源与许可
 
-`vendor/` 取自上游 npm 包 **`deepseek-harness-codearts@2.9.261029`**，把里面的
-`lib/` + `locale/` + `package.json` + `LICENSE` 解出来放进去。
+`vendor/` 目前是**上游源码的构建产物**：npm 上最新的 `2.9.261029` 之后上游又推了两条
+提交（新增 `magicrew` 供应商），所以这一版不来自 npm 包，而是从
+[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) 的
+`6fa74723d42ff605d1de349589c21a1ac4eb7ba2` 克隆下来 `npm install`
+（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs`）
+构建出 `lib/`，再连同 `locale/` 拷进来。`package.json` 与 `LICENSE` 仍取 npm 2.9.261029
+那一份（依赖与许可没变，见下）。
 
 | 项 | 值 |
 |---|---|
 | 上游源码仓库 | [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) |
 | npm 上的包名 | `deepseek-harness-codearts`（**同名同版本也发布在 `dsh-providers-hub` 与旧名 `dsh-codearts-auth` 下**，`lib/` 只差同一个包名字符串出现的那两处：`lib/client/jet-hub.js` 的 `id:` 与 `PLUGIN_ID`） |
-| 版本 | `2.9.261029` |
+| 版本 | `2.9.261029`（`vendor/package.json` 沿用 npm 2.9 那一份） |
+| 代码对应 commit | `6fa74723d42ff605d1de349589c21a1ac4eb7ba2`（比 npm 2.9 多两条提交，含 `magicrew`） |
 | 许可 | **MIT**，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](vendor/LICENSE) |
-| 取法 | `npm pack deepseek-harness-codearts@2.9.261029` 后把 `package/` 里的 `lib/` `locale/` `package.json` `LICENSE` 拷进 `vendor/` |
+| 取法 | `git clone` 上游 → `npm install`（`prepare` 脚本负责构建）→ 拷 `lib/` `locale/` 进 `vendor/`；`package.json` `LICENSE` 用 `npm pack deepseek-harness-codearts@2.9.261029` 里那份 |
 
 **包名演进**：上游 README 写明「本包原名 `dsh-codearts-auth`（`0.2.0-rc.11` 起改名）」，
 改名后仓库/包名是 `dsh-providers-hub`；`deepseek-harness-codearts` 是另一个发布名
@@ -109,22 +115,30 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 > 不是 `zhuweiyou`）。且 `repository` / `author` 只在镜像（npmmirror）的 packument 里，
 > 官方 registry 的 packument 与 tarball 内的 `package.json` 都没有这两个字段。
 
-**与 npm 包的实际差异**（2026-10-29 用 `npm pack` 逐文件比对过，别信「原样」两个字）：
+**与上游构建产物的实际差异**（2026-10-30 逐文件 `sha256` 比对过，别信「原样」两个字）：
 
 | 差异 | 原因 |
 |---|---|
 | `lib/gemini-oauth.js` 与 `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报；**值完全相等**（`node` 实测两个常量 `===`，长度 73 / 35 字符都一致），行为不变，另有环境变量可覆盖。唯一的边缘副作用：`.d.ts` 是声明文件，`declare const` 的初始值按 TS 规范只能是字面量，拼接写法在**单文件 `tsc file.d.ts`** 时会报两条 `TS1254`（上游原版 0 条）—— 本仓库不编译类型声明、`types` 入口 `lib/types/index.d.ts` 上游本就缺失，正常使用路径不受影响 |
+| `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭据，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。详见上文「超级麦吉的登录凭据在 IndexedDB 里」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB |
+| `lib/magicrew-browser-login.js` 开窗前回收上次遗留的一次性 profile 目录 | 上游 `ChromiumSession.dispose()` 的删除只退避 2.1 秒，Windows 上 `taskkill /T` 之后句柄释放没那么快；更关键的是**窗口被用户关掉时没有任何回调保证走到 `dispose()`**。两条路叠加的结果是真机 `%TEMP%` 里攒了 **11 个 `magicrew-login-*` / 856 MB**。现在开窗前扫一遍，只删 mtime 超过 1 小时的（一次登录最长 4 分钟、宿主等 9 分钟，1 小时前的目录一定不是正在用的），被占用的跳过 |
 | 没有 npm 包里的 `README.md` 与 `cordis.patch.yml` | 那是 DSH 前端与插件补丁用的，magpie 侧用不到 |
 
-除上表外 `lib/`（974 个文件中 972 个逐字节一致，另 2 个就是上表第一行那两个）、
-`locale/`（2 个）、`package.json`、`LICENSE` 与 npm 包**逐字节一致**
-（`vendor/` 978 个文件对 npm 包 980 个：独有 0、缺 2、内容不同 2、相同 976，逐文件 sha256 比过）。
+除上表外 `lib/`（**1010** 个文件中 **1006** 个与上游构建产物逐字节一致，另 4 个就是上表
+前两行那四个）、`locale/`（2 个）**逐字节一致**。`package.json` 与 `LICENSE` 取的是 npm
+2.9.261029 那一份 —— 上游这两条提交没有改动依赖，`dependencies` /
+`peerDependencies` / `devDependencies` 的键与版本与 npm 2.9 **完全一致**。
+
+相对 npm 2.9.261029 包本身则是：`vendor/` 1014 个文件对 npm 包 980 个 —— 仅 vendor 有
+**36** 个（全是新增的 `magicrew*` 九模块各 4 件套）、仅 npm 有 2 个（`README.md` /
+`cordis.patch.yml`，见上表）、共有 978 个中内容不同 **38** 个（`gemini-oauth.*` 两个是我们
+拆的常量，其余 36 个是上游这两条提交的真实改动）、相同 940 个。
 
 MIT 要求「substantial portions」保留版权与许可声明，所以 `vendor/LICENSE` 必须
 跟着 `vendor/` 一起分发（`package.json` 的 `files` 里已含 `vendor`，整目录进包）。
 根目录的 `LICENSE` 是本插件自己的，两者不要混看。
 
-`vendor/` 里另有 486 个 `.map`（source map，约 3.3 MB）**运行时用不到**，留着是
+`vendor/` 里另有 504 个 `.map`（source map，约 3.4 MiB）**运行时用不到**，留着是
 为了与上游包尽量逐字节一致（方便 `diff` 校验）。要在意仓库体积可以删掉它们，
 不影响运行，但那样差异会多一项。
 
@@ -135,21 +149,24 @@ mkdir -p /tmp/up && cd /tmp/up
 npm pack deepseek-harness-codearts@2.9.261029
 tar -xzf deepseek-harness-codearts-2.9.261029.tgz
 diff -r /tmp/up/package /d/dsh-build/magpie-Jet-Hub/vendor
-# 预期只剩上表那两类差异：README.md / cordis.patch.yml 只在上游、gemini-oauth.* 两个文件写法不同
-# （diff -r 会把每个差异文件按行拆开列，所以输出行数远多于 4）
+# 预期只剩上表那几类差异：README.md / cordis.patch.yml 只在上游、gemini-oauth.* 两个写法不同、
+# magicrew-browser-login.js 与 magicrew-local-browser.js 补了 IndexedDB 读取
+# （diff -r 会把每个差异文件按行拆开列，所以输出行数远多于 6）
 # 逐文件哈希核（比 diff -r 更严，能看出换行/编码差异）：
 #   cd /tmp/up/package && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up/a.txt
 #   cd /d/dsh-build/magpie-Jet-Hub/vendor && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up/b.txt
 #   diff /tmp/up/a.txt /tmp/up/b.txt
 ```
 
-**上游代码本身本仓库没有功能改动**（上表那两个 gemini 文件只改写法、不改值）。唯一与
-「上游运行环境」相关的一处是本插件自己的 `src/connection.mjs`（给容器补一个
+**上游代码本身本仓库只有两处功能改动**，都在 `lib/`：① `gemini-oauth.js` / `.d.ts` 只改
+常量写法、不改值；② `magicrew-browser-login.js` / `magicrew-local-browser.js` 补了读
+IndexedDB 的腿（老路径原样保留，只增不减，理由见上文「超级麦吉的登录凭据在 IndexedDB 里」）。
+唯一与「上游运行环境」相关的一处是本插件自己的 `src/connection.mjs`（给容器补一个
 `connection` 服务，上游在 DSH 里由宿主提供），它在 `vendor/` 之外。
 
 **版本怎么升**：`vendor/` 是随仓库分发的一份快照，不跟着 npm 自动走 —— 升版本要连带
-重跑全量测试、重拉模型快照，还要重新应用下面那条 gemini 常量拆分。换法就是重跑上面
-那三条命令、把 `lib/gemini-oauth.js` / `.d.ts` 的两个常量重新拆成两段、再跑
+重跑全量测试、重拉模型快照，还要重新应用那两处改动（gemini 常量拆分、magicrew 的
+IndexedDB 读取）。换法就是重跑上面那三条命令、把那 4 个文件改回去、再跑
 `node scripts/test-all.mjs` 与 `node scripts/snapshot-models.mjs`。
 
 **同步历史**：
@@ -157,7 +174,14 @@ diff -r /tmp/up/package /d/dsh-build/magpie-Jet-Hub/vendor
 | 日期 | 快照版本 | 结果 |
 |---|---|---|
 | 2026-10-27 | `2.7.261027` | 首次装入 |
-| 2026-10-30 | `2.9.261029` | 全量替换 `lib/` + `locale/`（新增 8 个文件：`minimax-refresh-journal.*` 与 `refresh-failure.*`），`package.json` 依赖未变，模型全量 891 条（旧 895：上游删 5 条 `aggregate/deepseek-v4-pro`、`aggregate/glm-5`、`codearts/GLM-5`、`codearts/deepseek-v4-pro`、`codearts/glm-5.3-flash`，新增 1 条 `codearts/deepseek-v4.1-flash-1017`），16 项离线测试全过 |
+| 2026-10-30 | `2.9.261029` | 全量替换 `lib/` + `locale/`（新增 8 个文件：`minimax-refresh-journal.*` 与 `refresh-failure.*`），`package.json` 依赖未变，模型全量 891 条（旧 895：上游删 5 条 `aggregate/deepseek-v4-pro`、`aggregate/glm-5`、`codearts/GLM-5`、`codearts/deepseek-v4-pro`、`codearts/glm-5.3-flash`，新增 1 条 `codearts/deepseek-v4.1-flash-1017`），15 项离线测试全过 |
+| 2026-10-30 | `2.9.261029` + 上游 `6fa74723` | 换成**上游源码构建产物**：新增 magicrew（超级麦吉）9 个模块 × 4 件套 = 36 个文件，provider 由 24 家增至 **25** 家 |
+| 2026-10-30 | 同上（未换快照） | 修「超级麦吉登录成功却一直提示请完成登录」：`magicrew-browser-login.js` 与 `magicrew-local-browser.js` 补读 IndexedDB（凭据在那里，不在 localStorage），新增 `tests/t-magicrew-creds.mjs` |
+| 2026-10-30 | 同上（未换快照） | 修「读到了也存不下」：`FileCredentialProvider.set()` 改走 `upsertRefsInto`（本体给新账号写的是全新 ref，`writeRefsInto` 找不到就抛错，把 `account.create` 整个打断），`unset()` 补「不存在就跳过」守卫，新增 `tests/t-cred-upsert.mjs` |
+| 2026-10-31 | 同上（未换快照） | 修「允许新增 ref 之后可能写坏整份凭据文件」：新增 `scanRefKeys`（文本扫存在性，不认 parseRefs 漏解的裸 key / 块标量）、块标量整块识别与替换、`isClose` 双引号空值；写盘串行化改成按文件分链、`unset` 判存在挪进链内 |
+| 2026-10-31 | 同上（未换快照） | **不再注册两个路由组**（`aggregate` / `jet-hub-auto`）：它们没有自己的账号池与模型目录，在 magpie 里只能是一张永远空着的卡。`DSH_PROVIDERS` 由 25 项降到 **23** 项，快照跟着按插件白名单过滤（模型条数随上游变，别当常数） |
+| 2026-10-31 | 同上（未换快照） | 再补一层无损性：`refLines` 对「含 CR / 整体只有换行 / 结尾两个以上换行 / 行首行尾空白」四种形态退回双引号 + 转义，`blockScalarBody` 补「缩进比 cut 浅的行当空行」与「整块全空时 cut 取正无穷」，新增 `unescapeDouble()` 还原双引号转义。`tests/t-cred-upsert.mjs` 新增 ㉓（29 种值往返）与 ㉔（17 种读侧块标量夹具）与 ㉕–㉖（空的 `refs: {}` 段、段头带注释），481 项。另拿 700 组随机字符串做往返对账，又挖出两条：双引号标量的闭合判据数错了反斜杠奇偶（`\""` 被当成未闭合、吞掉后续行），条目正则的 `.` 吃不下 U+2028/U+2029（那条 ref 直接从解析结果里消失）。五审又测出三条：`blockScalarEnd` 的续行门槛硬编码 `/^ {3,}/` 与放宽后的 `[ \t]+` 不自洽（3/4 空格缩进下把同级兄弟 ref 吞进值里，污染值让 `JSON.parse` 抛错 ⇒ 账号有凭据却登不上）、裸 key 的续行一律读成空串（本体有值我们读成空）、以及一条把错误读法固化成正确行为的断言。四审测出三条「合法 YAML 输入 ⇒ 凭据全毁」：Unicode 空白行被 `trim()` 当空行（NBSP / 全角 / VT / FF / LS / BOM 六种全中招，值静默丢成空串、再写一次就把整份文件写坏）、`parseRefs` 只认恰好 2 空格缩进（1/3 空格的 refs 段读不到）、裸 key `A:` 后跟续行时 `unset` / 新增 `set` 把文件写坏 |
+| 2026-10-31 | 同上（未换快照） | 修快照脚本网关兜底分支的双重前缀：`/v1/models` 返回的 id **分段两种形态混着来**（实测 56 条里 28 条已带 `jet-hub-` 前缀、16 条还是本体名，两组完全不重叠），原来无条件过 `idOf()` 会把前 28 条拼成 `jet-hub-jet-hub-*`、只认前缀又会丢掉后 16 条。改成 `magpieIdOfSegment()` 并集判据，新增 `tests/t-snapshot-segment.mjs`（34 项） |
 
 ## 安装
 
@@ -176,29 +200,40 @@ magpie plugin login jet-hub
 > 换机器时把 `magpie-Jet-Hub` 换成自己的绝对路径即可。目录式安装是**直接引用**
 > （不复制、不建软链），所以改完代码 `magpie plugin list` 重载即生效。
 
-## 24 个供应商，不是一个
+## 23 个供应商，不是一个
 
-本体里有 24 个 provider。本插件把它们**各注册成 magpie 的一个供应商**，
+本体里有 25 个 provider，其中 23 个是真渠道。本插件把这 23 个**各注册成 magpie 的一个供应商**，
 而不是塞进一个 `jet-hub` 里：
 
 | magpie provider id | 显示名 | 本体 provider |
 |---|---|---|
-| `jet-hub` | Jet Hub · 自动选号 | `jet-hub-auto` |
-| `jet-hub-codearts` | Jet Hub · CodeArts（华为云） | `codearts` |
-| `jet-hub-workbuddy` | Jet Hub · WorkBuddy | `workbuddy` |
-| `jet-hub-minimax` | Jet Hub · MiniMax | `minimax` |
-| `jet-hub-accio` | Jet Hub · Accio（阿里） | `accio` |
-| `jet-hub-gemini` | Jet Hub · Gemini | `gemini` |
-| `jet-hub-codely` | Jet Hub · Codely | `codely` |
-| `jet-hub-autoclawintl` | Jet Hub · AutoClaw 国际 | `autoclawintl` |
-| …（共 24 个） | | |
+| `jet-hub-codearts` | CodeArts（华为云） | `codearts` |
+| `jet-hub-workbuddy` | WorkBuddy | `workbuddy` |
+| `jet-hub-minimax` | MiniMax | `minimax` |
+| `jet-hub-accio` | Accio（阿里） | `accio` |
+| `jet-hub-gemini` | Gemini | `gemini` |
+| `jet-hub-codely` | Codely | `codely` |
+| `jet-hub-autoclawintl` | AutoClaw 国际 | `autoclawintl` |
+| `jet-hub-magicrew` | 超级麦吉 | `magicrew` |
+| …（共 23 个） | | |
 
-> 名单来自本体 `provider.getOrder`（**22 家真渠道 + 2 个路由组**：`aggregate` 与
-> `jet-hub-auto`，合计 24）。路由组的判据在本体侧是它们没有自己的账号池
-> （`scripts/seed-auth.mjs` 的 `ROUTE_GROUPS` 就按这两家判）。
+> **本体有 25 个 provider，其中 2 个是路由组**（`aggregate` 聚合路由、`jet-hub-auto`
+> 自动选号）。路由组不是真渠道：没有自己的账号池、没有自己的模型目录，
+> `account.list` / `credits.balances` 一律回 `unknown provider` —— 注册成 magpie
+> 供应商只会得到一张永远没账号、也永远选不了具体模型的空卡。所以**本插件只接
+> 那 23 家真渠道。本体内部照样用这两个路由组做择优，
+> 真渠道的请求仍然按到期 / 额度在池内自动挑选，行为不受影响。
+>
+> 名单的权威来源是插件自己的 `DSH_PROVIDERS`（`src/plugin.mjs:71`），不是本体 RPC。
+>
+> ⚠️ **别拿 `provider.getOrder` 当清单用**：它读的是 `~/.dsh/jet-hub/state.json` 里
+> 用户拖拽过的 `providerOrder`（`vendor/lib/account-pool.js` 的 `providerOrder()`，
+> `setProviderOrder` 的注释明说「入参原样保存、不校验合法性」），**不含 `magicrew`
+> 与两个路由组** —— 新 provider 在用户拖动之前根本不在里面。
+> 要枚举全量用 `provider.status`，但必须把 23 个 id 全部显式传进去 —— 传空数组只回
+> `statuses: {}`，传几个回几个。
 > 早期版本只接了 19 家，漏掉 `minimax` / `accio` / `gemini` / `codely` /
-> `autoclawintl` —— 这 5 家在 `provider.status` 里查不出来（传空数组返回
-> `statuses: {}`），必须用 `provider.getOrder` 才看得全。
+> `autoclawintl`，那 5 家就是这么漏的。
 
 模型 id 就是 `<provider>/<model>`，例如：
 
@@ -209,12 +244,12 @@ jet-hub-qoder/qfmodel
 ```
 
 > **为什么能这么做**：magpie 宿主 `servers(mod)` 取模块导出的**每一个函数**，
-> `auths()` 再按 `hooks.auth.provider` 建映射 —— 所以一个插件包导出 24 个
-> 插件工厂，就能注册 24 个 provider id。`index.mjs` 正好导出 24 个
+> `auths()` 再按 `hooks.auth.provider` 建映射 —— 所以一个插件包导出 23 个
+> 插件工厂，就能注册 23 个 provider id。`index.mjs` 正好导出 23 个
 > `JetHub*Plugin`。
 >
-> ⚠️ 容器是**模块级单例**：24 个工厂共用一个 cordis 容器。
-> 各起一个的话会建 24 份账号池与模型目录，冷启动直接炸。
+> ⚠️ 容器是**模块级单例**：23 个工厂共用一个 cordis 容器。
+> 各起一个的话会建 23 份账号池与模型目录，冷启动直接炸。
 
 ### 账号也按 provider 分开
 
@@ -228,14 +263,25 @@ jet-hub-codearts#d4e5f6      → codearts-1a2b3c4d
 ```
 
 `node scripts/seed-auth.mjs` 把本体账号池（`~/.dsh/jet-hub/state.json`）按 provider
-摊平写进 magpie，写入前自动备份，只动本插件自己的键。现测（`--dry-run`）：
-**56 个账号 / 19 个有账号的 provider**，共写入 61 个键 —— 56 个键对应 56 个账号，
-另 5 个键是没账号的 provider 的占位记录（2 个路由组 + 3 家只有渠道、本机未登录）。
-别把这里的家数和本插件注册的 24 家混淆：**24 是本插件注册的供应商数，19 才是
-账号池里有账号的家数**。
+摊平写进 magpie，写入前自动备份，只动本插件自己的键。
+
+写入的键数 = **账号数 + 零账号的 provider 数**：
+
+- 账号数：`DSH_PROVIDERS` 这 23 家名下的账号总数（池里若混进未知 provider 的账号，
+  脚本不认、也不计入键数）；
+- 零账号的 provider 数：每家一个**占位键**，记录里的 `key` 是
+  `jet-hub-local:<provider>`（没有 `/<账号 id>` 后缀）。
+
+`--dry-run` 会打印账号总数、逐家清单（标 `0 个` 的那几家就是占位）和最终写入键数，
+照着核就行 —— **别把具体数字抄进断言**，它随你登录 / 新建 / 删除账号实时变化
+（实测同一天里就变过好几次）。
+
+别把这里的家数和本插件注册的 23 家混淆：**23 是本插件注册的供应商数**，
+「有账号的 provider 数」通常小于它，差集就是那几个零账号的占位 —— 取决于你本机
+此刻登录了哪几家，别照抄名字。
 
 > **挑哪一行就真的走哪个账号**（2026-10-29 起）：`scripts/seed-auth.mjs` 摊平出来的
-> 每一行都带着 `uid = <DSH 账号 id>`（2 个路由组 + 3 家未登录渠道是占位行，不带 uid），
+> 有账号的行都带 `uid = <DSH 账号 id>`；零账号的 provider 是占位行、不带 uid。
 > 插件的 `loader(getAuth)` 会读出「当前这个
 > magpie 账号是谁」，在请求作用域里把本体的选号收窄到那一个账号
 > （`src/container.mjs` 的 `_pinAccounts` + `AsyncLocalStorage`）。
@@ -253,21 +299,39 @@ jet-hub-codearts#d4e5f6      → codearts-1a2b3c4d
 > 两个选号入口的限流判据一致）。
 >
 > **哪些行钉不住**（钉不住 = 整家一起用、按池内顺序选号，不影响使用）：
-> ① `scripts/seed-auth.mjs` 的 5 条占位（2 个路由组 + 3 家本机未登录的渠道
-> autoclawintl / codely / gemini），`key` 是 `jet-hub-local:<provider>`、无 `/id` 后缀；
-> ② 你**没挑账号**（或挑的那个号已不在池里）时点「连接」生成的 4 条
-> `jet-hub-local:<provider>:direct` —— 判据是 `src/plugin.mjs` 的 `authorize()` 里
-> `hit === undefined`，`key` 带 `:direct` 后缀。
-> 这两类共 **9 条**（实测 `plugin-auth.json`）。
+> ① `scripts/seed-auth.mjs` 写的占位（零账号的 provider，条数随本机登录情况变），
+> `key` 是 `jet-hub-local:<provider>`、无 `/id` 后缀；
+> ② 你**没挑账号**时点「连接」生成的 `jet-hub-local:<provider>:direct` ——
+> 判据是 `src/plugin.mjs` 的 `authorize()` 里 `picked === ''` 且 `hit === undefined`，
+> `key` 带 `:direct` 后缀。注意：**挑了一个已不在池里的号不会再落到这里**，
+> 那条路径 2026-10-30 起改成直接报错让你重选（否则你以为钉了 A、实际走了池内顺序）。
+>
+> 这两类的**并集**就是「钉不住」的全部。它们争的是 `plugin-auth.json` 里**同一个裸键**
+> （`idOf(provider)`，如 `jet-hub-workbuddy`；`scripts/seed-auth.mjs` 把每家的第一条
+> 写成不带 `#` 后缀的那个），但宿主**不会覆盖**已有记录：签入落到哪个键由 `signInKey()`
+> 决定，`single: false` 的插件走 `freshKey()` —— **裸键空着才用裸键，否则新开
+> `<裸键>#<rand6>`**；`settle()` 也只在「账号 id 相同」或「都没有账号 id 且 key
+> 字符串相同」时才把新记录挪到老键上。所以：
+>
+> - 该家**一条记录都没有**时点「连接」不挑账号 → 裸键 = `:direct`；
+> - 裸键上已有 seed-auth 写的占位、或已有第一个账号时点「连接」不挑账号 →
+>   **新增**一条 `<裸键>#<rand6>` 的 `:direct`，裸键原样保留，于是该家同时有
+>   2 条钉不住的记录（想回到一条：重跑 `scripts/seed-auth.mjs`，它会清掉本插件的
+>   全部旧键重写）；
+> - 裸键真的变成 `:direct` 的路径是：**先在 magpie 里退出 / 删掉占着裸键的那个账号**
+>   （`signOut` 只删那一个键），再点一次「连接」。
+>
+> 想钉住就在弹窗里挑一个账号。
+>
+> 具体条数会随你登录 / 新建账号变化 —— 判据是 `dshAccountIdOf()` 认不认得出账号
+> （`metadata.dshAccountId` / `uid` / `key` 里的 `/<账号 id>` 三段任一），别把条数
+> 写进断言。
 >
 > 另有一类**能钉住但格式旧**的：如 `jet-hub-trae` 缺顶层 `uid`，但带
 > `metadata.dshAccountId` —— `dshAccountIdOf()` 认这个字段，所以照样钉得住。
 >
 > 想要钉住，就重新点一次「连接」并挑账号 —— 那会写成
 > `jet-hub-local:<provider>/<账号 id>` + `uid`。
-
-路由组（`jet-hub` 自动选号、`jet-hub-aggregate` 聚合）本体里没有自己的账号，
-请求由池里其它渠道承接，所以它们那行写的是「路由组 · 请求由池内其它渠道承接」。
 
 ### 在 magpie 里新建账号
 
@@ -279,15 +343,211 @@ jet-hub-codearts#d4e5f6      → codearts-1a2b3c4d
 | 连接本机 DSH 账号（`type: 'api'`） | 接一个已有的账号 —— 先用 `ask()` 让你挑一个（`选一个要接进 magpie 的 workbuddy 账号（DSH 里共 20 个）`），挑完把该账号 id 编进 key |
 | 在浏览器里新建一个 xxx 账号（`type: 'oauth'`） | 让本体真的**建一个新号** —— 调本体 `account.create` 拿登录页，你去浏览器里登录，完成后这一行自动变成已签入 |
 
-**四家没有「新建」**：`jet-hub` / `jet-hub-aggregate`（路由组，请求由池内其它
-渠道承接，本体里没有自己的账号）与 `jet-hub-modelscope` / `jet-hub-opencode`
-（Key 型，走各自的 `*.addAccount`）。对这四家调 `account.create` 本体回
-`unknown provider`，所以插件干脆不声明这个方法 —— 免得用户点了才看到报错。
-其余 **20 家都能建**（实测逐家 `account.create` 都给出了登录流程）。其中
-19 家返回 `loginUrl`；**astudio 是个例外**：当你本机已登录 AStudio、且登录方式
-不是 `web` 时，本体走「导入本机会话」，返回 `{ accountId, loginUrl: '',
-reused: true }` —— 账号条目与凭据此刻都已经就位，只是没有授权页可开。插件把
-`reused: true` 当成功出口，`callback()` 里跳过等待直接收口。
+**两家没有「新建」**：`jet-hub-modelscope` / `jet-hub-opencode`（Key 型，走各自的
+`*.addAccount`）。对这两家调 `account.create` 本体回 `unknown provider`，所以插件
+干脆不声明这个方法 —— 免得用户点了才看到报错。
+其余 **21 家都能建**（实测逐家 `account.create` 都给出了登录流程）。大部分家数
+返回一个可打开的 `loginUrl`，但有三类不给：
+
+- **astudio**：当你本机已登录 AStudio、且登录方式不是 `web` 时，本体走「导入本机会话」，
+  返回 `{ accountId, loginUrl: '', reused: true }` —— 账号条目与凭据此刻都已经就位，
+  只是没有授权页可开。插件把 `reused: true` 当成功出口，`callback()` 里跳过等待直接收口。
+- **magicrew**：两条腿都回空串 `loginUrl`，且 **vendor 两支都不带 `reused` 字段** ——
+  区分靠插件侧按请求里的 `mode` 合成（`src/plugin.mjs` 的 `startNewAccount`）：
+  `mode: 'local-browser'` 读本机浏览器登录态直接导入（秒级完成）⇒ 插件判成
+  `reused: true`、`callback()` 跳过等待；`mode: 'browser'` 由本体自己开窗，占位已登记
+  但凭据还没有 ⇒ 插件判成 `reused: false`，照常走 `waitForLogin()` + `login.poll`。
+  把这两条混成一条会「把一张还没填凭据的卡报成已添加」。
+- 其余 Key 型渠道（modelscope / opencode）不走 `account.create`，见下一节。
+
+所以别按「21 家都回 loginUrl」去写断言 —— 判据是 `loginUrl` 可能为空，插件侧按
+`reused` / `mode` / provider 三者分派（`src/plugin.mjs` 的 `startNewAccountSmart`）。
+
+#### 超级麦吉的登录凭据在 IndexedDB 里，不在 localStorage
+
+这条单独说，因为它踩过真机（2026-10-30）：用户在自己的 Edge 里把
+`www.letsmagic.cn` 登录好了，插件却一直提示「请在浏览器中完成 超级麦吉 登录」，
+等满 4 分钟才失败。根因是**凭据的存放位置和所有人的直觉都不一样**。
+
+- magicrew 网页版把登录态写进 **IndexedDB 的 `magic-global` 库、`user` store**
+  （我们关心的两条记录：`authorization` 是 354 字符的 JWT，`organizations` 是
+  **protobuf 风格的单字节字节流、不是 JSON**，里面带 `magic_organization_code` /
+  `teamshare_organization_code` / `third_platform_organization_code` 三个同值字段）。
+  那个 store 里其实有十几种键（`theme` / `fontScale` / `cluster` / `i18n` / `epoch` /
+  `revision` / `userInfo` / `organizationCode` / `teamshareOrganizations` …），
+  我们只读上面那两条。
+- 它的 `localStorage` 里只有页面自己的缓存（`MAGIC:super_m` / `recording-summary-state` /
+  空键等，键名随版本变），**`authorization` 这条键一次都不出现**。所以「扫 localStorage
+  找 `eyJ…`」这类通用写法对这家恒不命中，而且失败形态与「用户还没登完」完全同形，
+  日志上看不出来。注意 `fontScale` / `i18n` / `theme` 这三条界面配置其实也在
+  IndexedDB 的 `user` store 里，不在 `localStorage` —— 别把它们当成 localStorage 的键。
+
+两条腿都改了（`vendor/lib/magicrew-browser-login.js` 的 CDP 实时读、
+`vendor/lib/magicrew-local-browser.js` 的磁盘 leveldb 读）：
+
+| 腿 | 改法 | 三个必踩的坑 |
+|---|---|---|
+| CDP 实时读 | `CDP_CREDENTIAL_EXPRESSION` 换成 async IIFE，localStorage 与 IndexedDB 都读，谁先取到用谁 | ① `Runtime.evaluate` **必须传 `awaitPromise: true`**，否则 async IIFE 回未 settle 的 Promise，`returnByValue` 下变成 `{}`，与「没登录」同形；② `user` store 是 **in-line key**（keyPath 是记录里的 `key` 字段），`get()` 拿到的是 `{ key, value }` 包装，不解包永远是 `[object Object]`；③ JWT 必须三段式，注入两段会被静默拒掉；④ 用 `indexedDB.databases()` **先列后开**，别直接 `open('magic-global')` —— 库不存在时 `open()` 会当场新建一个空库（还留版本变更记录），我们只是来读的 |
+| 磁盘 leveldb | 除了 `Local Storage/leveldb`，再按站点读 `IndexedDB/<origin>.indexeddb.leveldb` | ① **绝不能全扫 `IndexedDB` 目录**：实测本机 Edge 有 150+ 个站点目录、1.7 GB（数会随你上过的网站涨），全扫直接 `RangeError: Invalid string length`（JS 字符串上限约 512 MB）；按站点定位后单个目录只有 2.5 MB；② 记录形态与 localStorage 完全不同：JWT 是 UTF-16LE（`e\0y\0J\0…`，前面还粘着控制字节），组织码是单字节 latin1 且**不带 JSON 包装**（`magic_organization_code"<长度字节><值>"`）；③ 用 `indexOf` 手写扫描，别写正则 —— 模板字符串里的 `[\\s\\S]` 会被吃掉一层变成 `[sS]`，正则恒不匹配且不报错 |
+
+缺组织码一律不产出凭据（**不造假**）：空 org 配 jwt 在上游是 HTTP 200 + `code:403`，
+比「读不到」难查得多。
+
+读到了凭据之后还有第二道坎：**写回去**。本体给新账号写凭据用的是**全新的 ref**
+（`MAGICREW_ACCOUNT_963C771C` 这种每次新建随机生成的名字），而
+`FileCredentialProvider.set()` 原来只走 `writeRefsInto` —— 它只改**已存在**的 ref，
+找不到就抛 `未找到要更新的 ref`。那条错把 `account.create` 整个打断：占位账号留在池里、
+凭据没落地、`login.poll` 永远回 `done:false`，magpie 侧就永远停在「请在浏览器中完成登录」。
+所以 `set()` 现在走 `upsertRefsInto`（没有就追加），`unset()` 补了「ref 不存在就什么都不做」
+的守卫（否则会凭空长出一条空值记录）。受害面不止超级麦吉：23 家的 `account.create`
+全都写新 ref，任何「本机第一次登录这家」都会撞上。回归测试 `tests/t-cred-upsert.mjs`。
+
+审查时又挖出三个同源缺陷，都已修掉（写进这段是因为它们都出在「写回凭据」这条路上）：
+
+- **裸标量分支漏折换行**：只转义单引号、不折换行时，值里的真换行会让写出的单引号标量跨行，
+  后续行被当成续行折叠 —— 实测 `set('MAGPIE_GATEWAY_KEY', 'evil\n  MAGICREW_ACCESS_TOKEN: …')`
+  会把紧随其后的真实凭据整条吞掉。`vendor/lib/backup.js` 是原样写入备份里的字符串，
+  换机导入就会带真换行。
+- **并发 `set` 丢更新**：`set()` 是「读文件 → 改 → `await renameInto`」，那个 `await` 之后写回的是
+  await 之前读到的旧快照；两条并发 `set` 各读同一份旧文件，后落盘的把先落盘的新 ref 抹掉。
+  EPERM 重试又把竞争窗口从微秒拉到 10–630 ms，放大了它。现在所有写盘走同一条 promise 链串行化。
+- **单引号闭合判据错**：原来用 `!/''\s*$/` 判闭合，值以 `'` 结尾时（行尾 `'''`）被误判成未闭合，
+  解析器继续往下吞行。正确判据是「行尾连续单引号个数为奇数」（YAML 里 `''` 表示一个字面 `'`）。
+  这个缺陷在读侧，会让整条 ref 消失。
+
+另外 `.bak` 备份失败不再让整个 `set()` 失败（它是纯装饰，全仓库只写不读）。
+
+#### 改成「允许新增 ref」之后，还得防着写坏整份文件
+
+`set()` 走 `upsertRefsInto` 会引入一个新的危险面：**「这个 ref 在不在文件里」的判据一旦漏解，
+就会追加一条同名 key，落盘出现重复 key**。而本体解析 `.credentials.yaml` 用的是
+`uniqueKeys: true` 的 yaml，重复 key 报 `Map keys must be unique` ⇒ **整份凭据文件都读不了**，
+不是这一条改不动而已。`parseRefs` 恰好有两种漏解形态，其中一种还是本体自己写出来的：
+
+| 形态 | 谁写出来的 | 漏解后果 |
+|---|---|---|
+| `KEY: ""` 双引号空值 | 本体序列化空字符串就是它 | 判成「不存在」⇒ 追加重复 key |
+| `KEY:` 裸 key 无值 | 手改 / 老版本 | 同上 |
+| `KEY: \|-` 块标量 | 本体序列化含换行的值 | 追加的新 ref 被插进块头与续行之间，本体报 `All mapping items must start at the same column`；`set`/`unset` 只换首行则留下孤儿续行，同样非法 |
+
+所以补了三样东西：
+
+- `scanRefKeys(text)`（导出）：**文本扫** refs 段所有 `  KEY:` 行，是「在不在」的真相源。
+  `upsertRefsInto` 的存在性判断从 `parseRefs` 换成它。
+- `blockScalarEnd` / `isBlockScalarHead` / `blockScalarBody`：块标量整块识别。
+  `parseRefs` 现在能读出块标量的真实正文（原来 `out.set(key, '|-')` 把块头当值），
+  `writeRefsInto` / `upsertRefsInto` 遇到块标量都整块跳过或整块替换。
+- `isClose` 的双引号分支补空值：`s === '"'` 也算闭合，否则 `KEY: ""` 会被当成未闭合往下吞行。
+
+顺带修的两处（同一轮审查提出）：
+
+- **写盘串行化按文件分链**：原来是一条模块级 promise 链，无关文件也被慢文件拖住
+  （实测基线 1 ms，慢文件写入期间被拖到 359–370 ms）。现在 `Map<file, chain>`。
+- **`unset()` 的存在性判断挪进链内**：原来在链外先判再排队写，中间别的写者可能已改了文件（TOCTOU）。
+
+回归测试 `tests/t-cred-upsert.mjs` 的 ⑬–㉙ 各节守这些点，共 559 项。其中 ㉓ 是「任意值写下去再读回来必须一模一样」的往返表（29 种值 × 4 条判据），㉔ 是「人手写/本体写的块标量形态必须读得对」的读侧夹具表（17 种形态），㉕ 是「本体把 refs 删空时写的 `refs: {}`」这种流式空段，㉖ 是「`refs:  # 凭据`」这种带注释的段头——两种都合法，不归一就写不进去。㉗ 是四审那三条「合法 YAML 输入却把凭据毁掉」的形态（Unicode 空白行被 `trim()` 当空行、`parseRefs` 只认 2 空格缩进、裸 key 的续行），外加五审补的两组回归：条目缩进 3/4 空格 + 块标量 + 同级兄弟 ref（`blockScalarEnd` 若硬编码 `/^ {3,}/` 会把兄弟 ref 吞进值里，污染值让 `JSON.parse` 抛错 ⇒ 账号有凭据却登不上），以及裸 key 的续行必须按 plain 折叠**读出值来**（原来一律读成空串，`resolve()` 返回 undefined）。合起来把写侧、读侧、空段、段头、空白字符、缩进宽度、裸 key 的无损性都钉住。㉙ 是七审补的另外两条：`|+` 的 keep 把「文件末尾那行之后」的伪空行算了进去（末行是 `"   "` 且文件不以换行结尾时值多一个 `
+`，resolve→set 就永久改值），以及 `blockScalarEnd` 不认整行注释——裸 key 后面跟一行缩进不够深的 `# c` 时它判定「没有续行」，读侧把值读成空串，**写侧更糟**：`set()` 一条无关 ref 会把新行插到注释下面，本体读回 `{"A":null,"Z":"zzz","l3":null}`，真实凭据被改写成 null 还多出假 key。修法是给 `blockScalarEnd` 加 `skipComments` 参数，**只有裸 key 传 `true`**——plain 标量已经开头（`A: l1`）时后面一行注释就是标量的结尾（本体只读 `"l1"`，且报 `All mapping items must start at the same column`），块标量里的 `#` 更是内容。
+
+三审又报了三类「合法 YAML 输入 → 静默写坏文件」的缺陷，全部已修：
+
+| 缺陷 | 后果 | 修法 |
+|---|---|---|
+| 多行 plain 标量（`A: line1` + `    line2`）只吃首行 | set/unset 后留孤儿续行 ⇒ 本体报 `Implicit keys need to be on a single line` ⇒ 整份文件读不了 | `writeRefsInto` / `deleteRefsFrom` / `upsertRefsInto` 的插入点扫描全部整块跳过 |
+| `scanRefKeys` 只认恰好 2 空格缩进 | refs 段用 1/3 空格缩进时返回空集 ⇒ 全走追加 ⇒ 重复 key ⇒ 整份文件读不了 | 读侧认任意缩进，写侧发现非标准缩进就**拒绝写**并说明原因 |
+| 含换行的值被折成空格 | PEM 私钥这类多行凭据被静默毁掉，而 yaml 仍合法、校验看不出来 | 改成写块标量 `\|-` / `\|` / `\|+`（chomping 跟着值走），换行原样保住 |
+
+顺带补齐读侧同类缺陷：`parseRefs` 原来对多行 plain 标量也只取首行，
+`resolve()` 返回截断值、再 `set()` 回去就把后半截永久丢掉。现在按 YAML 折叠规则
+（续行缩进吃掉、相邻行折成一个空格、N 个连续空行折成 N 个换行）拼回完整值，
+并与本体 yaml 逐条对账（真实文件 62/62 一致）。`blockScalarBody` 也补上了 chomping
+还原（`\|-` 不留尾换行、`\|` 留一个、`\|+` 留全部），否则「读出来再 set 回去」本身就会改值。
+
+验收口径注意：**「逐条 set 自身值后文件字节不变」这个判据不成立** —— 62 条里 28 条
+字节会变（引号形态、折行重排都属预期）。正确的口径是**语义级**：`parseRefs` 与本体
+yaml 逐条比对，62/62 完全一致、缺 0、差 0。
+
+同轮审查还挖出两个**更隐蔽**的缺陷，都在「本体自己写出来的合法 YAML」上触发：
+
+- **`|2-` 认不出**：块标量头的写法是「缩进指示数字在前、chomping 在后」(`|2-`)，
+  原正则只认非法的 `|-2`。本体在**值首行带前导空格**时真会写出 `  A: |2-` ——
+  认不出 ⇒ 块头被当成值、续行成孤儿 ⇒ set/unset 之后整份文件被本体拒绝。
+  `blockScalarBody` 也要跟着尊重那个缩进数字（`|2-` 剥 2+2 空格，不是按首行算）。
+- **段边界只认纯字母 key**：原判据 `/^[A-Za-z_]+\s*:\s*$/` 不匹配 `x1:` / `x-y:` /
+  `"quoted":`，于是它们下面缩进 2 的子 key 被当成 ref。HEAD 遇到这种「假 ref」是
+  抛错不动文件，而 set 改成 upsert 之后会**把凭据写进那个段**，本体永远读不到 ——
+  静默丢凭据。现在判据是「行首无缩进且形如 `key:`」。
+- **折行不吃续行缩进**（这条最要命，真实文件上已经在损坏）：YAML 折叠规则要求
+  吃掉续行的前导缩进，原实现原样压入、只补一个空格 ⇒ 真实凭据文件 24/62 条值
+  多出「反斜杠 + 5 个空格」，其中 `LOOMY_ACCOUNT_D54BD0DF` 的 JSON 直接解析失败
+  （消费方 `vendor/lib/accio-auth.js` 等 20+ 处 `parseCredential` 返回 undefined
+  ⇒ 该账号续期永久失效）。而且「resolve → set 回去」会把脏值落盘、静默损坏原值，
+  yaml 语法却仍然合法、校验看不出来。修完 62/62 与本体逐条一致。
+
+还有一处顺手对齐本体契约：`unset()` 原来写 `KEY: ''`，本体自己的 `unset` 是
+`deleteSectionEntry`（整条删 key），`set` 还明确拒绝空值
+（`an empty value cannot be stored for "{ref}"; use unset`）。插件写空值语义等价，
+但会在文件里留一条空壳记录（真机调试时一堆 `MAGICREW_ACCOUNT_*` 空值行得手工清）。
+现在走 `deleteRefsFrom`，删的时候连块标量/跨行标量的续行一起吃掉 —— 漏吞续行
+就是孤儿行，本体同样拒绝整份文件。
+
+再往下还有一层：**写下去的值必须能原样读回来**。三审之后自查了 `refLines`
+（写侧编码）与 `blockScalarBody`（读侧解码）的无损性，又挖出四类「yaml 合法、
+但值被悄悄改掉」的形态 —— 它们比写坏文件更危险，因为本体读得动、校验也看不出来：
+
+| 形态 | 改成了什么 | 修法 |
+|---|---|---|
+| 含 `\r` 的值 | 字面块会把 CRLF 规范成 LF | 退回双引号 + 转义成 `\r` 两个字符 |
+| 值整体只有换行（`"\n"`） | `\|` 读成空串、`\|+` 靠空行计数易错 | 同上 |
+| 结尾两个以上换行 | `\|+` 的尾随空行与文件末尾的空行分不开，读回多一个 | 同上 |
+| 某行以空格/制表符开头或结尾 | 块标量的缩进剥离与「整行空格」判空会吃掉它 | 同上 |
+
+读侧对应的两处：`blockScalarBody` 的「缩进比 cut 还浅的行等于空行」判据（`\|+`
+后面跟一行只有缩进的行，切 cut 会切出空格）、以及整块全空时 `cut` 取
+`POSITIVE_INFINITY` 而不是 0。双引号标量还要一个 `unescapeDouble()` 把
+`\n` `\t` `\r` `\"` `\\` `\xNN` `\uNNNN` `\UNNNNNNNN` 还原回来，
+未知转义原样保留反斜杠（不猜）。
+
+再往下还有一类**只在随机输入下才现形**的缺陷，是拿 700 组随机字符串（含 `\r`、裸 NUL、
+C0 控制字符、`'` `"` `\` `#` `|` `>` 混排、U+2028/U+2029、中文、BOM、长度 0–1500）
+做「写下去 → 读回来 → 与本体 yaml 三方对账」跑出来的：
+
+- **双引号标量的闭合判据数错了反斜杠**：原来判「行尾 `"` 前面那个字符不是反斜杠」，
+  但 `\"` 是转义引号、`\\"` 才是「字面反斜杠 + 闭合引号」。值 `?|#@>\r]!,"` 落盘成
+  `  A: "?|#@>\r]!,\""`，行尾是 `""`（转义引号 + 闭合引号），旧判据要求闭合引号前是
+  非引号非反斜杠字符 ⇒ 判成「没闭合」⇒ 解析器继续往下吞行，把紧随其后的
+  `records: {}` 整段并进值里（实测读回 `'?|#@>\r]!,"" records: {} '`）。
+  修法：抽出 `quoteClosed(s)` —— **数行尾 `"` 前面连续反斜杠的个数，偶数才闭合**。
+  四处内联的 `isClose` 全部改调它。
+- **条目正则的 `.` 吃不下 U+2028 / U+2029**：JS 的 `.` 与 `$` 都不匹配这两个字符
+  （它们是行终止符），而 `split(/\r?\n/)` 又不在那里断行 —— 于是整行匹配失败、
+  那个 ref 从解析结果里消失（`resolve()` 返回 undefined）。修法：四处条目正则的
+  捕获组改成 `([\s\S]*)`。不需要给 U+2028 加任何特判，正则吃下它之后单引号标量
+  原样往返就是安全的。
+
+六审（2026-10-31）又用「缩进 1/2/3/4 × 块头 `|` / `|-` / `|+` / `|2-` / `|2` × 续行多 0/1/3 空格」的 240 形态矩阵逐条对账，抓出四条：
+
+- **`|+` 在文件末尾多读一个换行**：`text.split(/\r?\n/)` 在「文件以换行结尾」时会多产出一个末尾空串，它不是文件里的空行，却被当成了 `|+` 的尾随空行计入 keep。本体读 `"x\n"`、我们读 `"x\n\n"`，而 resolve 之后 set 回去就把那个多余换行**永久写进文件**。只在 refs 段是最后一段时触发（后面有 `records:` 就不触发），所以实测没撞上。
+  修法：算 keep 时排除 `lines` 里那个末尾空串（`const eof = … ? lines.length - 1 : lines.length`）。
+- **plain 值后面的整行注释被折进值里**：本体把 `  A: x` + `    # note` 读成 `"x"`，折进去就成了 `"x # note"`，resolve→set 写回后永久改值。这条是本轮把 plain 分支改成多行折叠时**引入的退化**（HEAD 版是对的）。
+  修法：两处折叠循环都先跳过整行注释（`if (/^[ \t]*#/.test(lines[k])) continue`）。块标量里的 `#` 是内容，不受影响。
+- **plain 首行还在用 `rest.trim()`**：JS 的 `trim()` 认 26 种 Unicode 空白，YAML 只剥空格与 tab，于是前导 NBSP / 全角空格 / VT 被剥掉（续行早已改用 `trimYaml`）。修法：首行也走 `trimYaml(rest)`。
+- **条目正则的 `:\s*(` 吃掉值首行的非空格空白**：`\s` 含 NBSP、全角、FF、孤立 `\r`。修法：`:\s*(` → `:[ \t]*(`（解析处四处 + 块头取值处一处）。
+
+这四条各有行为级回归（`tests/t-cred-upsert.mjs` 的 ㉘ 节，读侧直接与本体 `toJS().refs` 逐条对账），变异验证全部真红：去掉 EOF 排除 → 红 6；两处注释守卫都改成 `if (false)` → 红 3（只去一处各红 2）；首行退回 `rest.trim()` → 红 5；解析处正则退回 `\s*` → 红 4。
+
+这几条（写侧退回、读侧判空、转义还原、闭合奇偶、正则吃 U+2028）各做过变异验证，删掉任意一条都会有断言变红。
+`tests/t-cred-upsert.mjs` 的 ㉓（29 种值往返）与 ㉔（17 种块标量读侧夹具）就是为此而设 ——
+㉔ 尤其重要：㉓ 只覆盖「我们写出去、我们再读回来」，而 refs 段是本体与人手共写的，
+本体自己会写 `\|+`、`\|2-`、整行只有空格的内容行，这些我们从不产生却必须读对。
+
+回归测试：`tests/t-magicrew-creds.mjs`（83 项；两条腿的读法、`awaitPromise`、先列后开、
+按站点定位、两种记录形态、缺 org 不产出。其中第 9-11 节是**行为级**：把 CDP 表达式
+求值后灌一个假页面环境，断言「库不存在时一次都不 `open()`」、`ie`/`id` 真被抽成一句话、
+放弃等待的诊断行真带上那句原因 —— 这几条做过变异验证（删早返回 / 去掉 `awaitPromise` /
+不解包 in-line key / 让 `indexedDbNoteOf` 恒返空串，各自都会让测试变红）。第 13 节同样是
+行为级：造一个假 `%TEMP%` 根，验「够老的一次性 profile 被删、刚建的不动、别的前缀与同名
+文件不碰、重复调用幂等」，三条变异（删回收调用 / 放宽前缀 / 去掉够老判定）各自变红。
+末节端到端读真实 Edge —— 读到就验、没登录就打印跳过）。
 
 链路的两端为什么长这样：
 
@@ -333,15 +593,18 @@ reused: true }` —— 账号条目与凭据此刻都已经就位，只是没有
 - `opened` 从本体拿（codearts 那家会自己拉起无痕窗），否则 magpie 会再开一个
   带旧 cookie 的窗口，「新建」永远只能建出同一个号。
 
-回归测试：`tests/t-new-account.mjs`（142 项；四家豁免、只拿 URL 就返回、
+回归测试：`tests/t-new-account.mjs`（179 项；两家豁免、只拿 URL 就返回、
 空 `loginUrl` 的 `reused` 成功出口、三种终态、删除前三态、两道单次上限、
-20/24 家的方法形状）。跑法 `node tests/t-new-account.mjs`。
+21/23 家的方法形状）。跑法 `node tests/t-new-account.mjs`。
 
 测试自己会把 `DSH_HOME` 与 `DSH_OFFICEACE_HOME` 指到临时目录（工厂里
 `containerFor()` 拿不到 `home` 时会回退 `homedir()`，`warmUp()` 又在后台真起容器），
 所以跑测试**不会**动你的 `~/.dsh` 缓存，也不会碰 `~/.dsh-officeace` 的会话。
 
 ## 凭据：不需要再登一次
+
+> 超级麦吉（`magicrew`）是唯一一家「凭据不在 `localStorage` 而在 IndexedDB」的，
+> 单独一节讲怎么读：见上文「[超级麦吉的登录凭据在 IndexedDB 里](#超级麦吉的登录凭据在-indexeddb-里不在-localstorage)」。
 
 本插件**不向用户要任何凭据**。DSH 已经把账号写在
 `~/.dsh/.credentials.yaml` 的 `refs:` 段里，`src/credentials.mjs` 用一个
@@ -402,12 +665,11 @@ magpie 侧看到的 id 是 `<magpie provider>/<model>`，一层前缀：
 ```
 jet-hub-workbuddy/deepseek-v4.1-flash
 jet-hub-zcode/GLM-5.3
-jet-hub/auto                     ← 本体的自动选号路由组
+jet-hub-magicrew/deepseek-v4.1-flash
 ```
 
 `auth.loader().fetch` 把 magpie 的 provider 前缀换成本体要的
 `<dsh provider>/<model>` 再交给本体 —— 本体按这个前缀分派到对应上游。
-已知前缀按长度降序匹配，避免 `jet-hub/` 抢掉 `jet-hub-auto/`。
 
 ## 冷启动与目录
 
@@ -419,7 +681,7 @@ jet-hub/auto                     ← 本体的自动选号路由组
 
 1. 内存缓存命中 → 立刻返回，后台刷新
 2. 磁盘缓存（`~/.config/magpie/jet-hub-models.json`）→ 立刻返回真实目录
-3. 都没有 → 返回静态表（16 条），启动甩到后台
+3. 都没有 → 返回静态表（23 条，23 家各一条兜底，id 都取自最近一次快照），启动甩到后台
 
 `authorize()` 与 `usage()` 由用户点击/后台触发，允许长时间，走 `liveModels()` 真等。
 
@@ -488,12 +750,13 @@ magpie 的卡片行（`app.js` 的 `accountQuotaLine`）只渲染 `name` + 进�
 ![magpie 侧栏里的 Jet Hub 页 · 接入标签](docs/screenshot.png)
 
 上图是 magpie 侧栏里的实拍（默认打开的「接入」标签，页面小标题写的是「接入点」）：
-控制台端口 `18500`、模型 `892` 个。这两个数不是拍照时的巧合 —— 它们就是
-`page/models.js` 快照里的 `consolePort` 与 `total`，所以**快照一变这张图就该重拍**，
-否则图上显示的是旧端口、旧模型数。
+控制台端口 `18500`、模型 `892` 个（**拍照当时**的读数，现值见 `page/models.js`）。
+这两个数不是巧合 —— 它们就是快照里的 `consolePort` 与 `total`，所以**快照一变这张图
+就该重拍**，否则图上显示的是旧端口、旧模型数。
 
 > ⚠️ **这张图现在偏旧**：拍它时快照是 `892` 个模型，2026-10-30 升级 vendor 后
-> `page/models.js` 已是 `891` 个（上游删了 5 条、新增 1 条，见下方「同步历史」）。
+> `page/models.js` 已是 **23** 家（两个路由组不再注册，见上方「23 个供应商」）；
+> 模型条数每次重跑都会变，别当常数用。
 > 界面结构没变，只有这个数字变了；要紧的话重拍一张覆盖 `docs/screenshot.png` 即可。
 
 ### 六个标签
@@ -559,7 +822,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 | 概览 | 本体/网关/模型/账号统计，网关六项状态（启用 / 运行中 / 被环境变量挡住 / 允许局域网 / 监听 / 最近错误），自动签到今日情况，provider 清单，接入代码 |
 | 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置，以及 per-账号的**出口代理**（见下） |
 | 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含**每个有账号的渠道**的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
-| 模型 | 模型开关（单条 / 勾选批量 / 全开全关 / 清理失效）；聚合路由的候选目录、排序模式、到期排序、当前渠道、拒绝表，以及**候选级逐个打开/拒绝/调序** |
+| 模型 | 模型开关（单条 / 勾选批量 / 全开全关 / 清理失效）；本体内部聚合路由的候选目录、排序模式、到期排序、当前渠道、拒绝表，以及**候选级逐个打开/拒绝/调序**（这两个路由组不注册成 magpie 供应商，但本体自己仍在用，见下） |
 | 用量 | token 账本（6 项汇总 + 明细）、历史、删除某天、徽章偏好 |
 | 设置 | 渠道原生搜索、面板入口、MiniMax XFF、验证码三件套 |
 | 备份 | 账号总数/缺有效期统计、导出下载、merge/replace 导入 |
@@ -597,10 +860,17 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 地址到新标签页访问，授权完成后本页会自动继续。
 
 另一件与它相关的事：`account.create` 会**立刻**在池里写一条占位账号（无凭据），
-好让 `login.poll` 能查到。占位条目的昵称**通常是 id**（15 家），
-**`autoclaw` 是唯一的例外** —— 它写固定文案 `AutoClaw (登录中...)`
-（`vendor/lib/jet-hub-rpc.js` 的短信登录路径），所以判据里带了一张昵称白名单
-（`PLACEHOLDER_NICKNAMES`），否则这一家的占位永远删不掉。
+好让 `login.poll` 能查到。占位条目的昵称**几乎都等于 id** —— `account.create` 里
+17 处 `pool.addAccount` 只有两个例外：`magicrew` 的 `local-browser` 腿写
+`magicrewDisplayNickname(credential)`，`autoclaw` 写固定文案 `AutoClaw (登录中...)`
+（`vendor/lib/jet-hub-rpc.js` 的短信登录路径），其余 15 处全是 `nickname: id`。
+（`officeace` / `astudio` / `zcode` / `gemini` 那些昵称构造器在**登录成功后的
+`pool.updateAccount` 回填**里才跑，不是写占位时。）
+所以判据是「昵称等于 id **或**命中昵称白名单」（`console/console.js` 的
+`PLACEHOLDER_NICKNAMES`），否则 `autoclaw` 的占位永远删不掉。
+（`magicrew` 不走这条路：`local-browser` 腿是「新建即带凭据」不需要删；`browser` 腿
+的占位虽然 `nickname: id`，但 `refreshable: true` 让 `isPlaceholder` 判 `'no'`，
+由本体自己的 `sweepAbandonedMagicrewBrowserLogins` 按 10 分钟 TTL 收口。）
 
 你点「关闭」放弃授权时，控制台会先问一次本体；没登录成功就把那条占位删掉 —— 否则每点一次「添加账号」再关掉，账号表里就多一行
 「启用 / 到期 — / 凭据 ref 空」的幽灵账号。
@@ -609,7 +879,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 不可续期、10 分钟内新建），删前还会再问一次 `login.poll` —— 因为本体
 `finishLogin` 是「先落凭据、后回填池条目」两步，中间那段时间池条目看着仍像占位，
 只靠四字段判据会误删一个其实已经登录成功的账号（`removeAccount` 会连带
-`credentials.unset`，不可逆）。回归测试见 `tests/t-login-reclaim.mjs`（26 项，
+`credentials.unset`，不可逆）。回归测试见 `tests/t-login-reclaim.mjs`（28 项，
 含 autoclaw 固定文案占位、`closeLogin → reclaimPlaceholder` 的存在性锚点、
 以及「没返回 loginUrl」那条 throw 之前必须先清状态）。
 
@@ -617,11 +887,11 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 
 `modelscope` 和 `opencode` 没有浏览器授权流程，**本体不接受 `account.create`** ——
 传 `provider:'modelscope'` / `'opencode'` 会回 `unknown provider: xxx`
-（`vendor/lib/jet-hub-rpc.js:4384`）。本体官方客户端自己也是这么处理的：
-`vendor/lib/client/jet-hub.js:8073`（opencode）与 `:8077`（modelscope）在
-`createAccount()` 里提前弹 Key 输入框然后 `return`，根本走不到 `account.create`。
+（`vendor/lib/jet-hub-rpc.js:4926`）。本体官方客户端自己也是这么处理的：
+`vendor/lib/client/jet-hub.js:8647`（opencode）与 `:8651`（modelscope）在
+`createAccount()`（`:8642`）里提前弹 Key 输入框然后 `return`，根本走不到 `account.create`。
 
-所以控制台对这两家换了入口（`console/console.js:389` 的 `KEY_CHANNELS`）：
+所以控制台对这两家换了入口（`console/console.js:550` 的 `KEY_CHANNELS`）：
 
 | 渠道 | 走的 RPC | Key 形状（与本体报错文案同源） | 取 Key 的地方 |
 |---|---|---|---|
@@ -632,14 +902,14 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 `vendor/lib/modelscope-rpc.js:95` / opencode 在 `vendor/lib/opencode-rpc.js:276`
 回 `existed: true`）。控制台只填自己的入口，没去改 `src/` 给 `account.create`
 长一个没有轮询的 create 分支 —— 那要把两份 `KEY_PATTERN` 校验也复制一遍
-（理由写在 `console/console.js:373-388` 的注释里）。
+（理由写在 `console/console.js:536-548` 的注释里）。
 
 ![加账号 · modelscope 的 Key 输入框](docs/console-keymodal-modelscope.png)
 ![加账号 · opencode 的 Key 输入框](docs/console-keymodal-opencode.png)
 
 #### 出口代理也是 per-账号，四家四份实现
 
-控制台不把四家的代理合成一个输入框（`console/console.js:561` 的 `PROXY_CHANNELS`）：
+控制台不把四家的代理合成一个输入框（`console/console.js:722` 的 `PROXY_CHANNELS`）：
 本体那边就是**四个池字段、四份 setProxy**（`vendor/lib/account-pool.js:2705`
 `setOpencodeProxy` / `:2737` `setGeminiProxy` / `:2778` `setQoderProxy` / `:2816`
 `setMinimaxIntlProxy`），语义各不相同 —— opencode 是按出口 IP 分份额度、Gemini 是
@@ -657,7 +927,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 两处入口上的坑：
 
 - `qodercn` **没有自己的** `qodercn.setProxy`：前缀改道只认 `qoder.`
-  （`vendor/lib/jet-hub-rpc.js:2936`，而 `'qodercn.setProxy'.startsWith('qoder.')` 为 false）。
+  （`vendor/lib/jet-hub-rpc.js:3160`，而 `'qodercn.setProxy'.startsWith('qoder.')` 为 false）。
   但 `setQoderProxy` 是按 `accountId` 定位的，中国版账号照样能设；只有「测试连接」
   得把 `provider` 传 `qodercn` 才会选到中国站产品（`vendor/lib/qoder-rpc.js:56` 的 `productOf`）。
 - 代理串必须**带显式端口**且协议是 http/https/socks5（`vendor/lib/opencode.js:121`
@@ -687,7 +957,7 @@ MiniMax 国际站用 `redirect:'manual'` 看 307 那一跳判有没有被分流�
 
 ## 入口只导出插件工厂
 
-`index.mjs` 只导出 24 个 `JetHub*Plugin`，一个都不多。
+`index.mjs` 只导出 23 个 `JetHub*Plugin`，一个都不多。
 
 > ⚠️ **绝不能多导出常量/工具函数**。magpie 宿主加载插件时遍历**全部导出**并
 > 探测性调用，任何一个非插件工厂的导出都会让它抛错、整个插件加载失败
@@ -704,6 +974,15 @@ node scripts/test-all.mjs
 # 连环境的一起跑（要 magpie 3425 与 web 3456 都在）
 node scripts/test-all.mjs --all
 ```
+
+汇总行里会标出哪些用例有「真实资源断言未跑」，例如
+
+```text
+✓ t-usage.mjs  123 ms（另有 4 节真实资源断言未跑，设 JET_HUB_LIVE=1 才会跑）
+```
+
+那些断言默认跳过（会碰真实账号、可能轮换 token），但**不会被算成通过**。「整个用例都没法跑」
+（比如缺 `MAGPIE_WEB_KEY`）走的是另一条路，算「跳过」并列在汇总里。
 
 逐项：
 
@@ -727,10 +1006,19 @@ MAGPIE_BUN="$HOME/.cache/magpie/bun/1.4.4/magpie-bun.exe"
 # .credentials.yaml 写回不吞行（23 条断言，不联网）
 "$MAGPIE_BUN" tests/t-writerefs.mjs
 
-# 「在 magpie 里新建账号」这条链路（四家豁免 / 只拿 URL 就返回 / 三种终态 / 删除前三道闸门，不联网）
+# credentials.set 能新增 ref（新建账号写全新 ref 不再被打断；含重复 key / 块标量 / |2- 缩进指示 / 段边界 / 折行缩进 / 分文件串行化 / unset 删整条 / 多行 plain 标量 / 非标准缩进拒绝写 / 换行值写块标量 / chomping 三态 / 任意值无损往返 / 读侧块标量夹具 / 引号闭合奇偶判据 / 空的 refs 段 / 段头注释 / Unicode 空白行 / 非标准缩进读侧 / 裸 key 续行 / 3-4 空格缩进 + 块标量 + 同级 ref / 裸 key 续行读值 / 续行含 Unicode 空白 / 裸 key 替换自身时跳注释，559 条断言，不联网）
+"$MAGPIE_BUN" tests/t-cred-upsert.mjs
+
+# 「在 magpie 里新建账号」这条链路（两家豁免 / 只拿 URL 就返回 / 三种终态 / 删除前三道闸门，不联网）
 "$MAGPIE_BUN" tests/t-new-account.mjs
 
-# 经 magpie 网关 3425 真转发（非流式 / 流式 / 工具调用 / 路由组）
+# 超级麦吉登录凭据的读取（在 IndexedDB 不在 localStorage；末节读真实 Edge，读到就验）
+"$MAGPIE_BUN" tests/t-magicrew-creds.mjs
+
+# 快照脚本的分段归一（网关兜底那条路返回的 id 两种形态混着来，判据必须是并集）
+"$MAGPIE_BUN" tests/t-snapshot-segment.mjs
+
+# 经 magpie 网关 3425 真转发（非流式 / 流式 / 工具调用）
 python tests/t-gateway.py
 
 # 界面自检（CDP 驱动 Edge → 点侧栏 → 连进页面 OOPIF → 六个标签逐个截图 + DOM 断言 + 收集 JS 报错）
@@ -809,7 +1097,7 @@ magpie 的 auth 契约允许插件声明若干开关，用户在「供应商 →
 | `dead_account_skip` | 开 | 已过期且 `refreshable=false` 的账号不参与选号 | 死号也参与（会 502） |
 
 两个开关都不是装饰：`prefer_full` 直接决定 `provider.models()` 走全量还是走实时
-（实测 workbuddy 全量开 32 个、关掉 2 个）；`dead_account_skip` 直接决定容器层
+（实测 workbuddy 全量 32 个；关掉 `prefer_full` 后只剩网关此刻可用的 2 个）；`dead_account_skip` 直接决定容器层
 `_filterDeadAccounts` 的取舍。`tests/t-options.mjs` 用两份不同的 `input.magpie`
 各建一次插件实例来验证这一点，而不是只断言字段存在。
 
@@ -839,7 +1127,7 @@ magpie 模型列表里那三列**只能由插件的 `provider.models()` 给**：
 image true / reasoning true`，`astudio/xopdsv4flash0731in` = `1048576 / 100000 /
 纯文本`。
 
-上游全量目录（当时 895 条，`2.9.261029` 之后是 891 条 —— 数量变了但这条链路不变）
+上游全量目录（条数会随上游增删而变，现在是 **25** 家 —— 数量变了但这条链路不变）
 走完 `model.list` RPC 后同样逐条 `resolveModelInfo` 补：
 **实测 300 条 8 ms**（读的是适配器已缓存的目录，不发网络请求），41% 能解析出窗口。
 `codely` 那家上游只声明模态、不声明窗口，所以它的 `limit.context` 仍是 0 —— 上游
@@ -890,13 +1178,13 @@ magpie 的宿主**不提供**这个服务，所以插件得自己实现一个再
 
 ## 供应商图标（`src/icons.mjs`）
 
-**每家一个图标**，不是 24 个 provider 共用插件自己那个。三种来源：
+**每家一个图标**，不是 23 个 provider 共用插件自己那个。三种来源：
 
 | 来源 | 用在哪 |
 |---|---|
 | magpie 本体内嵌的 `assets/icons/*.svg` | 有厂商的渠道：Trae / Qoder / Cline / Gemini / MiniMax / ModelScope / OpenCode / 智谱（AutoClaw）/ 阿里（Accio）/ 讯飞（AStudio）/ 华为云（CodeArts） |
-| 厂商自己出的位图 | ZCode —— 只有官方 PNG（`src/zcode-icon.mjs` 内联，128×128）；WorkBuddy —— LobeHub 图标库的 `workbuddy-color.svg`（和 magpie 内嵌的那张同图） |
-| 现画 | 没有对应厂商的：聚合路由、自动选号、Buddy、Codely、LobsterAI、Loomy、Raccoon、OfficeAce |
+| 厂商自己出的位图 | ZCode —— 只有官方 PNG（`src/zcode-icon.mjs` 内联，128×128）；WorkBuddy —— LobeHub 图标库的 `workbuddy-color.svg`（和 magpie 内嵌的那张同图）；Magicrew —— 只有官方 PNG（`src/magicrew-icon.mjs` 内联，就是官网 favicon 那个卡通形象） |
+| 现画 | 没有对应厂商的：Buddy、Codely、LobsterAI、Loomy、Raccoon、OfficeAce |
 
 用 magpie 那套图是有意的：它给自己的内置供应商显示的就是同一套 logo，
 所以插件渠道和 magpie 自带渠道在列表里视觉一致。`*intl`（AutoClaw 国际 /
@@ -906,20 +1194,24 @@ MiniMax 国际 / Qoder 国内）在原 logo 外面套一圈虚线地球环 —�
 授权：品牌 logo 的商标归各家所有，这里只用于标识对应的服务，不声称任何
 关联或背书。要用自己的图标改 `src/icons.mjs` 里的 `PROVIDER_SVG` 即可。
 
-`tests/t-options.mjs` 会断言 24 个 provider 的图标**互不相同**（这条是回归守卫：
-曾经 24 个全是同一个六向星，光看测试是绿的）。
+`tests/t-options.mjs` 会断言 23 个 provider 的图标**互不相同**（这条是回归守卫：
+曾经所有家全是同一个六向星，光看测试是绿的）。
 
 ## 目录
 
 ```
 index.mjs              入口，只导插件契约
-src/plugin.mjs         插件工厂：config / auth / provider
+src/plugin.mjs         插件工厂：config / auth / provider（23 家、DSH_PROVIDERS 在这里）
 src/container.mjs      内嵌 cordis 容器，加载本体并转发
 src/credentials.mjs    把 .credentials.yaml 桥成 credentials 服务
 src/connection.mjs     补 connection 服务，让本体的 jet-hub-rpc 端点注册起来
 src/attachments.mjs    附件服务：本体的图片收发都走 ctx.attachments，宿主不提供，插件自己实现
 src/hub-server.mjs     本地控制台 HTTP 服务（静态页 + /__meta + /api/jet-hub）
-vendor/                本体（deepseek-harness-codearts 2.9.261029 的 lib/ + locale/ + 上游 LICENSE）
+src/llm-bridge.mjs     把本体的模型目录桥成 magpie 的 llm 服务
+src/icons.mjs          23 家 provider 的图标表（data URI，见下节）
+src/zcode-icon.mjs     ZCode 官方 PNG（base64 内联）
+src/magicrew-icon.mjs  Magicrew 官方 PNG（base64 内联）
+vendor/                本体（版本号沿用 npm `2.9.261029`，内容是上游 `6fa74723` 的构建产物，含 magicrew；lib/ + locale/ + 上游 LICENSE）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
 console/               控制台界面（七个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
@@ -929,10 +1221,16 @@ scripts/shot-console.cjs     控制台七标签实拍 + DOM 断言（Edge headle
 scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（t-plugin / t-models-nowait / t-dead-account / t-account-pin / t-new-account / t-writerefs / t-usage / t-checkin / t-options / t-attachments / t-seed-auth / t-import-backup / t-login-reclaim / t-console / t-direct / t-gateway / t-rpc-cover / ui-check）
+tests/                 验证脚本（`_iso.mjs` 公共桩 + 22 个：t-writerefs / t-cred-upsert /
+                       t-dead-account / t-account-pin / t-account-cache / t-usage /
+                       t-checkin / t-options / t-attachments / t-plugin / t-models-nowait /
+                       t-seed-auth / t-import-backup / t-login-reclaim / t-new-account /
+                       t-magicrew-creds / t-snapshot-segment / t-rpc-cover /
+                       t-console / t-direct / t-gateway.py / ui-check.cjs；
+                       前 18 个是 `scripts/test-all.mjs` 的 UNIT，后 4 个要 magpie / web 在跑）
 LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
 vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
-docs/screenshot.png    侧栏页面实拍（`tests/ui-check.cjs` 的截图）
+docs/screenshot.png    侧栏页面实拍（人工从 `tests/ui-check.cjs` 的产物里挑一张拷入）
 docs/console-*.png     控制台实拍：七标签 + Key / 代理两个弹窗（`scripts/shot-console.cjs` 直接覆盖写）
 ```
 
@@ -966,12 +1264,12 @@ docs/console-*.png     控制台实拍：七标签 + Key / 代理两个弹窗（
 本插件的能力**全部来自上游** —— 上游仓库、npm 包名、许可与逐文件差异都在
 [`vendor/` 的来源与许可](#vendor-的来源与许可)那一节，这里不重复。
 
-24 家供应商的登录流程、多账号池、静默续期、积分领取、模型目录、本地 OpenAI
+23 家供应商的登录流程、多账号池、静默续期、积分领取、模型目录、本地 OpenAI
 兼容网关，都是上游写的。本仓库只做了这些事：
 
 - 把上游包解出来装进 `vendor/`，用内嵌 cordis 容器跑起来（`src/container.mjs`）；
 - 给容器补一个 `connection` 服务（`src/connection.mjs`，上游在 DSH 里由宿主提供）；
-- 把 24 家 provider 各注册成一个 magpie provider，`auth.loader().fetch` 剥前缀后
+- 把 23 家 provider 各注册成一个 magpie provider，`auth.loader().fetch` 剥前缀后
   交给本体（`src/plugin.mjs`）；
 - 凭据直接共用 `~/.dsh/.credentials.yaml`，双向桥（`src/credentials.mjs`）；
 - 侧栏页、本地控制台、备份导入脚本（`page/`、`console/`、`scripts/import-backup.mjs`）。

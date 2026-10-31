@@ -37,7 +37,7 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
   ok(String(icon).length <= 3 << 19, 'auth.icon 不超过 1 MB')
 }
 
-// ---- 1b) 每家一个图标：以前 24 个 provider 全用插件自己那个六向星 -------
+// ---- 1b) 每家一个图标：以前所有 provider 全用插件自己那个六向星 -------
 {
   const mk = Object.fromEntries(PLUGINS)
   const icons = new Map()
@@ -45,7 +45,7 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
     const p = await factory(noop, iso.options())
     icons.set(id, p.auth.icon)
   }
-  ok(icons.size === PROVIDER_IDS.length, `24 个 provider 都拿到了工厂（${icons.size}）`)
+  ok(icons.size === PROVIDER_IDS.length, `${PROVIDER_IDS.length} 个 provider 都拿到了工厂（${icons.size}）`)
   const covered = new Set(iconProviders())
   const noIcon = DSH_PROVIDERS.filter((p) => !covered.has(p))
   ok(noIcon.length === 0, `每个 provider 都登记了图标（缺：${noIcon.join(', ')}）`)

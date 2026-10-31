@@ -21,12 +21,12 @@
 // 隔离靠四件事，缺一不可：
 //
 //   1. `home` **必须**显式传给工厂（`containerFor` 只认第一个 options）；
-//   2. `DSH_JET_HUB_STATE_DIR` —— `vendor/lib/jet-hub-store.js:1265` 的
+//   2. `DSH_JET_HUB_STATE_DIR` —— `vendor/lib/jet-hub-store.js:1269` 的
 //      `resolveJetHubHome()` 里它**优先级最高**，压过 `profileContext.home`
 //      与 `DSH_HOME`；实测只传 home 不够（本体内部还有别处读 `homedir()`）；
 //   3. `DSH_OFFICEACE_HOME` —— `vendor/lib/officeace-auth.js:77`
 //      `officeaceHome()` **只认这个变量**，完全不受 `DSH_HOME` 约束；
-//   4. `NODE_ENV=test` —— `vendor/lib/minimax-refresh-journal.js:41-69`
+//   4. `NODE_ENV=test` —— `vendor/lib/minimax-refresh-journal.js:55`
 //      的 `isRealUserHomeWrite()` 拒写防线只在测试环境生效。⚠️ 它**不能**
 //      单独顶用：该判据是「`NODE_ENV==='test'` 且 home 落在 `homedir()/.dsh`
 //      下」，而有的测试会改 `USERPROFILE`/`HOME`，`homedir()` 跟着变 ⇒ 基准
@@ -125,7 +125,18 @@ export function live() {
   return process.env.JET_HUB_LIVE === '1'
 }
 
-/** 跳过一条真实环境断言时的统一输出（让它出现在结果里，而不是无声无息）。 */
+/**
+ * 跳过一条真实环境断言时的统一输出。
+ *
+ * ⚠️ 行首必须带 `SKIP-LIVE` 这个字面量：`scripts/test-all.mjs` 靠它把
+ * 「这个用例有几节没跑」显式打在汇总行里。
+ * 原来只打一个「…」开头的提示，于是 `t-usage` 里那四节真实断言
+ * **既没跑也不计跳过**，汇总行执意清爽地写「18 通过 / 0 失败 / 0 跳过」
+ * —— 那是假绿。
+ *
+ * 不用 `NOT RUN`：那个字面量会让整个用例计成「跳过」，而 `t-usage` 的离线
+ * 断言是真跑了、也真通过了，不能连它们一起抹掉。
+ */
 export function skipLive(what) {
-  console.log(`  … 跳过真实环境断言：${what}（要跑设 JET_HUB_LIVE=1，会碰真实账号）`)
+  console.log(`  SKIP-LIVE 跳过真实环境断言：${what}（要跑设 JET_HUB_LIVE=1，会碰真实账号）`)
 }

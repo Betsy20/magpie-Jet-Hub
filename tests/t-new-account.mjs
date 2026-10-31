@@ -40,7 +40,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 // 本文件会真的把容器拉起来（第 7 节 import index.mjs 建工厂），而
 // `src/container.mjs` 起控制台后，只要端口恰好落在 18500 且没设这个变量，就会写
@@ -48,7 +48,7 @@ import { fileURLToPath } from 'node:url'
 // 所以自己设一遍。
 process.env.JET_HUB_NO_ADDR_FILE = '1'
 
-// 第 7 节会 `import('index.mjs')` 并逐个调 24 个工厂 —— 工厂里 `containerFor()`
+// 第 7 节会 `import('index.mjs')` 并逐个调 25 个工厂 —— 工厂里 `containerFor()`
 // 拿不到 `options.home` 时**回退 `homedir()`**（`src/plugin.mjs` 的 `resolveHome`），
 // 然后 `warmUp()` 在后台真把容器起起来，`_start()` 会写
 // `~/.dsh/cache/models-dev.json` 之类。实测落盘时刻在第 2548ms，而本文件 985ms
@@ -81,7 +81,11 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const SRC = path.join(ROOT, 'src', 'plugin.mjs')
 
 let bad = 0
+// 断言条数由测试自己数，不写死在末尾的文案里 —— 写死会随每次加断言漂
+// （2026-10-30 三审实测：t-new-account 写 161 实际 170、t-login-reclaim 写 26 实际 28）。
+let total = 0
 const ok = (cond, msg) => {
+  total++
   console.log(`  ${cond ? '✓' : '✗'} ${msg}`)
   if (!cond) bad++
 }
@@ -118,7 +122,7 @@ const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
 
 /* ── 1. 从源码里截出新建账号那一整段原样求值 ── */
 
-const FROM = '/**\n * 本体里根本没有「自己的账号」的四家'
+const FROM = '/**\n * 本体里**没有** `account.create` 分支的两家'
 const TO = '\n/**\n * 账号在 magpie 里显示成什么。'
 const i = src.indexOf(FROM)
 const j = src.indexOf(TO)
@@ -175,7 +179,8 @@ const make = (container, log = () => {}) =>
     `${body}\nreturn { NO_NEW_ACCOUNT,`
       + ' CREATE_TIMEOUT_MS: typeof CREATE_TIMEOUT_MS === "undefined" ? NaN : CREATE_TIMEOUT_MS,'
       + ' START_TIMEOUT_MS: typeof START_TIMEOUT_MS === "undefined" ? NaN : START_TIMEOUT_MS,'
-      + ' withDeadline, withRpcDeadline, startNewAccount, pollLoginOnce, waitForLogin, abandonAccount }',
+      + ' withDeadline, withRpcDeadline, startNewAccount, startNewAccountSmart, MAGICREW_CREATE_MODES,'
+      + ' pollLoginOnce, waitForLogin, abandonAccount }',
   )(container, log, accountsCache)
 
 /** 假容器：按队列依次吐出 `login.poll` 的返回值，并记录删了谁 */
@@ -210,16 +215,18 @@ function fakeContainer({ create, polls = [] }) {
   }
 }
 
-/* ── 2. 不声明「新建」的四家 ── */
+/* ── 2. 不声明「新建」的两家 ── */
 
-console.log('不声明 oauth 方法的四家（account.create 会回 unknown provider）：')
+console.log('不声明 oauth 方法的两家（account.create 会回 unknown provider）：')
 {
   const { NO_NEW_ACCOUNT } = make(fakeContainer({ create: {} }))
-  ok(NO_NEW_ACCOUNT.has('aggregate'), '路由组 aggregate 在名单里')
-  ok(NO_NEW_ACCOUNT.has('jet-hub-auto'), '路由组 jet-hub-auto 在名单里')
+  // 路由组（aggregate / jet-hub-auto）自 2026-10-31 起不再注册成 magpie provider，
+  // 所以也不必再进豁免名单 —— 它们连 provider 都不是了，谈不上「能不能新建」。
+  ok(!NO_NEW_ACCOUNT.has('aggregate'), 'aggregate 不在名单里（已不注册成 provider）')
+  ok(!NO_NEW_ACCOUNT.has('jet-hub-auto'), 'jet-hub-auto 不在名单里（已不注册成 provider）')
   ok(NO_NEW_ACCOUNT.has('modelscope'), 'Key 型 modelscope 在名单里')
   ok(NO_NEW_ACCOUNT.has('opencode'), 'Key 型 opencode 在名单里')
-  ok(NO_NEW_ACCOUNT.size === 4, `名单恰好 4 家（实际 ${NO_NEW_ACCOUNT.size}）`)
+  ok(NO_NEW_ACCOUNT.size === 2, `名单恰好 2 家（实际 ${NO_NEW_ACCOUNT.size}）`)
   ok(!NO_NEW_ACCOUNT.has('workbuddy'), 'workbuddy 不在名单里（它能建）')
 }
 
@@ -515,7 +522,21 @@ console.log('\n源码守卫：')
   ok(authStart > 0 && authEnd > authStart, '能从源码里切出 oauth 的 authorize 段')
   const authBody = stripComments(src.slice(authStart, authEnd))
   ok(!/waitForLogin/.test(authBody), 'authorize() 里不调 waitForLogin（那会撞 magpie 的 1 分钟硬超时）')
-  ok(/startNewAccount\s*\(/.test(authBody), 'authorize() 真的调了 startNewAccount（不是只写在注释里）')
+  ok(
+    /startNewAccount(Smart)?\s*\(/.test(authBody),
+    'authorize() 真的调了 startNewAccount / startNewAccountSmart（不是只写在注释里）',
+  )
+  // 分派点：直接调 `startNewAccount` 会漏掉超级麦吉的 `mode` 分派（那家的
+  // `account.create` 不带 `mode` 必被本体拒），所以必须走 Smart 那层。
+  // ⚠️ 扫的必须是 `authBody`（authorize 那一段），**不能**是 `stripComments(src)`：
+  // `startNewAccountSmart` 的**定义**就在全文里，扫全文等于恒真 —— 把 authorize()
+  // 改回直接调 `startNewAccount` 后这条断言照样打勾（2026-10-30 三审变异验证实测：
+  // 改成 `await startNewAccount(` 后本文件 exit 0 全绿）。而那条变异在真机上会让
+  // 超级麦吉的新建请求不带 `mode`，被本体兜底分支拒成「不支持手机号密码登录」。
+  ok(
+    /startNewAccountSmart\s*\(/.test(authBody),
+    'authorize() 走的是 startNewAccountSmart（否则超级麦吉不带 mode，必被拒）',
+  )
   ok(/opened:/.test(authBody), 'authorize() 返回 opened（否则 codearts 会被 magpie 再开一次带旧 cookie 的窗）')
   // 预算守卫：start() 允许 40 秒 + create 45 秒 = 85 秒，会撞穿 magpie 给
   // authorize() 的 1 分钟硬超时。必须给 start() 也套上限（2026-10-29 二审指出）。
@@ -611,6 +632,134 @@ console.log('authorize() 的超时预算：')
   ok(got === 'ok-value', '正常路径原样透传返回值')
 }
 
+/* ── 6.9 startNewAccountSmart：只有超级麦吉按 mode 试两次 ── */
+
+console.log('\n超级麦吉的 mode 分派：')
+{
+  const { MAGICREW_CREATE_MODES } = make(fakeContainer({ create: {} }))
+  ok(
+    Array.isArray(MAGICREW_CREATE_MODES) && MAGICREW_CREATE_MODES.join(',') === 'local-browser,browser',
+    `mode 顺序是 local-browser → browser（实际 ${JSON.stringify(MAGICREW_CREATE_MODES)}）`,
+  )
+
+  // ① 别家只调一次、且 payload 里**不带** mode 字段
+  {
+    const seen = []
+    const c = {
+      async rpc(method, payload) {
+        seen.push({ method, payload })
+        if (method === 'account.create') return { accountId: 'x-1', loginUrl: 'https://e/x' }
+        throw new Error('没预期的 rpc: ' + method)
+      },
+    }
+    const { startNewAccountSmart } = make(c)
+    const r = await startNewAccountSmart(c, 'workbuddy', () => {})
+    ok(r.accountId === 'x-1', '别家照常返回 accountId')
+    ok(seen.length === 1, `别家只调一次 account.create（实际 ${seen.length}）`)
+    ok(!('mode' in seen[0].payload), '别家的 payload 里没有 mode 字段（多传未知字段没必要冒险）')
+  }
+
+  // ② 超级麦吉：第一条腿成功就不再试第二条
+  {
+    const seen = []
+    const c = {
+      async rpc(method, payload) {
+        seen.push({ method, payload })
+        if (method === 'account.create') {
+          return { accountId: 'mr-1', loginUrl: '', reused: false }
+        }
+        throw new Error('没预期的 rpc: ' + method)
+      },
+    }
+    const { startNewAccountSmart } = make(c)
+    const r = await startNewAccountSmart(c, 'magicrew', () => {})
+    ok(seen.length === 1, `local-browser 成了就不再开窗（实际调了 ${seen.length} 次）`)
+    ok(seen[0].payload.mode === 'local-browser', `第一次试的是 local-browser（实际 ${seen[0].payload.mode}）`)
+    ok(r.reused === true, 'local-browser 的空 loginUrl 按 reused 收口（不是报失败）')
+  }
+
+  // ③ 第一条腿失败 → 退 browser，并带上 browser 这个 mode
+  {
+    const seen = []
+    const c = {
+      async rpc(method, payload) {
+        seen.push({ method, payload })
+        if (method === 'account.create') {
+          if (payload.mode === 'local-browser') {
+            throw new Error('未在本机浏览器里找到超级麦吉的登录态')
+          }
+          return { accountId: 'mr-2', loginUrl: '' }
+        }
+        throw new Error('没预期的 rpc: ' + method)
+      },
+    }
+    const { startNewAccountSmart } = make(c)
+    const r = await startNewAccountSmart(c, 'magicrew', () => {})
+    ok(seen.length === 2, `两条腿都试了（实际 ${seen.length} 次）`)
+    ok(
+      seen.map((s) => s.payload.mode).join(',') === 'local-browser,browser',
+      `试的顺序是 local-browser → browser（实际 ${seen.map((s) => s.payload.mode).join(',')}）`,
+    )
+    ok(r.incognitoOpened === true, 'browser 那条按「本体自己开窗」返回（incognitoOpened）')
+    ok(r.reused === false, 'browser 那条**不能**报成 reused（那会把还没填凭据的卡报成已添加）')
+  }
+
+  // ④ 两条腿都失败 → 抛**第二条**的错误（local-browser 的失败是预期内的，报它定位不到问题）
+  {
+    const c = {
+      async rpc(method, payload) {
+        if (method === 'account.create') {
+          throw new Error(payload.mode === 'local-browser' ? '本机没有登录态' : '窗口起不来')
+        }
+        throw new Error('没预期的 rpc: ' + method)
+      },
+    }
+    const { startNewAccountSmart } = make(c)
+    let err
+    try {
+      await startNewAccountSmart(c, 'magicrew', () => {})
+    } catch (e) {
+      err = String(e?.message ?? e)
+    }
+    ok(err === '窗口起不来', `两条腿都失败时报的是第二条腿的错误（实际 ${err}）`)
+  }
+
+  // ⑤ 空 loginUrl 的三种含义必须分得开（这条是 5.2 节 M1 的 magicrew 版）
+  {
+    // local-browser：空 URL = 成功（凭据在 create 返回前就写好了）
+    const c1 = {
+      async rpc() { return { accountId: 'mr-3', loginUrl: '' } },
+    }
+    const r1 = await make(c1).startNewAccountSmart(c1, 'magicrew', () => {})
+    ok(r1.reused === true && r1.loginUrl === '', 'local-browser 的空 URL 是成功（reused）')
+
+    // browser：空 URL = 已登记、等用户登录（不是失败、也不是 reused）
+    const c2 = {
+      async rpc(method, payload) {
+        if (method === 'account.create') {
+          if (payload.mode === 'local-browser') throw new Error('没登录态')
+          return { accountId: 'mr-4', loginUrl: '' }
+        }
+        throw new Error('没预期的 rpc: ' + method)
+      },
+    }
+    const r2 = await make(c2).startNewAccountSmart(c2, 'magicrew', () => {})
+    ok(r2.reused === false && r2.incognitoOpened === true, 'browser 的空 URL 是「等登录」不是失败')
+
+    // 别家：空 URL 且没有 reused → 必须抛错（否则用户看到「新建失败」池里却多了一张卡）
+    const c3 = {
+      async rpc() { return { accountId: 'w-1', loginUrl: '' } },
+    }
+    let err3
+    try {
+      await make(c3).startNewAccountSmart(c3, 'workbuddy', () => {})
+    } catch (e) {
+      err3 = String(e?.message ?? e)
+    }
+    ok(err3 !== undefined && err3.includes('workbuddy'), '别家的空 URL 一律抛错（并点名 provider）')
+  }
+}
+
 /* ── 7. oauth 方法本身的形状 ── */
 
 console.log('\noauth 方法形状：')
@@ -632,18 +781,168 @@ console.log('\noauth 方法形状：')
       ok(typeof m.label === 'string' && m.label.includes('新建'), `${p.auth.provider} 的 oauth 标签说清是「新建」`)
     }
   }
-  ok(withOauth.length === 20, `恰好 20 家能新建（实际 ${withOauth.length}）`)
-  ok(
-    without.sort().join(',') === 'jet-hub,jet-hub-aggregate,jet-hub-modelscope,jet-hub-opencode',
-    `不能新建的正是那四家：${without.sort().join(', ')}`,
+  // ⚠️ 别把家数写死：2026-10-30 上游加 magicrew 时这里硬编码的 `20` 就红了一次，
+  //    而插件本身是对的（该红的是断言）。判据改成「除豁免集之外，一家不少」。
+  const { DSH_PROVIDERS, idOf } = await import(pathToFileURL(path.join(ROOT, 'src/plugin.mjs')).href)
+  // ⚠️ 豁免集**从源码派生**，别再抄一份：原先这里是手写的 magpie id 列表
+  // （`'jet-hub'` / `'jet-hub-aggregate'` / …），而 `src/plugin.mjs` 里还有一份
+  // 内部 id 形态的 `NO_NEW_ACCOUNT`。两份拷贝一旦漂移，测试会替错的实现背书。
+  //
+  // 从**源码文本**里解析（不能 `import` 它：那个常量没导出，而 `index.mjs`
+  // 的导出契约也不允许它导出 —— 多导一个常量整个插件就加载失败）。
+  const nonaSrc = src.match(/const NO_NEW_ACCOUNT = new Set\(\[([^\]]*)\]\)/)
+  ok(nonaSrc !== null, '能从 src/plugin.mjs 里解析出 NO_NEW_ACCOUNT')
+  const NO_NEW_ACCOUNT = new Set(
+    (nonaSrc?.[1] ?? '').split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean),
   )
+  // 两家（modelscope / opencode）是 Key 型渠道，本体不给 `account.create`。
+  // 路由组（aggregate / jet-hub-auto）自 2026-10-31 起不再注册成 provider，不在这里。
+  ok(NO_NEW_ACCOUNT.size === 2, `NO_NEW_ACCOUNT 应有 2 家，实际 ${NO_NEW_ACCOUNT.size}`)
+  const EXEMPT = new Set([...NO_NEW_ACCOUNT].map(idOf))
+  const expected = DSH_PROVIDERS.map((d) => idOf(d)).filter((id) => !EXEMPT.has(id))
+  ok(
+    withOauth.slice().sort().join(',') === expected.slice().sort().join(','),
+    `能新建的正是「${DSH_PROVIDERS.length} 家减去豁免两家 = ${expected.length} 家」：缺 ${
+      expected.filter((id) => !withOauth.includes(id)).join(', ') || '无'
+    } / 多 ${withOauth.filter((id) => !expected.includes(id)).join(', ') || '无'}`,
+  )
+  ok(
+    without.sort().join(',') === [...EXEMPT].sort().join(','),
+    `不能新建的正是那两家：${without.sort().join(', ')}`,
+  )
+}
+
+/* ── 10. vendor 的 provider 表 vs 插件 DSH_PROVIDERS 对账 ── */
+//
+// 为什么要有这一节：上游每次加一家 provider，插件侧必须同步三处
+// （`DSH_PROVIDERS` / `NAMES` / `index.mjs` 工厂导出），漏一处要么静默少一家、
+// 要么整个插件加载失败。此前**没有任何测试对账**，全靠人肉 grep。
+//
+// 判据取 `vendor/lib/index.js` 的 `const modelAdapters = { ... }` 块：那张表是
+// 本体「哪些 provider 有模型适配器」的唯一登记处（`pruned(PROVIDER, adapter)`
+// 每行一个）。里面含 `aggregate` 与 `jet-hub-auto` 两个路由组，而插件从
+// 2026-10-31 起**故意不注册**它们 —— 所以两个方向都要断言，
+// 且「vendor 有、插件没有」这一侧要放行这两个路由组，其余仍必须补齐。
+{
+  const vendorIdx = fs.readFileSync(path.join(ROOT, 'vendor', 'lib', 'index.js'), 'utf8')
+    .replace(/\r\n/g, '\n')
+  const start = vendorIdx.indexOf('const modelAdapters = {')
+  const end = start > 0 ? vendorIdx.indexOf(String.fromCharCode(10) + '    };', start) : -1
+  ok(start > 0 && end > start, '能从 vendor/lib/index.js 里切出 modelAdapters 表')
+  if (start > 0 && end > start) {
+    // ⚠️ 键可能带单引号（`'jet-hub-auto': pruned(AUTO_PROVIDER, autoAdapter, { enabled: false })`），
+    // 不加 `'?` 会把它漏掉 —— 二审实测：插一行 `'fake-newprov-x': pruned(...)` 时
+    // 旧正则抽不出这个键，于是「vendor 里这些 provider 插件没接」永远看不到它，测试假绿。
+    const keys = [...vendorIdx.slice(start, end).matchAll(/^\s{8}'?([a-zA-Z0-9_-]+)'?:\s*pruned\(/gm)].map((m) => m[1])
+    ok(keys.length >= 20, `modelAdapters 应抽出 20+ 个 provider，实际 ${keys.length}`)
+    const { DSH_PROVIDERS: DP } = await import(pathToFileURL(path.join(ROOT, 'src', 'plugin.mjs')).href)
+    const vendorSet = new Set(keys)
+    const pluginSet = new Set(DP)
+    // ① vendor 有的，插件必须也有 —— 这是「上游加了、插件忘了加」的缺口。
+    //    两个路由组是**有意不接**的，放行它们，但放行名单必须写死在这里，
+    //    否则将来真漏一家也会被当成路由组悄悄放过。
+    const SKIP_ROUTE_GROUPS = new Set(['aggregate', 'jet-hub-auto'])
+    const missing = keys.filter((k) => !pluginSet.has(k) && !SKIP_ROUTE_GROUPS.has(k))
+    ok(missing.length === 0, `vendor 里这些 provider 插件没接：${missing.join(', ') || '无'}`)
+    ok(
+      keys.filter((k) => SKIP_ROUTE_GROUPS.has(k)).length === 2,
+      '两个路由组仍在 vendor 里（说明「不接入」是插件侧的决定，不是上游没了）',
+    )
+    // ② 插件有的，vendor 必须也有 —— 这是「插件写了家上游不存在的 provider」的缺口，
+    //    那种只会在运行时 404。
+    const extra = DP.filter((k) => !vendorSet.has(k))
+    ok(extra.length === 0, `插件里这些 provider 在 vendor 里不存在：${extra.join(', ') || '无'}`)
+    // ③ `NAMES` 必须覆盖全部 23 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
+    //    （`jet-hub-auto` 就漏过：25 项 `DSH_PROVIDERS` 对 24 键 `NAMES`）。
+    //    这里对账的是「键齐全且有非空文案」，不校验文案内容。
+    //    `NAMES` 和 `NO_NEW_ACCOUNT` 一样没从 `src/plugin.mjs` 导出（`index.mjs` 的
+    //    导出契约只允许 25 个工厂），所以同样从源码文本里解析。
+    const pluginSrc = fs.readFileSync(path.join(ROOT, 'src', 'plugin.mjs'), 'utf8')
+      .split(String.fromCharCode(13, 10)).join(String.fromCharCode(10))
+    const namesStart = pluginSrc.indexOf('const NAMES = {')
+    const namesEnd = namesStart > 0 ? pluginSrc.indexOf(String.fromCharCode(10) + '}', namesStart) : -1
+    ok(namesStart > 0 && namesEnd > namesStart, '能从 src/plugin.mjs 里切出 NAMES 表')
+    if (namesStart > 0 && namesEnd > namesStart) {
+      const body = pluginSrc.slice(namesStart, namesEnd)
+      const named = new Set(
+        [...body.matchAll(/^\s+'?([a-zA-Z0-9_-]+)'?:\s*'([^']*)'/gm)]
+          .filter((m) => m[2].trim() !== '')
+          .map((m) => m[1]),
+      )
+      const noName = DP.filter((p) => !named.has(p))
+      ok(noName.length === 0, `NAMES 缺这些 provider 的显示名：${noName.join(', ') || '无'}`)
+    }
+    // ④ `FALLBACK_MODELS` 必须 25 家各至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
+    //    的唯一兜底（`currentModels()` 的第 3 档）。漏一家 = 那家第一次启动在 magpie
+    //    里一个模型都看不到，且没有任何报错。此前这张表长期只有 16 条、且缺 magicrew。
+    const fbStart = pluginSrc.indexOf('const FALLBACK_MODELS = {')
+    const fbEnd = fbStart > 0 ? pluginSrc.indexOf(String.fromCharCode(10) + '}', fbStart) : -1
+    ok(fbStart > 0 && fbEnd > fbStart, '能从 src/plugin.mjs 里切出 FALLBACK_MODELS 表')
+    if (fbStart > 0 && fbEnd > fbStart) {
+      const fbBody = pluginSrc.slice(fbStart, fbEnd)
+      const fbProviders = new Set(
+        [...fbBody.matchAll(/^\s+'?([a-zA-Z0-9_-]+)\//gm)].map((m) => m[1]),
+      )
+      const noFallback = DP.filter((p) => !fbProviders.has(p))
+      ok(noFallback.length === 0, `FALLBACK_MODELS 缺这些 provider 的兜底模型：${noFallback.join(', ') || '无'}`)
+      // ⑤ 兜底表的 model id 必须真在**最近一次快照**里 —— 只查 provider 前缀抓不到
+      //    「那一条点不通」（2026-10-30 四审实测：25 条里有 3 条 id 上游早已删掉，
+      //    `opencode/beam-free` / `modelscope/deepseek-ai/…` / `minimaxintl/MiniMax-M2`，
+      //    冷启动且无缓存时点这些条目直接 404，而前缀对账全绿）。
+      const snapPath = path.join(ROOT, 'page', 'models.js')
+      const snapSrc = fs.readFileSync(snapPath, 'utf8')
+      const fbIds = [...fbBody.matchAll(/^\s+'([^']+)':/gm)].map((m) => m[1])
+      ok(fbIds.length >= 20, `FALLBACK_MODELS 应抽出 20+ 条模型，实际 ${fbIds.length}`)
+      const deadIds = fbIds.filter((id) => {
+        const seg = id.split('/')
+        const prov = seg[0]
+        const model = seg.slice(1).join('/')
+        // `jet-hub-auto` 是插件自己的路由组，快照里它的 id 段是 `jet-hub/`
+        const magpieId = prov === 'jet-hub-auto' ? `jet-hub/${model}` : `jet-hub-${prov}/${model}`
+        return !snapSrc.includes(JSON.stringify(magpieId))
+      })
+      ok(deadIds.length === 0, `FALLBACK_MODELS 里这些 id 在最近快照中不存在：${deadIds.join(', ') || '无'}`)
+
+      // ⑥ 两套显示名必须逐字一致。`src/plugin.mjs` 的 `NAMES` 是 magpie 供应商列表
+      //    用的那套，`scripts/snapshot-models.mjs` 的 `NAMES` 是侧栏「模型」标签分组
+      //    标题用的那套 —— 两边都没导出（`index.mjs` 只许导插件工厂），只能各存一份，
+      //    于是天然会漂：2026-10-30 实测 `Accio（阿里）` vs `Accio`、`Qoder 国内` vs
+      //    `Qoder CN`、`聚合路由` vs `聚合`，同一家在两处显示成两个名字。
+      const snapNamesSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'snapshot-models.mjs'), 'utf8')
+      const pluginNames = new Map()
+      {
+        const from = src.indexOf('const NAMES = {')
+        const to = src.indexOf(String.fromCharCode(10) + '}', from)
+        ok(from > 0 && to > from, '能从 src/plugin.mjs 切出 NAMES 表')
+        const body = src.slice(from, to)
+        for (const m of body.matchAll(/^\s+'?([a-zA-Z0-9_-]+)'?:\s*'([^']*)'/gm)) pluginNames.set(m[1], m[2])
+      }
+      const snapNames = new Map()
+      {
+        const from = snapNamesSrc.indexOf('const NAMES = {')
+        const to = snapNamesSrc.indexOf(String.fromCharCode(10) + '}', from)
+        ok(from > 0 && to > from, '能从 scripts/snapshot-models.mjs 切出 NAMES 表')
+        const body = snapNamesSrc.slice(from, to)
+        for (const m of body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)) snapNames.set(m[1], m[2])
+      }
+      ok(pluginNames.size >= 23, `src/plugin.mjs 的 NAMES 应抽出 23 家，实际 ${pluginNames.size}`)
+      ok(snapNames.size >= 23, `scripts/snapshot-models.mjs 的 NAMES 应抽出 23 家，实际 ${snapNames.size}`)
+      const nameDrift = []
+      for (const [dsh, want] of pluginNames) {
+        const magpieId = dsh === 'jet-hub-auto' ? 'jet-hub' : `jet-hub-${dsh}`
+        const got = snapNames.get(magpieId)
+        if (got !== want) nameDrift.push(`${dsh}（插件「${want}」vs 快照「${got ?? '缺失'}」）`)
+      }
+      ok(nameDrift.length === 0, `两套显示名不一致：${nameDrift.join('；') || '无'}`)
+    }
+  }
 }
 
 cleanupTmp()
 
 console.log('')
 if (bad === 0) {
-  console.log('✓ 全部通过（新建账号链路：四家豁免、只拿到 URL 就返回、三种终态、删除前三道闸门）')
+  console.log(`✓ 全部通过（${total} 项：新建账号链路 —— 两家豁免、只拿到 URL 就返回、三种终态、删除前三道闸门）`)
   process.exit(0)
 }
 console.log(`✗ ${bad} 项失败`)

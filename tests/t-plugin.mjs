@@ -4,7 +4,7 @@ import * as mod from '../index.mjs'
 import { outputLimit } from '../src/plugin.mjs'
 import { readFileSync } from 'node:fs'
 
-// ⚠️ 本文件调 24 个工厂会**真起容器**（`warmUp()` 后台跑），所以必须隔离：
+// ⚠️ 本文件调 23 个工厂会**真起容器**（`warmUp()` 后台跑），所以必须隔离：
 // 不隔离的话 `resolveHome(undefined)` 会退回 `homedir()`，把本体的 `DSH_HOME`
 // 直指用户真实凭据目录 —— 实测跑一次本文件，`~/.dsh/.credentials.yaml` 与
 // `jet-hub/state.json` 两个文件的哈希都变了（4 个 cline 账号的 access_token
@@ -123,7 +123,46 @@ for (const [key, want] of [
   if (got !== want) problems.push(`${key}: 目录里 limit.output 应为 ${want}，实际 ${got}`)
 }
 
-console.log('--- 19 个 provider ---')
+/**
+ * ⚠️ 回归护栏（2026-10-30 上游加 magicrew 时暴露的真缺陷）：
+ * `index.mjs` 里的具名导出是**手写**的，而入口那道 `PROVIDER_IDS` 契约校验只查
+ * `byId.get(id)`（从 `PLUGINS` 建的表，必定存在），**查不到「忘了写那一行 export」**。
+ * 后果是静默的：magpie 加载插件后就是少一个 provider，没有任何报错，
+ * `DSH_PROVIDERS` 加了、`panel` 里也看不见 —— 实测加完 magicrew 后
+ * 这个文件报「✓ 全部工厂契约一致」却只有 25 个工厂。
+ *
+ * 判据：每个 `PROVIDER_IDS[i]` 对应的 `jet-hub-<id>` 都必须出现在模块的具名导出里，
+ * 且那个导出的值就是 `PLUGINS` 里同一 id 的工厂（不是别家的被赋了两次）。
+ */
+{
+  const { PROVIDER_IDS, PLUGINS } = await import('../src/plugin.mjs')
+  const factoryById = new Map(PLUGINS)
+  /** `jet-hub-magicrew` → `JetHubMagicrewPlugin`。两个路由组不注册，所以没有 `jet-hub` 这种裸 id。 */
+  const exportNameOf = (id) => {
+    const tail = id.replace(/^jet-hub-/, '')
+    return `JetHub${tail.charAt(0).toUpperCase()}${tail.slice(1)}Plugin`
+  }
+  let checked = 0
+  for (const id of PROVIDER_IDS) {
+    const wanted = exportNameOf(id)
+    const got = mod[wanted]
+    if (typeof got !== 'function') {
+      problems.push(`${id}: index.mjs 缺具名导出 ${wanted}（provider 会静默消失）`)
+    } else if (got !== factoryById.get(id)) {
+      problems.push(`${id}: 具名导出 ${wanted} 指向的不是本 id 的工厂（赋值错位）`)
+    }
+    checked += 1
+  }
+  // 反向：不许有导出名对不上任何 provider 的工厂（拼错就是拖一个孤儿工厂进去）。
+  const names = new Set(PROVIDER_IDS.map(exportNameOf))
+  for (const [k, v] of Object.entries(mod)) {
+    if (typeof v !== 'function') continue
+    if (!names.has(k)) problems.push(`index.mjs 多出无法对应 provider 的导出 ${k}`)
+  }
+  console.log(`具名导出护栏: 校验 ${checked} 个 provider`)
+}
+
+console.log(`--- ${described.length} 个 provider ---`)
 for (const d of described) console.log('  ' + d)
 if (noContext.length > 0) console.log(`  注：${noContext.join(' / ')} 的上游没声明上下文窗口（不是插件缺陷）`)
 if (noContext.length === described.length && described.length > 0) {

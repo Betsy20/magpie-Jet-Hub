@@ -123,11 +123,15 @@ const TAIL_MULTILINE = [
     `refs=${refs.size}`)
 }
 
-// 8) upsertRefsInto：值里的换行要折成空格（refs 段保持一行一个 ref）
+// 8) upsertRefsInto：含换行的值必须写成块标量保住它（不许折成空格）
+//    2026-10-31 改：原来这里断言「折成空格」——那会静默毁掉 PEM 私钥这类多行凭据。
+//    现在 refLines() 把含换行的值写成 `|` / `|-` / `|+` 块标量，换行原样保住。
 {
   const out = upsertRefsInto(TAIL_MULTILINE, new Map([['{{SECRET_nl}}', 'a\nb\nc']]))
   const refs = parseRefs(out)
-  check('新增 ref 的值里换行折成空格', refs.get('{{SECRET_nl}}') === 'a b c', JSON.stringify(refs.get('{{SECRET_nl}}')))
+  check('新增 ref 的换行原样保住（不折成空格）', refs.get('{{SECRET_nl}}') === 'a\nb\nc',
+    JSON.stringify(refs.get('{{SECRET_nl}}')))
+  check('含换行的新增 ref 写成 `|-` 块标量', /^ {2}\{\{SECRET_nl\}\}: \|-$/m.test(out), out)
 }
 
 // 9) upsertRefsInto：值里的单引号要转义成 ''

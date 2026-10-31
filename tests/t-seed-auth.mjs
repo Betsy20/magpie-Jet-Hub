@@ -18,10 +18,11 @@ if (!/--dry-run，未写盘/.test(out)) problems.push('没有走 dry-run 分支'
 for (const id of PROVIDER_IDS) {
   if (!out.includes(id)) problems.push(`报告里缺 ${id}`)
 }
-// 路由组必须说清是路由组，不能写成「未登录」
-if (!/路由组 · 请求由池内其它渠道承接/.test(out)) problems.push('路由组文案没出现')
-if (/（本机 DSH 未登录该渠道）/.test(out) && !/jet-hub-autoclaw/.test(out)) {
-  // 有渠道没账号是正常的；这里只保证两种文案都在
+// 路由组（aggregate / jet-hub-auto）自 2026-10-31 起不再注册成 provider，
+// 所以报告里不该再出现「路由组」占位；出现的必须都是真渠道的「未登录」占位。
+if (/路由组 · 请求由池内其它渠道承接/.test(out)) problems.push('不该再有路由组占位（两家已不接入）')
+for (const gone of ['jet-hub-aggregate', 'jet-hub ']) {
+  if (out.includes(gone)) problems.push(`报告里不该出现 ${gone}`)
 }
 
 // 不写盘验证：dry-run 后 plugin-auth.json 不该被改（比对 mtime 不现实，看备份数不增）
@@ -37,5 +38,5 @@ if (problems.length) {
   console.log('✗ ' + problems.join('；'))
   process.exit(1)
 }
-console.log('✓ seed-auth 逻辑正确（dry-run 不改文件、19 个 id 齐全、路由组文案正确）')
+console.log('✓ seed-auth 逻辑正确（dry-run 不改文件、23 个 id 齐全、无路由组占位）')
 process.exit(0)

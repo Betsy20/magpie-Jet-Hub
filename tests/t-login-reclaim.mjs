@@ -29,7 +29,10 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const SRC = path.join(ROOT, 'console', 'console.js')
 
 let bad = 0
+// 断言条数由测试自己数，不写死在文案里 —— 写死会随每次加断言漂
+let total = 0
 const ok = (cond, msg) => {
+  total++
   console.log(`  ${cond ? '✓' : '✗'} ${msg}`)
   if (!cond) bad++
 }
@@ -295,5 +298,5 @@ console.log('  有竞态（900ms 内又开了一次登录）：')
   ok(b.deleted.length === 0, '新版：没删任何账号')
 }
 
-console.log(bad === 0 ? '\n✓ 全部通过（26 项）' : `\n✗ ${bad} 项失败`)
+console.log(bad === 0 ? `\n✓ 全部通过（${total} 项）` : `\n✗ ${bad} 项失败`)
 process.exit(bad === 0 ? 0 : 1)

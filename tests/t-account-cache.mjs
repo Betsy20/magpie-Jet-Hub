@@ -242,8 +242,18 @@ const listMod = new Function(`${listSrc}\nreturn { listAccountsOf, accountById, 
     // 2026-10-30 扩展：隔离统一收口到 `tests/_iso.mjs` 之后，多数文件不再自己
     // 赋值，而是 `const iso = isolate()`（`_iso.mjs` 里一次性设了五个环境变量）。
     // 判据因此要认两种写法，否则这些文件会被误报成「没设开关」。
-    if (!/process\.env\.JET_HUB_NO_ADDR_FILE\s*=/.test(text) && !/\bisolate\s*\(/.test(stripComments(text))) {
+    //
+    // 2026-10-30 四审补强：`isolate()` 只设环境变量，工厂的 `home` 还得靠
+    // `iso.options()` 传进去（`tests/_iso.mjs` 的 `options(extra)` 返回
+    // `{ home: root, ...extra }`）。判据原来只认「有没有调 isolate()」，变异实测
+    // 把 `iso.options()` 全换成 `{}` 后 D-1 仍全绿 —— 虽然 `_iso` 的环境变量兜住了
+    // 真实目录（实测凭据 hash 不变），但那属于第二层防线，第一层漏了不该看不见。
+    const isoBody = stripComments(text)
+    if (!/process\.env\.JET_HUB_NO_ADDR_FILE\s*=/.test(text) && !/\bisolate\s*\(/.test(isoBody)) {
       missing.push(f)
+    } else if (/\bisolate\s*\(/.test(isoBody) && !/\biso\.options\s*\(/.test(isoBody)) {
+      // 用了 `isolate()` 就必须把 `iso.options()` 传给工厂 —— 否则容器会去碰真实 home
+      missing.push(`${f}（用了 isolate() 但没把 iso.options() 传给工厂）`)
     }
   }
   ok(missing.length === 0, 'D-1 每个会起容器的测试都做了隔离（直接赋值或 _iso.isolate()）', missing.join(', '))
