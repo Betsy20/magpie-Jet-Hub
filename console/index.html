@@ -20,7 +20,6 @@
       <button data-tab="overview" class="on">概览</button>
       <button data-tab="accounts">账号</button>
       <button data-tab="credits">积分</button>
-      <button data-tab="usage">用量</button>
       <button data-tab="settings">设置</button>
       <button data-tab="backup">备份</button>
     </nav>
@@ -115,30 +114,6 @@
       </div>
     </section>
 
-    <!-- ══════════ 用量 ══════════ -->
-    <section id="tab-usage" class="tab">
-      <h1>用量账本 <span class="sub">token 台账 / 历史 / 徽章偏好</span></h1>
-      <div class="bar">
-        <label>最近 <input id="tlLimit" type="number" value="20" min="1" max="500" class="narrow"> 条</label>
-        <button id="tlLoad">读账本</button>
-        <label>最近 <input id="tlDays" type="number" value="7" min="1" max="90" class="narrow"> 天</label>
-        <button id="tlHistory">读历史</button>
-        <button id="tlDelete">删除某天</button>
-        <span id="tlMsg" class="msg"></span>
-      </div>
-      <div id="tlOut"></div>
-      <h2>徽章偏好</h2>
-      <div class="bar">
-        <select id="badgePref">
-          <option value="auto">auto（自动）</option>
-          <option value="always">always（总是显示）</option>
-          <option value="never">never（从不）</option>
-        </select>
-        <button id="badgeSave">保存</button>
-        <span id="badgeMsg" class="msg"></span>
-      </div>
-    </section>
-
     <!-- ══════════ 设置 ══════════ -->
     <section id="tab-settings" class="tab">
       <h1>设置</h1>
@@ -148,6 +123,17 @@
         <div class="row"><div><b>MiniMax XFF</b><p>发给 MiniMax 的 X-Forwarded-For，空表示不伪造。</p></div><input id="setXff" class="grow"></div>
       </div>
       <div id="setMsg" class="msg"></div>
+      <h2>徽章偏好</h2>
+      <p class="hint">模型选择器旁那枚徽标折叠时只显示一个读数。这里决定先显示哪个：有订阅读数就显示订阅，否则显示积分。</p>
+      <div class="bar">
+        <select id="badgePref">
+          <option value="auto">auto（有订阅显示订阅，否则积分）</option>
+          <option value="subscription">subscription（优先订阅）</option>
+          <option value="credits">credits（只看积分，套餐判定误判时的兜底）</option>
+        </select>
+        <button id="badgeSave">保存</button>
+        <span id="badgeMsg" class="msg"></span>
+      </div>
       <h2>验证码</h2>
       <div class="bar">
         <button id="capDemand">查是否需要</button>
@@ -169,6 +155,7 @@
         <button id="bkImport">导入</button>
         <span id="bkMsg" class="msg"></span>
       </div>
+      <div class="hint">覆盖（replace）只换账号池与永久锁定表：备份里的模型黑名单一律不写回，本机现有黑名单保持不变。要连黑名单一起还原，用命令行的 <code>--keep-disabled</code>。</div>
       <div id="bkOut"></div>
     </section>
   </main>

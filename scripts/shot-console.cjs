@@ -60,7 +60,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function main() {
   const tabs = process.argv.slice(2)
-  const want = tabs.length ? tabs : ['overview', 'accounts', 'credits', 'usage', 'settings', 'backup']
+  const want = tabs.length ? tabs : ['overview', 'accounts', 'credits', 'settings', 'backup']
   const URL_BASE = process.env.CONSOLE_URL || (await readConsoleUrl())
   console.log(`控制台: ${URL_BASE}`)
   fs.mkdirSync(OUT, { recursive: true })

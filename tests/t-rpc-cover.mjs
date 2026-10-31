@@ -393,9 +393,15 @@ const DELEGATED = new Map([
 //         「clearDead 一并删掉」）。
 const DROPPED = new Map([
   ['model.clearDead', '本体 state.json 里给模型打的 dead 标记；它带 30 天 TTL 自动回收（vendor/lib/dead-model-store.js 的 DEFAULT_TTL_DAYS，DSH_DEAD_MODEL_TTL_DAYS 可调、0 为永不过期），失效模型在 model.list 里照样列出，magpie 侧不需要「清空」这个动作（2026-10-31 用户同意一并删掉）'],
+  // 用量账本：magpie 的「Usage」页读的就是同一份 ~/.config/magpie/usage.jsonl
+  // （internal/usage/usage.go 的 Path()），而且更全：四维分组、图表、CSV、成本、按天/区间、分页。
+  // 控制台这份只有三个按钮，2026-10-31 删掉。
+  ['usage.tokenLedger', '用量账本：magpie「Usage」页读同一份 usage.jsonl，还更全'],
+  ['usage.tokenLedgerHistory', '历史账本：同上，magpie 的 Usage 页可按天/区间看'],
+  ['usage.tokenLedgerDeleteDay', '删某天账本：控制台不再代劳 —— magpie 的 Usage 页自己按天/区间看，要真删就动 ~/.config/magpie/usage.jsonl'],
   // 聚合路由那两块配置页同一天一并删掉（用户：「聚合路由和聚合候选插件没有接入，有必要留着嘛」）。
   // 判据：插件按 DSH_PROVIDERS 注册 magpie provider，里面**不含** aggregate / jet-hub-auto；
-  // magpie 的模型目录（page/models.js 快照 869 条）全是 `jet-hub-<provider>/` 前缀
+  // magpie 的模型目录（以 page/models.js 快照为准）全是 `jet-hub-<provider>/` 前缀
   // ⇒ 没有任何请求会走到这两个路由组，那些开关配的是没人经过的路。
   ...['catalog', 'expiryOrder', 'activeProvider', 'setOrderMode', 'clearRejected',
     'rejectNonExpiring', 'setAllowed', 'setRejected', 'setOrder']

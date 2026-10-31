@@ -1100,92 +1100,7 @@ async function lockAction(btn, mode) {
 }
 
 
-/* ═══════════════════ 用量账本 ═══════════════════ */
-
-async function ledgerLoad(btn, which) {
-  try {
-    await busy(btn, async () => {
-      let v
-      if (which === 'load') v = await rpc('usage.tokenLedger', { limit: Number($('#tlLimit').value) || 20 })
-      else if (which === 'history') v = await rpc('usage.tokenLedgerHistory', { sinceDays: Number($('#tlDays').value) || 7 })
-      else if (which === 'delete') {
-        const day = prompt('要删除哪一天的账本？格式 YYYY-MM-DD')
-        if (!day) return
-        if (!confirm(`删除 ${day} 的用量记录？`)) return
-        v = await rpc('usage.tokenLedgerDeleteDay', { day })
-      }
-      renderLedger($('#tlOut'), v, which)
-      say('#tlMsg', '已读取', 'ok')
-    })
-  } catch (e) {
-    say('#tlMsg', String(e.message ?? e), 'err')
-  }
-}
-
-/** 账本形状：{snapshot:{channels, totals:{requests,inputTokens,...}, entries:[...]}}
- *  历史形状：{history:[{day, channels:[{channel, providers:[{provider, accounts:[{accountId, models:[{model, requests,...}]}]}]}]}]}
- *  直接 renderGeneric 会把 totals 塞进一格 JSON，看不出数，所以单独摊开。 */
-function renderLedger(host, v, which) {
-  host = typeof host === 'string' ? $(host) : host
-  host.innerHTML = ''
-  const snap = v?.snapshot
-  if (snap) {
-    const t = snap.totals ?? {}
-    const cards = [
-      ['请求', t.requests ?? 0],
-      ['失败', t.errors ?? 0],
-      ['输入 token', t.inputTokens ?? 0],
-      ['输出 token', t.outputTokens ?? 0],
-      ['缓存读', t.cacheReadTokens ?? 0],
-      ['合计', t.totalTokens ?? 0],
-    ]
-    const box = document.createElement('div')
-    box.className = 'cards'
-    box.innerHTML = cards.map(([k, n]) => `<div class="cardc"><span>${esc(k)}</span><b>${esc(n)}</b></div>`).join('')
-    host.appendChild(box)
-    const entries = Array.isArray(snap.entries) ? snap.entries : []
-    if (entries.length) renderGeneric(host, entries)
-    else {
-      const p = document.createElement('p')
-      p.className = 'muted'
-      p.textContent = '这个时间窗内没有记账（本体只记经过网关的请求）。'
-      host.appendChild(p)
-    }
-    return
-  }
-  const hist = v?.history
-  if (Array.isArray(hist)) {
-    if (!hist.length) {
-      host.innerHTML = '<p class="muted">没有历史记录。</p>'
-      return
-    }
-    const rows = []
-    for (const day of hist) {
-      for (const ch of day.channels ?? []) {
-        for (const pv of ch.providers ?? []) {
-          for (const acc of pv.accounts ?? []) {
-            for (const m of acc.models ?? []) {
-              rows.push({
-                day: day.day,
-                渠道: ch.channel,
-                provider: pv.provider,
-                账号: acc.accountId,
-                模型: m.model,
-                请求: m.requests ?? 0,
-                失败: m.errors ?? 0,
-                输入: m.inputTokens ?? 0,
-                输出: m.outputTokens ?? 0,
-              })
-            }
-          }
-        }
-      }
-    }
-    renderGeneric(host, rows)
-    return
-  }
-  renderGeneric(host, v)
-}
+/* ═══════════════════ 徽章偏好 ═══════════════════ */
 
 async function badgeLoad() {
   try {
@@ -1309,7 +1224,10 @@ async function doImport(btn) {
       } catch {
         throw new Error('文件不是合法 JSON')
       }
-      const v = await rpc('backup.import', { payload: parsed, mode })
+      // keepDisabledModels: 覆盖（replace）只换账号池与永久锁定表，**不换模型黑名单**。
+      // 备份里的黑名单是导出那一刻的状态，整份还原会让「全关」重新落到本机，
+      // 而控制台 2026-10-31 起没有模型开关，用户没有界面能清掉（见 scripts/import-backup.mjs）。
+      const v = await rpc('backup.import', { payload: parsed, mode, keepDisabledModels: true })
       renderGeneric($('#bkOut'), v)
       say('#bkMsg', '导入完成', 'ok')
     })
@@ -1352,9 +1270,8 @@ function fillProviderSelects() {
 const TAB_LOADERS = {
   accounts: () => loadAccounts(),
   backup: () => loadBackup(),
-  settings: () => loadSettings(),
-  usage: () => {
-    ledgerLoad($('#tlLoad'), 'load')
+  settings: () => {
+    loadSettings()
     badgeLoad()
   },
   credits: () => loadAutoCheckin($('#acOut2')),
@@ -1531,10 +1448,7 @@ async function boot() {
   // 「关掉一家的全部模型」等价操作在 magpie 的 Providers 编辑器里勾掉全部模型
   // （或 Select none）；控制台不再提供 model.setAllDisabled 这类开关。
 
-  // 用量
-  $('#tlLoad').addEventListener('click', (e) => ledgerLoad(e.currentTarget, 'load'))
-  $('#tlHistory').addEventListener('click', (e) => ledgerLoad(e.currentTarget, 'history'))
-  $('#tlDelete').addEventListener('click', (e) => ledgerLoad(e.currentTarget, 'delete'))
+  // 徽章偏好：原先挂在「用量」标签里，标签删掉后搬到设置页（值仍是 usage.badgePreference）
   $('#badgeSave').addEventListener('click', (e) => badgeSave(e.currentTarget))
 
   // 设置：网关启用 / 允许局域网这两项已移除 —— magpie 的
