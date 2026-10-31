@@ -22,7 +22,7 @@ magpie 网关 (3425)
        └─ auth.loader().fetch       ← 只改这一层：剥 provider 前缀 + 转发
             └─ JetHubContainer（内嵌 cordis + 本体 lib/index.js）
                  └─ 本体自带网关 127.0.0.1:<动态端口>
-                      └─ 23 家 provider 的真实上游
+                      └─ 各家 provider 的真实上游
 ```
 
 ## 模型目录：上游全量，不是「当前可用」
