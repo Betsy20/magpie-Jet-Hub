@@ -72,6 +72,9 @@ export const DISPLAY_NAME = 'Jet Hub'
  *
  * 本体内部照样用它们做择优路由，只是本插件不再把它们注册成 magpie provider ——
  * 真渠道的请求仍然由本体按到期 / 额度在池内自动挑选，行为不受影响。
+ * ⚠️ 限定：magpie 直连的请求**不经过**这两个路由组（模型 id 一律是
+ * `jet-hub-<provider>/<model>`，没有任何入口解析到 `aggregate/*` 或
+ * `jet-hub-auto/*`）；上面那句「照样用」指的是 DSH 界面内部仍可能选到它们。
  */
 export const DSH_PROVIDERS = [
   'accio',

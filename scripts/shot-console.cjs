@@ -60,7 +60,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function main() {
   const tabs = process.argv.slice(2)
-  const want = tabs.length ? tabs : ['overview', 'accounts', 'credits', 'models', 'usage', 'settings', 'backup']
+  const want = tabs.length ? tabs : ['overview', 'accounts', 'credits', 'usage', 'settings', 'backup']
   const URL_BASE = process.env.CONSOLE_URL || (await readConsoleUrl())
   console.log(`控制台: ${URL_BASE}`)
   fs.mkdirSync(OUT, { recursive: true })
@@ -170,6 +170,13 @@ async function main() {
       return { on: sec?.classList.contains('on'), rows, cards, btns, msgs: msgs.slice(0,6), err }
     })()`)
     console.log(`[${t}]`, JSON.stringify(info))
+    // 标签点了却没能显示出来（section 缺失 / 单选逻辑坏了）是最容易静默溜过的破坏：
+    // 2026-10-31 删「模型」标签时误删了「用量」的 section 开标签，六个标签里有一个
+    // 点开后整页空白，而这里只打印 info、不判定，所有脚本全绿。
+    if (info.on !== true) {
+      console.log(`✗ #tab-${t} 点了之后没有拿到 .on`)
+      errors.push(`#tab-${t} 未显示`)
+    }
     const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true })
     fs.writeFileSync(path.join(OUT, `console-${t}.png`), Buffer.from(shot.result.data, 'base64'))
   }

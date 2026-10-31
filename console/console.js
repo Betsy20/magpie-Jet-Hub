@@ -3,7 +3,7 @@
 //   ← {type:'server-response', rpcId, result:{ok:true, value} | {ok:false, error}}
 // 方法名与字段取自 vendor/lib/jet-hub-rpc.js 的 switch（已逐个核对）。
 // 覆盖：account.* / credits.* / cline.quota / officeace.status / model.* / provider.* /
-//       aggregate.* / gateway.* / nativeSearch.* / panelEntry.* / minimax.* / captcha.* /
+//       gateway.* / nativeSearch.* / panelEntry.* / minimax.* / captcha.* /
 //       usage.* / backup.* / login.* / onboarding.*
 'use strict'
 
@@ -1099,249 +1099,6 @@ async function lockAction(btn, mode) {
   }
 }
 
-/* ═══════════════════ 模型 ═══════════════════ */
-
-let MODELS = []
-
-async function loadModels(btn) {
-  const provider = $('#modProvider').value
-  try {
-    await busy(btn, async () => {
-      const v = await rpc('model.list', { provider })
-      MODELS = v?.models ?? []
-      renderModels()
-      const off = MODELS.filter((m) => m.disabled === true).length
-      say('#modMsg', `${MODELS.length} 个模型，${off} 个已关闭`, 'ok')
-    })
-    // 聚合候选的 canonical 下拉是独立数据源，进页面就填好，别让用户先点按钮
-    if (!AGG_CATALOG.length) {
-      const c = await rpc('aggregate.catalog')
-      AGG_CATALOG = Array.isArray(c?.models) ? c.models : []
-      fillCanonSelect()
-    }
-  } catch (e) {
-    say('#modMsg', String(e.message ?? e), 'err')
-  }
-}
-
-function renderModels() {
-  const q = ($('#modFilter').value ?? '').trim().toLowerCase()
-  const list = q ? MODELS.filter((m) => `${m.id} ${m.name ?? ''}`.toLowerCase().includes(q)) : MODELS
-  $('#modTable').innerHTML = `<thead><tr><th class="pick"><input type="checkbox" id="modHeadBox"></th><th>模型</th><th>显示名</th><th>状态</th><th>开关</th></tr></thead><tbody>${
-    list
-      .map(
-        (m) => `<tr>
-      <td class="pick"><input type="checkbox" data-mid="${esc(m.id)}"></td>
-      <td class="mono">${esc(m.id)}</td>
-      <td>${esc(m.name ?? '')}</td>
-      <td>${m.disabled ? '<span class="pill off">已关闭</span>' : '<span class="pill on">可用</span>'}${m.dead ? ' <span class="pill warn">已失效</span>' : ''}</td>
-      <td><button data-model="${esc(m.id)}" data-disabled="${m.disabled ? '1' : ''}">${m.disabled ? '打开' : '关闭'}</button></td>
-    </tr>`,
-      )
-      .join('') || '<tr><td colspan="5" class="muted">没有匹配的模型</td></tr>'
-  }</tbody>`
-  const head = $('#modHeadBox')
-  if (head) {
-    head.addEventListener('change', () => {
-      for (const b of $$('#modTable tbody input[type=checkbox]')) b.checked = head.checked
-    })
-  }
-}
-
-async function onModelToggle(e) {
-  const btn = e.target.closest('button[data-model]')
-  if (!btn) return
-  const provider = $('#modProvider').value
-  const modelId = btn.dataset.model
-  const disabled = btn.dataset.disabled !== '1'
-  try {
-    await busy(btn, () => rpc('model.setDisabled', { provider, modelId, disabled }))
-    await loadModels()
-  } catch (err) {
-    say('#modMsg', String(err.message ?? err), 'err')
-  }
-}
-
-async function modelBulk(btn, which) {
-  const provider = $('#modProvider').value
-  try {
-    await busy(btn, async () => {
-      let v
-      if (which === 'allOff') {
-        if (!confirm(`把 ${provider} 的模型全部关闭？`)) return
-        v = await rpc('model.setAllDisabled', { provider, disabled: true })
-      } else if (which === 'allOn') {
-        v = await rpc('model.setAllDisabled', { provider, disabled: false })
-      } else if (which === 'clearDead') {
-        v = await rpc('model.clearDead', { provider })
-      }
-      renderGeneric($('#accDetail'), v)
-      say('#modMsg', '已执行', 'ok')
-    })
-    await loadModels()
-  } catch (e) {
-    say('#modMsg', String(e.message ?? e), 'err')
-  }
-}
-
-async function aggAction(btn, which) {
-  try {
-    await busy(btn, async () => {
-      let v
-      if (which === 'catalog') v = await rpc('aggregate.catalog')
-      else if (which === 'expiry') v = await rpc('aggregate.expiryOrder', { force: true })
-      else if (which === 'active') v = await rpc('aggregate.activeProvider')
-      else if (which === 'orderMode') {
-        const cur = await rpc('aggregate.expiryOrder')
-        v = await rpc('aggregate.setOrderMode', { mode: cur?.mode === 'manual' ? 'expiry' : 'manual' })
-      } else if (which === 'clearRej') v = await rpc('aggregate.clearRejected', {})
-      else if (which === 'rejectNonExpiring') v = await rpc('aggregate.rejectNonExpiring')
-      renderGeneric($('#aggOut'), v)
-      if (which === 'catalog' || which === 'clearRej' || which === 'rejectNonExpiring') {
-        AGG_CATALOG = Array.isArray(v?.models) ? v.models : []
-        fillCanonSelect()
-      }
-      say('#aggMsg', '已执行', 'ok')
-    })
-  } catch (e) {
-    say('#aggMsg', String(e.message ?? e), 'err')
-  }
-}
-
-/* --- 聚合候选级操作 --- */
-
-let AGG_CATALOG = []
-let AGG_CANDS = [] // 当前 canonical 的候选，顺序即提交顺序
-
-function fillCanonSelect() {
-  const sel = $('#aggCanon')
-  if (!sel) return
-  const prev = sel.value
-  sel.innerHTML = AGG_CATALOG.map((m) => `<option value="${esc(m.canonicalId)}">${esc(m.canonicalId)}（${m.candidates?.length ?? 0}）</option>`).join('')
-  if (prev && AGG_CATALOG.some((m) => m.canonicalId === prev)) sel.value = prev
-}
-
-async function loadAggCandidates(btn) {
-  const canonicalId = $('#aggCanon').value
-  try {
-    await busy(btn, async () => {
-      if (!AGG_CATALOG.length) {
-        const v = await rpc('aggregate.catalog')
-        AGG_CATALOG = Array.isArray(v?.models) ? v.models : []
-        fillCanonSelect()
-      }
-      const m = AGG_CATALOG.find((x) => x.canonicalId === canonicalId)
-      AGG_CANDS = (m?.candidates ?? []).map((c) => ({ ...c }))
-      renderAggCands()
-      say('#aggCandMsg', `${AGG_CANDS.length} 个候选`, 'ok')
-    })
-  } catch (e) {
-    say('#aggCandMsg', String(e.message ?? e), 'err')
-  }
-}
-
-function renderAggCands() {
-  const t = $('#aggCandTable')
-  if (!t) return
-  t.innerHTML = `<thead><tr><th>顺序</th><th>provider</th><th>上游模型</th><th>单价</th><th>状态</th><th>操作</th></tr></thead><tbody>${
-    AGG_CANDS.map((c, i) => {
-      // state: allowed / rejected / 其它（未手工打开）
-      const statePill =
-        c.rejected === true
-          ? '<span class="pill off">已拒绝</span>'
-          : c.state === 'allowed'
-            ? '<span class="pill on">可用</span>'
-            : `<span class="pill">${esc(c.state ?? '—')}</span>`
-      return `<tr>
-        <td class="mono">${i + 1}</td>
-        <td class="mono">${esc(c.provider)}</td>
-        <td class="mono">${esc(c.realId)}<div class="muted">${esc(c.realName ?? '')}</div></td>
-        <td class="mono">${c.price === null || c.price === undefined ? '—' : esc(c.price)}</td>
-        <td>${statePill}${c.viaPatch ? ' <span class="pill">改过名</span>' : ''}${c.expiryWired ? '' : ' <span class="pill warn">未接到期</span>'}</td>
-        <td><div class="ops">
-          <button data-cand="${i}" data-cact="allow">${c.state === 'allowed' ? '取消打开' : '打开'}</button>
-          <button data-cand="${i}" data-cact="reject" class="warn">${c.rejected ? '恢复' : '拒绝'}</button>
-          <button data-cand="${i}" data-cact="up">↑</button>
-          <button data-cand="${i}" data-cact="down">↓</button>
-        </div></td>
-      </tr>`
-    }).join('') || '<tr><td colspan="6" class="muted">先点「列出候选」</td></tr>'
-  }</tbody>`
-}
-
-async function onAggCand(e) {
-  const btn = e.target.closest('button[data-cand]')
-  if (!btn) return
-  const i = Number(btn.dataset.cand)
-  const act = btn.dataset.cact
-  const c = AGG_CANDS[i]
-  if (!c) return
-  const canonicalId = $('#aggCanon').value
-  try {
-    await busy(btn, async () => {
-      if (act === 'allow') {
-        const allowed = c.state !== 'allowed'
-        await rpc('aggregate.setAllowed', { canonicalId, provider: c.provider, realId: c.realId, allowed })
-        c.state = allowed ? 'allowed' : 'other'
-      } else if (act === 'reject') {
-        const rejected = !c.rejected
-        await rpc('aggregate.setRejected', { canonicalId, provider: c.provider, realId: c.realId, rejected })
-        c.rejected = rejected
-      } else if (act === 'up' || act === 'down') {
-        const j = act === 'up' ? i - 1 : i + 1
-        if (j < 0 || j >= AGG_CANDS.length) return
-        ;[AGG_CANDS[i], AGG_CANDS[j]] = [AGG_CANDS[j], AGG_CANDS[i]]
-      }
-      renderAggCands()
-      say('#aggCandMsg', '已写入', 'ok')
-    })
-  } catch (err) {
-    say('#aggCandMsg', String(err.message ?? err), 'err')
-  }
-}
-
-async function saveAggOrder(btn) {
-  const canonicalId = $('#aggCanon').value
-  try {
-    await busy(btn, async () => {
-      // ⚠️ 本体认的条目格式是 `provider\u0000realId`（NUL 分隔），不是 `provider/realId`。
-      // 传斜杠会被 setAggregateOrder 全部丢弃 → 返回空数组 → 顺手删键（等于清空顺序）。
-      const order = AGG_CANDS.map((c) => `${c.provider}\u0000${c.realId}`)
-      const v = await rpc('aggregate.setOrder', { canonicalId, order })
-      const kept = Array.isArray(v?.order) ? v.order.length : 0
-      renderGeneric($('#aggOut'), v)
-      if (kept === 0) say('#aggCandMsg', '顺序已清空（本体认 0 条 = 恢复按到期排序）', 'err')
-      else say('#aggCandMsg', `已保存 ${kept} 条顺序`, 'ok')
-    })
-  } catch (e) {
-    say('#aggCandMsg', String(e.message ?? e), 'err')
-  }
-}
-
-/* --- 模型批量勾选 --- */
-
-function checkedModels() {
-  return $$('#modTable tbody input[type=checkbox]:checked').map((el) => el.dataset.mid)
-}
-
-async function modBulkChecked(btn, disabled) {
-  const provider = $('#modProvider').value
-  const modelIds = checkedModels()
-  if (!modelIds.length) {
-    say('#modBulkMsg', '先勾选模型', 'err')
-    return
-  }
-  if (disabled && !confirm(`把勾选的 ${modelIds.length} 个模型关闭？`)) return
-  try {
-    await busy(btn, async () => {
-      await rpc('model.setDisabledMany', { provider, modelIds, disabled })
-      say('#modBulkMsg', `已${disabled ? '关闭' : '打开'} ${modelIds.length} 个`, 'ok')
-    })
-    await loadModels()
-  } catch (e) {
-    say('#modBulkMsg', String(e.message ?? e), 'err')
-  }
-}
 
 /* ═══════════════════ 用量账本 ═══════════════════ */
 
@@ -1565,11 +1322,12 @@ async function doImport(btn) {
 /* ═══════════════════ 启动 ═══════════════════ */
 
 // 路由组不是真渠道：它们没有自己的账号，模型是「从别家挑一个」。
-// 放进下拉时排到最后，否则默认选中它 → 账号页空、模型页只剩聚合目录。
+// 放进下拉时排到最后，否则默认选中它 → 账号页空。
 //
-// ⚠️ 2026-10-31：`aggregate` / `jet-hub-auto` 已不再注册成 magpie provider，
-// 所以这个集合对现在的 provider 列表是空操作。留着是为了将来本体若再引入
-// 「不是真渠道」的 provider 时，直接往这里加一个名字就能继续排序。
+// ⚠️ 2026-10-31：`aggregate` / `jet-hub-auto` 既不注册成 magpie provider，
+// 控制台也不再提供它们的配置页（magpie 侧没有对应入口）⇒ 这个集合现在是空的。
+// 留着是为了将来本体若再引入「不是真渠道」的 provider 时，直接加一个名字
+// 就能继续排序。
 const ROUTE_GROUPS = new Set([])
 
 function orderedProviders() {
@@ -1581,13 +1339,13 @@ function orderedProviders() {
 function fillProviderSelects() {
   const list = orderedProviders()
   const opts = list.map((p) => `<option value="${esc(p.id)}">${esc(p.id)}（${p.models?.length ?? 0}）</option>`).join('')
-  for (const sel of ['#accProvider', '#credProvider', '#modProvider']) {
+  for (const sel of ['#accProvider', '#credProvider']) {
     const el = $(sel)
     el.innerHTML = opts
   }
   if (list.length) {
     const first = list.find((p) => (p.models?.length ?? 0) > 0) ?? list[0]
-    for (const sel of ['#accProvider', '#credProvider', '#modProvider']) $(sel).value = first.id
+    for (const sel of ['#accProvider', '#credProvider']) $(sel).value = first.id
   }
 }
 
@@ -1595,7 +1353,6 @@ const TAB_LOADERS = {
   accounts: () => loadAccounts(),
   backup: () => loadBackup(),
   settings: () => loadSettings(),
-  models: () => loadModels($('#modLoad')),
   usage: () => {
     ledgerLoad($('#tlLoad'), 'load')
     badgeLoad()
@@ -1758,38 +1515,6 @@ async function boot() {
     }
   })
 
-  // 模型
-  $('#modLoad').addEventListener('click', (e) => loadModels(e.currentTarget))
-  $('#modProvider').addEventListener('change', () => loadModels())
-  $('#modFilter').addEventListener('input', renderModels)
-  $('#modTable').addEventListener('click', onModelToggle)
-  $('#modAllOff').addEventListener('click', (e) => modelBulk(e.currentTarget, 'allOff'))
-  $('#modAllOn').addEventListener('click', (e) => modelBulk(e.currentTarget, 'allOn'))
-  $('#modClearDead').addEventListener('click', (e) => modelBulk(e.currentTarget, 'clearDead'))
-  $('#aggCatalog').addEventListener('click', (e) => aggAction(e.currentTarget, 'catalog'))
-  $('#aggOrderMode').addEventListener('click', (e) => aggAction(e.currentTarget, 'orderMode'))
-  $('#aggExpiry').addEventListener('click', (e) => aggAction(e.currentTarget, 'expiry'))
-  $('#aggActive').addEventListener('click', (e) => aggAction(e.currentTarget, 'active'))
-  $('#aggClearRej').addEventListener('click', (e) => aggAction(e.currentTarget, 'clearRej'))
-  $('#aggRejectNonExpiring').addEventListener('click', (e) => aggAction(e.currentTarget, 'rejectNonExpiring'))
-  $('#aggShowCand').addEventListener('click', (e) => loadAggCandidates(e.currentTarget))
-  $('#aggSaveOrder').addEventListener('click', (e) => saveAggOrder(e.currentTarget))
-  $('#aggCandTable').addEventListener('click', onAggCand)
-
-  // 模型批量勾选
-  $('#modBulkOff').addEventListener('click', (e) => modBulkChecked(e.currentTarget, true))
-  $('#modBulkOn').addEventListener('click', (e) => modBulkChecked(e.currentTarget, false))
-  $('#modCheckAll').addEventListener('click', () => {
-    for (const b of $$('#modTable tbody input[type=checkbox]')) b.checked = true
-    const h = $('#modHeadBox')
-    if (h) h.checked = true
-  })
-  $('#modUncheckAll').addEventListener('click', () => {
-    for (const b of $$('#modTable tbody input[type=checkbox]')) b.checked = false
-    const h = $('#modHeadBox')
-    if (h) h.checked = false
-  })
-
   // 积分专项 + 永久锁定
   $('#credClineLog').addEventListener('click', (e) => creditsSpecial(e.currentTarget, 'clineLog'))
   $('#lockLoad').addEventListener('click', (e) => lockAction(e.currentTarget, 'load'))
@@ -1803,7 +1528,8 @@ async function boot() {
   // 供应商：控制台不再提供 —— magpie 自己的「Providers」页就是那个界面
   // （启用 / 停用、拖拽排序、看模型数与账号数）。本体的 provider.setOrder 只是
   // DSH 界面里的显示顺序，在 magpie 里看不见；provider.setEnabled 的「关掉一家」
-  // 等价操作在「模型」标签的全关按钮里（model.setAllDisabled）。
+  // 「关掉一家的全部模型」等价操作在 magpie 的 Providers 编辑器里勾掉全部模型
+  // （或 Select none）；控制台不再提供 model.setAllDisabled 这类开关。
 
   // 用量
   $('#tlLoad').addEventListener('click', (e) => ledgerLoad(e.currentTarget, 'load'))

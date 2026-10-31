@@ -7,7 +7,7 @@
 //       ctx.logger.warn('[jet-hub] connection.fetch not available, RPC endpoints not registered')
 //
 // 也就是说：容器里没有 `connection` 服务时，本体一条管理路由都不注册 —— 账号池、
-// 登录流程、积分领取、模型开关、备份导入导出、原生搜索、面板入口，全部拿不到。
+// 登录流程、积分领取、模型目录、备份导入导出、原生搜索、面板入口，全部拿不到。
 // 网关（/v1/chat/completions）照旧能用，所以表面看「插件是好的」，实际只剩转发。
 //
 // 这里提供一个最小可用的实现：把注册进来的路由收进一个 Map，由 src/hub-server.mjs

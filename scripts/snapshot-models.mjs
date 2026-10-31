@@ -1,7 +1,7 @@
 // 从正在跑的 magpie 宿主拉一份 Jet Hub 的模型目录快照，写进 page/models.js。
 //
 // 页面在沙箱里联网被 CSP 挡住（connect-src 'none'），读不到宿主，所以模型目录
-// 只能是快照。账号 / 模型开关变了就重跑一次：
+// 只能是快照。账号增删、或某家可用模型变了就重跑一次：
 //
 //   node scripts/snapshot-models.mjs
 //   node scripts/snapshot-models.mjs http://127.0.0.1:3425     # 用户网关（拼 snippet 用）

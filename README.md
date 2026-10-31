@@ -40,7 +40,8 @@ magpie 里 `jet-hub-*` 每个 provider 的模型列表用的是**后者**（全�
 「供应商上游全部模型」。家数与条数**不在这里写死** —— 以快照为准：`page/models.js`
 的 `providers` 键有多少就是多少家，`total` 是多少就是多少条（快照每次重生成都会变，
 本文件里凡是写具体数字的地方都标明它出自哪次快照或哪次现测）。全量里已在 Jet Hub
-关闭的模型照样列出，名字后缀 `· 已在 Jet Hub 关闭`、页面里显示为灰，提示你先去控制台打开。
+关闭的模型照样列出，名字后缀 `· 已在 Jet Hub 关闭`、页面里显示为灰，提示你到 magpie 的
+「Providers」编辑器里把它打开（控制台 2026-10-31 起不再提供模型开关）。
 
 取数链路：
 
@@ -292,10 +293,17 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 > 自动选号）。路由组不是真渠道：没有自己的账号池、没有自己的模型目录，
 > `account.list` / `credits.balances` 一律回 `unknown provider` —— 注册成 magpie
 > 供应商只会得到一张永远没账号、也永远选不了具体模型的空卡。所以**本插件只接
-> 那 23 家真渠道。本体内部照样用这两个路由组做择优，
-> 真渠道的请求仍然按到期 / 额度在池内自动挑选，行为不受影响。
+> 那 23 家真渠道。** 真渠道的请求仍按到期 / 额度在**该渠道的账号池内**自动挑选，
+> 与路由组无关。
 >
-> 名单的权威来源是插件自己的 `DSH_PROVIDERS`（`src/plugin.mjs:71`），不是本体 RPC。
+> ⚠️ **路由组在直连架构下没有调用入口**：magpie 侧模型 id 一律是
+> `jet-hub-<provider>/<model>`（快照里 869 条模型 id 全是这个形状，另有 23 条不带斜杠的
+> provider id），不会有任何请求解析到
+> `aggregate/*` 或 `jet-hub-auto/*`。所以控制台**也不再提供**它们的配置页
+> （候选目录 / 排序模式 / 拒绝表 / 候选级开关），那 9 个 RPC 记在
+> `tests/t-rpc-cover.mjs` 的 `DROPPED` 表里（2026-10-31）。
+>
+> 名单的权威来源是插件自己的 `DSH_PROVIDERS`（`src/plugin.mjs:79`），不是本体 RPC。
 >
 > ⚠️ **别拿 `provider.getOrder` 当清单用**：它读的是 `~/.dsh/jet-hub/state.json` 里
 > 用户拖拽过的 `providerOrder`（`vendor/lib/account-pool.js` 的 `providerOrder()`，
@@ -856,7 +864,7 @@ magpie 的卡片行（`app.js` 的 `accountQuotaLine`）只渲染 `name` + 进�
 （见 magpie 上游仓库的 `docs/subsystems/plugin-runtime.md`，非本仓文件），页面既发不出请求，也嵌不进 iframe，
 更没有调用插件的写入口（`magpie.actions` 只是往页面里 `postMessage` 菜单事件）。
 
-所以**登录 / 换号 / 续期 / 积分领取 / 模型开关 / 账号池 / 备份导入导出**都在插件自己的
+所以**登录 / 换号 / 续期 / 积分领取 / 账号池 / 备份导入导出**都在插件自己的
 本地控制台里做 —— 那是一个真 HTTP 服务，浏览器打开即可：
 
 ```
@@ -884,14 +892,16 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
 响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）。
 
-控制台是**七个**标签的管理界面，覆盖本体可调度的 RPC —— **覆盖率与方法总数不写进本文**：
+控制台是**六个**标签的管理界面，覆盖本体可调度的 RPC —— **覆盖率与方法总数不写进本文**：
 由 `tests/t-rpc-cover.mjs` 从源码解析后自动统计（主 `switch` 与前缀改道两批都算进去），
 两个数随代码走，写死在文档里必然过期：
 
 > **哪些事不在这里做**：magpie 自己已经有的界面，控制台**不再重复摆一遍**。
+> 各家供应商提供哪些模型、勾掉某个模型、全开全关走 magpie 的「Providers」编辑器；
 > 供应商的启用/停用与拖拽排序走 magpie 的「Providers」页；网关端口、局域网共享、
 > 允许的 IP、网页白名单走 magpie 的 Settings › Network and sharing。
 > `tests/t-rpc-cover.mjs` 里的 `DELEGATED` 表逐条记着「哪个方法交给了哪个界面」，
+> `DROPPED` 表记着「哪些能力控制台主动弃用、为什么可以不要」，
 > 并反向断言控制台**没有**把它们接回去 —— 想加回来就得先删表里的那一行并说清理由。
 
 | 标签 | 能做什么 |
@@ -899,31 +909,31 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 | 概览 | 本体/网关/模型/账号统计，网关六项状态（启用 / 运行中 / 被环境变量挡住 / 允许局域网 / 监听 / 最近错误），自动签到今日情况，provider 清单，接入代码 |
 | 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置，以及 per-账号的**出口代理**（见下） |
 | 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含**每个有账号的渠道**的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
-| 模型 | 模型开关（单条 / 勾选批量 / 全开全关 / 清理失效）；本体内部聚合路由的候选目录、排序模式、到期排序、当前渠道、拒绝表，以及**候选级逐个打开/拒绝/调序**（这两个路由组不注册成 magpie 供应商，但本体自己仍在用，见下） |
 | 用量 | token 账本（6 项汇总 + 明细）、历史、删除某天、徽章偏好 |
 | 设置 | 渠道原生搜索、面板入口、MiniMax XFF、验证码三件套 |
 | 备份 | 账号总数/缺有效期统计、导出下载、merge/replace 导入 |
 
 ![控制台 · 账号](docs/console-accounts.png)
 ![控制台 · 积分](docs/console-credits.png)
-![控制台 · 模型](docs/console-models.png)
 ![控制台 · 用量](docs/console-usage.png)
 ![控制台 · 设置](docs/console-settings.png)
 ![控制台 · 备份](docs/console-backup.png)
 
-（七张按标签顺序排，概览那张在本节开头。全部由 `scripts/shot-console.cjs` 直接
+（六张按标签顺序排，概览那张在本节开头。全部由 `scripts/shot-console.cjs` 直接
 覆盖写同一个文件名，所以重拍不需要改 README。）
 
-三个**格式陷阱**（都实测踩过，本体不会报错，只会静默做错事）：
+两条**格式陷阱**（都实测踩过，本体不会报错，只会静默做错事）：
 
-1. `aggregate.setOrder` 的条目是 `provider\u0000realId`（**NUL 分隔**），不是 `provider/realId`。
-   传斜杠会被 `setAggregateOrder` 全部丢弃 → 返回空数组 → 顺手删键（等于清空手工顺序）。
-2. `usage.autoCheckin` 的 `channels` 形状是 `{provider, text}`（`text` 是「1 个 +100积分，1 个失败」这类
+1. `usage.autoCheckin` 的 `channels` 形状是 `{provider, text}`（`text` 是「1 个 +100积分，1 个失败」这类
    一句话），不是 `{enabled, lastDate, lastResult}`。按后者读会渲染出一整列空。
-3. `account.resetAll` / `account.retestAll` / `buddy.compensationStatus` / `buddy.claimCompensation` /
+2. `account.resetAll` / `account.retestAll` / `buddy.compensationStatus` / `buddy.claimCompensation` /
    `cline.requestLog` / `onboarding.*` 都**必须**带 `accountId`（本体在守卫之后才解析凭据）。
 
-改完控制台后跑一次 `node scripts/shot-console.cjs`：它用 Edge headless + CDP 逐个点开七个标签、
+> 另有一条**已用不上、留作记录**：`aggregate.setOrder` 的条目是 `provider\u0000realId`（**NUL 分隔**），
+> 不是 `provider/realId`。传斜杠会被 `setAggregateOrder` 全部丢弃 → 返回空数组 → 顺手删键（等于清空手工顺序）。
+> 控制台 2026-10-31 起不再提供聚合路由配置页（magpie 侧没有对应入口，见 `DROPPED` 表）。
+
+改完控制台后跑一次 `node scripts/shot-console.cjs`：它用 Edge headless + CDP 逐个点开六个标签、
 断言表格行数/卡片数/按钮数/错误消息，并把每页截到 `docs/console-<tab>.png`。
 `node scripts/run-console.mjs` 则单独起一个容器 + 控制台（不重启 magpie），打印 `CONSOLE_URL`。
 
@@ -1319,15 +1329,15 @@ src/zcode-icon.mjs     ZCode 官方 PNG（base64 内联）
 src/magicrew-icon.mjs  Magicrew 官方 PNG（base64 内联）
 vendor/                本体（版本号沿用 npm `2.9.261029`，内容是上游 `6fa74723` 的构建产物，含 magicrew；lib/ + locale/ + 上游 LICENSE）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
-console/               控制台界面（七个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
+console/               控制台界面（六个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
 scripts/import-backup.mjs  导入 dsh-providers-hub 的备份（账号池 + 凭据 + 黑名单）
 scripts/snapshot-models.mjs  重新生成 page/models.js
-scripts/shot-console.cjs     控制台七标签实拍 + DOM 断言（Edge headless + CDP）
+scripts/shot-console.cjs     控制台六标签实拍 + DOM 断言（Edge headless + CDP）
 scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（`_iso.mjs` 公共桩 + 24 个：t-writerefs / t-cred-upsert / t-deps /
+tests/                 验证脚本（`_iso.mjs` 公共桩 + 22 个，`test-all` 跑其中 20 个：t-writerefs / t-cred-upsert / t-deps /
                        t-dead-account / t-account-pin / t-account-cache / t-usage /
                        t-checkin / t-options / t-attachments / t-plugin / t-models-nowait /
                        t-seed-auth / t-import-backup / t-login-reclaim / t-new-account /
@@ -1338,7 +1348,8 @@ tests/                 验证脚本（`_iso.mjs` 公共桩 + 24 个：t-writeref
 LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
 vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
 docs/screenshot.png    侧栏页面实拍（人工从 `tests/ui-check.cjs` 的产物里挑一张拷入）
-docs/console-*.png     控制台实拍：七标签 + Key / 代理两个弹窗（`scripts/shot-console.cjs` 直接覆盖写）
+docs/console-*.png     控制台实拍：六标签 + Key / 代理两个弹窗（`scripts/shot-console.cjs` 直接覆盖写）
+docs/archive/          已下线的界面存档（`console-models.png`：2026-10-31 删掉的「模型」标签）
 ```
 
 ## 实现细节补充

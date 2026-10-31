@@ -378,32 +378,62 @@ const DELEGATED = new Map([
   ['provider.setOrder', 'magpie「Providers」页的拖拽顺序'],
   ['gateway.setEnabled', 'magpie Settings › Network and sharing（网关本身由 magpie 持有）'],
   ['gateway.setAllowLan', 'magpie Settings › Network and sharing 的局域网共享开关（settings/lan）'],
+  // model.* 的对等范围是「看模型 + 开关」。**不含** dead 标记：model.list 返回全量
+  // （enabled / disabled / dead 都在），magpie 编辑器展示的是 provider 契约给的字段，
+  // dead 状态不在契约里，也没有清理入口 —— 所以 clearDead 走的是 DROPPED 而不是这里。
+  ['model.list', 'magpie「Providers」编辑器的模型列表（勾上即 exposed；不含 dead 标记）'],
+  ['model.setDisabled', 'magpie「Providers」编辑器里勾掉某个模型'],
+  ['model.setAllDisabled', 'magpie「Providers」编辑器的 Select none（一个都不提供；按钮文案以 magpie 当前 UI 为准）'],
+  ['model.setDisabledMany', 'magpie「Providers」编辑器的批量勾选'],
 ])
-const unusedMain = unused.filter((m) => mainMethodSet.has(m) && !DELEGATED.has(m))
+
+// 规则 D：`DROPPED` 表里的方法**控制台主动弃用，magpie 也没有对等界面** ——
+//         与 DELEGATED 不同，它没有「谁接手」，所以必须单独记，不能混进上表
+//         假装有去处。每条要写清「为什么可以不要」（2026-10-31 用户要求
+//         「clearDead 一并删掉」）。
+const DROPPED = new Map([
+  ['model.clearDead', '本体 state.json 里给模型打的 dead 标记；它带 30 天 TTL 自动回收（vendor/lib/dead-model-store.js 的 DEFAULT_TTL_DAYS，DSH_DEAD_MODEL_TTL_DAYS 可调、0 为永不过期），失效模型在 model.list 里照样列出，magpie 侧不需要「清空」这个动作（2026-10-31 用户同意一并删掉）'],
+  // 聚合路由那两块配置页同一天一并删掉（用户：「聚合路由和聚合候选插件没有接入，有必要留着嘛」）。
+  // 判据：插件按 DSH_PROVIDERS 注册 magpie provider，里面**不含** aggregate / jet-hub-auto；
+  // magpie 的模型目录（page/models.js 快照 869 条）全是 `jet-hub-<provider>/` 前缀
+  // ⇒ 没有任何请求会走到这两个路由组，那些开关配的是没人经过的路。
+  ...['catalog', 'expiryOrder', 'activeProvider', 'setOrderMode', 'clearRejected',
+    'rejectNonExpiring', 'setAllowed', 'setRejected', 'setOrder']
+    .map((m) => [`aggregate.${m}`, '聚合路由配置：magpie 侧没有对等入口，且插件不注册 aggregate']),
+])
+
+// 交给别人接的 + 主动弃用的，合起来才是「控制台不该再接」的全集。
+const HANDED_OFF = new Map([...DELEGATED, ...DROPPED])
+const unusedMain = unused.filter((m) => mainMethodSet.has(m) && !HANDED_OFF.has(m))
 const delegatedUnused = unused.filter((m) => DELEGATED.has(m))
-const unusedPrefix = unused.filter((m) => !mainMethodSet.has(m) && !DELEGATED.has(m))
+const droppedUnused = unused.filter((m) => DROPPED.has(m))
+const unusedPrefix = unused.filter((m) => !mainMethodSet.has(m) && !HANDED_OFF.has(m))
 // 存在性锚点：表里每一条都必须**真的**是本体方法。少了这条，某条方法被删/改名后
-// `unusedMain` 与 `delegatedStillWired` 都不会命中 —— 测试全绿，表静默过期，
+// `unusedMain` 与 `handedOffStillWired` 都不会命中 —— 测试全绿，表静默过期，
 // 一直谎报「交给 magpie 了」（2026-10-29 审查发现）。
-const delegatedMissing = [...DELEGATED.keys()].filter((m) => !methods.includes(m))
-ok(delegatedMissing.length === 0,
-  `DELEGATED 表里的 ${DELEGATED.size} 个方法都真实存在`
-  + (delegatedMissing.length ? `；找不到：${delegatedMissing.join(', ')}` : ''))
+const handedOffMissing = [...HANDED_OFF.keys()].filter((m) => !methods.includes(m))
+ok(handedOffMissing.length === 0,
+  `交给别人 / 主动弃用的 ${HANDED_OFF.size} 个方法都真实存在`
+  + (handedOffMissing.length ? `；找不到：${handedOffMissing.join(', ')}` : ''))
 ok(unusedMain.length === 0,
-  // 被减数只能算「主 switch 里的」那部分 —— 否则 DELEGATED 一旦加进前缀方法，
+  // 被减数只能算「主 switch 里的」那部分 —— 否则 HANDED_OFF 一旦加进前缀方法，
   // 数字就偏（2026-10-29 审查发现）。
-  `主 switch 里控制台该接的 ${mainMethodSet.size - delegatedUnused.filter((m) => mainMethodSet.has(m)).length} 个方法全都接了`
+  `主 switch 里控制台该接的 ${mainMethodSet.size - [...HANDED_OFF.keys()].filter((m) => mainMethodSet.has(m)).length} 个方法全都接了`
   + (unusedMain.length ? `；未接 ${unusedMain.length} 个：${unusedMain.join(', ')}` : ''))
 if (delegatedUnused.length) {
   console.log(`  交给 magpie 界面（控制台不接，${delegatedUnused.length} 个）：`)
   for (const m of delegatedUnused) console.log(`    ${m} → ${DELEGATED.get(m)}`)
 }
-// 反向锚点：DELEGATED 里的每一条都必须**真的**未接 —— 否则说明控制台又接回去了，
+if (droppedUnused.length) {
+  console.log(`  主动弃用（magpie 也没有对等界面，${droppedUnused.length} 个）：`)
+  for (const m of droppedUnused) console.log(`    ${m} → 弃用理由：${DROPPED.get(m)}`)
+}
+// 反向锚点：HANDED_OFF 里的每一条都必须**真的**未接 —— 否则说明控制台又接回去了，
 // 那张表就成了谎话（用户明确要求移除的东西又冒出来）。
-const delegatedStillWired = [...DELEGATED.keys()].filter((m) => used.includes(m))
-ok(delegatedStillWired.length === 0,
-  `交给 magpie 的 ${DELEGATED.size} 个方法控制台确实都没接`
-  + (delegatedStillWired.length ? `；又接回去了：${delegatedStillWired.join(', ')}` : ''))
+const handedOffStillWired = [...HANDED_OFF.keys()].filter((m) => used.includes(m))
+ok(handedOffStillWired.length === 0,
+  `交给 magpie / 主动弃用的 ${HANDED_OFF.size} 个方法控制台确实都没接`
+  + (handedOffStillWired.length ? `；又接回去了：${handedOffStillWired.join(', ')}` : ''))
 // 未接项只可能来自前缀改道（规则 A 通过时这一条自动成立，留着当交叉校验）
 ok(unusedPrefix.every((m) => prefixCases.includes(m)),
   `未接项全部属于前缀改道（${unusedPrefix.length} 个）`)

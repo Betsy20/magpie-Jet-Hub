@@ -20,7 +20,6 @@
       <button data-tab="overview" class="on">概览</button>
       <button data-tab="accounts">账号</button>
       <button data-tab="credits">积分</button>
-      <button data-tab="models">模型</button>
       <button data-tab="usage">用量</button>
       <button data-tab="settings">设置</button>
       <button data-tab="backup">备份</button>
@@ -113,51 +112,6 @@
           </div>
           <div id="lockOut"></div>
         </div>
-      </div>
-    </section>
-
-    <!-- ══════════ 模型 ══════════ -->
-    <section id="tab-models" class="tab">
-      <h1>模型 <span class="sub">关掉的模型不会出现在 /v1/models</span></h1>
-      <div class="bar">
-        <label>provider <select id="modProvider"></select></label>
-        <input id="modFilter" placeholder="过滤模型 id / 名称" class="grow">
-        <button id="modLoad">列出模型</button>
-        <button id="modAllOff" class="warn">全部关闭</button>
-        <button id="modAllOn">全部打开</button>
-        <button id="modClearDead">清理失效</button>
-        <span id="modMsg" class="msg"></span>
-      </div>
-      <div class="tablewrap"><table id="modTable"></table></div>
-
-      <h2>聚合路由 <span class="sub">本体内部 aggregate / jet-hub-auto 的候选与顺序（这两个路由组不注册成 magpie 供应商，但本体自己仍在用）</span></h2>
-      <div class="bar">
-        <button id="aggCatalog">列候选目录</button>
-        <button id="aggOrderMode">切换排序模式</button>
-        <button id="aggExpiry">按到期排序</button>
-        <button id="aggActive">当前生效渠道</button>
-        <button id="aggClearRej" class="warn">清空拒绝表</button>
-        <button id="aggRejectNonExpiring" class="warn">一律拒绝不失效的</button>
-        <span id="aggMsg" class="msg"></span>
-      </div>
-      <div id="aggOut"></div>
-
-      <h2>聚合候选 <span class="sub">逐个候选打开 / 拒绝 / 调序</span></h2>
-      <div class="bar">
-        <label>canonical <select id="aggCanon"></select></label>
-        <button id="aggShowCand">列出候选</button>
-        <button id="aggSaveOrder" class="primary">保存这个顺序</button>
-        <span id="aggCandMsg" class="msg"></span>
-      </div>
-      <div class="tablewrap"><table id="aggCandTable"></table></div>
-
-      <h2>批量开关 <span class="sub">按勾选批量改</span></h2>
-      <div class="bar">
-        <button id="modBulkOff" class="warn">勾选的关闭</button>
-        <button id="modBulkOn">勾选的打开</button>
-        <button id="modCheckAll">全选当前表</button>
-        <button id="modUncheckAll">取消全选</button>
-        <span id="modBulkMsg" class="msg"></span>
       </div>
     </section>
 
