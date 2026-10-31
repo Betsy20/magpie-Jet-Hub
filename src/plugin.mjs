@@ -107,29 +107,29 @@ export const DSH_PROVIDERS = [
  * 没登记的退回原始 id（宁可显示 `foo` 也别显示空白）。
  */
 const NAMES = {
-  accio: 'Accio（阿里）',
-  astudio: 'AStudio（讯飞）',
-  autoclaw: 'AutoClaw（智谱）',
-  autoclawintl: 'AutoClaw 国际',
-  buddy: 'Buddy',
+  accio: 'Accio (阿里)',
+  astudio: 'AStudio',
+  autoclaw: 'AutoClaw (智谱)',
+  autoclawintl: 'AutoClaw (国际版)',
+  buddy: 'CodeBuddy (腾讯)',
   cline: 'Cline',
-  codearts: 'CodeArts（华为云）',
-  codely: 'Codely',
-  gemini: 'Gemini',
-  lobsterai: 'LobsterAI',
-  loomy: 'Loomy',
+  codearts: 'CodeArts (华为云)',
+  codely: 'Codely (Unity)',
+  gemini: 'Gemini Code Assist',
+  lobsterai: 'LobsterAI (有道)',
+  loomy: 'Loomy (讯飞)',
   magicrew: '超级麦吉',
-  minimax: 'MiniMax',
-  minimaxintl: 'MiniMax 国际',
-  modelscope: 'ModelScope（魔搭）',
-  officeace: 'OfficeAce（华为云）',
+  minimax: 'MiniMax Code (中国版)',
+  minimaxintl: 'MiniMax Code (国际版)',
+  modelscope: 'ModelScope (魔搭)',
+  officeace: 'OfficeAce',
   opencode: 'OpenCode',
   qoder: 'Qoder',
-  qodercn: 'Qoder 国内',
-  raccoon: 'Raccoon',
-  trae: 'Trae',
-  workbuddy: 'WorkBuddy',
-  zcode: 'ZCode（GLM）',
+  qodercn: 'Qoder (中国版)',
+  raccoon: 'Raccoon (商汤)',
+  trae: 'TRAE (字节)',
+  workbuddy: 'WorkBuddy (国际版)',
+  zcode: 'ZCode (智谱)',
 }
 
 /** 本体 provider → magpie provider id。 */
@@ -445,8 +445,19 @@ function warmUp(container, log) {
  */
 const DEAD_SKIP = new Map()
 
-/** 模型缓存文件（落盘，下次启动首屏就是真实目录）。 */
-const cacheFile = join(homedir(), '.config', 'magpie', 'jet-hub-models.json')
+/**
+ * 模型缓存文件（落盘，下次启动首屏就是真实目录）。
+ *
+ * ⚠️ 必须是**每次现算**，不能在模块求值时定死：`os.homedir()` 读的是
+ * `USERPROFILE` / `HOME`，而测试的隔离（`tests/_iso.mjs`）是在 import 之后才
+ * 改这两个环境变量 —— 定死的话隔离全部失效，测试会读写真实用户目录里的缓存
+ * （实测：t-options 跑一趟就把 `~/.config/magpie/jet-hub-models.json` 的 `at`
+ * 改掉了，且干净机器上因为读不到种子而假红）。
+ *
+ * `JET_HUB_MODELS_CACHE` 供测试/排障把缓存指到任意路径。
+ */
+const cacheFileOf = () =>
+  process.env.JET_HUB_MODELS_CACHE || join(homedir(), '.config', 'magpie', 'jet-hub-models.json')
 
 /** 最近一次拿到的**实时可用**模型 id（`<provider>/<model>`，从 `ctx.llm` 现采）。 */
 let allModels = undefined
@@ -486,7 +497,7 @@ function absorbMeta(container) {
 
 function readCache() {
   try {
-    const j = JSON.parse(readFileSync(cacheFile, 'utf8'))
+    const j = JSON.parse(readFileSync(cacheFileOf(), 'utf8'))
     const out = {}
     if (Array.isArray(j?.models) && j.models.length > 0) out.live = j.models
     if (Array.isArray(j?.full) && j.full.length > 0) out.full = j.full
@@ -1268,6 +1279,7 @@ function toMagpieUsage(reading, provider) {
 
 function writeCache(log) {
   try {
+    const cacheFile = cacheFileOf()
     mkdirSync(dirname(cacheFile), { recursive: true })
     // ⚠️ 只写**有值**的那份：全量目录要 20+ 秒才拉得到，先到的实时目录
     //    若把 `full: undefined` 写进去，会把上一次落盘的全量覆盖掉 ——
@@ -1388,6 +1400,32 @@ function modelsOf(dshProvider, list) {
   return out
 }
 
+/**
+ * 从两份目录里挑出某个 provider 该显示的模型表 —— 纯函数，不碰容器、不读盘。
+ *
+ * 优先级：**上游全量** > 实时可用。用户要的是「供应商上游全部模型」（m06921），
+ * 所以全量排第一；全量还没拉到时退回实时可用；两份都空返回 `null`，由调用方
+ * 决定退静态兜底。
+ *
+ * 抽出来的原因是可测：`prefer_full` 这个 magpie 开关以前只有容器级的间接断言，
+ * 而上游「此刻恰好没有不可用模型」时全量与可用是同一个集合（2026-10-31 清空
+ * 黑名单后就是 32/32），那条断言等于没跑过。这里喂固定数据就能逐条钉死语义。
+ *
+ * @param {string} dshProvider 本体 provider 名
+ * @param {{live?: string[], full?: Array<{id: string, name?: string, disabled?: boolean}>}} [catalogs] 两份目录
+ * @param {boolean} [preferFull] magpie 里 `prefer_full` 开关的值
+ * @returns {{models: Record<string, unknown>, from: 'full'|'live'} | null}
+ */
+export function pickModels(dshProvider, { live, full } = {}, preferFull = true) {
+  if (preferFull === true) {
+    const wide = modelsOfFull(dshProvider, full)
+    if (Object.keys(wide).length > 0) return { models: wide, from: 'full' }
+  }
+  const got = modelsOf(dshProvider, live)
+  if (Object.keys(got).length > 0) return { models: got, from: 'live' }
+  return null
+}
+
 // ---- 插件工厂 ---------------------------------------------------------------
 
 /**
@@ -1436,13 +1474,8 @@ export function makePlugin(dshProvider) {
     function currentModels(provider) {
       const { live, full } = currentAll(container, log)
       // 用户可以在 magpie 里拨「模型列表用上游全量」这个开关关掉全量
-      if (optionOn('prefer_full', true)) {
-        const wide = modelsOfFull(dshProvider, full)
-        if (Object.keys(wide).length > 0) return wide
-      }
-      const got = modelsOf(dshProvider, live)
-      if (Object.keys(got).length > 0) return got
-      return provider?.models ?? fallbackFor(dshProvider)
+      const picked = pickModels(dshProvider, { live, full }, optionOn('prefer_full', true))
+      return picked?.models ?? provider?.models ?? fallbackFor(dshProvider)
     }
 
     return {

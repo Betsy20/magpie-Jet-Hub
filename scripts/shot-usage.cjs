@@ -26,7 +26,9 @@ if (!KEY) {
 }
 const PORT = 9337
 const OUT = process.argv[2] || path.join(process.env.TEMP || '/tmp', 'jethub-usage.png')
-const TARGET = process.argv[3] || 'Jet Hub · WorkBuddy'
+// 供应商显示名 2026-10-31 起去掉 `Jet Hub · ` 前缀、并带上版本（WorkBuddy (国际版)）；
+// 这里精确比 innerText，默认值要跟着改，否则不带第三参时永远命中不了。
+const TARGET = process.argv[3] || 'WorkBuddy (国际版)'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const getJson = (u) =>

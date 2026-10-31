@@ -187,7 +187,7 @@ if (live()) {
     // `NAMES[provider] ?? provider`（2026-10-30 去掉「Jet Hub · 」前缀后不再用
     // `DISPLAY_NAME`），漏传会 ReferenceError。值取真实表的前几项即可 ——
     // 下面的断言只看 plan 是否带前缀，不看具体名字。
-    const NAMES_FIXTURE = { trae: 'Trae', workbuddy: 'WorkBuddy', codearts: 'CodeArts（华为云）' }
+    const NAMES_FIXTURE = { trae: 'TRAE (字节)', workbuddy: 'WorkBuddy (国际版)', codearts: 'CodeArts (华为云)' }
     const { toMagpieUsage, windowName, dateLabel } = new Function(
       'NAMES',
       'humanizeUsageError',

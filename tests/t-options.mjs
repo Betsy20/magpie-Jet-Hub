@@ -3,13 +3,30 @@
 //
 // 开关的读法是宿主每次现读（`input.magpie.option(provider, key)`），所以这里
 // 用两份不同的 input 各建一次插件实例来模拟「用户在 magpie 里拨了开关」。
-import { DSH_PROVIDERS, PLUGINS, PROVIDER_IDS } from '../src/plugin.mjs'
+import { DSH_PROVIDERS, PLUGINS, PROVIDER_IDS, pickModels } from '../src/plugin.mjs'
 import { iconProviders } from '../src/icons.mjs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 // ⚠️ 本文件建插件实例会真起容器，必须隔离（理由见 `tests/_iso.mjs` 文件头）。
 import { isolate } from './_iso.mjs'
 
 const iso = isolate()
+
+// 给模型缓存种一份假目录：`src/plugin.mjs` 的 `cacheFileOf()` 现在按 `homedir()`
+// 现算（改 USERPROFILE/HOME 即改道），所以这里写进沙箱，绝不会碰
+// 真实 `~/.config/magpie/jet-hub-models.json`。干净机器（没有真实缓存）上，
+// 这份种子保证容器级那段至少能拿到模型；真实上游起来后会被后台刷新覆盖。
+mkdirSync(join(iso.root, '.config', 'magpie'), { recursive: true })
+writeFileSync(
+  join(iso.root, '.config', 'magpie', 'jet-hub-models.json'),
+  JSON.stringify({
+    at: new Date().toISOString(),
+    models: ['workbuddy/wb-seed-live'],
+    full: [{ id: 'workbuddy/wb-seed-live', name: 'WB Seed' }],
+    meta: {},
+  }),
+)
 
 let failed = 0
 const ok = (cond, msg) => {
@@ -34,7 +51,7 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
 
   const icon = p.auth.icon
   ok(typeof icon === 'string' && /^(https:\/\/|data:image\/)/i.test(icon), `auth.icon 是 data:image 或 https（${String(icon).slice(0, 24)}…）`)
-  ok(String(icon).length <= 3 << 19, 'auth.icon 不超过 1 MB')
+  ok(String(icon).length <= 1 << 20, 'auth.icon 不超过 1 MB')
 }
 
 // ---- 1b) 每家一个图标：以前所有 provider 全用插件自己那个六向星 -------
@@ -62,7 +79,61 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
   const same = [...byUri.values()].filter((ids) => ids.length > 1)
   ok(same.length === 0, `每家图标互不相同（重复：${same.map((ids) => ids.join('=')).join(', ')}）`)
   const biggest = Math.max(...[...icons.values()].map((v) => v.length))
-  ok(biggest <= 3 << 19, `最大图标 ${biggest}B 不超过 1 MB`)
+  ok(biggest <= 1 << 20, `最大图标 ${biggest}B 不超过 1 MB`)
+}
+
+// ---- 2a) prefer_full 的语义（纯函数 + 固定数据）-------------------------------
+// 容器级断言只能证明「接线没断」，证明不了语义：上游此刻有没有「不可用模型」
+// 取决于数据状态 —— 2026-10-31 清空 920 条黑名单之后，全量目录与可用目录是
+// 同一个集合（workbuddy 恒 32/32），「关掉后变少」根本无从发生，那条断言等于
+// 没跑过（变异把 `optionOn('prefer_full', true)` 写死也照样绿）。语义由这里钉死。
+{
+  const live = ['workbuddy/wb-live']
+  const full = [
+    { id: 'workbuddy/wb-live', name: 'WB Live' },
+    { id: 'workbuddy/wb-gone', name: 'WB Gone', disabled: true },
+  ]
+
+  const wide = pickModels('workbuddy', { live, full }, true)
+  const wideKeys = Object.keys(wide?.models ?? {})
+  ok(wide?.from === 'full', `全量开 → 用上游全量目录（from=${wide?.from}）`)
+  ok(wideKeys.length === 2, `全量开 → 上游全部 2 个都列出（实数 ${wideKeys.length}）`)
+  ok(
+    String(wide?.models?.['wb-gone']?.name ?? '').includes('已在 Jet Hub 关闭'),
+    `全量开 → 已关闭的模型名字带后缀（${wide?.models?.['wb-gone']?.name}）`,
+  )
+
+  const narrow = pickModels('workbuddy', { live, full }, false)
+  const narrowKeys = Object.keys(narrow?.models ?? {})
+  ok(narrow?.from === 'live', `全量关 → 退回实时可用目录（from=${narrow?.from}）`)
+  ok(narrowKeys.length === 1, `全量关 → 只剩可用的 1 个（实数 ${narrowKeys.length}）`)
+  ok(narrowKeys[0] === 'wb-live', `全量关 → 剩下的正是可用那个（${narrowKeys[0]}）`)
+
+  ok(pickModels('workbuddy', { live: [], full: [] }, true) === null, '两份目录都空 → 返回 null 交给静态兜底')
+  ok(pickModels('trae', { live, full }, true) === null, '目录里没有这家 → 返回 null（不串到别家）')
+  ok(pickModels('workbuddy', {}, true) === null, '没传目录 → 返回 null（不抛错）')
+}
+
+// ---- 2b) 开关真的接到了 currentModels（接线，不是语义）-------------------------
+// 2a 段证明 `pickModels` 的两个分支各自正确，但证明不了「工厂里真的把 magpie
+// 开关读出来传进去」—— 把 `optionOn('prefer_full', true)` 换成恒 true，2a 全绿。
+// 容器级那段又只能冒烟（上游没有不可用模型时全量与可用同集合）。所以这里对
+// `currentModels` 的函数体做文本断言：它必须同时出现「读开关」与「把开关值当
+// 第三参传给 pickModels」。
+{
+  const raw = readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8')
+  // ⚠️ 必须先归一化行尾：仓库里 plugin.mjs 是 LF，但 autocrlf 检出后会变 CRLF，
+  //    不归一化的话下面的 `\n    }` 定位全落空（踩过）。
+  const src = raw.replace(/\r\n/g, '\n')
+  const at = src.indexOf('function currentModels(provider)')
+  ok(at > 0, '在 src/plugin.mjs 里找到 currentModels')
+  const body = src.slice(at, src.indexOf('\n    }', at))
+  ok(/optionOn\('prefer_full',\s*true\)/.test(body), 'currentModels 里真的读了 prefer_full 开关（不是恒值）')
+  ok(
+    /pickModels\(\s*dshProvider,\s*\{ live, full \},\s*optionOn\('prefer_full',\s*true\)\s*\)/.test(body),
+    'currentModels 把开关值作为第 3 参传给 pickModels（接线完整）',
+  )
+  ok(/picked\?\.models\s*\?\?/.test(body), 'currentModels 用 pickModels 的结果、空时退回调用方给的兜底')
 }
 
 // ---- 2) 开关真的生效 ---------------------------------------------------------
@@ -83,9 +154,10 @@ const withOptions = (values) => ({ ...noop, magpie: { option: (p, k) => values[k
   const nb = kb.length
   console.log(`  全量开 → ${na} 个；全量关 → ${nb} 个`)
   ok(na > 0, '全量开时有模型')
-  // 这条是关键：只说「开 >= 关」的话，开关完全没被读也能通过。
-  // 必须断言关掉后**确实变少**，且关掉的集合是开着的子集。
-  ok(na > nb, `关掉 prefer_full 后模型数真的变少（${na} → ${nb}）`)
+  // 容器级只做冒烟。开关语义由上面 2a 段对 `pickModels` 的固定数据断言覆盖；
+  // 这里不断言「关掉后变少」—— 上游没有不可用模型时全量与可用同集合，硬断言
+  // 会变成长期假红，而软跳过又会让这条断言永远不执行（两种都是假绿）。
+  // 能抓的是接线级错误：关掉后凭空多出模型（子集断言）与整段拿不到东西。
   const setA = new Set(ka)
   ok(kb.every((k) => setA.has(k)), '关掉后列出的模型是「全量」的子集（只筛掉，不凭空多出）')
 }

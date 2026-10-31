@@ -140,34 +140,34 @@ function magpieIdOfSegment(seg) {
  * magpie provider id → [显示名, 一句话说明]。
  *
  * ⚠️ 显示名必须与 `src/plugin.mjs` 的 `NAMES`（magpie 供应商列表用的那套）逐字一致：
- * 同一家在这里叫 `Accio`、在供应商列表里叫 `Accio（阿里）`，用户会以为是两个东西。
+ * 同一家在这里叫 `Accio`、在供应商列表里叫 `Accio (阿里)`，用户会以为是两个东西。
  * 那边没导出（`index.mjs` 只许导插件工厂），所以只能抄一份 —— `tests/t-new-account.mjs`
  * 第 10 节有一致性断言盯着，改一处漏另一处会报红。
  */
 const NAMES = {
-  'jet-hub-accio':      ['Accio（阿里）', '阿里 Accio'],
-  'jet-hub-astudio':    ['AStudio（讯飞）', '讯飞 AStudio'],
-  'jet-hub-autoclaw':   ['AutoClaw（智谱）', '智谱 AutoClaw'],
-  'jet-hub-autoclawintl': ['AutoClaw 国际', '智谱 AutoClaw 国际版'],
-  'jet-hub-buddy':      ['Buddy', 'Buddy'],
-  'jet-hub-cline':      ['Cline', 'Cline'],
-  'jet-hub-codearts':   ['CodeArts（华为云）', '华为云 CodeArts（STS 临时凭据）'],
-  'jet-hub-codely':     ['Codely', 'Codely'],
-  'jet-hub-gemini':     ['Gemini', 'Google Gemini'],
-  'jet-hub-lobsterai':  ['LobsterAI', 'LobsterAI'],
-  'jet-hub-loomy':      ['Loomy', 'Loomy'],
-  'jet-hub-magicrew':   ['超级麦吉', '超级麦吉（Magicrew）'],
-  'jet-hub-minimax':    ['MiniMax', 'MiniMax 国内站'],
-  'jet-hub-minimaxintl': ['MiniMax 国际', 'MiniMax 国际版'],
-  'jet-hub-modelscope': ['ModelScope（魔搭）', '魔搭社区'],
-  'jet-hub-officeace':  ['OfficeAce（华为云）', '华为云 OfficeAce'],
-  'jet-hub-opencode':   ['OpenCode', 'OpenCode'],
-  'jet-hub-qoder':      ['Qoder', 'Qoder'],
-  'jet-hub-qodercn':    ['Qoder 国内', 'Qoder 国内站'],
-  'jet-hub-raccoon':    ['Raccoon', 'Raccoon'],
-  'jet-hub-trae':       ['Trae', 'Trae'],
-  'jet-hub-workbuddy':  ['WorkBuddy', 'WorkBuddy 账号池'],
-  'jet-hub-zcode':      ['ZCode（GLM）', 'ZCode（GLM 系列）'],
+  'jet-hub-accio':         ['Accio (阿里)', '阿里 Accio'],
+  'jet-hub-astudio':       ['AStudio', '讯飞 AStudio'],
+  'jet-hub-autoclaw':      ['AutoClaw (智谱)', '智谱 AutoClaw'],
+  'jet-hub-autoclawintl':  ['AutoClaw (国际版)', '智谱 AutoClaw 国际版'],
+  'jet-hub-buddy':         ['CodeBuddy (腾讯)', '腾讯 CodeBuddy'],
+  'jet-hub-cline':         ['Cline', 'Cline'],
+  'jet-hub-codearts':      ['CodeArts (华为云)', '华为云 CodeArts（STS 临时凭据）'],
+  'jet-hub-codely':        ['Codely (Unity)', 'Unity 团结引擎 Codely'],
+  'jet-hub-gemini':        ['Gemini Code Assist', 'Google Gemini Code Assist'],
+  'jet-hub-lobsterai':     ['LobsterAI (有道)', '网易有道 LobsterAI'],
+  'jet-hub-loomy':         ['Loomy (讯飞)', '讯飞 Loomy'],
+  'jet-hub-magicrew':      ['超级麦吉', '超级麦吉（Magicrew）'],
+  'jet-hub-minimax':       ['MiniMax Code (中国版)', 'MiniMax Code 国内站'],
+  'jet-hub-minimaxintl':   ['MiniMax Code (国际版)', 'MiniMax Code 国际版'],
+  'jet-hub-modelscope':    ['ModelScope (魔搭)', '魔搭社区'],
+  'jet-hub-officeace':     ['OfficeAce', '华为云 OfficeAce'],
+  'jet-hub-opencode':      ['OpenCode', 'OpenCode'],
+  'jet-hub-qoder':         ['Qoder', 'Qoder'],
+  'jet-hub-qodercn':       ['Qoder (中国版)', 'Qoder 国内站'],
+  'jet-hub-raccoon':       ['Raccoon (商汤)', '商汤 Raccoon'],
+  'jet-hub-trae':          ['TRAE (字节)', '字节 TRAE'],
+  'jet-hub-workbuddy':     ['WorkBuddy (国际版)', 'WorkBuddy 账号池'],
+  'jet-hub-zcode':         ['ZCode (智谱)', '智谱 ZCode（GLM 系列）'],
 }
 
 /** 缓存里按本体 id（`<provider>/<model>`）索引的 name / disabled，只用来补展示字段。 */

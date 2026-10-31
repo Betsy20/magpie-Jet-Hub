@@ -1,8 +1,9 @@
 // 测插件入口：模拟 magpie 宿主（遍历导出 + 无参探测）后按契约调用。
 // 现在是「一个本体 provider 一个插件工厂」，所以要逐个验证契约一致。
 import * as mod from '../index.mjs'
-import { outputLimit } from '../src/plugin.mjs'
-import { readFileSync } from 'node:fs'
+import { DSH_PROVIDERS, outputLimit } from '../src/plugin.mjs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 // ⚠️ 本文件调 23 个工厂会**真起容器**（`warmUp()` 后台跑），所以必须隔离：
 // 不隔离的话 `resolveHome(undefined)` 会退回 `homedir()`，把本体的 `DSH_HOME`
@@ -14,6 +15,23 @@ import { readFileSync } from 'node:fs'
 import { isolate, live, skipLive } from './_iso.mjs'
 
 const iso = isolate()
+
+// 能力链路断言（下面的「必须带 limit.context」）要有判别力：上下文窗口只能来自
+// 「上游全量目录 + 能力元数据」这条腿，写死的兜底条目里没有它。隔离 home 里一开
+// 始没有缓存，不种的话 `pickModels` 会退回 `fallbackFor()`，那 23 家就全是 0 ——
+// 断言红了只说明没数据，不说明链路断了。这里种一份最小目录（23 家各一个模型，
+// meta 给真实窗口），让断言真的在验 meta → limit.context 这一段。
+{
+  const dir = join(iso.root, '.config', 'magpie')
+  mkdirSync(dir, { recursive: true })
+  const seed = { at: new Date().toISOString(), models: [], full: [], meta: {} }
+  for (const p of DSH_PROVIDERS) {
+    const fullId = p + '/seed-model'
+    seed.full.push({ id: fullId, name: 'Seed Model' })
+    seed.meta[fullId] = { context: 128_000, output: 8_192, input: ['text'] }
+  }
+  writeFileSync(join(dir, 'jet-hub-models.json'), JSON.stringify(seed, null, 2))
+}
 
 const fns = Object.entries(mod).filter(([, v]) => typeof v === 'function')
 const notFns = Object.entries(mod).filter(([, v]) => typeof v !== 'function')
@@ -64,7 +82,10 @@ for (const [name, fn] of fns) {
       // ⚠️ 逐家不判死：codely 上游只声明模态、不声明 context（实测），那家全 0
       // 是上游事实。所以只把「一家都没有」当失败 —— 那才是能力链路整体断了。
       const withContext = rows.filter((m) => (m?.limit?.context ?? 0) > 0).length
-      if (rows.length > 0 && withContext === 0) noContext.push(name)
+      // 隔离环境里 23 家的种子都写了 meta.context，所以只要有一家的模型没带上
+      // limit.context 就是 absorbMeta → modelEntry 这条链路断了。别退化成「全部缺
+      // 才算红」—— 只坏一家（往往正是用户最常用那家）时那条判据不成立，等于假绿。
+      if (rows.length > 0 && withContext !== rows.length) noContext.push(name)
       for (const [mid, m] of Object.entries(models)) outputById.set(`${name}/${mid}`, m?.limit?.output)
     }
   }
@@ -164,9 +185,8 @@ for (const [key, want] of [
 
 console.log(`--- ${described.length} 个 provider ---`)
 for (const d of described) console.log('  ' + d)
-if (noContext.length > 0) console.log(`  注：${noContext.join(' / ')} 的上游没声明上下文窗口（不是插件缺陷）`)
-if (noContext.length === described.length && described.length > 0) {
-  problems.push(`全部 ${described.length} 个 provider 的模型都没有 limit.context —— 能力链路断了`)
+if (noContext.length > 0) {
+  problems.push(`${noContext.length} 个 provider 的模型没带上 limit.context —— 能力链路断了：${noContext.join(' / ')}`)
 }
 
 if (problems.length) {

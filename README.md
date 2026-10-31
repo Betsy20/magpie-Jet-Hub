@@ -279,13 +279,13 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 
 | magpie provider id | 显示名 | 本体 provider |
 |---|---|---|
-| `jet-hub-codearts` | CodeArts（华为云） | `codearts` |
-| `jet-hub-workbuddy` | WorkBuddy | `workbuddy` |
-| `jet-hub-minimax` | MiniMax | `minimax` |
-| `jet-hub-accio` | Accio（阿里） | `accio` |
-| `jet-hub-gemini` | Gemini | `gemini` |
-| `jet-hub-codely` | Codely | `codely` |
-| `jet-hub-autoclawintl` | AutoClaw 国际 | `autoclawintl` |
+| `jet-hub-codearts` | CodeArts (华为云) | `codearts` |
+| `jet-hub-workbuddy` | WorkBuddy (国际版) | `workbuddy` |
+| `jet-hub-minimax` | MiniMax Code (中国版) | `minimax` |
+| `jet-hub-accio` | Accio (阿里) | `accio` |
+| `jet-hub-gemini` | Gemini Code Assist | `gemini` |
+| `jet-hub-codely` | Codely (Unity) | `codely` |
+| `jet-hub-autoclawintl` | AutoClaw (国际版) | `autoclawintl` |
 | `jet-hub-magicrew` | 超级麦吉 | `magicrew` |
 | …（共 23 个） | | |
 
@@ -297,7 +297,7 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 > 与路由组无关。
 >
 > ⚠️ **路由组在直连架构下没有调用入口**：magpie 侧模型 id 一律是
-> `jet-hub-<provider>/<model>`（快照里 869 条模型 id 全是这个形状，另有 23 条不带斜杠的
+> `jet-hub-<provider>/<model>`（快照里所有模型 id 都是这个形状，另有与 provider 数相同的不带斜杠的
 > provider id），不会有任何请求解析到
 > `aggregate/*` 或 `jet-hub-auto/*`。所以控制台**也不再提供**它们的配置页
 > （候选目录 / 排序模式 / 拒绝表 / 候选级开关），那 9 个 RPC 记在
@@ -524,7 +524,7 @@ jet-hub-codearts#d4e5f6      → codearts-1a2b3c4d
   （实测基线 1 ms，慢文件写入期间被拖到 359–370 ms）。现在 `Map<file, chain>`。
 - **`unset()` 的存在性判断挪进链内**：原来在链外先判再排队写，中间别的写者可能已改了文件（TOCTOU）。
 
-回归测试 `tests/t-cred-upsert.mjs` 的 ⑬–㉙ 各节守这些点，共 559 项。其中 ㉓ 是「任意值写下去再读回来必须一模一样」的往返表（29 种值 × 4 条判据），㉔ 是「人手写/本体写的块标量形态必须读得对」的读侧夹具表（17 种形态），㉕ 是「本体把 refs 删空时写的 `refs: {}`」这种流式空段，㉖ 是「`refs:  # 凭据`」这种带注释的段头——两种都合法，不归一就写不进去。㉗ 是四审那三条「合法 YAML 输入却把凭据毁掉」的形态（Unicode 空白行被 `trim()` 当空行、`parseRefs` 只认 2 空格缩进、裸 key 的续行），外加五审补的两组回归：条目缩进 3/4 空格 + 块标量 + 同级兄弟 ref（`blockScalarEnd` 若硬编码 `/^ {3,}/` 会把兄弟 ref 吞进值里，污染值让 `JSON.parse` 抛错 ⇒ 账号有凭据却登不上），以及裸 key 的续行必须按 plain 折叠**读出值来**（原来一律读成空串，`resolve()` 返回 undefined）。合起来把写侧、读侧、空段、段头、空白字符、缩进宽度、裸 key 的无损性都钉住。㉙ 是七审补的另外两条：`|+` 的 keep 把「文件末尾那行之后」的伪空行算了进去（末行是 `"   "` 且文件不以换行结尾时值多一个 `
+回归测试 `tests/t-cred-upsert.mjs` 的 ⑬–㉙ 各节守这些点（项数见测试输出，不写死在这里）。其中 ㉓ 是「任意值写下去再读回来必须一模一样」的往返表（29 种值 × 4 条判据），㉔ 是「人手写/本体写的块标量形态必须读得对」的读侧夹具表（17 种形态），㉕ 是「本体把 refs 删空时写的 `refs: {}`」这种流式空段，㉖ 是「`refs:  # 凭据`」这种带注释的段头——两种都合法，不归一就写不进去。㉗ 是四审那三条「合法 YAML 输入却把凭据毁掉」的形态（Unicode 空白行被 `trim()` 当空行、`parseRefs` 只认 2 空格缩进、裸 key 的续行），外加五审补的两组回归：条目缩进 3/4 空格 + 块标量 + 同级兄弟 ref（`blockScalarEnd` 若硬编码 `/^ {3,}/` 会把兄弟 ref 吞进值里，污染值让 `JSON.parse` 抛错 ⇒ 账号有凭据却登不上），以及裸 key 的续行必须按 plain 折叠**读出值来**（原来一律读成空串，`resolve()` 返回 undefined）。合起来把写侧、读侧、空段、段头、空白字符、缩进宽度、裸 key 的无损性都钉住。㉙ 是七审补的另外两条：`|+` 的 keep 把「文件末尾那行之后」的伪空行算了进去（末行是 `"   "` 且文件不以换行结尾时值多一个 `
 `，resolve→set 就永久改值），以及 `blockScalarEnd` 不认整行注释——裸 key 后面跟一行缩进不够深的 `# c` 时它判定「没有续行」，读侧把值读成空串，**写侧更糟**：`set()` 一条无关 ref 会把新行插到注释下面，本体读回 `{"A":null,"Z":"zzz","l3":null}`，真实凭据被改写成 null 还多出假 key。修法是给 `blockScalarEnd` 加 `skipComments` 参数，**只有裸 key 传 `true`**——plain 标量已经开头（`A: l1`）时后面一行注释就是标量的结尾（本体只读 `"l1"`，且报 `All mapping items must start at the same column`），块标量里的 `#` 更是内容。
 
 三审又报了三类「合法 YAML 输入 → 静默写坏文件」的缺陷，全部已修：
@@ -725,9 +725,18 @@ node scripts/import-backup.mjs <备份文件.json>             # 真写（默认
     打回上一代，直接登不上。唯一的例外是 ref 被**别的**账号占着 —— 这种逐条点名
     `! <ref> 已被本机账号 X 占用（备份里的 Y 也想用）`，绝不覆盖。
   - 模型黑名单与永久锁定表不碰。
-- `--mode replace`：整体还原 —— 账号池、模型黑名单、永久锁定表全部换成备份里的值。
+- `--mode replace`：整体还原 —— 账号池与永久锁定表换成备份里的值，**模型黑名单除外**。
   这是换机/重装场景，本机现有账号会被丢弃。永久锁定表落在独立文档
   `~/.dsh/jet-hub/permanent-locks.json`（`{schema, locks}`），不是 `state.json` 的字段。
+- **模型黑名单默认不写**（两种模式都不写）。`disabledModels` 的语义是「本体自己那份
+  模型目录里，哪些别列出来」，而 2026-10-31 起「哪些模型给 agent 用」由 magpie 的
+  Providers 编辑器决定（控制台的模型开关已删）。把备份里那份旧状态盖回来，只会让
+  magpie 里每一条模型都挂上 `· 已在 Jet Hub 关闭` 的尾巴，而用户没有任何界面能清掉它。
+  真要写回得显式加 `--keep-disabled`，跳过时脚本会在报告里写明跳过了多少条。
+  备份文件本身不改 —— 它记录导出那一刻的真实状态是对的。控制台的「备份 → 导入」
+  走同一条闸门：它调 `backup.import` 时恒传 `keepDisabledModels: true`，所以在界面上
+  选「覆盖（replace）」也不会换黑名单；要连黑名单一起还原只能用命令行加
+  `--keep-disabled`。
 - 加密备份（前端导出时加的壳：PBKDF2 310000 + SHA-256 派生密钥、AES-256-GCM、
   密文尾部 16 字节是 GCM tag）直接喂给脚本即可，口令按 `--passphrase` →
   环境变量 `JET_HUB_BACKUP_PASSPHRASE` → 交互输入 的顺序取：
@@ -892,7 +901,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 控制台背后的 RPC 端点（`POST /api/jet-hub`，`{type:"client-request",method:"jet-hub",payload:{method,payload}}`，
 响应 `{result:{ok:true,value}}` / `{result:{ok:false,error}}`）。
 
-控制台是**六个**标签的管理界面，覆盖本体可调度的 RPC —— **覆盖率与方法总数不写进本文**：
+控制台是**五个**标签的管理界面，覆盖本体可调度的 RPC —— **覆盖率与方法总数不写进本文**：
 由 `tests/t-rpc-cover.mjs` 从源码解析后自动统计（主 `switch` 与前缀改道两批都算进去），
 两个数随代码走，写死在文档里必然过期：
 
@@ -909,17 +918,15 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 | 概览 | 本体/网关/模型/账号统计，网关六项状态（启用 / 运行中 / 被环境变量挡住 / 允许局域网 / 监听 / 最近错误），自动签到今日情况，provider 清单，接入代码 |
 | 账号 | 每个 provider 的账号池：登录、续期、测试、复测、重置、新人奖励、补偿、上下移、删除、批量复测/重置，以及 per-账号的**出口代理**（见下） |
 | 积分 | 状态 / 余额 / 徽章 / 全部领取；每日签到（含**每个有账号的渠道**的今日结果）；Cline 额度与请求流水；OfficeAce 状态；**永久积分锁定** |
-| 用量 | token 账本（6 项汇总 + 明细）、历史、删除某天、徽章偏好 |
-| 设置 | 渠道原生搜索、面板入口、MiniMax XFF、验证码三件套 |
-| 备份 | 账号总数/缺有效期统计、导出下载、merge/replace 导入 |
+| 设置 | 渠道原生搜索、面板入口、MiniMax XFF、验证码三件套、**徽章偏好**（模型选择器旁那枚徽标先显示订阅还是积分） |
+| 备份 | 账号总数/缺有效期统计、导出下载、merge/replace 导入（replace 不换模型黑名单，见上一节） |
 
 ![控制台 · 账号](docs/console-accounts.png)
 ![控制台 · 积分](docs/console-credits.png)
-![控制台 · 用量](docs/console-usage.png)
 ![控制台 · 设置](docs/console-settings.png)
 ![控制台 · 备份](docs/console-backup.png)
 
-（六张按标签顺序排，概览那张在本节开头。全部由 `scripts/shot-console.cjs` 直接
+（五张按标签顺序排，概览那张在本节开头。全部由 `scripts/shot-console.cjs` 直接
 覆盖写同一个文件名，所以重拍不需要改 README。）
 
 两条**格式陷阱**（都实测踩过，本体不会报错，只会静默做错事）：
@@ -933,7 +940,7 @@ http://127.0.0.1:18500/          # 默认端口，被占用自动 +1
 > 不是 `provider/realId`。传斜杠会被 `setAggregateOrder` 全部丢弃 → 返回空数组 → 顺手删键（等于清空手工顺序）。
 > 控制台 2026-10-31 起不再提供聚合路由配置页（magpie 侧没有对应入口，见 `DROPPED` 表）。
 
-改完控制台后跑一次 `node scripts/shot-console.cjs`：它用 Edge headless + CDP 逐个点开六个标签、
+改完控制台后跑一次 `node scripts/shot-console.cjs`：它用 Edge headless + CDP 逐个点开五个标签、
 断言表格行数/卡片数/按钮数/错误消息，并把每页截到 `docs/console-<tab>.png`。
 `node scripts/run-console.mjs` 则单独起一个容器 + 控制台（不重启 magpie），打印 `CONSOLE_URL`。
 
@@ -1033,9 +1040,9 @@ MiniMax 国际站用 `redirect:'manual'` 看 307 那一跳判有没有被分流�
 
 1. **模型目录拿不到实时值**。页面 `connect-src 'none'`，`providers:list` 只给
    `{id, name}` 不给模型。所以模型清单是**快照**：`scripts/snapshot-models.mjs`
-   从 magpie 网关 `http://127.0.0.1:3425/v1/models`（或运行中控制台的
-   `getCachedCatalog`）读一次，写成 `page/models.js`。换账号/加模型后重跑一次
-   即可（页面上会显示快照时间，不假装实时）。
+   按 `18500..18509` 逐个探活，只从活着那台宿主（没有就直接用地址文件里的端口）
+   的 `/__meta` 取上游全量目录，写成 `page/models.js`；`3425` 网关只用来拼页面里
+   的 snippet。换账号/加模型后重跑一次即可（页面上会显示快照时间，不假装实时）。
 2. **页面是 OOPIF，主文档读不到它的 DOM**。`sandbox="allow-scripts"`（没有
    `allow-same-origin`）⇒ opaque origin ⇒ 独立进程。所以 `ui-check.cjs`
    不能从主窗口 `contentWindow` 进去，而是从 `/json/list` 里找 `type=iframe`
@@ -1093,7 +1100,7 @@ MAGPIE_BUN="$HOME/.cache/magpie/bun/1.4.4/magpie-bun.exe"
 # .credentials.yaml 写回不吞行（23 条断言，不联网）
 "$MAGPIE_BUN" tests/t-writerefs.mjs
 
-# credentials.set 能新增 ref（新建账号写全新 ref 不再被打断；含重复 key / 块标量 / |2- 缩进指示 / 段边界 / 折行缩进 / 分文件串行化 / unset 删整条 / 多行 plain 标量 / 非标准缩进拒绝写 / 换行值写块标量 / chomping 三态 / 任意值无损往返 / 读侧块标量夹具 / 引号闭合奇偶判据 / 空的 refs 段 / 段头注释 / Unicode 空白行 / 非标准缩进读侧 / 裸 key 续行 / 3-4 空格缩进 + 块标量 + 同级 ref / 裸 key 续行读值 / 续行含 Unicode 空白 / 裸 key 替换自身时跳注释，559 条断言，不联网）
+# credentials.set 能新增 ref（新建账号写全新 ref 不再被打断；含重复 key / 块标量 / |2- 缩进指示 / 段边界 / 折行缩进 / 分文件串行化 / unset 删整条 / 多行 plain 标量 / 非标准缩进拒绝写 / 换行值写块标量 / chomping 三态 / 任意值无损往返 / 读侧块标量夹具 / 引号闭合奇偶判据 / 空的 refs 段 / 段头注释 / Unicode 空白行 / 非标准缩进读侧 / 裸 key 续行 / 3-4 空格缩进 + 块标量 + 同级 ref / 裸 key 续行读值 / 续行含 Unicode 空白 / 裸 key 替换自身时跳注释，断言数见输出，不联网）
 "$MAGPIE_BUN" tests/t-cred-upsert.mjs
 
 # 「在 magpie 里新建账号」这条链路（两家豁免 / 只拿 URL 就返回 / 三种终态 / 删除前三道闸门，不联网）
@@ -1294,13 +1301,18 @@ magpie 的宿主**不提供**这个服务，所以插件得自己实现一个再
 
 ## 供应商图标（`src/icons.mjs`）
 
-**每家一个图标**，不是 23 个 provider 共用插件自己那个。三种来源：
+**每家一个图标**，不是 23 个 provider 共用插件自己那个。四种来源：
 
 | 来源 | 用在哪 |
 |---|---|
 | magpie 本体内嵌的 `assets/icons/*.svg` | 有厂商的渠道：Trae / Qoder / Cline / Gemini / MiniMax / ModelScope / OpenCode / 智谱（AutoClaw）/ 阿里（Accio）/ 讯飞（AStudio）/ 华为云（CodeArts） |
-| 厂商自己出的位图 | ZCode —— 只有官方 PNG（`src/zcode-icon.mjs` 内联，128×128）；WorkBuddy —— LobeHub 图标库的 `workbuddy-color.svg`（和 magpie 内嵌的那张同图）；Magicrew —— 只有官方 PNG（`src/magicrew-icon.mjs` 内联，就是官网 favicon 那个卡通形象） |
-| 现画 | 没有对应厂商的：Buddy、Codely、LobsterAI、Loomy、Raccoon、OfficeAce |
+| 厂商或图标库的原图 | ZCode —— 只有官方 PNG（`src/zcode-icon.mjs` 内联，128×128）；WorkBuddy —— LobeHub 图标库的 `workbuddy-color.svg`（和 magpie 内嵌的那张同图）；Magicrew —— 只有官方 PNG（`src/magicrew-icon.mjs` 内联，就是官网 favicon 那个卡通形象）；CodeBuddy —— LobeHub 图标库的 `codebuddy-color.svg` |
+| 官网 favicon 位图 | Codely (Unity 团结引擎) / LobsterAI (有道) / Loomy (讯飞) / Raccoon (商汤小浣熊) —— 这几家没有公开矢量标识，LobeHub 也没收录，只能取官网 favicon 压成 PNG（`src/site-icons.mjs`，各自站点与路径见该文件头注释） |
+| 现画 | OfficeAce —— 华为云 AgentArts 上的产品，官网取不到图标，按华为红 + 文档形现画（也不能直接套 CodeArts 那张，两家会撞图） |
+
+23 家排在一起的样子（深色主题下实际渲染，图见 `docs/provider-icons.png`）：
+
+![23 家供应商图标](docs/provider-icons.png)
 
 用 magpie 那套图是有意的：它给自己的内置供应商显示的就是同一套 logo，
 所以插件渠道和 magpie 自带渠道在列表里视觉一致。`*intl`（AutoClaw 国际 /
@@ -1327,29 +1339,31 @@ src/llm-bridge.mjs     把本体的模型目录桥成 magpie 的 llm 服务
 src/icons.mjs          23 家 provider 的图标表（data URI，见下节）
 src/zcode-icon.mjs     ZCode 官方 PNG（base64 内联）
 src/magicrew-icon.mjs  Magicrew 官方 PNG（base64 内联）
+src/site-icons.mjs   四家官网 favicon 位图（Codely / LobsterAI / Loomy / Raccoon）
 vendor/                本体（版本号沿用 npm `2.9.261029`，内容是上游 `6fa74723` 的构建产物，含 magicrew；lib/ + locale/ + 上游 LICENSE）
 page/                  侧栏页面（index.html / page.js / page.css / models.js 快照 / icon.svg）
-console/               控制台界面（六个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
+console/               控制台界面（五个标签，RPC 覆盖率见 tests/t-rpc-cover.mjs）
 scripts/seed-auth.mjs  把本体账号池按 provider 摊平写进 magpie 的签入记录
-scripts/import-backup.mjs  导入 dsh-providers-hub 的备份（账号池 + 凭据 + 黑名单）
+scripts/import-backup.mjs  导入 dsh-providers-hub 的备份（账号池 + 凭据；模型黑名单默认不写，要写得加 --keep-disabled）
 scripts/snapshot-models.mjs  重新生成 page/models.js
-scripts/shot-console.cjs     控制台六标签实拍 + DOM 断言（Edge headless + CDP）
+scripts/shot-console.cjs     控制台五标签实拍 + DOM 断言（Edge headless + CDP）
 scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（`_iso.mjs` 公共桩 + 22 个，`test-all` 跑其中 20 个：t-writerefs / t-cred-upsert / t-deps /
+tests/                 验证脚本（`_iso.mjs` 公共桩 + 23 个，`test-all` 跑其中 21 个：t-writerefs / t-cred-upsert / t-deps /
                        t-dead-account / t-account-pin / t-account-cache / t-usage /
                        t-checkin / t-options / t-attachments / t-plugin / t-models-nowait /
-                       t-seed-auth / t-import-backup / t-login-reclaim / t-new-account /
+                       t-seed-auth / t-import-backup / t-backup-keep / t-login-reclaim /
+                       t-new-account /
                        t-magicrew-creds / t-snapshot-segment / t-model-efforts /
                        t-rpc-cover /
                        t-console / t-direct / t-gateway.py / ui-check.cjs；
-                       前 20 个是 `scripts/test-all.mjs` 的 UNIT，后 4 个要 magpie / web 在跑）
+                       前 21 个是 `scripts/test-all.mjs` 的 UNIT，后 4 个要 magpie / web 在跑）
 LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
 vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
 docs/screenshot.png    侧栏页面实拍（人工从 `tests/ui-check.cjs` 的产物里挑一张拷入）
-docs/console-*.png     控制台实拍：六标签 + Key / 代理两个弹窗（`scripts/shot-console.cjs` 直接覆盖写）
-docs/archive/          已下线的界面存档（`console-models.png`：2026-10-31 删掉的「模型」标签）
+docs/console-*.png     控制台实拍：五标签 + Key / 代理两个弹窗（`scripts/shot-console.cjs` 直接覆盖写）
+docs/archive/          已下线的界面存档（`console-models.png` / `console-usage.png`：2026-10-31 删掉的「模型」与「用量」标签）
 ```
 
 ## 实现细节补充
