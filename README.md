@@ -18,7 +18,7 @@
 
 ```
 magpie 网关 (3425)
-  └─ provider `jet-hub-*` ×23      ← 本插件（每家一个供应商）
+  └─ provider `jet-hub-*` ×23      ← 本插件（每家常驻一个供应商）
        └─ auth.loader().fetch       ← 只改这一层：剥 provider 前缀 + 转发
             └─ JetHubContainer（内嵌 cordis + 本体 lib/index.js）
                  └─ 本体自带网关 127.0.0.1:<动态端口>
