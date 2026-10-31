@@ -711,13 +711,20 @@ export class JetHubContainer {
           if (typeof window === 'number' && window > 0) meta.context = window
           const maxTokens = info?.defaultMaxTokens
           if (typeof maxTokens === 'number' && maxTokens > 0) meta.output = maxTokens
-          if (Array.isArray(info?.inputModalities) && info.inputModalities.length > 0) meta.input = [...info.inputModalities]
-          if (Array.isArray(info?.reasoning?.efforts) && info.reasoning.efforts.length > 0) meta.reasoning = true
-          // 这条腿直接调 resolveModelInfo（没走 modelsPayload 那趟），档位要多翻一次；
-          // 不翻就只有布尔、没有可挑的档位。
-          const efforts = openAiEfforts(info)
-          if (efforts.length > 0) {
-            meta.reasoning = true
+          // ⚠️ 集合型字段（`input` / `efforts`）与标量字段的合并规则**必须不同**：
+          //    标量「没报就继承旧值」是对的（上游偶尔漏报窗口，保留上一轮的值反而
+          //    更准）；集合「没报就继承」却会让能力声明**粘滞** —— 上游把某模型
+          //    的图片能力撤掉后，旧的 `input: ['text','image']` 原样留着，magpie
+          //    照样允许往一个实际不收图的模型贴图，请求打到上游才 400。
+          //    所以判据是 `Array.isArray(...)`：**声明了（哪怕是空表）就覆盖**，
+          //    根本没这个字段才继承。
+          if (Array.isArray(info?.inputModalities)) meta.input = [...info.inputModalities]
+          if (Array.isArray(info?.reasoning?.efforts)) {
+            // 这条腿直接调 resolveModelInfo（没走 modelsPayload 那趟），档位要多翻一次；
+            // 不翻就只有布尔、没有可挑的档位。空表也写进去：那是「上游说它没档位」，
+            // 不是「这次没问出来」。
+            const efforts = openAiEfforts(info)
+            meta.reasoning = efforts.length > 0
             meta.efforts = efforts
           }
           if (Object.keys(meta).length > 0) this.modelMeta.set(row.id, meta)

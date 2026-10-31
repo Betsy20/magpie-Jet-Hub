@@ -312,9 +312,15 @@ export { outputLimit }
  * 这个 8192 会被 magpie 的路由组当成「该成员单次最多出 8192」，成为
  * 「已达到输出 token 上限」的根因（详见 {@link OUTPUT_FALLBACKS}）。
  *
+ * ⚠️ **`capabilities.reasoning` 不等于「能改推理强度」。** magpie 的下拉只认
+ * 条目里的 `variants` 键列表（宿主 `Object.keys(m.variants ?? {})` → magpie
+ * `plugin.Model.Variants` → `Entry.Efforts`），而 `reasoning: true` 只决定
+ * 「会思考」那个标记。2026-10-31 用户报「使用插件模型无法修改推理强度」就是
+ * 只发了布尔、一个档位都没发 ⇒ 「会思考，但一档都挑不了」。
+ *
  * @param {string} id 模型名（已剥 provider 前缀）
  * @param {{name?:string, limit?:{context?:number, output?:number}, tool_call?:boolean}} [def] 静态兜底表里的声明
- * @param {{context?:number, output?:number, input?:string[], reasoning?:boolean}} [meta] 从本体现采的能力元数据
+ * @param {{context?:number, output?:number, input?:string[], reasoning?:boolean, efforts?:string[]}} [meta] 从本体现采的能力元数据
  */
 function modelEntry(id, def, meta) {
   const context = meta?.context ?? def?.limit?.context
@@ -453,11 +459,14 @@ let allModels = undefined
 let fullModels = undefined
 
 /**
- * 能力元数据：`<本体 provider>/<model>` → `{ context, output, input, reasoning }`。
+ * 能力元数据：`<本体 provider>/<model>` → `{ context, output, input, reasoning, efforts }`。
  *
  * `allModels` / `fullModels` 都只是 id（全量那份多 name/disabled），magpie 要的
  * 上下文窗口、能不能发图、有没有思考档位只能单独记。来源两处：
  * 本体 `ctx.llm` 现采（`container.modelMeta`）与落盘缓存的 `meta` 字段。
+ *
+ * `efforts` 是**规范档位名数组**（`low` / `high` / `max` …），`modelEntry()` 拿它
+ * 拼成 magpie 的 `variants`；`reasoning` 只是个布尔，单独它挑不动档位。
  */
 let metaById = new Map()
 

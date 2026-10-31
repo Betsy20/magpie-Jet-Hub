@@ -157,16 +157,63 @@ const { modelEntry } = new Function(`${entrySrc}\nreturn { modelEntry }`)()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ③ 源码守卫：两条采集腿都必须留住档位数组
+// ③ 两条采集腿：留住档位数组，且合并时不粘着旧能力
 // ═══════════════════════════════════════════════════════════════════════════
-console.log('\n③ 源码守卫')
+console.log('\n③ 两条采集腿')
 
 {
-  const absorb = slice(CONTAINER, '  _absorbModels(json) {', '\n  }\n')
-  ok(/meta\.efforts\s*=/.test(absorb), '③ -1 实时目录腿存了 meta.efforts（主修复点）')
-  ok(!/meta\.reasoning\s*=\s*Array\.isArray\(m\.reasoning\?\.openai_efforts\)\s*\n?\s*\?\s*m\.reasoning\?\.openai_efforts\.length > 0/.test(stripComments(absorb))
-    || /meta\.efforts/.test(absorb), '③ -2 档位不再只压成布尔')
+  // ── ③ -1/③ -2 是**行为**断言：真的把 `_absorbModels` 跑一遍 ──────────────
+  // 为什么不查源码文本：`/meta\.efforts\s*=/` 这类正则在源码里换个写法（先算
+  // `const efforts` 再赋值）就假红，反过来留着正则在别处命中又假绿。
+  // 这里原本写的是 `ok(!/压成布尔/.test(absorb) || /meta\.efforts/.test(absorb), …)`
+  // —— 后半段让断言**恒真**、永远不会失败，而前半段查的还是 ③ -1 同一件事。
+  // 现在直接喂三条模型行，看 `modelMeta` 里落下来的到底是什么。
+  const absorbSrc = slice(CONTAINER, '  _absorbModels(json) {', '\n  }\n')
+  const absorb = new Function(`return function _absorbModels(json) {${absorbSrc.slice(absorbSrc.indexOf('{') + 1)}\n}`)()
+  const host = { models: [], ownerOf: new Map(), modelMeta: new Map() }
+  absorb.call(host, {
+    data: [
+      // 本体真实形状（AStudio 私有档位 none/high）
+      { id: 'astudio/x', owned_by: 'astudio', context_window: 262144, max_tokens: 32768, input: ['text', 'image'], reasoning: { openai_efforts: ['none', 'high'] } },
+      // 会思考但一档都没有
+      { id: 'workbuddy/none', owned_by: 'workbuddy', reasoning: { openai_efforts: [] } },
+      // 没有 reasoning 字段
+      { id: 'plain/y', owned_by: 'plain', context_window: 65536 },
+    ],
+  })
 
+  const mAstu = host.modelMeta.get('astudio/x')
+  ok(Array.isArray(mAstu?.efforts) && mAstu.efforts.length === 2, '③ -1 实时目录腿把档位数组留下来（不是压成布尔）', JSON.stringify(mAstu?.efforts))
+  ok(mAstu?.reasoning === true, '③ -2 有档位时 reasoning 仍为 true')
+  ok(JSON.stringify(mAstu?.efforts) === JSON.stringify(['none', 'high']), '③ -2a 存下来的是规范名，不是本体私有名')
+  ok(mAstu?.context === 262144 && mAstu?.output === 32768, '③ -2b 同一条的窗口与预算照常保留（没被档位挤掉）')
+  ok(JSON.stringify(mAstu?.input) === JSON.stringify(['text', 'image']), '③ -2c 输入模态照常保留')
+
+  const mNone = host.modelMeta.get('workbuddy/none')
+  ok(mNone?.efforts === undefined, '③ -2d 一档都没有 ⇒ 不存 efforts（不发空 variants）')
+  ok(mNone?.reasoning === false, '③ -2e 一档都没有 ⇒ reasoning 为 false（与改前口径一致）')
+
+  const mPlain = host.modelMeta.get('plain/y')
+  ok(mPlain?.efforts === undefined && mPlain?.reasoning === undefined, '③ -2f 没声明 reasoning ⇒ 两个字段都不出现')
+
+  ok(host.models.length === 3, '③ -2g 三行都进了 models 列表', JSON.stringify(host.models))
+  ok(!host.modelMeta.has(''), '③ -2h 空 id 不进 meta 表')
+
+  // ── ③ -9 `ultra` 是本体真实档位，别被「magpie 的 Levels 里没有」骗着过滤掉 ──
+  // 审查者提过「`ultra` 会被原样发出去，而 magpie 的 Levels 七项里没有它」。查过
+  // magpie 侧：`keptEfforts`（`internal/provider/modelprefs.go`）是
+  //   all := p.Known(model)                     // 对插件 provider = 我们发的 variants
+  //   if len(all) == 0 && !slices.Contains(Levels, e) { 报错 }
+  //   if len(all) > 0 && !slices.Contains(all, e)      { 报错 }
+  // ⇒ **白名单 Levels 只管「模型自己没声明档位」那种情况**；我们发了 variants，
+  //  `all` 就是那份 variants，`ultra` 在里面就合法。反过来，过滤掉 `ultra` 会让
+  //  上游真有 ultra 的模型少一档（`group.go` 的 `if ultra && … append "ultra"` 那条
+  //  补档路径还指望上游已经有 ultra）。
+  // 这条是**活断言**（真跑 openAiEfforts 看产出），不是查源码文本。
+  const ultra = openAiEfforts({ reasoning: { efforts: [{ id: 'ultra' }, { id: 'max' }] } })
+  ok(JSON.stringify(ultra) === JSON.stringify(['ultra', 'max']), '③ -9 ultra 原样保留（magpie 的白名单只对「没声明档位」生效）', JSON.stringify(ultra))
+
+  // ── ③ -3/③ -4/③ -10/③ -11：全量目录腿是另一趟（不走 modelsPayload） ──────
   const full = slice(CONTAINER, '  async refreshFullCatalog(', '\n  }\n')
   ok(/openAiEfforts\(/.test(stripComments(full)), '③ -3 全量目录腿也调 openAiEfforts（这条腿直接调 resolveModelInfo，不走 modelsPayload）')
   ok(/meta\.efforts\s*=/.test(full), '③ -4 全量目录腿也存了 meta.efforts')
@@ -178,15 +225,47 @@ console.log('\n③ 源码守卫')
   ok(/\.\.\.\(this\.modelMeta\.get\(row\.id\) \?\? \{\}\)/.test(stripComments(full)), '③ -10 全量目录腿是合并旧 meta，不是整体替换（否则会抹掉输入模态）')
   ok(!/const meta = \{\}/.test(stripComments(full)), '③ -11 全量目录腿没有退回「新建空 meta」')
 
+  // ── ③ -12…③ -15 全量腿的合并规则**真跑一遍** ──────────────────────────
+  // 审查者指出的「能力粘滞」：早先对集合型字段（`input` / `efforts`）用
+  // `Array.isArray(x) && x.length > 0` 作判据 ⇒ 上游把某模型的图片能力撤掉
+  // （`inputModalities` 变成空表）时什么都没写回去，旧的 `['text','image']`
+  // 原样留着，magpie 就允许往一个实际不收图的模型贴图。判据必须是
+  // `Array.isArray(x)`：**声明了就覆盖，哪怕空表**。
+  const fullBody = full.slice(full.indexOf('{') + 1)
+  // `openAiEfforts` 作为外层参数注入（内层函数闭包捕获它），`providers` 是内层函数自己的形参。
+  const runFull = new Function('openAiEfforts', `return async function (providers) {${fullBody}\n}`)(openAiEfforts)
+  async function fullOnce(oldMeta, info) {
+    const host = {
+      start: async () => {},
+      rpc: async () => ({ models: [{ id: 'x', name: 'X' }] }),
+      llm: { resolveModelInfo: async () => info },
+      log: () => {},
+      modelMeta: new Map(Object.entries(oldMeta)),
+      fullCatalog: [],
+      fullCatalogAt: null,
+    }
+    await runFull.call(host, ['astudio'])
+    return host.modelMeta.get('astudio/x')
+  }
+  const sticky = await fullOnce({ 'astudio/x': { input: ['text', 'image'], efforts: ['none', 'high'] } }, { inputModalities: [], reasoning: { efforts: [] } })
+  ok(JSON.stringify(sticky?.input) === '[]', '③ -12 上游撤掉图片能力（空表）⇒ 覆盖成空表，不粘着旧值', JSON.stringify(sticky?.input))
+  ok(JSON.stringify(sticky?.efforts) === '[]' && sticky?.reasoning === false, '③ -12b 档位撤成空表 ⇒ 存空表且 reasoning 转 false（不粘着已撤的 none/high）', JSON.stringify(sticky?.efforts))
+  const sticky2 = await fullOnce({ 'astudio/x': { input: ['text', 'image'], efforts: ['low', 'high'] } }, { inputModalities: ['text'], reasoning: { efforts: [{ id: 'low' }] } })
+  ok(JSON.stringify(sticky2?.input) === '["text"]', '③ -13 上游改成只收文本 ⇒ 覆盖成 ["text"]', JSON.stringify(sticky2?.input))
+  ok(JSON.stringify(sticky2?.efforts) === '["low"]', '③ -14 档位同样按声明覆盖（不粘着已撤的 high）', JSON.stringify(sticky2?.efforts))
+  ok(sticky2?.reasoning === true, '③ -15 还有档位 ⇒ reasoning 仍为 true')
+  const gone = await fullOnce({ 'astudio/x': { input: ['text', 'image'], efforts: ['low'] } }, {})
+  ok(JSON.stringify(gone?.input) === '["text","image"]', '③ -16 字段根本没返回 ⇒ 继承旧值（与「撤成空表」区分开）', JSON.stringify(gone?.input))
+
+  // ── modelEntry 的行为已由 ② 组直接调真函数覆盖，这里只留源码锚点 ──────
   const entry = slice(PLUGIN, 'function modelEntry(id, def, meta) {', '\n}\n')
-  ok(/efforts/.test(stripComments(entry)), '③ -5 modelEntry 读了 meta.efforts')
-  ok(/variants/.test(stripComments(entry)), '③ -6 modelEntry 写出了 variants')
-  ok(/\[e, \{\}\]/.test(stripComments(entry)), '③ -7 variants 的值是空对象（只提供键）')
+  ok(/variants/.test(stripComments(entry)), '③ -5 modelEntry 写出了 variants')
+  ok(/\[e, \{\}\]/.test(stripComments(entry)), '③ -6 variants 的值是空对象（只提供键）')
 
   // 回归锚点：这几处一旦被改回「只发布尔」，本文件必须变红。
   const bridge = fs.readFileSync(path.join(ROOT, 'src', 'llm-bridge.mjs'), 'utf8').replace(/\r\n/g, '\n')
-  ok(/export function openAiEfforts/.test(bridge), '③ -8 llm-bridge 导出了 openAiEfforts')
-  ok(/effortView\(/.test(stripComments(slice(bridge, 'export function openAiEfforts', '\n}\n'))), '③ -9 openAiEfforts 复用 effortView（不另写一份映射）')
+  ok(/export function openAiEfforts/.test(bridge), '③ -7 llm-bridge 导出了 openAiEfforts')
+  ok(/effortView\(/.test(stripComments(slice(bridge, 'export function openAiEfforts', '\n}\n'))), '③ -8 openAiEfforts 复用 effortView（不另写一份映射）')
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
