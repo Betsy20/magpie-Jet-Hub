@@ -1413,3 +1413,5 @@ docs/archive/          已下线的界面存档（`console-models.png` / `consol
 **遇到问题先分归属**：供应商适配不对、登录页打不开、续期算法报错、模型目录缺条目
 —— 这些是上游的问题，去[上游仓库](https://github.com/iJetLi/dsh-providers-hub)
 提；magpie 里装不上、账号行显示不对、控制台某个操作没反应 —— 才是本仓库的。
+
+> superagent 端到端探针：本行由 issue #4 的自动化流程追加，用于验证 issue → 改动 → PR 的完整链路（2026-10-31）。
