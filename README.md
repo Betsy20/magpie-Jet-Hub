@@ -194,11 +194,12 @@ IndexedDB 读取）。换法就是重跑上面那三条命令、把那 4 个文�
 | 2026-10-31 | 同上（未换快照） | 再补一层无损性：`refLines` 对「含 CR / 整体只有换行 / 结尾两个以上换行 / 行首行尾空白」四种形态退回双引号 + 转义，`blockScalarBody` 补「缩进比 cut 浅的行当空行」与「整块全空时 cut 取正无穷」，新增 `unescapeDouble()` 还原双引号转义。`tests/t-cred-upsert.mjs` 新增 ㉓（29 种值往返）与 ㉔（17 种读侧块标量夹具）与 ㉕–㉖（空的 `refs: {}` 段、段头带注释），481 项。另拿 700 组随机字符串做往返对账，又挖出两条：双引号标量的闭合判据数错了反斜杠奇偶（`\""` 被当成未闭合、吞掉后续行），条目正则的 `.` 吃不下 U+2028/U+2029（那条 ref 直接从解析结果里消失）。五审又测出三条：`blockScalarEnd` 的续行门槛硬编码 `/^ {3,}/` 与放宽后的 `[ \t]+` 不自洽（3/4 空格缩进下把同级兄弟 ref 吞进值里，污染值让 `JSON.parse` 抛错 ⇒ 账号有凭据却登不上）、裸 key 的续行一律读成空串（本体有值我们读成空）、以及一条把错误读法固化成正确行为的断言。四审测出三条「合法 YAML 输入 ⇒ 凭据全毁」：Unicode 空白行被 `trim()` 当空行（NBSP / 全角 / VT / FF / LS / BOM 六种全中招，值静默丢成空串、再写一次就把整份文件写坏）、`parseRefs` 只认恰好 2 空格缩进（1/3 空格的 refs 段读不到）、裸 key `A:` 后跟续行时 `unset` / 新增 `set` 把文件写坏 |
 | 2026-10-31 | 同上（未换快照） | 修快照脚本网关兜底分支的双重前缀：`/v1/models` 返回的 id **分段两种形态混着来**（实测 56 条里 28 条已带 `jet-hub-` 前缀、16 条还是本体名，两组完全不重叠），原来无条件过 `idOf()` 会把前 28 条拼成 `jet-hub-jet-hub-*`、只认前缀又会丢掉后 16 条。改成 `magpieIdOfSegment()` 并集判据，新增 `tests/t-snapshot-segment.mjs`（34 项） |
 | 2026-10-31 | 同上（未换快照） | 修「插件模型的推理强度改不动」：magpie 的下拉只认模型条目的 `variants` 键列表（宿主 `variants: Object.keys(m.variants ?? {})` → `plugins.go` 的 `c.Efforts = m.Variants`），而插件此前只发布了尔 `capabilities.reasoning: true`、把 `reasoning.openai_efforts` 压成了布尔。现在两条采集腿都留住档位数组（`meta.efforts`），`modelEntry()` 有档位才写 `variants`，私有档位名（`off`/`on`、`none`）经 vendor 的 `effortView()` 翻成规范名。新增 `tests/t-model-efforts.mjs`（55 项） |
+| 2026-10-31 | 同上（未换快照） | 修「从 GitHub 装的版本打不开控制台」：根 `package.json` 漏声明 `jose` / `undici`（`vendor/lib/oauth.js`、`vendor/lib/opencode-proxy.js` 各 import 一个，只写在上游那份 `vendor/package.json` 里），换机一加载就 `ERR_MODULE_NOT_FOUND`，容器不启动、控制台不存在。补进 `dependencies`，新增 `tests/t-deps.mjs` 扫 Node 侧全部源码的 import 守这条 |
 
 ## 安装
 
 ```bash
-# 1) 先装运行时依赖（vendor/ 里的本体靠根 node_modules 解析 @deepseek-ai/*）
+# 1) 先装运行时依赖（vendor/ 里的本体靠根 node_modules 解析 @deepseek-ai/* 与 jose / undici）
 npm install          # 或 bun install
 
 # 2) 装进 magpie 并登录
@@ -211,6 +212,64 @@ magpie plugin login jet-hub
 >
 > 换机器时把 `magpie-Jet-Hub` 换成自己的绝对路径即可。目录式安装是**直接引用**
 > （不复制、不建软链），所以改完代码 `magpie plugin list` 重载即生效。
+
+### 从 GitHub 装（或换机）
+
+`git clone` 下来的目录**没有 `node_modules`**（`.gitignore` 里就写着），而 magpie 的
+目录式安装是直接引用、**不替你装依赖**，所以必须先自己装一次：
+
+```bash
+git clone https://github.com/Betsy20/magpie-Jet-Hub.git
+cd magpie-Jet-Hub
+npm install          # 必须；跳过这步插件会在加载时崩，控制台也就不会出现
+magpie plugin add "$PWD"
+```
+
+也可以让 magpie 自己装（它会用自带 bun 按 `package.json` 的依赖树装）：
+
+```bash
+magpie plugin add github:Betsy20/magpie-Jet-Hub
+```
+
+> **曾经的真实事故（2026-10-31）**：根 `package.json` 漏声明 `jose` 与 `undici`
+> （`vendor/lib/oauth.js`、`vendor/lib/opencode-proxy.js` 各 import 一个），
+> 而它们只写在上游那份 `vendor/package.json` 里 —— 本机开发副本因为
+> `node_modules` 里早就装着（`npm ls --depth=0` 能看到一堆 `extraneous`，正是物证），
+> 一切正常；**换机/从 GitHub 装则一加载就**
+> `ERR_MODULE_NOT_FOUND: Cannot find package 'jose'`，插件起不来、内嵌容器不启动，
+> 表现就是「控制台打不开」。已补进 `dependencies`，并由
+> `tests/t-deps.mjs` 守着（扫 Node 侧源码的 import —— `index.mjs`、`src/**/*.mjs`、
+> `vendor/lib/**/*.js`、`scripts/`、`tests/`、以及根目录其它 `.mjs/.js/.cjs`
+> （将来加的构建脚本也算），漏声明即红；`page/` 与 `console/` 是浏览器
+> 侧代码，不在扫描集内，`vendor/lib/client/**` 是 `window.__ModuleLoader__` 的产物、
+> 依赖由 DSH 网页宿主注入，也排除）。
+>
+> 它要守的几件事（下面按重要性编号；`tests/t-deps.mjs` **文件头**的 ①–⑥ 是代码里的分组，
+> 顺序与这里不完全一致 —— 代码把「与 vendor 声明对齐 / `engines` / `peer` 字段」归在同一组，
+> 又把扫描集覆盖性单列在最前）：
+> ① **扫描集覆盖性** —— `index.mjs`、根目录其它脚本、`src/`、`vendor/lib/`、
+> `scripts/`、`tests/` 每个目录都得有文件；判据是「逐个目录 > 0」，不是「总数够大」，
+> 阈值式判据在某个目录被写错、整体仍超阈值时照样绿；
+> ② **运行时侧 import 的包必须在 `dependencies`** —— 不认 `devDependencies`（宿主只按
+> `dependencies` 装），工具侧（`scripts/`、`tests/`）才允许只进 dev；反向也查一遍
+> 「只在 devDependencies 里、却被运行时代码 import」；
+> ③ **与 vendor 声明对齐** —— `vendor/package.json` 的 **`dependencies`**（不含
+> `devDependencies`，那些是上游自己构建用的）声明过的包，外层必须也声明，且
+> **版本区间逐字相同**；并且第三方包只认 `dependencies`，`peerDependencies` 只留给
+> `@deepseek-ai/*`（那些由 magpie 宿主注入，本就是 peer）；
+> ④ **`engines` 不比「写了」比「值」** —— 必须与 vendor 逐字相同
+> （node `^22.19.0 || >=24.0.0`），写成 `>=18` 会红；
+> ⑤ **禁止变量形式的动态 import**（`await import(spec)`）—— 这种写法静态扫描看不见，
+> 往数组里加一个没声明的包守卫照样绿、换机才炸。判的是**实参表达式**，
+> `pathToFileURL(...)`、`path.join(...)` 这类路径构造放行；
+> ⑥ **`SEAM_PACKAGES` 双向对照** —— `src/container.mjs` 那个数组与它下面两句字面量
+> `await import('包名')` 必须同步：数组里有的必须真被 import 看见（否则守卫看不见它），
+> 代码里 import 的也必须登记进数组（否则「加包忘登记」这个入口没人守）。
+>
+> 另有两条**只提示不失败**：`dependencies` 里没被源码直接 import 的（多半是传递依赖，
+> 删前 `npm ls --depth=0` 复核）、以及本机 `node_modules` 里暂时解析不到的。
+>
+> 装完可以 `npm ls --depth=0` 对一眼，别让预发布区间（`@deepseek-ai/dsh-*` 是 `^0.2.1-rc.2`）随上游漂走。
 
 ## 23 个供应商，不是一个
 
@@ -1268,14 +1327,14 @@ scripts/shot-console.cjs     控制台七标签实拍 + DOM 断言（Edge headle
 scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（`_iso.mjs` 公共桩 + 23 个：t-writerefs / t-cred-upsert /
+tests/                 验证脚本（`_iso.mjs` 公共桩 + 24 个：t-writerefs / t-cred-upsert / t-deps /
                        t-dead-account / t-account-pin / t-account-cache / t-usage /
                        t-checkin / t-options / t-attachments / t-plugin / t-models-nowait /
                        t-seed-auth / t-import-backup / t-login-reclaim / t-new-account /
                        t-magicrew-creds / t-snapshot-segment / t-model-efforts /
                        t-rpc-cover /
                        t-console / t-direct / t-gateway.py / ui-check.cjs；
-                       前 19 个是 `scripts/test-all.mjs` 的 UNIT，后 4 个要 magpie / web 在跑）
+                       前 20 个是 `scripts/test-all.mjs` 的 UNIT，后 4 个要 magpie / web 在跑）
 LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
 vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
 docs/screenshot.png    侧栏页面实拍（人工从 `tests/ui-check.cjs` 的产物里挑一张拷入）
