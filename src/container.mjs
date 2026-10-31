@@ -71,6 +71,19 @@ const pinnedScope = new AsyncLocalStorage()
  */
 export const DEFAULT_USER_GATEWAY = 'http://127.0.0.1:3425'
 
+/**
+ * 本体依赖的 seam 包清单（`ctx.plugin` 之前在 `start()` 里逐个装上）。
+ *
+ * 它存在的原因是**可被静态校验**：`tests/t-deps.mjs` 会读这个数组，逐项要求
+ * 它出现在「被字面量 import 的包」里 —— 只往这里加一项、却没加对应的
+ * `await import('包名')` 字面量，测试直接红。
+ *
+ * 换成 `for (const spec of SEAM_PACKAGES) await import(spec)` 会更优雅，
+ * 但那样依赖守卫就看不见这些包了（变量形式的动态 import 无法静态分析），
+ * 换机时才会 `ERR_MODULE_NOT_FOUND` —— 2026-10-31 的 jose/undici 事故就是同款形状。
+ */
+export const SEAM_PACKAGES = ['@deepseek-ai/dsh-commands', '@deepseek-ai/dsh-llm']
+
 export class JetHubContainer {
   constructor(options = {}) {
     // ⚠️ 两个路径语义**不同**（2026-10-27 实测，卡住一轮）：
@@ -180,10 +193,16 @@ export class JetHubContainer {
     //    `registerJetHubRpc` 会 `ctx.get('connection')`，拿不到就只 warn 一句、
     //    一条管理路由都不注册（账号/登录/积分/模型/备份全部消失，只剩转发）。
     ctx.plugin(ConnectionSeam)
-    for (const spec of ['@deepseek-ai/dsh-commands', '@deepseek-ai/dsh-llm']) {
-      const m = await import(spec)
-      ctx.plugin(m.default ?? m)
-    }
+    //    ⚠️ 下面两句必须写成**字面量** import，不能 `for (const spec of SEAM_PACKAGES) await import(spec)`：
+    //    变量形式的动态 import 对静态扫描不可见（`tests/t-deps.mjs` 的三条正则都抓不到），
+    //    于是以后往那个数组里加一个没声明的包时，依赖守卫照绿、换机却 ERR_MODULE_NOT_FOUND
+    //    —— 正是 jose/undici 那次事故的同款入口。
+    //    `SEAM_PACKAGES` 与这两句**必须同步**：t-deps 会读这个数组，逐项要求它出现在
+    //    「被字面量 import 的包」里，只往数组加、不加字面量 import 会直接红。
+    const seamCommands = await import('@deepseek-ai/dsh-commands')
+    ctx.plugin(seamCommands.default ?? seamCommands)
+    const seamLlm = await import('@deepseek-ai/dsh-llm')
+    ctx.plugin(seamLlm.default ?? seamLlm)
     await new Promise((r) => setTimeout(r, 300))
 
     // 2.5) 附件服务（`ctx.attachments`）：本体收发图片全走它
