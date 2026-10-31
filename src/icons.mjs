@@ -14,11 +14,12 @@
  * 3. **自绘图形**：没有对应厂商的渠道（聚合路由、自研渠道等），按品牌色 + 能
  *    认出来的形状现画。
  *
- * 以前 24 个 provider 全用插件自己那个六向星，供应商列表里一眼看不出谁是谁；
+ * 以前所有 provider 全用插件自己那个六向星，供应商列表里一眼看不出谁是谁；
  * 现在每家一个。
  */
 
 import { ZCODE_PNG_BASE64 } from './zcode-icon.mjs'
+import { MAGICREW_PNG_BASE64 } from './magicrew-icon.mjs'
 
 /**
  * 28×28 画布 + 圆角底，里面嵌一张 24×24 的品牌图。
@@ -172,7 +173,6 @@ const ZCODE_URI = `data:image/png;base64,${ZCODE_PNG_BASE64}`
 
 /** provider → SVG。 */
 const PROVIDER_SVG = {
-  aggregate: AGGREGATE,
   // Accio 是阿里的业务，用阿里 logo
   accio: badge(ALIBABA),
   // AStudio 属讯飞
@@ -187,9 +187,10 @@ const PROVIDER_SVG = {
   codely: CODELY,
   gemini: badge(GEMINI),
   // 自动选号没有对应厂商
-  'jet-hub-auto': BRAND,
   lobsterai: LOBSTERAI,
   loomy: LOOMY,
+  // 超级麦吉只有官方 PNG（favicon 就是那个卡通形象），见 src/magicrew-icon.mjs
+  magicrew: `data:image/png;base64,${MAGICREW_PNG_BASE64}`,
   minimax: badge(MINIMAX),
   minimaxintl: intl(badge(MINIMAX)),
   modelscope: badge(MODELSCOPE),

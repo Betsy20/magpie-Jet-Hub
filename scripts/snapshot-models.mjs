@@ -41,6 +41,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { DSH_PROVIDERS, idOf } from '../src/plugin.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const OUT = path.join(HERE, '..', 'page', 'models.js')
@@ -107,39 +108,66 @@ function candidates() {
 }
 
 /**
- * 本体 provider → magpie provider id。
+ * 本插件实际注册成 magpie provider 的那些 id。
  *
- * ⚠️ 只有 `jet-hub-auto` 特殊：它在 magpie 里叫 `jet-hub`（见 src/plugin.mjs 的 idOf）。
- * 其余一律 `jet-hub-<本体名>`。这里必须与 idOf 保持一致，否则页面上的 id 复制出去用不了。
+ * ⚠️ 宿主 `/__meta` 给的是**本体全部** provider 的模型目录（含 `aggregate` /
+ * `jet-hub-auto` 两个路由组），但插件只注册其中 23 家真渠道。快照必须跟着插件走，
+ * 否则页面上会列出 `jet-hub-aggregate/…` 这种复制出去 404 的 id。
+ * 白名单直接取 `src/plugin.mjs` 的 `DSH_PROVIDERS`（不抄一份），`idOf` 也复用它的
+ * —— 那边改了这里自动跟着变。
  */
-const idOf = (dsh) => (dsh === 'jet-hub-auto' ? 'jet-hub' : `jet-hub-${dsh}`)
+const REGISTERED = new Set(DSH_PROVIDERS.map(idOf))
 
-/** magpie provider id → [显示名, 一句话说明]。 */
+/**
+ * 把「本体 provider 名」或「已带前缀的 magpie id」归一成 magpie 侧分段；不是本插件的就返 null。
+ *
+ * 为什么不能只用其中一种判据：网关 `/v1/models` 同时会返回两种形态（实测 2026-10-31：
+ * `jet-hub-magicrew/…` 这类 28 条 + `workbuddy/…` 、`officeace/…` 这类 16 条），而两组**不重叠**。
+ *
+ * @param {string} seg id 里 `/之前的那一段
+ * @returns {string|null}
+ */
+function magpieIdOfSegment(seg) {
+  const s = String(seg || '')
+  if (s === '') return null
+  if (REGISTERED.has(s)) return s          // ① 已经是 magpie id
+  const withPrefix = idOf(s)
+  if (REGISTERED.has(withPrefix)) return withPrefix // ② 本体名 → 加前缀
+  return null                               // 不是本插件的（group / auto / workbuddy-ai / trae-cn …）
+}
+
+/**
+ * magpie provider id → [显示名, 一句话说明]。
+ *
+ * ⚠️ 显示名必须与 `src/plugin.mjs` 的 `NAMES`（magpie 供应商列表用的那套）逐字一致：
+ * 同一家在这里叫 `Accio`、在供应商列表里叫 `Accio（阿里）`，用户会以为是两个东西。
+ * 那边没导出（`index.mjs` 只许导插件工厂），所以只能抄一份 —— `tests/t-new-account.mjs`
+ * 第 10 节有一致性断言盯着，改一处漏另一处会报红。
+ */
 const NAMES = {
-  'jet-hub':        ['Jet Hub · 自动选号', '本体自带的按额度自动择优路由'],
-  'jet-hub-aggregate': ['Jet Hub · 聚合', '本体内部的聚合路由组'],
-  'jet-hub-codearts': ['Jet Hub · CodeArts', '华为云 CodeArts（STS 临时凭据）'],
-  'jet-hub-workbuddy': ['Jet Hub · WorkBuddy', 'WorkBuddy 账号池'],
-  'jet-hub-qoder':  ['Jet Hub · Qoder', 'Qoder'],
-  'jet-hub-qodercn': ['Jet Hub · Qoder CN', 'Qoder 国内站'],
-  'jet-hub-zcode':  ['Jet Hub · ZCode', 'ZCode（GLM 系列）'],
-  'jet-hub-trae':   ['Jet Hub · Trae', 'Trae'],
-  'jet-hub-autoclaw': ['Jet Hub · AutoClaw', '智谱 AutoClaw'],
-  'jet-hub-buddy':  ['Jet Hub · Buddy', 'Buddy'],
-  'jet-hub-cline':  ['Jet Hub · Cline', 'Cline'],
-  'jet-hub-loomy':  ['Jet Hub · Loomy', 'Loomy'],
-  'jet-hub-lobsterai': ['Jet Hub · LobsterAI', 'LobsterAI'],
-  'jet-hub-modelscope': ['Jet Hub · ModelScope', '魔搭社区'],
-  'jet-hub-officeace': ['Jet Hub · OfficeAce', '华为云 OfficeAce'],
-  'jet-hub-astudio': ['Jet Hub · AStudio', '讯飞 AStudio'],
-  'jet-hub-opencode': ['Jet Hub · OpenCode', 'OpenCode'],
-  'jet-hub-raccoon': ['Jet Hub · Raccoon', 'Raccoon'],
-  'jet-hub-minimaxintl': ['Jet Hub · MiniMax 国际', 'MiniMax 国际版'],
-  'jet-hub-minimax': ['Jet Hub · MiniMax', 'MiniMax 国内站'],
-  'jet-hub-autoclawintl': ['Jet Hub · AutoClaw 国际', '智谱 AutoClaw 国际版'],
-  'jet-hub-gemini': ['Jet Hub · Gemini', 'Google Gemini'],
-  'jet-hub-accio':  ['Jet Hub · Accio', '阿里 Accio'],
-  'jet-hub-codely': ['Jet Hub · Codely', 'Codely'],
+  'jet-hub-accio':      ['Accio（阿里）', '阿里 Accio'],
+  'jet-hub-astudio':    ['AStudio（讯飞）', '讯飞 AStudio'],
+  'jet-hub-autoclaw':   ['AutoClaw（智谱）', '智谱 AutoClaw'],
+  'jet-hub-autoclawintl': ['AutoClaw 国际', '智谱 AutoClaw 国际版'],
+  'jet-hub-buddy':      ['Buddy', 'Buddy'],
+  'jet-hub-cline':      ['Cline', 'Cline'],
+  'jet-hub-codearts':   ['CodeArts（华为云）', '华为云 CodeArts（STS 临时凭据）'],
+  'jet-hub-codely':     ['Codely', 'Codely'],
+  'jet-hub-gemini':     ['Gemini', 'Google Gemini'],
+  'jet-hub-lobsterai':  ['LobsterAI', 'LobsterAI'],
+  'jet-hub-loomy':      ['Loomy', 'Loomy'],
+  'jet-hub-magicrew':   ['超级麦吉', '超级麦吉（Magicrew）'],
+  'jet-hub-minimax':    ['MiniMax', 'MiniMax 国内站'],
+  'jet-hub-minimaxintl': ['MiniMax 国际', 'MiniMax 国际版'],
+  'jet-hub-modelscope': ['ModelScope（魔搭）', '魔搭社区'],
+  'jet-hub-officeace':  ['OfficeAce（华为云）', '华为云 OfficeAce'],
+  'jet-hub-opencode':   ['OpenCode', 'OpenCode'],
+  'jet-hub-qoder':      ['Qoder', 'Qoder'],
+  'jet-hub-qodercn':    ['Qoder 国内', 'Qoder 国内站'],
+  'jet-hub-raccoon':    ['Raccoon', 'Raccoon'],
+  'jet-hub-trae':       ['Trae', 'Trae'],
+  'jet-hub-workbuddy':  ['WorkBuddy', 'WorkBuddy 账号池'],
+  'jet-hub-zcode':      ['ZCode（GLM）', 'ZCode（GLM 系列）'],
 }
 
 /** 缓存里按本体 id（`<provider>/<model>`）索引的 name / disabled，只用来补展示字段。 */
@@ -221,6 +249,8 @@ async function main() {
     catalogAt = String(chosen.meta.fullCatalogAt ?? '')
     source = `宿主 :${portOf(chosen.url)}/__meta（上游全量）`
     for (const { provider, bare } of rowsFromMeta(chosen.meta)) {
+      // 宿主给的是本体全部 provider；插件没注册的直接跳过（见 REGISTERED 注释）
+      if (!REGISTERED.has(idOf(provider))) continue
       const id = `${idOf(provider)}/${bare}`
       const hit = cache.map.get(`${provider}/${bare}`)
       if (!hit) missingDetail += 1
@@ -236,7 +266,10 @@ async function main() {
     console.log('  ⚠ 没连上任何控制台宿主，退回缓存 / 网关，控制台地址可能不对')
     let rows = []
     if (cache.map.size > 0) {
-      rows = [...cache.map.values()].map((r) => ({ id: String(r.id), name: r.name, disabled: r.disabled }))
+      rows = [...cache.map.values()]
+        .map((r) => ({ id: String(r.id), name: r.name, disabled: r.disabled }))
+        // 缓存里也有路由组的模型，同样按插件注册的白名单过滤
+        .filter((r) => REGISTERED.has(idOf(String(r.id).split('/')[0])))
       catalogAt = cache.at
       source = 'plugin-cache（上游全量，没连上控制台）'
     } else {
@@ -245,15 +278,29 @@ async function main() {
       if (!res.ok) throw new Error(`GET ${gateway}/v1/models → HTTP ${res.status}`)
       const body = await res.json()
       const all = Array.isArray(body?.data) ? body.data : []
-      rows = all.map((m) => ({ id: String(m?.id || ''), name: '', disabled: false }))
+      // ⚠️ 网关返回的分段**两种形态都有**（2026-10-31 实测 56 条）：
+      //   ① 已是 magpie 侧形态：`jet-hub-magicrew/…`、`jet-hub-workbuddy/…`（共 28 条）；
+      //   ② 仍是本体名：`workbuddy/…`、`officeace/…`、`zcode/…`（共 16 条）。
+      // 两组**不重叠**，所以判据必须是并集：先试「分段本身在白名单里」（①），
+      // 再试「加上前缀后在白名单里」（②）。只用其一会少收一半：
+      // 只用② 就是上一版的 bug（`idOf('jet-hub-x')` 拼成 `jet-hub-jet-hub-x`，
+      // ① 那 28 条全丢）；只用① 会把 ② 那 16 条全丢。
+      rows = all
+        .map((m) => ({ id: String(m?.id || ''), name: '', disabled: false }))
+        .filter((r) => magpieIdOfSegment(String(r.id).split('/')[0]) !== null)
       source = 'gateway（仅当前可用）'
     }
     for (const r of rows) {
       const raw = String(r?.id ?? '')
       const i = raw.indexOf('/')
       if (i <= 0) continue
-      byId.set(`${idOf(raw.slice(0, i))}/${raw.slice(i + 1)}`, {
-        id: `${idOf(raw.slice(0, i))}/${raw.slice(i + 1)}`,
+      // 同上：分段可能已带前缀，也可能还是本体名，由 `magpieIdOfSegment()` 统一归一。
+      const seg = raw.slice(0, i)
+      const head = magpieIdOfSegment(seg)
+      if (head === null) continue
+      const magpieId = `${head}/${raw.slice(i + 1)}`
+      byId.set(magpieId, {
+        id: magpieId,
         upstream: raw,
         name: r?.name ?? '',
         disabled: r?.disabled === true,

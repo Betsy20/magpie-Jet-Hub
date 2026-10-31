@@ -13,7 +13,7 @@ const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z
 const ROOT = path.dirname(HERE)
 const TESTS = path.join(ROOT, 'tests')
 
-const UNIT = ['t-writerefs.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-import-backup.mjs', 't-login-reclaim.mjs', 't-new-account.mjs', 't-rpc-cover.mjs']
+const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-import-backup.mjs', 't-login-reclaim.mjs', 't-new-account.mjs', 't-magicrew-creds.mjs', 't-snapshot-segment.mjs', 't-rpc-cover.mjs']
 const ENV = [
   { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
   // 直连层回归：真起容器跑一次 chat（流式 + 非流式）。取代了原来「内嵌网关端口」
@@ -117,16 +117,21 @@ for (const c of cases) {
   const ms = r.ms
   const out = r.out
   if (r.status === 0) {
+    // 「整个用例没法跑」用 `NOT RUN`；「用例跑了但有几节真实断言被跳」
+    // 用 `SKIP-LIVE`。后者不能把整个用例算成跳过（它的离线断言是真跑了的），
+    // 但也不能就此不声不响——那会把「0 跳过」写成一个假的清爽结论。
+    const liveSkipped = (out.match(/SKIP-LIVE/g) || []).length
+    const liveNote = liveSkipped > 0 ? `（另有 ${liveSkipped} 节真实资源断言未跑，设 JET_HUB_LIVE=1 才会跑）` : ''
     if (out.includes('NOT RUN')) {
       rows.push(['-', c.label, '跳过（环境不具备）'])
       skip++
     } else if (retried) {
-      rows.push(['✓', c.label, `${ms} ms（重试后通过）`])
+      rows.push(['✓', c.label, `${ms} ms（重试后通过）${liveNote}`])
       pass++
       const tail = firstOut.trim().split('\n').slice(-8).join('\n')
       console.log(`\n--- ${c.file} 第 1 次失败、重试通过（不稳定，需查） ---\n${tail}\n`)
     } else {
-      rows.push(['✓', c.label, `${ms} ms`])
+      rows.push(['✓', c.label, `${ms} ms${liveNote}`])
       pass++
     }
   } else {

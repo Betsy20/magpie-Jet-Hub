@@ -17,7 +17,7 @@
  *   ~/.dsh/jet-hub/state.json  ← accounts[] 账号池 + disabledModels 黑名单
  *
  * 账号池是本体内嵌容器的**唯一**账号来源；凭据是它发请求时 `resolve(ref)` 取
- * token 的唯一来源。两者都写对了，magpie 里这 24 个 provider 才真的能用备份
+ * token 的唯一来源。两者都写对了，magpie 里这 23 个 provider 才真的能用备份
  * 里的账号跑起来。最后再摊平一次 `plugin-auth.json`（复用 `seed-auth.mjs`），
  * magpie 的账号卡片上就能看到备份里带了谁。
  *

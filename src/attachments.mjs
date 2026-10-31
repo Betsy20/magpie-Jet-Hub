@@ -21,7 +21,7 @@
 //   媒体类型是**硬校验**（声明与字节不符要被拒，不能盲信请求里的 mime），
 //   且**任何失败必须抛错** —— 静默丢图会让用户以为模型看到了图。
 //
-// 出站 `vendor/lib/index.js:340` `makeReadImage()`：
+// 出站 `vendor/lib/index.js:346` `makeReadImage()`：
 //   `attachments.readImage(ref)` → `{ data, ref: { mediaType, … } }`（读回原字节）
 //   `attachments.readImageRequest(ref, target)` 可选，**不可用一律返回
 //   `undefined`**（调用方据此回退原图；缩放只是优化，不是请求的前置条件）。
@@ -391,7 +391,7 @@ export class JetHubAttachmentStore {
    * 请求版本（缩放）—— 明确不做。
    *
    * 返回 `undefined` 是本体写好的回退信号：适配器改用 `readImage` 发原图
-   * （`vendor/lib/index.js:354` 注释与 `vendor/lib/image-budget.js` 都按这条走）。
+   * （`vendor/lib/index.js:374` `makeReadImageRequest()` 与 `vendor/lib/image-budget.js` 都按这条走）。
    * 插件不引 native 图像库，所以这里永远没有「更小的版本」可给。
    */
   async readImageRequest() {

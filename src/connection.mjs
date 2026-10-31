@@ -1,7 +1,7 @@
 // connection 接缝：本体的 Jet Hub 管理 API 靠 DSH 的 `connection.fetch.register()` 注册。
 //
 // 为什么需要它（真跑验过，缺了就「全部功能」全部消失）：
-//   vendor/lib/jet-hub-rpc.js:1455
+//   vendor/lib/jet-hub-rpc.js:1535
 //     const connection = ctx.connection ?? ctx.get('connection')
 //     if (!connection || typeof connection.fetch?.register !== 'function') {
 //       ctx.logger.warn('[jet-hub] connection.fetch not available, RPC endpoints not registered')

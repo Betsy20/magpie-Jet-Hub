@@ -86,8 +86,9 @@ function bare(id) {
   const s = String(id || '')
   const seg = s.split('/')[0]
   if (!isOurs(seg)) return s
-  const magpieId = seg === 'jet-hub' ? 'jet-hub' : seg.slice('jet-hub-'.length)
-  const upstream = magpieId === 'jet-hub' ? 'jet-hub-auto' : magpieId
+  // 两个路由组（本体 `aggregate` / `jet-hub-auto`）不注册成 magpie provider，
+  // 所以这里只有 `jet-hub-<本体名>` 一种形态，剥掉前缀就是本体 id。
+  const upstream = seg.slice('jet-hub-'.length)
   return `${upstream}/${s.slice(seg.length + 1)}`
 }
 

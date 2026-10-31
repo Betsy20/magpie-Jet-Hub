@@ -1,7 +1,7 @@
 // cordis 容器宿主：把 deepseek-harness-codearts 插件本体（npm 包
 // `deepseek-harness-codearts` / 仓库 dsh-providers-hub）原样装进一个 cordis 容器。
 //
-// 为什么这样做：本体自带 24 个 provider、账号池、静默续期、积分选号、模型目录、
+// 为什么这样做：本体自带 25 个 provider、账号池、静默续期、积分选号、模型目录、
 // Jet Hub 的登录流程 —— 这些全部原样复用，一行都不重写。
 //
 // ⚠️ **不开 HTTP 网关**（本次改动）：本体的 OpenAI 兼容网关
@@ -263,7 +263,7 @@ export class JetHubContainer {
     // 而实际上健康账号完全可用。
     //
     // ⚠️ **必须等网关就绪后再装**：`ctx.accountPool` 由本体的 `apply()` 里
-    // `ctx.provide('accountPool', pool)` 提供（vendor/lib/index.js:5437），而
+    // `ctx.provide('accountPool', pool)` 提供（vendor/lib/index.js:5712），而
     // `ctx.plugin(mod)` 只是排期、apply 是异步的。装早了 `ctx.accountPool` 还是
     // undefined，补丁静默失效（实测踩过一次：补丁装了但选号仍是死号）。
     //
@@ -384,8 +384,8 @@ export class JetHubContainer {
     // ① `refreshable` 恒 false：loomy 服务端根本没有 refresh 端点，
     //    `vendor/lib/loomy-auth.js:34-37` 把这条写成了「诚实标记」——它描述的是
     //    「本产品没有续期这回事」，不是「这个号失效了」。而且它在登录返回值里
-    //    无条件写死（`loomy-auth.js:160` / `:189`，再由 `jet-hub-rpc.js:3460` /
-    //    `:4846` 落池）⇒ 池里每一个 loomy 账号都是 refreshable:false。
+    //    无条件写死（`loomy-auth.js:160` / `:189`，再由 `jet-hub-rpc.js:3976` 那条
+    //    `pool.addAccount` 落池）⇒ 池里每一个 loomy 账号都是 refreshable:false。
     // ② `expires_at` 是**本地推算的假日期**：服务端响应不带到期时间戳，
     //    `loomy-auth.js:198-206 buildCredential` 按 `Date.now() + 14 天` 自己算
     //    （`loomy-oauth.js:35 LOOMY_SESSION_TTL_SECONDS = 1_209_600`）。
@@ -408,15 +408,16 @@ export class JetHubContainer {
     //    access_token（astudio-auth.js:582-584）或续期到终态错误（:597-600）
     //    时就写 false。⇒ 别拿「无 refreshableOf」当它的安全原因，那是一条错腿
     //    （2026-10-28 更正）。
-    //  - officeace：登录成功即回填 `refreshable: true`（jet-hub-rpc.js:2551）
-    //    ⇒ 第一腿就不过；占位条目虽写 false（:4032），但它不带 expiresAt。
-    //  - codely：`refreshable` 恒 false（续期未接线，jet-hub-rpc.js:4371），
-    //    但 expiresAt 只在 JWT 自带 exp 时才写（:4370）——写了且已过 = 真的
+    //  - officeace：登录成功即回填 `refreshable: true`（jet-hub-rpc.js:2774）
+    //    ⇒ 第一腿就不过；占位条目虽写 false（:4574），但它不带 expiresAt。
+    //  - codely：`refreshable` 恒 false（续期未接线，jet-hub-rpc.js:4913），
+    //    但 expiresAt 只在 JWT 自带 exp 时才写（:4912）——写了且已过 = 真的
     //    不可用，判死是正确行为。
     //  - modelscope / opencode / zcode：落池条目都没有 expiresAt —— 魔搭的
     //    `expiresAtOf` 虽登记了（modelscope-auth.js:48），但 API Key 默认长期
     //    有效、凭据里多数没有 `expires_at`；opencode 是匿名占位（opencode-
-    //    auth.js:183）、zcode 是「JWT 无 exp」的静态凭据（jet-hub-rpc.js:3843）。
+    //    auth.js:183）、zcode 是「JWT 无 exp」的静态凭据（见 `zcode-auth.js` 的
+    //    `startLogin`，落池条目不带 expiresAt）。
     if (DEAD_JUDGE_UNTRUSTED.has(entry?.provider)) return false
     if (entry?.refreshable !== false) return false
     const at = entry?.expiresAt
@@ -436,7 +437,7 @@ export class JetHubContainer {
    * - 请求选号里有一批家走 `vendor/lib/credential-resolver.js:148 candidatesOf`
    *   → `pool.listAccountsByProvider`，**不经过这两个方法**，即本过滤对它们无效
    *   （loomy 的请求路径就在这批里）。
-   * - 但 `vendor/lib/index.js:2712` 与 `:2726` 会为「凭据健康探测 / 续期」与
+   * - 但 `vendor/lib/index.js:2718` 与 `:2732` 会为「凭据健康探测 / 续期」与
    *   「远端模型表」调 `getAvailableAccount(LOOMY.id, '')` —— 那两条**走这里**。
    *   所以 loomy 的豁免不是可有可无的：没有它，这两条会拿到 `null` 并落到
    *   全池刷新或 `LOOMY.defaultCredentialRef` 兜底。
@@ -672,7 +673,7 @@ export class JetHubContainer {
           })
         }
       } catch (e) {
-        // 路由组（jet-hub-auto / aggregate）本体里没有自己的目录，失败是正常的
+        // 少数渠道本机没登录过 / 路由组没有自己的目录时 `model.list` 会失败，是正常的
         this.log(`拉 ${p} 的全量目录失败：${e?.message ?? e}`)
       }
     }

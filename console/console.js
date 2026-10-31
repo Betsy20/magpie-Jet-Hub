@@ -536,10 +536,10 @@ function closeLogin() {
  * （实测传 provider:'modelscope' / 'opencode' 回 `unknown provider: xxx`），
  * 只能走各自的前缀改道方法 `*.addAccount`。
  *
- * 官方客户端也这么选：vendor/lib/client/jet-hub.js 的 createAccount() 在
- * `vendor/lib/client/jet-hub.js:8073`（`if (provider === "opencode")`）与
- * `:8077`（`if (provider === "modelscope")`）两处都提前调
- * `setKeyModal({ provider, error: "" })`（分别在 `:8074` / `:8078`）然后 return，
+ * 官方客户端也这么选：vendor/lib/client/jet-hub.js 的 createAccount()（`:8642`）在
+ * `vendor/lib/client/jet-hub.js:8647`（`if (provider === "opencode")`）与
+ * `:8651`（`if (provider === "modelscope")`）两处都提前调
+ * `setKeyModal({ provider, error: "" })`（分别在 `:8648` / `:8652`）然后 return，
  * 根本不到 account.create —— 补 create 分支等于让一个「建占位号 + 回 loginUrl +
  * login.poll 轮询」的方法再长出两套没有 poll 的语义，还得把两份 KEY_PATTERN
  * 校验复制一遍。控制台自己的入口自己的坑自己填，不动 src/。
@@ -714,7 +714,7 @@ async function rotateFingerprint(accountId) {
  * 「配了一个空地址」）。
  *
  * ⚠️ `qodercn` 没有自己的 `qodercn.setProxy`：前缀改道只认 `qoder.`
- * （vendor/lib/jet-hub-rpc.js:2936 `method.startsWith('qoder.')`，而
+ * （vendor/lib/jet-hub-rpc.js:3159 `method.startsWith('qoder.')`，而
  * `'qodercn.setProxy'.startsWith('qoder.')` 为 false）。但 `setQoderProxy`
  * 是按 accountId 定位的，所以中国版账号照样能设；只有 `testProxy` 需要把
  * `provider` 传 `qodercn` 才会选到中国站产品（qoder-rpc.js:56 productOf）。
@@ -1566,7 +1566,11 @@ async function doImport(btn) {
 
 // 路由组不是真渠道：它们没有自己的账号，模型是「从别家挑一个」。
 // 放进下拉时排到最后，否则默认选中它 → 账号页空、模型页只剩聚合目录。
-const ROUTE_GROUPS = new Set(['aggregate', 'jet-hub-auto', 'auto'])
+//
+// ⚠️ 2026-10-31：`aggregate` / `jet-hub-auto` 已不再注册成 magpie provider，
+// 所以这个集合对现在的 provider 列表是空操作。留着是为了将来本体若再引入
+// 「不是真渠道」的 provider 时，直接往这里加一个名字就能继续排序。
+const ROUTE_GROUPS = new Set([])
 
 function orderedProviders() {
   const real = META.providers.filter((p) => !ROUTE_GROUPS.has(p.id))

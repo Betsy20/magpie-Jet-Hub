@@ -10,7 +10,7 @@
  *
  * magpie 宿主 `servers(mod)` 会取模块导出的**每一个函数**，`auths()` 再按
  * `hooks.auth.provider` 建映射 —— 所以一个插件包导出 N 个插件工厂，就能注册
- * N 个 provider id。本文件对本体里的 24 个 provider 各生成一个工厂。
+ * N 个 provider id。本文件对本体里**除两个路由组之外**的 23 个 provider 各生成一个工厂。
  *
  * ## 架构
  *
@@ -19,7 +19,7 @@
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
- *   └─ …（24 个）                     ┘
+ *   └─ …（23 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
  *             └─ 直连本体 llm：ctx.llm.stream()（src/llm-bridge.mjs）
  *                  └─ 各 provider 的真实上游
@@ -29,8 +29,8 @@
  * `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以
  * `container.forward()` 在进程内就完成了整件事 —— 不占端口、不需要 apiKey。
  *
- * ⚠️ 容器**必须模块级共享**：24 个插件工厂各自 new 一个容器的话，会拉起 24 个
- * cordis（24 份账号池 + 24 份模型目录），冷启动直接炸。
+ * ⚠️ 容器**必须模块级共享**：23 个插件工厂各自 new 一个容器的话，会拉起 23 个
+ * cordis（23 份账号池 + 23 份模型目录），冷启动直接炸。
  *
  * ## 凭据从哪来
  *
@@ -65,11 +65,15 @@ export const DISPLAY_NAME = 'Jet Hub'
 /**
  * 本体里的 provider（顺序即页面上的顺序）。
  *
- * `jet-hub-auto` 是本体自己的自动选号路由，它的 magpie id 直接用 `jet-hub`
- * （否则会变成 `jet-hub-jet-hub-auto`，太绕）。
+ * ⚠️ 这里**不含** `aggregate`（聚合路由）与 `jet-hub-auto`（自动选号）这两个路由组。
+ * 它们不是真渠道：没有自己的账号池、没有自己的模型目录，`account.list` /
+ * `credits.balances` 一律回 `unknown provider`，在 magpie 里只能是一张永远没有
+ * 账号、也永远选不了具体模型的空卡，所以不注册。
+ *
+ * 本体内部照样用它们做择优路由，只是本插件不再把它们注册成 magpie provider ——
+ * 真渠道的请求仍然由本体按到期 / 额度在池内自动挑选，行为不受影响。
  */
 export const DSH_PROVIDERS = [
-  'aggregate',
   'accio',
   'astudio',
   'autoclaw',
@@ -79,9 +83,9 @@ export const DSH_PROVIDERS = [
   'codearts',
   'codely',
   'gemini',
-  'jet-hub-auto',
   'lobsterai',
   'loomy',
+  'magicrew',
   'minimax',
   'minimaxintl',
   'modelscope',
@@ -100,7 +104,6 @@ export const DSH_PROVIDERS = [
  * 没登记的退回原始 id（宁可显示 `foo` 也别显示空白）。
  */
 const NAMES = {
-  aggregate: '聚合路由',
   accio: 'Accio（阿里）',
   astudio: 'AStudio（讯飞）',
   autoclaw: 'AutoClaw（智谱）',
@@ -110,9 +113,9 @@ const NAMES = {
   codearts: 'CodeArts（华为云）',
   codely: 'Codely',
   gemini: 'Gemini',
-  'jet-hub-auto': '自动选号',
   lobsterai: 'LobsterAI',
   loomy: 'Loomy',
+  magicrew: '超级麦吉',
   minimax: 'MiniMax',
   minimaxintl: 'MiniMax 国际',
   modelscope: 'ModelScope（魔搭）',
@@ -128,7 +131,7 @@ const NAMES = {
 
 /** 本体 provider → magpie provider id。 */
 export function idOf(dshProvider) {
-  return dshProvider === 'jet-hub-auto' ? 'jet-hub' : `${PROVIDER_PREFIX}${dshProvider}`
+  return `${PROVIDER_PREFIX}${dshProvider}`
 }
 
 /** 供外部（脚本 / 测试）用的一组 id。 */
@@ -136,7 +139,7 @@ export const PROVIDER_IDS = DSH_PROVIDERS.map(idOf)
 
 /**
  * 按长度降序排的「可能出现在模型 id 前面的前缀」。
- * 长的先匹配，否则 `jet-hub-auto/` 会被 `jet-hub/` 抢在前面。
+ * 长的先匹配：`jet-hub-codearts/` 不能被 `jet-hub-codely/` 之类的短前缀抢走。
  */
 const PREFIXES = [...new Set([...DSH_PROVIDERS, ...PROVIDER_IDS])].sort((a, b) => b.length - a.length)
 
@@ -166,16 +169,15 @@ const FALLBACK_MODELS = {
   'astudio/xopdsv4flash0731in': { name: 'AStudio · DeepSeek V4 Flash' },
   'modelscope/deepseek-ai/DeepSeek-V4.1-Flash': { name: 'ModelScope · DeepSeek V4.1 Flash' },
   'raccoon/sn-deepseek-v4-1-flash-1017': { name: 'Raccoon · DeepSeek V4.1 Flash' },
-  'opencode/beam-free': { name: 'OpenCode · Beam (free)' },
-  'cline/deepseek-v4.1-flash': { name: 'Cline · DeepSeek V4.1 Flash' },
-  'minimaxintl/MiniMax-M2': { name: 'MiniMax 国际 · M2' },
+  'opencode/deepseek-v4.1-flash-free': { name: 'OpenCode · DeepSeek V4.1 Flash (free)' },
+  'cline/cline-pass/deepseek-v4.1-flash': { name: 'Cline · DeepSeek V4.1 Flash' },
+  'minimaxintl/MiniMax-M3': { name: 'MiniMax 国际 · M3' },
   'minimax/MiniMax-M2.7-highspeed': { name: 'MiniMax · M2.7 Highspeed' },
   'autoclawintl/zai_glm-5.3-flash': { name: 'AutoClaw 国际 · GLM-5.3 Flash' },
   'gemini/gemini-3.8-flash': { name: 'Gemini · 3.8 Flash' },
   'accio/glm-5-3-flash': { name: 'Accio · GLM-5.3 Flash' },
   'codely/codely-flash': { name: 'Codely · Flash' },
-  'aggregate/auto': { name: '聚合 · auto' },
-  'jet-hub-auto/auto': { name: 'Jet Hub · 自动选号' },
+  'magicrew/deepseek-v4.1-flash': { name: 'Magicrew · DeepSeek V4.1 Flash' },
 }
 
 /** DSH 家目录（凭据所在处）。可用插件 options 的 `home` 覆盖。 */
@@ -217,7 +219,7 @@ function parseJsonBody(body) {
  *
  * magpie 展示的是 `<magpie id>/<model>`，请求回来时可能带、也可能不带那些前缀，
  * 所以先把已知前缀剥掉一层，再补上本 provider 的前缀。剥之前按长度降序匹配，
- * 避免 `jet-hub/` 抢掉 `jet-hub-auto/`。
+ * 避免短前缀抢掉长前缀（`jet-hub-qoder/` vs `jet-hub-qodercn/`）。
  */
 export function toUpstreamModel(model, dshProvider) {
   let m = String(model ?? '')
@@ -355,7 +357,7 @@ function modelEntry(id, def, meta) {
 
 // ---- 共享容器与模型缓存 -------------------------------------------------------
 
-/** 模块级单例：24 个 provider 共用同一个容器。 */
+/** 模块级单例：23 个 provider 共用同一个容器。 */
 let shared = null
 
 /**
@@ -367,7 +369,7 @@ let shared = null
  * 正在开始登录…」不动 —— 因为 `signing.state` 一直是 `starting`，而它只在
  * `POST /api/plugin-signin` 返回后才推进。那条路径会调本插件的 `authorize()`，
  * 而 `authorize()` 第一句就是 `await liveAll(container, log)` = `container.start()`
- * —— **冷启动要 20–30 秒**（本体要拉账号池、注册 24 个 provider、采模型目录）。
+ * —— **冷启动要 20–30 秒**（本体要拉账号池、注册全部 provider、采模型目录）。
  *
  * 后端不是坏了：用 `magpie web` 的 HTTP 面实测同一条链路 0.7 秒返回 done
  * （因为那时宿主进程已经跑过一轮、容器是热的）；CLI `magpie plugin login`
@@ -378,6 +380,21 @@ let shared = null
  * 真正的 `start()` 调用会重试（`container.start()` 失败会把 `ready` 清掉）。
  */
 let warmedUp = false
+
+/**
+ * 丢掉已建的单例，下次 `containerFor()` 重新建。
+ *
+ * 给测试用：单例一旦建立就按第一个 `options.home` 钉死，而
+ * `tests/t-usage.mjs` 这类文件要先跑隔离段（假 home）再跑真实段（真
+ * `~/.dsh`）—— `iso.restore()` 只能恢复环境变量，换不掉已经建好的容器，于是真
+ * 实段读到的还是隔离目录（没凭据 ⇒ 余额为空、`user` 为 undefined）。
+ *
+ * ⚠️ 只给测试用，不要在生产路径里调。
+ */
+export function __resetContainerForTest() {
+  shared = null
+  warmedUp = false
+}
 
 function containerFor(options, log) {
   if (shared !== null) return shared
@@ -492,7 +509,7 @@ const balanceCache = new Map()
  *  ① 签入时**列出**本家渠道在 DSH 里的全部账号，让用户挑一个（`ask()`）；
  *  ② 每次请求时**认回**用户当初挑的是哪一个（`loader(getAuth)`）。
  *
- * 两件事都靠本体 `account.list` RPC（`vendor/lib/jet-hub-rpc.js:2965`，
+ * 两件事都靠本体 `account.list` RPC（`vendor/lib/jet-hub-rpc.js:3188`，
  * 返回 `{ accounts: [{ id, provider, nickname, enabled, credentialRef,
  * refreshable, expiresAt, modelRateLimits }] }`，且已做 identity 富化）。
  */
@@ -516,8 +533,8 @@ async function listAccountsOf(container, provider, log) {
     const v = await container.rpc('account.list', { provider })
     rows = Array.isArray(v?.accounts) ? v.accounts : []
   } catch (e) {
-    // 路由组（aggregate / jet-hub-auto）本体里没有自己的账号池 ⇒ `unknown provider`。
-    // 这不是错误，是「这家没有账号可选」，返回空数组让调用方走「整家一个槽」。
+    // 少数渠道本机没登录过时 `account.list` 也可能失败；这不是错误，
+    // 是「这家没有账号可选」，返回空数组让调用方走「整家一个槽」。
     //
     // ⚠️ **失败不进缓存**（2026-10-30 修）。原先这里 `rows = []` 之后照样落到
     // 下面那行 `accountsCache.set`，于是「容器刚起、账号池还没加载完」时的一次
@@ -574,11 +591,33 @@ async function accountById(container, provider, id, log) {
  */
 
 /**
- * 本体里根本没有「自己的账号」的四家：两个路由组（请求由池内其它渠道承接）
- * 和两个 Key 型渠道（走各自的 `*.addAccount`，不接受 `account.create`）。
+ * 本体里**没有** `account.create` 分支的两家（`unknown provider: xxx`）：
+ * 都是 Key 型渠道，走各自的 `*.addAccount`，不接受 `account.create`。
  * 对它们不声明「新建账号」方法，免得用户点了才看到 `unknown provider`。
+ * 不能 `export`：`index.mjs` 只许导出插件工厂（多导一个就整个插件加载失败），
+ * 且 `tests/t-new-account.mjs` 会把本文件切段丢进 `new Function` 求值，
+ * 段内出现 `export` 直接 SyntaxError。测试侧从源码文本里解析它。 */
+const NO_NEW_ACCOUNT = new Set(['modelscope', 'opencode'])
+
+/**
+ * 超级麦吉（magicrew）`account.create` 要走的 `mode`，按顺序试。
+ *
+ * 这一家的 `account.create` **必须**带 `mode`，不带会被本体直接拒：
+ * `'超级麦吉请用「从本机浏览器导入」或「网页登录」，不支持手机号密码登录'`
+ * （`vendor/lib/jet-hub-rpc.js` 的 `case 'account.create'` 里 magicrew 兜底分支）。
+ *
+ * ① `local-browser` —— 读本机 Edge/Chrome 里已登录 `www.letsmagic.cn` 的登录态
+ *    （leveldb，只读不碰 cookie）：毫秒级、不开窗、按 **jwt 指纹**幂等判重，
+ *    同一账号反复导入只会刷新那一条、不会变出多张卡。读不到时本体回
+ *    `ok: false`（不是抛错），`container.rpc()` 会把它转成一句人话错误。
+ * ② `browser` —— ①读不到时退它：本体登记占位条目后**自己**开一个独立 profile
+ *    的可见窗口等用户登录，立刻返回 `{ accountId, loginUrl: '' }`；
+ *    进度由 `login.poll` 经 `magicrewBrowserLoginInFlight` 报终态。
+ *
+ * 先试 ① 的理由：它是零门槛那条（用户只要在浏览器里登录过就成），而 ② 要用户
+ * 真的再登一次、还要等几分钟。
  */
-const NO_NEW_ACCOUNT = new Set(['aggregate', 'jet-hub-auto', 'modelscope', 'opencode'])
+const MAGICREW_CREATE_MODES = ['local-browser', 'browser']
 
 /** 轮询 `login.poll` 的间隔（本体登录流程最短也要一两秒，2 秒够用且不吵）。 */
 const LOGIN_POLL_MS = 2_000
@@ -602,7 +641,7 @@ const NEW_ACCOUNT_WAIT_MS = 9 * 60 * 1000
  * `waitForLogin()` 就永远不返回：magpie 那边 10 分钟到点报超时，插件这边还
  * 卡在 await 上，占位账号永远不会被收掉。
  *
- * 取 15 秒：正常轮询是毫秒级（实测 24 家 `model.list` 全量也才 1.2 秒），
+ * 取 15 秒：正常轮询是毫秒级（实测全部渠道 `model.list` 全量也才 1.2 秒），
  * 15 秒只会在真出问题时触发，届时当作「这一次没问到」继续等。
  */
 const LOGIN_POLL_TIMEOUT_MS = 15_000
@@ -674,11 +713,13 @@ async function withRpcDeadline(container, method, payload, ms, what) {
  * `refreshable: false`）再返回 `loginUrl`，登录成功后由后台流程回填昵称与
  * 有效期。所以这里返回的 `accountId` 此时还只是个占位，不能当成「已登录」。
  */
-async function startNewAccount(container, provider, log) {
+async function startNewAccount(container, provider, log, mode) {
+  // 只有超级麦吉要带 `mode`（见下方 `MAGICREW_CREATE_MODES` 的说明），
+  // 其余 22 家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
   const v = await withRpcDeadline(
     container,
     'account.create',
-    { provider },
+    mode === undefined ? { provider } : { provider, mode },
     CREATE_TIMEOUT_MS,
     'account.create',
   )
@@ -698,10 +739,21 @@ async function startNewAccount(container, provider, log) {
   // 条目**已登记**、凭据**已写入**，只是不需要授权页。早前这里把空 URL 一律当失败
   // 抛错（2026-10-29 审查发现）：用户看到「新建失败」，池里却多了一个凭据齐全的
   // 可用账号，而且没人清理它。
+  // 另两种**成功**的空 loginUrl：
+  // · 超级麦吉 `local-browser` —— 从本机浏览器导入登录态，凭据在 `create` 返回前
+  //   就已写进该账号自己的 ref（`vendor/lib/jet-hub-rpc.js` 的 `mode === 'local-browser'`
+  //   段），同样没有授权页可等 ⇒ 按 `reused` 收口。
+  // · 超级麦吉 `browser` —— 占位已登记、**本体自己在后台开窗**等用户登录，
+  //   `login.poll` 经 `magicrewBrowserLoginInFlight` 报终态 ⇒ 必须照常走
+  //   `waitForLogin()`，绝不能当 `reused`（那会把一张还没填凭据的卡报成已添加）。
   if (loginUrl === '') {
-    if (v?.reused === true) {
+    if (v?.reused === true || mode === 'local-browser') {
       log?.(`[${provider}] 已导入本机会话 ${accountId}（无需授权页）`)
       return { accountId, loginUrl: '', reused: true, incognitoOpened: false }
+    }
+    if (mode === 'browser') {
+      log?.(`[${provider}] 新建账号 ${accountId}，本体自己开窗等登录`)
+      return { accountId, loginUrl: '', reused: false, incognitoOpened: true }
     }
     throw new Error(
       `本体没能为 ${provider} 起一个登录流程（account.create 返回 ${JSON.stringify(v).slice(0, 160)}）`,
@@ -710,6 +762,36 @@ async function startNewAccount(container, provider, log) {
 
   log?.(`[${provider}] 新建账号 ${accountId}，登录页 ${loginUrl}`)
   return { accountId, loginUrl, reused: false, incognitoOpened: v?.incognitoOpened === true }
+}
+
+/**
+ * 起一个登录流程，按 provider 决定要不要按顺序试多种 `mode`。
+ *
+ * 除超级麦吉外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
+ * 超级麦吉两条腿都失败时，**报第二条腿的错误**：`local-browser` 的失败是
+ * 「本机浏览器里没有登录态」这种预期内的话，用户真正会撞上的失败是 `browser`
+ * 那条（窗口起不来 / 授权被拒），报它才定位得到问题。
+ */
+async function startNewAccountSmart(container, provider, log) {
+  if (provider !== 'magicrew') return startNewAccount(container, provider, log)
+
+  let firstError
+  for (const mode of MAGICREW_CREATE_MODES) {
+    try {
+      return await startNewAccount(container, provider, log, mode)
+    } catch (error) {
+      if (firstError === undefined) {
+        firstError = error
+        log?.(`[${provider}] ${mode} 没成（${error?.message ?? error}），退下一个 mode`)
+      } else {
+        throw error
+      }
+    }
+  }
+  // 兜底：`MAGICREW_CREATE_MODES` 若被改成空数组，循环一次都不进，
+  // `firstError` 会是 `undefined` —— 那样 `throw undefined` 会丢成
+  // 「Uncaught undefined」，用户在 magpie 里只看到一句空白失败。
+  throw firstError ?? new Error(`${provider}：没有任何可用的新建方式`)
 }
 
 /**
@@ -870,7 +952,7 @@ async function balanceOf(container, provider, wantAccountId, log) {
     accounts = Array.isArray(v?.accounts) ? v.accounts : []
   } catch (e) {
     const msg = String(e?.message ?? e)
-    // 路由组（aggregate / jet-hub-auto）本体里没有自己的账号池，`credits.balances`
+    // 少数渠道本机没登录过时 `credits.balances`
     // 直接抛 `unsupported provider`。这不是错误，是「这里没有可查的积分」。
     if (/unsupported provider/i.test(msg)) {
       balanceCache.set(stamp, { at: Date.now(), reading: undefined })
@@ -1080,7 +1162,8 @@ function windowName(pkg) {
  * 把本体的余额读数翻译成 magpie 的 `auth.usage` 返回形状。
  */
 function toMagpieUsage(reading, provider) {
-  const plan = `${DISPLAY_NAME} · ${provider}`
+  // 用量卡标题同样不带前缀（与供应商卡片名一致，见 config() 里那处说明）。
+  const plan = NAMES[provider] ?? provider
   if (reading?.error) return { plan, error: humanizeUsageError(reading.error), windows: [] }
 
   const b = reading?.balance
@@ -1350,7 +1433,10 @@ export function makePlugin(dshProvider) {
         cfg.provider ??= {}
         cfg.provider[id] ??= {}
         const p = cfg.provider[id]
-        p.name = `${DISPLAY_NAME} · ${NAMES[dshProvider] ?? dshProvider}`
+        // 卡片名直接用渠道自己的名字。magpie 的供应商列表本身就在本插件分组下，
+        // 再给每家挂一遍 `Jet Hub · ` 只是把每行都顶掉一截、还让 `WorkBuddy` 这类
+        // 本来一眼能认的名字变得要往右扫才看得见（用户 2026-10-30 要求去掉）。
+        p.name = NAMES[dshProvider] ?? dshProvider
         p.npm = '@ai-sdk/openai-compatible'
         p.api = PLACEHOLDER_BASE
         // 目录：优先用**上游全量**缓存（同步读盘，不阻塞），没有缓存才退回静态表。
@@ -1407,7 +1493,7 @@ export function makePlugin(dshProvider) {
 
         /**
          * magpie 的 provider 图标：https URL 或 data:image。
-         * 每家一个（`PROVIDER_SVG`），别 24 个 provider 都用插件自己那个。
+         * 每家一个（`PROVIDER_SVG`），别所有 provider 都用插件自己那个。
          */
         icon: iconFor(dshProvider),
 
@@ -1419,7 +1505,7 @@ export function makePlugin(dshProvider) {
           {
             type: 'api',
             keyless: true,
-            label: `连接本机 DSH 账号（${dshProvider}，无需输入）`,
+            label: `连接本机 DSH 账号（${NAMES[dshProvider] ?? dshProvider}，无需输入）`,
 
             /**
              * 签入前先问「哪一个是你要的账号」。
@@ -1538,7 +1624,7 @@ export function makePlugin(dshProvider) {
             ? []
             : [{
               type: 'oauth',
-              label: `在浏览器里新建一个 ${dshProvider} 账号（授权后自动接入）`,
+              label: `在浏览器里新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`,
 
               /**
                * 起一次登录流程，把登录页交给 magpie 打开。
@@ -1558,8 +1644,13 @@ export function makePlugin(dshProvider) {
                 // 必须套上限：`start()` 允许等到 40 秒，加上 `CREATE_TIMEOUT_MS` 的
                 // 45 秒就是 85 秒，早撞穿 magpie 给 `authorize()` 的 1 分钟硬超时
                 // （2026-10-29 二审指出预算没算这一段）。12 + 45 = 57 秒，留 3 秒余量。
+                //
+                // 超级麦吉会连试两条腿，纸面上最坏是 12 + 45 + 45 = 102 秒 —— 但走不满：
+                // `local-browser` 受 vendor 自己的网络超时约束（`MAGICREW.requestTimeoutMs`
+                // 30 秒 + `MAGICREW_PROFILE_TIMEOUT_MS` 6 秒 ⇒ 最坏约 36 秒），`browser` 腿
+                // 起完后台任务**立刻**返回（不等用户登录）⇒ 现实最坏约 12 + 36 ≈ 48 秒，仍在闸内。
                 await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
-                const { accountId, loginUrl, reused, incognitoOpened } = await startNewAccount(
+                const { accountId, loginUrl, reused, incognitoOpened } = await startNewAccountSmart(
                   container,
                   dshProvider,
                   log,
@@ -1569,7 +1660,7 @@ export function makePlugin(dshProvider) {
                   url: loginUrl,
                   // magpie 会在 spinner 卡片里显示这句话
                   instructions:
-                    `在打开的页面里登录要新建的 ${dshProvider} 账号。`
+                    `在打开的页面里登录要新建的 ${NAMES[dshProvider] ?? dshProvider} 账号。`
                     + '完成后这一行会自动变成已签入，不需要回来点什么。',
                   opened: incognitoOpened,
                   /**
@@ -1713,7 +1804,7 @@ export function makePlugin(dshProvider) {
               const wide = Object.keys(modelsOfFull(dshProvider, full)).length
               const n = Object.keys(modelsOf(dshProvider, live)).length
               return {
-                plan: `${DISPLAY_NAME} · ${dshProvider}`,
+                plan: NAMES[dshProvider] ?? dshProvider,
                 windows: [
                   {
                     name: '上游模型 / 当前可用',
@@ -1775,5 +1866,5 @@ export function makePlugin(dshProvider) {
   }
 }
 
-/** 全部 24 个工厂（`index.mjs` 逐个具名导出）。 */
+/** 全部 23 个工厂（`index.mjs` 逐个具名导出）。 */
 export const PLUGINS = DSH_PROVIDERS.map((p) => [idOf(p), makePlugin(p)])

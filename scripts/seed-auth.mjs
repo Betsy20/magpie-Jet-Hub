@@ -23,7 +23,7 @@
  * 该次请求的唯一候选。所以这些行不再只是「看得见」—— 挑某一行**就是**换用
  * 哪个账号发请求。
  *
- * 占位行例外：2 个路由组（`jet-hub` / `jet-hub-aggregate`）与 3 家未登录的
+ * 占位行例外：本机没登录过的那几家（见下面 `ROUTE_GROUPS` 的说明）与 3 家未登录的
  * 渠道（autoclawintl / codely / gemini）没有对应账号，它们的 `key` 不带
  * `/id` 后缀、也没有 `uid`，挑它们等于不钉号（按池内顺序走）。
  *
@@ -45,12 +45,6 @@ const statePath = process.argv.find((a) => a.endsWith('.json') && a !== authPath
 
 /** 本插件管辖的 magpie 键。 */
 const isOurs = (k) => k === 'jet-hub' || k.startsWith('jet-hub-')
-
-/**
- * 路由组：本体里它们没有自己的账号，请求由池里别的渠道承接。
- * 给它们写「未登录」会让人以为要去登录，文案要说明白。
- */
-const ROUTE_GROUPS = new Set(['aggregate', 'jet-hub-auto'])
 
 /** 稳定短后缀：同一个 DSH 账号每次跑都落到同一个 magpie 键。 */
 function suffix(id) {
@@ -106,14 +100,15 @@ for (const dsh of DSH_PROVIDERS) {
   if (mine.length === 0) {
     // 本体里没有这个渠道的账号：仍给一条占位记录，否则 magpie 会报
     // `no plugin signs in to <id>`，卡片点不动。
-    const why = ROUTE_GROUPS.has(dsh)
-      ? '（路由组 · 请求由池内其它渠道承接）'
-      : '（本机 DSH 未登录该渠道）'
+    //
+    // ⚠️ 2026-10-31：路由组（`aggregate` / `jet-hub-auto`）已不再注册成 magpie
+    // provider，所以这里只剩「真渠道但本机没登录」一种情况 —— 文案不再需要分支。
+    const why = '（本机 DSH 未登录该渠道）'
     next[magpieId] = {
       type: 'api',
       key: `jet-hub-local:${dsh}`,
       accountId: why,
-      metadata: { via: 'jet-hub', dshProvider: dsh, routeGroup: ROUTE_GROUPS.has(dsh) },
+      metadata: { via: 'jet-hub', dshProvider: dsh },
     }
     report.push([magpieId, 0, why])
     continue
