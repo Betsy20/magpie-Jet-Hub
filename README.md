@@ -121,7 +121,7 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 | 差异 | 原因 |
 |---|---|
 | `lib/gemini-oauth.js` 与 `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报；**值完全相等**（`node` 实测两个常量 `===`，长度 73 / 35 字符都一致），行为不变，另有环境变量可覆盖。唯一的边缘副作用：`.d.ts` 是声明文件，`declare const` 的初始值按 TS 规范只能是字面量，拼接写法在**单文件 `tsc file.d.ts`** 时会报两条 `TS1254`（上游原版 0 条）—— 本仓库不编译类型声明、`types` 入口 `lib/types/index.d.ts` 上游本就缺失，正常使用路径不受影响 |
-| `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭剧，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。详见上文「超级麦吉的登录凭据在 IndexedDB 里」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB |
+| `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭据，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。详见上文「超级麦吉的登录凭据在 IndexedDB 里」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB |
 | `lib/magicrew-browser-login.js` 开窗前回收上次遗留的一次性 profile 目录 | 上游 `ChromiumSession.dispose()` 的删除只退避 2.1 秒，Windows 上 `taskkill /T` 之后句柄释放没那么快；更关键的是**窗口被用户关掉时没有任何回调保证走到 `dispose()`**。两条路叠加的结果是真机 `%TEMP%` 里攒了 **11 个 `magicrew-login-*` / 856 MB**。现在开窗前扫一遍，只删够老的（Windows 1 小时、其它平台 6 小时，见下表后那条说明），被占用的跳过；**每轮最多删 3 个** —— 这函数是同步的、跑在「点连接」与「窗口出现」之间，清完 856 MB 约 7 秒，那会让用户以为按钮坏了。删除是**分批**的，连点几次就清完 |
 | 没有 npm 包里的 `README.md` 与 `cordis.patch.yml` | 那是 DSH 前端与插件补丁用的，magpie 侧用不到 |
 
