@@ -26,8 +26,9 @@
  * - `merge`（默认）：**只增加不覆盖**。按账号 `id` 判重，已存在的跳过；凭据只写
  *   新增账号引用的 ref，且若该 ref 已被**别的**现有账号占用则不写（写进去等于
  *   把别人的 token 换掉）。模型黑名单与永久锁定表**不碰**。
- * - `replace`：整体还原 —— 账号池、模型黑名单、永久锁定表全部换成备份里的值。
- *   这是「换机/重装」场景，本机现有账号会被丢弃（有备份文件可回滚）。
+ * - `replace`：整体还原 —— 账号池与永久锁定表换成备份里的值，**模型黑名单除外**
+ *   （要一并写回得显式加 `--keep-disabled`，理由见下面那段）。这是「换机/重装」
+ *   场景，本机现有账号会被丢弃（有备份文件可回滚）。
  *
  * ## 加密备份
  *
@@ -43,6 +44,7 @@
  *   node scripts/import-backup.mjs <备份文件.json> [选项]
  *
  *   --mode merge|replace   默认 merge
+ *   --keep-disabled        replace 模式下也把备份里的模型黑名单写回去（默认跳过）
  *   --passphrase <口令>    加密备份的口令（更推荐用环境变量，别留在 shell 历史里）
  *   --list                 只列出备份里有什么，不写盘
  *   --dry-run              只报告会改什么，不写盘（也不跑 seed-auth）
@@ -86,6 +88,42 @@ const file = positional[0]
 const dry = flag('--dry-run')
 const listOnly = flag('--list')
 const noSeed = flag('--no-seed')
+/**
+ * 模型黑名单（`disabledModels`）在 replace 模式下**默认不写**。
+ *
+ * 理由：这张表的语义是「本体自己那份模型目录里，哪些模型别列出来」。2026-10-31 起
+ * 「哪些模型给 agent 用」由 magpie 的 Providers 编辑器决定（控制台的模型开关已删），
+ * 再把备份里那份旧状态整份盖回来，只会让 magpie 里每一条模型都挂上
+ * 「· 已在 Jet Hub 关闭」的尾巴，而用户没有任何界面能把它清掉。
+ * 备份文件本身不改 —— 它记录导出那一刻的真实状态是对的。
+ */
+// ⚠️ `--keep-disabled=true` 这类写法不能静默无效：`flag()` 是精确
+// `argv.includes`，带个 `=true` 就整条不匹配，而报告仍会提示「要写回加
+// --keep-disabled」—— 用户加了、提示还在，与 2026-10-29 修的 `--mode=Replace`
+// 静默降级同型。这里显式认 `=` 形式，并对非法取值报错。
+const keepDisabledForms = argv.filter((a) => a === '--keep-disabled' || a.startsWith('--keep-disabled='))
+if (keepDisabledForms.length > 1) {
+  console.error(`✗ --keep-disabled 只该出现一次，收到：${keepDisabledForms.join(' ')}`)
+  process.exit(1)
+}
+if (keepDisabledForms.length === 1 && keepDisabledForms[0].includes('=')) {
+  const raw = keepDisabledForms[0].slice('--keep-disabled='.length).trim().toLowerCase()
+  if (!['true', '1', 'yes'].includes(raw)) {
+    console.error(`✗ --keep-disabled 不接受取值 ${JSON.stringify(raw)}（它是开关，不带值；要写回就写 --keep-disabled）`)
+    process.exit(1)
+  }
+}
+// ⚠️ 空格写法 `--keep-disabled false` 是第三种误用：`false` 被当成多余的文件名
+// 静默丢掉，开关反而按 true 生效 —— 用户以为在「关掉写回」，实际打开了它。只认明显
+// 的布尔字样（不误伤文件名），命中就报错，让人改成 `--keep-disabled=true` 或去掉取值。
+if (keepDisabledForms.length === 1 && keepDisabledForms[0] === '--keep-disabled') {
+  const next = argv[argv.indexOf('--keep-disabled') + 1]
+  if (next !== undefined && /^(true|false|1|0|yes|no)$/i.test(next)) {
+    console.error(`✗ --keep-disabled 不接受取值 ${JSON.stringify(next)}（它是开关，不带值；要写回就写 --keep-disabled）`)
+    process.exit(1)
+  }
+}
+const keepDisabled = keepDisabledForms.length === 1
 
 // ⚠️ 非法 --mode 必须报错，不能静默降级：`--mode REPLACE` / `--mode=Replace`
 // 静默变成 merge 会让用户以为在整体还原，实际只增不覆盖（2026-10-29 审查发现）。
@@ -107,7 +145,7 @@ function die(msg) {
   process.exit(1)
 }
 
-if (!file) die('用法: node scripts/import-backup.mjs <备份文件.json> [--mode merge|replace] [--list] [--dry-run]')
+if (!file) die('用法: node scripts/import-backup.mjs <备份文件.json> [--mode merge|replace] [--list] [--dry-run] [--keep-disabled]')
 
 // ---- 读备份 + 解密 ----------------------------------------------------------
 
@@ -358,7 +396,13 @@ if (credKeptLocal.length > 0) {
   console.log(`      · 本机已有值的 ref 一律保留（本机值通常是运行时刷新后的新 token，用备份覆盖会打回上一代）`)
 }
 if (mode === 'replace') {
-  console.log(`模型黑名单: 整体换成备份里的 ${lockedCount} 个关闭项`)
+  if (keepDisabled) {
+    console.log(`模型黑名单: 整体换成备份里的 ${lockedCount} 个关闭项（--keep-disabled）`)
+  } else if (lockedCount > 0) {
+    console.log(`模型黑名单: 跳过备份里的 ${lockedCount} 个关闭项（保持本机现值；要写回加 --keep-disabled）`)
+  } else {
+    console.log('模型黑名单: 备份里是空表，跳过（保持本机现值）')
+  }
   console.log(`永久锁定: ${permanentLocks ? `整体换成备份里的 ${Object.keys(permanentLocks).length} 项` : '备份未带，保持本机现值'}`)
   // 备份带的是**空表**、本机却有锁定时必须喊一声：replace 会把这些锁定清掉，
   // 而这张表关系到不可逆的永久积分（2026-10-29 审查发现静默清空的问题）。
@@ -424,7 +468,9 @@ const nextPool = {
   accounts: mode === 'replace' ? accounts.slice() : [...localAccounts, ...incoming],
 }
 if (mode === 'replace') {
-  nextPool.disabledModels = disabledModels
+  // 黑名单默认不动（见 --keep-disabled 处的长注释）：模型开关已经归 magpie，
+  // 把备份里三周前的旧状态盖回来，用户就没有界面能清掉它了。
+  if (keepDisabled) nextPool.disabledModels = disabledModels
   if (typeof payload.loomyPermanentLocked === 'boolean') nextPool.loomyPermanentLocked = payload.loomyPermanentLocked
 }
 

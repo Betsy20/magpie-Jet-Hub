@@ -99,6 +99,24 @@ export interface BackupImportOptions {
      * `merge` = 只追加、按 id 跳过已存在的账号，不碰黑名单与锁定表。
      */
     mode?: BackupImportMode;
+    /**
+     * 仅 `replace` 生效：为 `true` 时**不**写备份里的模型黑名单，保留本机现有的
+     * `disabledModels`（`merge` 本来就不碰黑名单）。
+     *
+     * 加这个开关的原因：黑名单的语义是「本体自己那份模型目录里别列出来哪些」，
+     * 而「哪些模型给 agent 用」现在由 magpie 的 Providers 编辑器决定。把备份里那份
+     * 旧状态盖回来，只会让每一条模型都挂上「· 已在 Jet Hub 关闭」的尾巴，而界面上
+     * 没有地方能清掉它。控制台的备份导入恒传 `true`；要还原黑名单只能用 CLI 的
+     * `--keep-disabled`。
+     *
+     * ⚠️ 两个名字是**反义**的，别看反：
+     *   - 这个参数 `keepDisabledModels`（= true）：保留**本机**现有的黑名单，忽略备份里的；
+     *   - CLI 开关 `--keep-disabled`（= 出现即 true）：把**备份里**的黑名单写回来。
+     * 两者意图相反，只是碰巧都带 keep。CLI 那条不走这个参数 ——
+     * `scripts/import-backup.mjs` 按 `keepDisabled` 自己直接改
+     * `pool.disabledModels`，所以它才能绕过这里的「一律保留本机」。
+     */
+    keepDisabledModels?: boolean;
 }
 /**
  * 导出账号 + 凭据 + 模型黑名单。

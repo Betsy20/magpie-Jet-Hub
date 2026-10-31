@@ -8146,7 +8146,12 @@ function registerJetHubEndpoints(ctx, pool, auths, modelAdapters) {
             case 'backup.import': {
                 const req = payload;
                 const mode = req?.mode === 'merge' ? 'merge' : 'replace';
-                const result = await importBackup(ctx.credentials, pool, req.payload, { mode });
+                // ⚠️ 本仓改动（2026-10-31）：`keepDisabledModels` 由界面传入，
+                // 让 replace 不把备份里的模型黑名单写回本机（见 vendor/lib/backup.js）。
+                const result = await importBackup(ctx.credentials, pool, req.payload, {
+                    mode,
+                    keepDisabledModels: req?.keepDisabledModels === true,
+                });
                 // 导入会改变账号集合（门控依赖 hasLoggedInAccount）与模型黑名单，
                 // 必须广播目录变更，否则界面仍显示旧目录。
                 broadcastCatalogChanged(ctx);

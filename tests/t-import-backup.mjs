@@ -12,7 +12,7 @@
  *     但**要补**已存在账号在本机缺失的凭据（本机缺 = 那个号其实登不上，
  *     旧备份里的 token 虽旧也比没有强；本机有值则一律保留，因为运行时
  *     refresh 会把新 token 写回同一 ref，用旧备份盖掉等于打回上一代）；
- *  4. replace 整体还原账号池 + 模型黑名单；
+ *  4. replace 整体还原账号池 + 永久锁定表，但**不动**模型黑名单（除非加 --keep-disabled）；
  *  5. 加密备份（PBKDF2 310000 + AES-256-GCM）能解，错口令必须失败；
  *  6. 不是本插件备份的文件必须被拒（format / version 两道校验）。
  */
@@ -74,7 +74,9 @@ function makeHome(name) {
       { id: 'workbuddy-bbbb2222', provider: 'workbuddy', nickname: '已在', enabled: true, credentialRef: 'WORKBUDDY_ACCOUNT_99999999' },
       { id: 'cline-9999eeee', provider: 'cline', nickname: '本机旧号', enabled: true, credentialRef: 'CLINE_ACCOUNT_DEADBEEF' },
     ],
-    disabledModels: {},
+    // ⚠️ 故意非空：「replace 默认不碰黑名单」若只断言成 `{}`，就与「被清空」
+    // 不可区分了（二审指出）。这条本机值必须原样活到断言那一行。
+    disabledModels: { workbuddy: { 'wb-legacy': true } },
   }, null, 2))
   fs.writeFileSync(path.join(home, '.credentials.yaml'),
     `version: 1\nrefs:\n  CLINE_ACCOUNT_DEADBEEF: '${cred('local-beta').replace(/'/g, "''")}'\nrecords:\n`)
@@ -82,6 +84,12 @@ function makeHome(name) {
 }
 
 const readPool = (home) => JSON.parse(fs.readFileSync(path.join(home, 'jet-hub', 'state.json'), 'utf8'))
+
+/** 本机 fixture 里那条黑名单还在吗（merge 与 replace 默认都必须保住它）。 */
+function hasLegacyDisabled(pool) {
+  const wb = pool.disabledModels?.workbuddy ?? null
+  return wb !== null && wb['wb-legacy'] === true
+}
 const readRefs = (home) => parseRefs(fs.readFileSync(path.join(home, '.credentials.yaml'), 'utf8'))
 
 function run(args, env = {}) {
@@ -127,7 +135,7 @@ function run(args, env = {}) {
   check(ids.includes('cline-aaaa1111'), 'merge 应新增 cline-aaaa1111')
   check(ids.filter((id) => id === 'workbuddy-bbbb2222').length === 1, 'merge 不该重复添加已存在的账号')
   check(pool.accounts.find((a) => a.id === 'workbuddy-bbbb2222').nickname === '已在', 'merge 不该覆盖已存在账号的字段')
-  check(JSON.stringify(pool.disabledModels) === '{}', 'merge 不该碰模型黑名单')
+  check(hasLegacyDisabled(pool), 'merge 不该碰模型黑名单（本机那条 wb-legacy 应还在）')
 
   const refs = readRefs(home)
   check(refs.get('{{SECRET_aaa111}}') === cred('alpha'), 'merge 应写入新增账号的凭据')
@@ -153,8 +161,34 @@ function run(args, env = {}) {
   const pool = readPool(home)
   check(pool.accounts.length === 3, `replace 后应只剩备份里的 3 个账号，实际 ${pool.accounts.length}`)
   check(!pool.accounts.some((a) => a.id === 'cline-9999eeee'), 'replace 应丢弃本机原有账号')
-  check(JSON.stringify(pool.disabledModels) === JSON.stringify(payload.disabledModels), 'replace 应整体还原模型黑名单')
+  // ⚠️ 2026-10-31 起 replace **默认不写**模型黑名单：模型开关已经归 magpie 的
+  // Providers 编辑器，把备份里那份旧状态盖回来会让 magpie 里每条模型都挂上
+  // 「· 已在 Jet Hub 关闭」，而用户没有任何界面能清掉它。
+  check(hasLegacyDisabled(pool),
+    'replace 默认不该碰模型黑名单（本机那条 wb-legacy 应还在；要写回得加 --keep-disabled）')
   check(readRefs(home).get('CLINE_ACCOUNT_DEADBEEF') === cred('beta'), 'replace 应把被占用的凭据也换成备份里的')
+}
+
+// ---- 4b. replace + --keep-disabled：显式要求才整体还原黑名单 ----------------
+
+{
+  const home = makeHome('h3b')
+  const r = run([backupFile, '--dsh-home', home, '--mode', 'replace', '--keep-disabled', '--no-seed'])
+  check(r.code === 0, `replace --keep-disabled 应成功，实际退出码 ${r.code}：${r.out}`)
+  const pool = readPool(home)
+  check(JSON.stringify(pool.disabledModels) === JSON.stringify(payload.disabledModels),
+    'replace --keep-disabled 应整体还原模型黑名单')
+  check(/模型黑名单: 整体换成备份里的/.test(r.out), '加了开关就该在报告里说清楚它真的写了')
+}
+
+// ---- 4c. replace 跳过黑名单时，报告必须说明跳过了多少条 --------------------
+
+{
+  const home = makeHome('h3c')
+  const r = run([backupFile, '--dsh-home', home, '--mode', 'replace', '--no-seed'])
+  check(r.code === 0, `replace 应成功，实际退出码 ${r.code}：${r.out}`)
+  check(/模型黑名单: 跳过备份里的 1 个关闭项/.test(r.out),
+    '跳过黑名单必须在报告里说明（否则用户以为已经还原）')
 }
 
 // ---- 5. 加密备份 -----------------------------------------------------------
@@ -293,4 +327,4 @@ if (problems.length > 0) {
   for (const p of problems) console.error(`  - ${p}`)
   process.exit(1)
 }
-console.log('✓ import-backup 逻辑正确（merge 判重/不覆盖他人凭据、replace 整体还原、加密备份解密、错口令与非法格式被拒）')
+console.log('✓ import-backup 逻辑正确（merge 判重/不覆盖他人凭据、replace 还原账号池但不碰黑名单、--keep-disabled 才写回、加密备份解密、错口令与非法格式被拒）')

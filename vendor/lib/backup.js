@@ -320,6 +320,13 @@ export async function importBackup(credentials, pool, raw, options = {}) {
     assertBackupPayload(raw);
     const payload = raw;
     const mode = options.mode ?? 'replace';
+    // ⚠️ 本仓改动（2026-10-31）：`keepDisabledModels` 让 replace **不写**载荷里的
+    // 模型黑名单。理由见 scripts/import-backup.mjs 的 `--keep-disabled`：备份里的
+    // 黑名单是「导出那一刻的状态」，整份还原会把这些关闭意图强加给当前机器，而
+    // 控制台 2026-10-31 起已没有模型开关，用户没有任何界面能清掉它们。
+    // 为真时用**本机现值**回落，而不是传 `undefined` —— 后者会被
+    // `sanitizeDisabledModels` 变成 `{}`，那是清空。
+    const keepDisabledModels = options.keepDisabledModels === true;
     // 决定「本次真正要落地的账号」与「跳过的账号」。
     // merge 的四层判重：① 池里已有的 **id**；② 池里已有的**身份**（凭据里的
     // `user_id` / `uid` / `userid` / `account_id` / `access_key_id`，opencode 另有
@@ -515,7 +522,10 @@ export async function importBackup(credentials, pool, raw, options = {}) {
         await pool.mergeAccounts(importedAccounts);
     }
     else {
-        await pool.replaceAll(payload.accounts, payload.disabledModels, locksFromPayload(payload));
+        const nextDisabledModels = keepDisabledModels
+            ? pool.getStateSnapshot().disabledModels
+            : payload.disabledModels;
+        await pool.replaceAll(payload.accounts, nextDisabledModels, locksFromPayload(payload));
     }
     // 统计已过期账号：expiresAt 是毫秒时间戳，缺失或 NaN 视为「未知」不算过期。
     // ⚠️ 只统计**真正落地**的账号：merge 下把被跳过的账号也算进来会让提示虚高，
