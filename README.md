@@ -121,8 +121,19 @@ magpie 宿主      provider.models() / config().models 同步读盘 → 立刻�
 |---|---|
 | `lib/gemini-oauth.js` 与 `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报；**值完全相等**（`node` 实测两个常量 `===`，长度 73 / 35 字符都一致），行为不变，另有环境变量可覆盖。唯一的边缘副作用：`.d.ts` 是声明文件，`declare const` 的初始值按 TS 规范只能是字面量，拼接写法在**单文件 `tsc file.d.ts`** 时会报两条 `TS1254`（上游原版 0 条）—— 本仓库不编译类型声明、`types` 入口 `lib/types/index.d.ts` 上游本就缺失，正常使用路径不受影响 |
 | `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭据，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。详见上文「超级麦吉的登录凭据在 IndexedDB 里」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB |
-| `lib/magicrew-browser-login.js` 开窗前回收上次遗留的一次性 profile 目录 | 上游 `ChromiumSession.dispose()` 的删除只退避 2.1 秒，Windows 上 `taskkill /T` 之后句柄释放没那么快；更关键的是**窗口被用户关掉时没有任何回调保证走到 `dispose()`**。两条路叠加的结果是真机 `%TEMP%` 里攒了 **11 个 `magicrew-login-*` / 856 MB**。现在开窗前扫一遍，只删 mtime 超过 1 小时的（一次登录最长 4 分钟、宿主等 9 分钟，1 小时前的目录一定不是正在用的），被占用的跳过 |
+| `lib/magicrew-browser-login.js` 开窗前回收上次遗留的一次性 profile 目录 | 上游 `ChromiumSession.dispose()` 的删除只退避 2.1 秒，Windows 上 `taskkill /T` 之后句柄释放没那么快；更关键的是**窗口被用户关掉时没有任何回调保证走到 `dispose()`**。两条路叠加的结果是真机 `%TEMP%` 里攒了 **11 个 `magicrew-login-*` / 856 MB**。现在开窗前扫一遍，只删够老的（Windows 1 小时、其它平台 6 小时，见下表后那条说明），被占用的跳过；**每轮最多删 3 个** —— 这函数是同步的、跑在「点连接」与「窗口出现」之间，清完 856 MB 约 7 秒，那会让用户以为按钮坏了。删除是**分批**的，连点几次就清完 |
 | 没有 npm 包里的 `README.md` 与 `cordis.patch.yml` | 那是 DSH 前端与插件补丁用的，magpie 侧用不到 |
+
+上表第三行那个「保留时长为什么分平台」值得单独说一句，因为它是一条**安全**取舍而不是
+性能取舍：判据「只删够老的」本身是启发式，靠「旧到不可能还有窗口在用」来避免删掉正在
+登录的 profile —— 那会造成 profile 被撕裂，比残留严重得多。Windows 上还有第二道网：正被
+占用的文件删不掉，`rmSync` 抛 `EPERM`/`EBUSY`，被吞掉。**POSIX 没有这道网** —— `unlink`
+对已打开的文件是合法操作，删除会成功，进程继续持有 inode 却写不进新数据，于是「删了正在
+用的目录」反而会成功，只是把那个窗口弄坏。所以 POSIX 上只能靠阈值自保，取 6 小时，与
+`lib/login.js` 里同款清洗逻辑的既有取舍一致。真正在用的目录存活上限按最长的那个窗口算：
+登录本身最多 **4 分钟**（`MAGICREW_BROWSER_LOGIN_TIMEOUT_MS = 240_000`，到点就关窗），
+宿主那 **9 分钟**（`NEW_ACCOUNT_WAIT_MS`）里浏览器已经关掉了、只是还在轮询 `login.poll`，
+不产生写入。所以两个阈值（1 小时 / 6 小时）都留了十几倍以上的余量。
 
 除上表外 `lib/`（**1010** 个文件中 **1006** 个与上游构建产物逐字节一致，另 4 个就是上表
 前两行那四个）、`locale/`（2 个）**逐字节一致**。`package.json` 与 `LICENSE` 取的是 npm
@@ -182,6 +193,7 @@ IndexedDB 读取）。换法就是重跑上面那三条命令、把那 4 个文�
 | 2026-10-31 | 同上（未换快照） | **不再注册两个路由组**（`aggregate` / `jet-hub-auto`）：它们没有自己的账号池与模型目录，在 magpie 里只能是一张永远空着的卡。`DSH_PROVIDERS` 由 25 项降到 **23** 项，快照跟着按插件白名单过滤（模型条数随上游变，别当常数） |
 | 2026-10-31 | 同上（未换快照） | 再补一层无损性：`refLines` 对「含 CR / 整体只有换行 / 结尾两个以上换行 / 行首行尾空白」四种形态退回双引号 + 转义，`blockScalarBody` 补「缩进比 cut 浅的行当空行」与「整块全空时 cut 取正无穷」，新增 `unescapeDouble()` 还原双引号转义。`tests/t-cred-upsert.mjs` 新增 ㉓（29 种值往返）与 ㉔（17 种读侧块标量夹具）与 ㉕–㉖（空的 `refs: {}` 段、段头带注释），481 项。另拿 700 组随机字符串做往返对账，又挖出两条：双引号标量的闭合判据数错了反斜杠奇偶（`\""` 被当成未闭合、吞掉后续行），条目正则的 `.` 吃不下 U+2028/U+2029（那条 ref 直接从解析结果里消失）。五审又测出三条：`blockScalarEnd` 的续行门槛硬编码 `/^ {3,}/` 与放宽后的 `[ \t]+` 不自洽（3/4 空格缩进下把同级兄弟 ref 吞进值里，污染值让 `JSON.parse` 抛错 ⇒ 账号有凭据却登不上）、裸 key 的续行一律读成空串（本体有值我们读成空）、以及一条把错误读法固化成正确行为的断言。四审测出三条「合法 YAML 输入 ⇒ 凭据全毁」：Unicode 空白行被 `trim()` 当空行（NBSP / 全角 / VT / FF / LS / BOM 六种全中招，值静默丢成空串、再写一次就把整份文件写坏）、`parseRefs` 只认恰好 2 空格缩进（1/3 空格的 refs 段读不到）、裸 key `A:` 后跟续行时 `unset` / 新增 `set` 把文件写坏 |
 | 2026-10-31 | 同上（未换快照） | 修快照脚本网关兜底分支的双重前缀：`/v1/models` 返回的 id **分段两种形态混着来**（实测 56 条里 28 条已带 `jet-hub-` 前缀、16 条还是本体名，两组完全不重叠），原来无条件过 `idOf()` 会把前 28 条拼成 `jet-hub-jet-hub-*`、只认前缀又会丢掉后 16 条。改成 `magpieIdOfSegment()` 并集判据，新增 `tests/t-snapshot-segment.mjs`（34 项） |
+| 2026-10-31 | 同上（未换快照） | 修「插件模型的推理强度改不动」：magpie 的下拉只认模型条目的 `variants` 键列表（宿主 `variants: Object.keys(m.variants ?? {})` → `plugins.go` 的 `c.Efforts = m.Variants`），而插件此前只发布了尔 `capabilities.reasoning: true`、把 `reasoning.openai_efforts` 压成了布尔。现在两条采集腿都留住档位数组（`meta.efforts`），`modelEntry()` 有档位才写 `variants`，私有档位名（`off`/`on`、`none`）经 vendor 的 `effortView()` 翻成规范名。新增 `tests/t-model-efforts.mjs`（55 项） |
 
 ## 安装
 
@@ -540,14 +552,20 @@ C0 控制字符、`'` `"` `\` `#` `|` `>` 混排、U+2028/U+2029、中文、BOM�
 ㉔ 尤其重要：㉓ 只覆盖「我们写出去、我们再读回来」，而 refs 段是本体与人手共写的，
 本体自己会写 `\|+`、`\|2-`、整行只有空格的内容行，这些我们从不产生却必须读对。
 
-回归测试：`tests/t-magicrew-creds.mjs`（83 项；两条腿的读法、`awaitPromise`、先列后开、
+回归测试：`tests/t-magicrew-creds.mjs`（96 项；两条腿的读法、`awaitPromise`、先列后开、
 按站点定位、两种记录形态、缺 org 不产出。其中第 9-11 节是**行为级**：把 CDP 表达式
 求值后灌一个假页面环境，断言「库不存在时一次都不 `open()`」、`ie`/`id` 真被抽成一句话、
 放弃等待的诊断行真带上那句原因 —— 这几条做过变异验证（删早返回 / 去掉 `awaitPromise` /
 不解包 in-line key / 让 `indexedDbNoteOf` 恒返空串，各自都会让测试变红）。第 13 节同样是
 行为级：造一个假 `%TEMP%` 根，验「够老的一次性 profile 被删、刚建的不动、别的前缀与同名
-文件不碰、重复调用幂等」，三条变异（删回收调用 / 放宽前缀 / 去掉够老判定）各自变红。
-末节端到端读真实 Edge —— 读到就验、没登录就打印跳过）。
+文件不碰、重复调用幂等」，另外验**单轮上限**（造 10 个残留，一轮只删 3 个，三轮才清完）
+与**删除复核**（`force: true` 会吞掉 ENOENT，所以「没真删掉」不许计数，否则上限配额会被
+虚耗、真残留永远排不到），再加一条「`tmpdir()` 自己抛错时安静返回 0」；六条变异（删回收
+调用 / 放宽前缀 / 去掉够老判定 / 去掉单轮上限 / 去掉删除复核 / 把 `tmpdir()` 挪回 `try`
+外面）各自变红。「够老」的时间戳**由源码阈值算出来**而不是写死 2 小时 —— 阈值分平台，
+写死会在 POSIX 上把 2 小时判成还年轻、5 条断言集体变红（本机恒 Windows 又没有 CI，属潜伏
+缺陷；已用「把阈值模拟成 6 小时」正反两向验过）。末节端到端读真实 Edge —— 读到就验、
+没登录就打印跳过）。
 
 链路的两端为什么长这样：
 
@@ -1018,6 +1036,9 @@ MAGPIE_BUN="$HOME/.cache/magpie/bun/1.4.4/magpie-bun.exe"
 # 快照脚本的分段归一（网关兜底那条路返回的 id 两种形态混着来，判据必须是并集）
 "$MAGPIE_BUN" tests/t-snapshot-segment.mjs
 
+# 推理档位（magpie 的下拉只认 variants 键列表；本体私有档位名要翻成规范名，不联网）
+"$MAGPIE_BUN" tests/t-model-efforts.mjs
+
 # 经 magpie 网关 3425 真转发（非流式 / 流式 / 工具调用）
 python tests/t-gateway.py
 
@@ -1118,8 +1139,23 @@ magpie 模型列表里那三列**只能由插件的 `provider.models()` 给**：
 | `limit.context` | `resolveModelInfo().context.contextWindow` | `listModels()` **不带**窗口 |
 | `limit.output` | `resolveModelInfo().defaultMaxTokens` | |
 | `capabilities.input.image` | `resolveModelInfo().inputModalities` | 决定「支持图片」标记 |
-| `capabilities.reasoning` | `resolveModelInfo().reasoning.efforts` | 决定推理档位 |
+| `capabilities.reasoning` | `resolveModelInfo().reasoning.efforts` | 决定「会思考」这个标记 |
+| `variants`（键列表） | 同上，经 vendor 的 `effortView()` 翻成规范名 | 决定**下拉里有哪些档位可挑** |
 | 模型名 / 是否已关闭 | `listModels()` / `model.list` RPC | |
+
+⚠️ **`capabilities.reasoning: true` 不等于「能改推理强度」**（2026-10-31 用户报
+「使用插件模型无法修改推理强度」就是这个坑）。magpie 的档位下拉只认 `variants`：
+
+- 宿主 `host-*.js`：`variants: Object.keys(m.variants ?? {})`；
+- magpie `internal/provider/plugins.go`：`if m.Reasoning { c.Efforts, c.Reasoning = m.Variants, true }`；
+- 于是「只发布尔、不发 `variants`」在界面上就是「这模型会思考，但一档都挑不了」，
+  下拉空、改不动。
+
+所以**有档位才发 `variants`、没档位不发**（发空对象等于发一个空下拉）。档位名走
+`vendor/lib/openai-gateway/effort-view.js` 的 `effortView()` 翻成规范名
+（`none/minimal/low/medium/high/xhigh/max/ultra`），本体的私有写法
+（codearts 的 `off`/`on`、astudio 的 `none`）由它统一翻；请求回来时
+`normalizeReasoningEffort()` 会翻回各家的私有档位，插件不需要额外翻译。
 
 实测（2026-10-29，用户报「推理强度 / 支持图片输出 / 上下文没正确取到」）：只读
 `listModels()` 时**53 个模型里 0 个有窗口**，界面 53 行全显示 128K，而真窗口是
@@ -1135,6 +1171,17 @@ image true / reasoning true`，`astudio/xopdsv4flash0731in` = `1048576 / 100000 
 
 能力元数据跟目录一起落盘到 `~/.config/magpie/jet-hub-models.json` 的 `meta` 字段，
 冷启动首屏就有真窗口，不必等本体 20–30 秒起来。
+
+⚠️ **合并两条采集腿时，集合型字段（`input` / `efforts`）和标量字段的判据必须不同。**
+两条腿的模型 id 形态相同（vendor 的 `toOpenAiModelId` = `${provider}/${model}`），
+所以全量腿（`refreshFullCatalog`）会覆盖实时腿（`_absorbModels`）写的那份。标量
+（`context` / `output`）用「上游没报就继承旧值」是对的 —— 上游偶尔漏报窗口，保留上一轮
+值反而更准。但集合用这套就变成**能力粘滞**：上游把某模型的图片能力撤掉
+（`inputModalities` 变空表或不再返回该字段）时，旧的 `input: ['text','image']` 原样留着，
+magpie 照样允许往一个实际不收图的模型贴图，请求到上游才 400。所以集合的判据是
+`Array.isArray(x)`：**声明了就覆盖，哪怕空表**（空表是「上游说它没有」，不是「这次没问
+出来」），字段根本没返回才继承。`tests/t-model-efforts.mjs` 的 `③ -12`…`③ -16` 把这条
+正反两向锁住（撤成空表 ⇒ 覆盖成空表；字段没返回 ⇒ 继承旧值）。
 
 ## 图片（附件服务 `src/attachments.mjs`）
 
@@ -1221,13 +1268,14 @@ scripts/shot-console.cjs     控制台七标签实拍 + DOM 断言（Edge headle
 scripts/shot-usage.cjs       用量页账号积分卡片实拍（需 MAGPIE_WEB_KEY）
 scripts/run-console.mjs      单独起容器 + 控制台，不重启 magpie
 scripts/test-all.mjs   测试总入口
-tests/                 验证脚本（`_iso.mjs` 公共桩 + 22 个：t-writerefs / t-cred-upsert /
+tests/                 验证脚本（`_iso.mjs` 公共桩 + 23 个：t-writerefs / t-cred-upsert /
                        t-dead-account / t-account-pin / t-account-cache / t-usage /
                        t-checkin / t-options / t-attachments / t-plugin / t-models-nowait /
                        t-seed-auth / t-import-backup / t-login-reclaim / t-new-account /
-                       t-magicrew-creds / t-snapshot-segment / t-rpc-cover /
+                       t-magicrew-creds / t-snapshot-segment / t-model-efforts /
+                       t-rpc-cover /
                        t-console / t-direct / t-gateway.py / ui-check.cjs；
-                       前 18 个是 `scripts/test-all.mjs` 的 UNIT，后 4 个要 magpie / web 在跑）
+                       前 19 个是 `scripts/test-all.mjs` 的 UNIT，后 4 个要 magpie / web 在跑）
 LICENSE                本插件自己的 MIT（与 vendor/LICENSE 是两份，别混看）
 vendor/LICENSE         上游 deepseek-harness-codearts 的 MIT，随 vendor/ 一起分发
 docs/screenshot.png    侧栏页面实拍（人工从 `tests/ui-check.cjs` 的产物里挑一张拷入）
