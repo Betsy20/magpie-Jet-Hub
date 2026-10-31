@@ -352,6 +352,11 @@ function modelEntry(id, def, meta) {
   // 未声明就**不发**这几个字段（发 0 / false 会被读成「确认不支持」）。
   if (Array.isArray(meta?.input) && meta.input.length > 0) entry.modalities = { input: [...input], output: ['text'] }
   if (reasoning) entry.reasoning = true
+  // magpie 的推理强度下拉只认插件给的档位列表：宿主对模型对象取
+  // `Object.keys(m.variants ?? {})` 交给 magpie，magpie 再把它当 `Entry.Efforts`。
+  // 没有 `variants` 就等于「会思考但一档都挑不了」——所以有档位才发、没档位不发。
+  const efforts = Array.isArray(meta?.efforts) ? meta.efforts : []
+  if (reasoning && efforts.length > 0) entry.variants = Object.fromEntries(efforts.map((e) => [e, {}]))
   return entry
 }
 

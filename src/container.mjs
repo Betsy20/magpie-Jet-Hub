@@ -23,7 +23,7 @@ import { FileCredentialProvider } from './credentials.mjs'
 import { ConnectionSeam } from './connection.mjs'
 import { startHubServer } from './hub-server.mjs'
 import { JetHubAttachmentStore } from './attachments.mjs'
-import { chatCompletion, modelsPayload, llmReady, jsonResponse, errorResponse } from './llm-bridge.mjs'
+import { chatCompletion, modelsPayload, llmReady, jsonResponse, errorResponse, openAiEfforts } from './llm-bridge.mjs'
 
 /**
  * 「死号判据对本家不可信」的 provider 名单 —— 命中即**不判死**。
@@ -594,9 +594,16 @@ export class JetHubContainer {
       if (Number.isFinite(m?.context_window) && m.context_window > 0) meta.context = m.context_window
       if (Number.isFinite(m?.max_tokens) && m.max_tokens > 0) meta.output = m.max_tokens
       if (Array.isArray(m?.input) && m.input.length > 0) meta.input = [...m.input]
-      if (m?.reasoning !== undefined) meta.reasoning = Array.isArray(m.reasoning?.openai_efforts)
-        ? m.reasoning.openai_efforts.length > 0
-        : true
+      // ⚠️ 档位数组**必须留住**：magpie 的推理强度下拉只认插件给的档位列表，
+      //    把它压成一个布尔就等于告诉它「这模型会思考，但一档都挑不了」——
+      //    2026-10-31 用户报的「使用插件模型无法修改推理强度」正是这里丢的数组。
+      if (m?.reasoning !== undefined) {
+        const efforts = Array.isArray(m.reasoning?.openai_efforts)
+          ? m.reasoning.openai_efforts.filter((e) => typeof e === 'string' && e !== '')
+          : []
+        meta.reasoning = Array.isArray(m.reasoning?.openai_efforts) ? efforts.length > 0 : true
+        if (efforts.length > 0) meta.efforts = efforts
+      }
       if (Object.keys(meta).length > 0) this.modelMeta.set(id, meta)
     }
   }
@@ -692,13 +699,27 @@ export class JetHubContainer {
         const model = row.id.slice(at + 1)
         try {
           const info = await this.llm.resolveModelInfo(provider, model)
-          const meta = {}
+          // ⚠️ **合并**而不是整体替换：两条腿的模型 id 形态相同（都是
+          //    `${provider}/${model}`，见 vendor 的 `toOpenAiModelId`），所以
+          //    这里会覆盖实时腿写的那份。而两条腿的字段来源不完全一样 ——
+          //    输入模态那条：实时腿优先用适配器自己 `listModels` 的 `input`，
+          //    这条腿只有 `resolveModelInfo` 的 `inputModalities`。整体替换会
+          //    把「能发图片」这个声明抹掉，症状是照着模型列表选了能看图的模型
+          //    却传不了图。
+          const meta = { ...(this.modelMeta.get(row.id) ?? {}) }
           const window = info?.context?.contextWindow
           if (typeof window === 'number' && window > 0) meta.context = window
           const maxTokens = info?.defaultMaxTokens
           if (typeof maxTokens === 'number' && maxTokens > 0) meta.output = maxTokens
           if (Array.isArray(info?.inputModalities) && info.inputModalities.length > 0) meta.input = [...info.inputModalities]
           if (Array.isArray(info?.reasoning?.efforts) && info.reasoning.efforts.length > 0) meta.reasoning = true
+          // 这条腿直接调 resolveModelInfo（没走 modelsPayload 那趟），档位要多翻一次；
+          // 不翻就只有布尔、没有可挑的档位。
+          const efforts = openAiEfforts(info)
+          if (efforts.length > 0) {
+            meta.reasoning = true
+            meta.efforts = efforts
+          }
           if (Object.keys(meta).length > 0) this.modelMeta.set(row.id, meta)
         } catch {
           // 这个模型没有能力声明（或 provider 没加载）：全量目录照常，它自己少字段

@@ -69,6 +69,24 @@ export function errorResponse(error) {
   return jsonResponse(converted.status, converted.body)
 }
 
+/**
+ * 一个模型在 OpenAI 客户端里能填的**规范档位**（`low` / `high` / `xhigh` …）。
+ *
+ * 为什么需要翻一遍：magpie 侧的推理强度下拉只认插件给的档位列表，而本体声明的
+ * 是各家私有档位名（AStudio 的 `none`/`high`、CodeArts 的 `off`/`on`）。
+ * `effortView` 已经把私有名翻成 8 个规范名（`openai_efforts`），请求填规范名
+ * 之后由本体网关再翻回真实档位 —— 所以这里直接复用它，插件不再维护第二份映射。
+ *
+ * 模型没声明档位时返回空数组（**不是** `undefined`）：调用方据此决定根本不发
+ * `variants`，与「不声明即未知」的口径一致。
+ */
+export function openAiEfforts(info) {
+  const view = effortView(info?.reasoning?.efforts, info?.reasoning?.defaultEffort)
+  return Array.isArray(view?.openai_efforts)
+    ? view.openai_efforts.filter((e) => typeof e === 'string' && e !== '')
+    : []
+}
+
 /** 本体 `ctx.llm` 是否已经可用（`_start()` 的轮询判据）。 */
 export function llmReady(llm) {
   return llm !== undefined && llm !== null && typeof llm.stream === 'function' && typeof llm.listModels === 'function'
