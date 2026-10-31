@@ -63,6 +63,8 @@ const BACKUP_FORMAT = 'dsh-codearts-auth/backup'
 const BACKUP_VERSION = 1
 const ENCRYPTED_FORMAT = 'dsh-codearts-auth/backup.encrypted'
 const KDF_ITERATIONS = 310000
+// 与控制台同值：容器里的 iterations 直接进 pbkdf2Sync，畸形容器可能给个天文数字。
+const MAX_KDF_ITERATIONS = 5000000
 
 // ---- 参数 ------------------------------------------------------------------
 
@@ -184,16 +186,34 @@ function decrypt(enc, passphrase) {
   const iv = Buffer.from(String(enc.iv ?? ''), 'base64')
   const blob = Buffer.from(String(enc.ciphertext), 'base64')
   if (salt.length === 0 || iv.length === 0 || blob.length <= 16) {
+    // 这两个检查与口令无关（pbkdf2Sync 还没跑）：文案直接说清，
+    // 外层 catch 只 die(e.message)，不会再套「口令不对」前缀。
     throw new Error('加密容器缺 salt / iv / ciphertext')
   }
   const iterations = Number.isSafeInteger(enc.iterations) && enc.iterations > 0
     ? enc.iterations
     : KDF_ITERATIONS
+  if (iterations > MAX_KDF_ITERATIONS) {
+    throw new Error(`加密容器的迭代数 ${iterations} 超出上限 ${MAX_KDF_ITERATIONS}（文件可能被改过）`)
+  }
   const key = pbkdf2Sync(passphrase, salt, iterations, 32, 'sha256')
   const decipher = createDecipheriv('aes-256-gcm', key, iv)
   decipher.setAuthTag(blob.subarray(blob.length - 16))
-  const plain = Buffer.concat([decipher.update(blob.subarray(0, blob.length - 16)), decipher.final()])
-  return JSON.parse(plain.toString('utf8'))
+  let plain
+  try {
+    plain = Buffer.concat([decipher.update(blob.subarray(0, blob.length - 16)), decipher.final()])
+  } catch (e) {
+    // AES-GCM 认证失败只会说「unable to authenticate data」，真正的原因是口令错
+    // 或文件被改过 —— 两种都不可重试，直接说清。
+    throw new Error(`解密失败：口令不对，或文件被改动过（${e.message}）`)
+  }
+  // 解开之后才解析 JSON：明文不是 JSON 与「口令不对」是两回事，混在一起说
+  // 会让人以为还要再试口令（控制台侧 console/console.js 同款）。
+  try {
+    return JSON.parse(plain.toString('utf8'))
+  } catch (e) {
+    throw new Error(`解密成功，但内容不是合法 JSON（${e.message}）`)
+  }
 }
 
 let payload = container
@@ -208,9 +228,10 @@ if (isEncrypted(container)) {
   try {
     payload = decrypt(container, passphrase)
   } catch (e) {
-    // AES-GCM 认证失败时 OpenSSL 只会说「unable to authenticate data」，真正的
-    // 原因是口令错或文件被改过 —— 两种都不可重试，直接说清。
-    die(`解密失败（口令不对，或文件被改动过）：${e.message}`)
+    // 文案已由 decrypt() 分好类（容器坏了 / 口令不对 / 明文不是 JSON），
+    // 这里再套一层前缀只会把「迭代数超上限」也说成「口令不对」
+    // —— 而那条路径上 pbkdf2Sync 根本没跑（2026-10-31 二审实测）。
+    die(String(e.message ?? e))
   }
 }
 

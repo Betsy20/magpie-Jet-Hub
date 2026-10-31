@@ -1207,6 +1207,77 @@ async function doExport(btn) {
   }
 }
 
+/* 备份文件有两种形态：前端导出时可选加一层壳。CLI 的 import-backup.mjs 认它，
+   控制台原来只认不加壳的那种，于是拿加壳的备份来导入只会看到「不是
+   dsh-codearts-auth/backup 备份文件」。这里用 WebCrypto 复刻 CLI 的同一套参数
+   （PBKDF2-SHA256，默认 310000 轮，AES-256-GCM，密文尾部 16 字节是 tag）——
+   控制台跑在 127.0.0.1，属 secure context，crypto.subtle 可用。 */
+const PLAIN_FORMAT = 'dsh-codearts-auth/backup'
+const ENCRYPTED_FORMAT = 'dsh-codearts-auth/backup.encrypted'
+const KDF_ITERATIONS = 310000
+// 迭代数上限：容器里的 iterations 直接进 PBKDF2，一个 1e9 的（损坏/恶意）文件
+// 足以把标签页拖到假死。超过 500 万就拒，与 scripts/import-backup.mjs 同值。
+const MAX_KDF_ITERATIONS = 5000000
+
+/** base64 → Uint8Array（atob 只给 latin1 字符串，得自己搬字节）。 */
+function b64ToBytes(s) {
+  let bin
+  try {
+    bin = atob(String(s))
+  } catch {
+    // atob 对非法字符抛 InvalidCharacterError，报文是 "Failed to execute 'atob'…"，
+    // 用户完全看不懂；这是容器坏了，不是口令问题。
+    throw new Error('加密容器里的 salt / iv / ciphertext 不是合法 base64（文件可能被截断或改过）')
+  }
+  const out = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i)
+  return out
+}
+
+/** 解密加壳备份。WebCrypto 的 AES-GCM 直接吃「密文 || tag」，与 Node 侧一致。 */
+async function decryptBackup(enc, passphrase) {
+  // 控制台只绑 127.0.0.1（src/hub-server.mjs 的 host 默认值），正常一定是安全上下文。
+  // 这里只是兜底：万一以后有人改了绑定地址、或经反代访问，crypto.subtle 会是
+  // undefined，那时下面会抛 "Cannot read properties of undefined" —— 看不懂，直接说清。
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('这个地址不是安全上下文，浏览器不给 WebCrypto：请改用 http://127.0.0.1:<端口> 打开控制台再导入加壳备份')
+  }
+  const salt = b64ToBytes(enc.salt ?? '')
+  const iv = b64ToBytes(enc.iv ?? '')
+  const blob = b64ToBytes(enc.ciphertext ?? '')
+  if (salt.length === 0 || iv.length === 0 || blob.length <= 16) {
+    throw new Error('加密容器缺 salt / iv / ciphertext')
+  }
+  const iterations = Number.isSafeInteger(enc.iterations) && enc.iterations > 0 ? enc.iterations : KDF_ITERATIONS
+  if (iterations > MAX_KDF_ITERATIONS) {
+    throw new Error(`加密容器的迭代数 ${iterations} 超出上限 ${MAX_KDF_ITERATIONS}（文件可能被改过）`)
+  }
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey'])
+  const key = await crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    base,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt'],
+  )
+  let plain
+  try {
+    plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, blob)
+  } catch (e) {
+    // AES-GCM 认证失败只有一种可说的原因组合：口令不对，或文件被改过。都不可重试。
+    // 附上底层 message：iv 长度非法、容器被截断这类畸形文件也能对上号，
+    // 否则一律「口令不对」会让人白试口令（CLI 侧 scripts/import-backup.mjs 同样带）。
+    throw new Error(`解密失败：口令不对，或文件被改动过（${e?.message ?? e}）`)
+  }
+  const text = new TextDecoder().decode(plain)
+  try {
+    return JSON.parse(text)
+  } catch (e) {
+    // 口令对了、容器也完整，只是里面不是 JSON —— 与「口令不对」是两回事，分开说
+    throw new Error(`解密成功，但内容不是合法 JSON（${e?.message ?? e}）`)
+  }
+}
+
 async function doImport(btn) {
   const file = $('#bkFile').files?.[0]
   if (!file) {
@@ -1224,16 +1295,35 @@ async function doImport(btn) {
       } catch {
         throw new Error('文件不是合法 JSON')
       }
+      // 加壳的备份先解密再往下走：口令留空就直说，别让它撞到 decrypt 里变成「口令不对」。
+      if (parsed?.format === ENCRYPTED_FORMAT) {
+        // 口令**不裁剪**：导出侧（vendor/lib/client/jet-hub.js）与 CLI 都按原样取，
+        // 这里一 trim，首尾带空格的口令（复制粘贴时最常见）就解不开，而且只报
+        // 「口令不对」，用户无从判断。空口令单独拦，不走解密。
+        const passEl = $('#bkPass')
+        const pass = String(passEl?.value ?? '')
+        if (pass === '') throw new Error('这份备份加了壳，先在「加密备份的口令」里填口令')
+        parsed = await decryptBackup(parsed, pass)
+      }
+      if (parsed?.format !== PLAIN_FORMAT) {
+        throw new Error(`不是 ${PLAIN_FORMAT} 备份文件（format=${String(parsed?.format)}）`)
+      }
       // keepDisabledModels: 覆盖（replace）只换账号池与永久锁定表，**不换模型黑名单**。
       // 备份里的黑名单是导出那一刻的状态，整份还原会让「全关」重新落到本机，
       // 而控制台 2026-10-31 起没有模型开关，用户没有界面能清掉（见 scripts/import-backup.mjs）。
       const v = await rpc('backup.import', { payload: parsed, mode, keepDisabledModels: true })
       renderGeneric($('#bkOut'), v)
       say('#bkMsg', '导入完成', 'ok')
+      // 清掉口令：换一份口令不同的备份时不会静默沿用旧值（否则只报「口令不对」）
+      if (passEl) passEl.value = ''
     })
     await loadBackup()
   } catch (e) {
     say('#bkMsg', String(e.message ?? e), 'err')
+    // 失败也清口令：换一份口令不同的加壳备份时不会静默沿用旧值
+    // （旧值只会再报一次「口令不对」，看着像同一个问题其实换了原因）
+    const passEl = $('#bkPass')
+    if (passEl) passEl.value = ''
   }
 }
 

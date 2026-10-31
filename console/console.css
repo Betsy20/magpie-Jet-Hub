@@ -66,7 +66,7 @@ h2 { font-size: 12.5px; margin: 22px 0 8px; color: var(--fg2); font-weight: 600;
 
 .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .bar label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
-select, input[type=file], input[type=number], input[type=text], input:not([type]) { font: inherit; font-size: 12px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
+select, input[type=file], input[type=number], input[type=text], input[type=password], input:not([type]) { font: inherit; font-size: 12px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--fg); }
 input::placeholder { color: var(--faint); }
 input:focus, select:focus { outline: none; border-color: var(--accent); }
 .grow { flex: 1 1 180px; min-width: 120px; }

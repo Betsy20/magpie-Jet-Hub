@@ -220,6 +220,56 @@ function run(args, env = {}) {
   const bad = run([encFile, '--dsh-home', home, '--list'], { JET_HUB_BACKUP_PASSPHRASE: 'wrong-passphrase' })
   check(bad.code === 1, `错口令应失败，实际退出码 ${bad.code}`)
   check(/解密失败/.test(bad.out), `错口令应提示解密失败：${bad.out}`)
+
+  // 迭代数超上限：这条路径上 pbkdf2Sync 根本没跑，口令没被用到
+  // ⇒ 不能说成「口令不对」（2026-10-31 二审实测 CLI 曾误包装）
+  const hugeFile = path.join(root, 'backup.huge.json')
+  fs.writeFileSync(hugeFile, JSON.stringify({
+    format: 'dsh-codearts-auth/backup.encrypted',
+    kdf: 'PBKDF2',
+    hash: 'SHA-256',
+    iterations: 5_000_001,
+    salt: salt.toString('base64'),
+    iv: iv.toString('base64'),
+    ciphertext: ct.toString('base64'),
+  }))
+  const huge = run([hugeFile, '--dsh-home', home, '--list'], { JET_HUB_BACKUP_PASSPHRASE: passphrase })
+  check(huge.code === 1, `迭代数超上限应失败，实际退出码 ${huge.code}`)
+  check(/超出上限/.test(huge.out), `应说明是迭代数超上限：${huge.out}`)
+  check(!/口令不对/.test(huge.out), `超上限的报错不能说成口令不对：${huge.out}`)
+
+  // 缺字段：容器形状不对，与口令无关（pbkdf2 也没跑）
+  const noSaltFile = path.join(root, 'backup.nosalt.json')
+  fs.writeFileSync(noSaltFile, JSON.stringify({
+    format: 'dsh-codearts-auth/backup.encrypted',
+    kdf: 'PBKDF2',
+    hash: 'SHA-256',
+    iterations: 310000,
+    iv: iv.toString('base64'),
+    ciphertext: ct.toString('base64'),
+  }))
+  const noSalt = run([noSaltFile, '--dsh-home', home, '--list'], { JET_HUB_BACKUP_PASSPHRASE: passphrase })
+  check(noSalt.code === 1, `缺 salt 应失败，实际退出码 ${noSalt.code}`)
+  check(/缺 salt/.test(noSalt.out), `应说明缺的是容器字段：${noSalt.out}`)
+  check(!/口令不对/.test(noSalt.out), `缺字段的报错不能说成口令不对：${noSalt.out}`)
+
+  // 解得开但明文不是 JSON：口令是对的，问题在内容 → 不能说成「口令不对」
+  const rawC = createCipheriv('aes-256-gcm', key, iv)
+  const rawCt = Buffer.concat([rawC.update('这不是 JSON，只是一段普通文本', 'utf8'), rawC.final(), rawC.getAuthTag()])
+  const rawFile = path.join(root, 'backup.raw.json')
+  fs.writeFileSync(rawFile, JSON.stringify({
+    format: 'dsh-codearts-auth/backup.encrypted',
+    kdf: 'PBKDF2',
+    hash: 'SHA-256',
+    iterations: 310000,
+    salt: salt.toString('base64'),
+    iv: iv.toString('base64'),
+    ciphertext: rawCt.toString('base64'),
+  }))
+  const raw = run([rawFile, '--dsh-home', home, '--list'], { JET_HUB_BACKUP_PASSPHRASE: passphrase })
+  check(raw.code === 1, `明文不是 JSON 应失败，实际退出码 ${raw.code}`)
+  check(/不是合法 JSON/.test(raw.out), `应说明解密成功但内容不是 JSON：${raw.out}`)
+  check(!/口令不对/.test(raw.out), `非 JSON 的报错不能说成口令不对：${raw.out}`)
 }
 
 // ---- 6. 拒绝非本插件备份 ---------------------------------------------------

@@ -745,6 +745,10 @@ node scripts/import-backup.mjs <备份文件.json>             # 真写（默认
   JET_HUB_BACKUP_PASSPHRASE='…' node scripts/import-backup.mjs backup.enc.json
   ```
 
+  控制台的「备份 → 导入」也认这种加壳备份：选好文件、在「加密备份的口令」框里填口令
+  再点导入即可（页面用 WebCrypto 复刻同一套参数解壳，控制台跑在 127.0.0.1 属安全上下文）。
+  不加壳的备份把口令框留空。
+
 - 写完账号池后脚本会接着跑一次 `scripts/seed-auth.mjs`，把账号摊平进 magpie 的
   `plugin-auth.json`（`--no-seed` 可跳过）。两处文件写入前都留
   `.bak-import-<时间戳>` 备份，写完回读校验，值对不上直接报错退出。

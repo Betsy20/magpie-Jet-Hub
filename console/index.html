@@ -151,6 +151,7 @@
       <div class="bar">
         <button id="bkExport" class="primary">导出备份（下载 JSON）</button>
         <label class="file">选择备份文件<input type="file" id="bkFile" accept="application/json,.json"></label>
+        <input type="password" id="bkPass" aria-label="加密备份的口令" placeholder="加密备份的口令（不加壳的留空）" autocomplete="off" spellcheck="false">
         <select id="bkMode"><option value="merge">合并（merge）</option><option value="replace">覆盖（replace）</option></select>
         <button id="bkImport">导入</button>
         <span id="bkMsg" class="msg"></span>
