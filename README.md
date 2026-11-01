@@ -125,9 +125,24 @@ jet-hub-workbuddy#a1b2c3   → 第二个账号
 jet-hub-codearts           → 第一个账号
 ```
 
-`node scripts/seed-auth.mjs` 把本体账号池（`~/.dsh/jet-hub/state.json`）按 provider 摊平写进 magpie，写入前自动备份，只动本插件自己的键。零账号的 provider 会写一条**占位记录**（否则 magpie 报 `no plugin signs in to <id>`，卡片点不动）。
+**这件事现在自动做。** 容器启动好之后插件会静默对齐一次（`src/auth-sync.mjs` 的
+`syncAuthQuietly()`），所以账号增删后不用管它。对齐只动本插件的键
+（`jet-hub` / `jet-hub-*` 及其 `#` 分支）与**旧版 provider id 的残留键**，别的插件
+记录一条都不碰；内容没变就不写盘，写之前留 `.bak-lead-<时间戳>` 备份，写完回读校验，
+缺键直接报错。零账号的 provider 会写一条**占位记录**（否则 magpie 报
+`no plugin signs in to <id>`，卡片点不动）。
 
-`--dry-run` 会打印逐家清单和最终写入键数。**具体数字随你登录 / 新建 / 删除账号实时变化**，别抄进任何文档或断言。
+> **别按名字猜归属。** `plugin-auth.json` 里键名恰好等于 DSH provider 名的记录
+> （`magicrew` / `workbuddy` / `zcode` / `codearts` …）**是别的插件的登录态** ——
+> `plugin-providers.json` 的 `spec` 显示它们来自 `magpie-magicrew-auth`、
+> `opencode-autoclaw-auth`、`opencode-codearts-auth` 等，形状是
+> `{type:'oauth', refresh, access}`。本插件写的永远是
+> `{type:'api', key:'jet-hub-local:…'}`。2026-11-01 曾按名字判断，误删了 18 条
+> 别人家的登录态（已从备份恢复）—— 所以现在的判据只认内容，不认名字。
+
+`node scripts/seed-auth.mjs` 是同一份逻辑的手动入口 —— 不重启 magpie 就想同步时用。
+`--dry-run` 打印逐家清单与最终写入键数。**具体数字随你登录 / 新建 / 删除账号实时
+变化**，别抄进任何文档或断言。
 
 ### 在 magpie 里新建账号
 
@@ -333,7 +348,7 @@ vendor/                上游本体（MIT，见 docs/vendor.md）
 page/                  侧栏页（只读三标签，跑在 magpie 沙箱 iframe）
 console/               本地控制台（完整功能）
 scripts/               snapshot-models / seed-auth / import-backup / test-all
-tests/                 24 个 t-*.mjs + ui-check.cjs + t-gateway.py（公共桩 _iso.mjs）
+tests/                 27 个 t-*.mjs + ui-check.cjs + t-gateway.py（公共桩 _iso.mjs）
 docs/                  截图、vendor.md、testing.md
 ```
 

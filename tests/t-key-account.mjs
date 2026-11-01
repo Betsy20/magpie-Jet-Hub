@@ -36,6 +36,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+// 测试绝不写真实 magpie 配置（2026-11-01 事故：单跑这个文件曾把用户 60 行账号写塌）
+process.env.JET_HUB_NO_AUTH_SYNC = '1'
+
 process.env.JET_HUB_NO_ADDR_FILE = '1'
 
 // 路径含空格/中文时 `pathname` 会被百分号编码，用 fileURLToPath。

@@ -44,6 +44,7 @@ import { JetHubContainer } from './container.mjs'
 // 而不是在插件里再抄一份名单（抄了必然漂移）。
 import { createProviderCredits, creditsOf } from '../vendor/lib/provider-credits.js'
 import { iconFor } from './icons.mjs'
+import { syncAuthQuietly } from './auth-sync.mjs'
 // 模型目录价（USD / 1M tokens）。由 `node scripts/gen-model-prices.mjs` 生成，
 // 数据来自 magpie 缓存的 models.dev 目录——见那个文件的头注释（含「参考价不是账单」的声明）。
 import { MODEL_PRICES } from './model-prices.mjs'
@@ -483,6 +484,34 @@ function containerFor(options, log) {
 }
 
 /**
+ * 把 23 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
+ *
+ * 给 `syncAuthQuietly()` 用：它要的是「全量账号」，而 `account.list` 必须按
+ * provider 逐家问。失败一律当「这家没有账号」——未登录的渠道本来就该失败，
+ * 不是错误（理由见 `listAccountsOf` 的注释）。
+ */
+async function collectAllAccounts(container) {
+  const out = []
+  const failedProviders = []
+  for (const dsh of DSH_PROVIDERS) {
+    // ⚠️ 直接调 RPC 而不是 `listAccountsOf`：后者把失败吞成 `[]`，而「这家 0 个
+    // 账号」与「列账号失败」会导出完全不同的写盘结果 —— 后者会把这家已有的 20 行
+    // 记录整批换成一条占位（2026-11-01 实测）。所以这里要能分辨。
+    try {
+      const v = await container.rpc('account.list', { provider: dsh })
+      const rows = Array.isArray(v?.accounts) ? v.accounts : []
+      for (const a of rows) {
+        if (a === null || typeof a !== 'object') continue
+        out.push({ ...a, provider: a.provider ?? dsh })
+      }
+    } catch {
+      failedProviders.push(dsh)
+    }
+  }
+  return { accounts: out, failedProviders }
+}
+
+/**
  * 后台预热容器（幂等，只跑一次）。
  *
  * ⚠️ 必须 `.catch()` 掉：预热失败是正常情况（比如 DSH 从没登录过），
@@ -493,7 +522,33 @@ function warmUp(container, log) {
   warmedUp = true
   container
     .start()
-    .then(() => log?.('容器预热完成（冷启动不再阻塞「连接」）'))
+    .then(async () => {
+      log?.('容器预热完成（冷启动不再阻塞「连接」）')
+      // 账号被删掉或重新登录换了 id 之后，magpie 里会留着指向旧 id 的记录
+      // （界面上表现为「一个渠道显示 3 个账号，其中两个叫 API key ...」）。
+      // 这里在容器刚起好、账号池已加载完的时间点静默对齐一次 —— 失败只记日志。
+      //
+      // 静默收集：未登录的渠道 `account.list` 会失败，那是常态，不该刷屏。
+      // 测试环境绝不写真实 magpie 配置：`defaultAuthPath()` 读的是
+      // `os.homedir()`，而测试用临时 home 起容器 —— 账号集是空的或假的，
+      // 写进去就把用户真实的账号列表塌成占位（2026-11-01 事故）。
+      if (process.env.NODE_ENV === 'test') return
+      const got = await collectAllAccounts(container)
+      if (got.failedProviders.length > 0) {
+        // 读不到账号的那几家**保留原记录不动**（不能写成占位 —— 一次瞬时失败就会把
+        // 20 个账号换成一条「未登录该渠道」）。本机的 accio / autoclawintl /
+        // codely / gemini 常年零账号，`account.list` 对它们报错是常态，所以这里
+        // 不能整轮放弃，否则自动对齐永远不生效。
+        log?.(`magpie 登录记录：${got.failedProviders.join(' / ')} 列账号失败，这几家保持原样`)
+      }
+      syncAuthQuietly({
+        accounts: got.accounts,
+        providers: DSH_PROVIDERS,
+        idOf,
+        failedProviders: got.failedProviders,
+        log,
+      })
+    })
     .catch((e) => log?.(`容器预热失败（不影响后续调用，会重试）：${e?.message ?? e}`))
 }
 

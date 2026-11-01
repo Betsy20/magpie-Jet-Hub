@@ -70,6 +70,15 @@ export function isolate() {
     NODE_ENV: 'test',
     // 插件自己的附件目录（`src/attachments.mjs:86 defaultAttachmentDir()`）
     JET_HUB_ATTACHMENT_DIR: join(root, 'attachments'),
+    // ⚠️ 2026-11-01 事故：`defaultAuthPath()` 读的是 `os.homedir()`，`DSH_HOME`
+    // 隔离不了它 —— 跑一次测试就把用户真实的 magpie 账号列表写塌了。
+    // 只挂开关不够：`scripts/import-backup.mjs` 会 spawn `seed-auth.mjs`，那条路
+    // 直接调 `syncPluginAuth`、不经过 `syncAuthQuietly` 的闸门 ⇒ 必须把**路径**也改掉。
+    JET_HUB_NO_AUTH_SYNC: '1',
+    // 与 isolate 沙箱里的 `~/.config/magpie/` 对齐：t-plugin / t-options 会往那里种
+    // 种子缓存，路径不一致就读不到了。
+    JET_HUB_AUTH_PATH: join(root, '.config', 'magpie', 'plugin-auth.json'),
+    JET_HUB_MODELS_CACHE: join(root, '.config', 'magpie', 'jet-hub-models.json'),
     // ⚠️ 2026-10-30 补的第三层，也是最隐蔽的一层：**只改 `home` / `DSH_*` 不够**。
     // 上游有几家（cline、autoclaw）的凭据落在 `~/.config/magpie/.dsh/`
     // ——`~` 是 `os.homedir()`，与 `DSH_HOME` 无关。不改 `USERPROFILE`/`HOME`

@@ -37,6 +37,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-plugin.mjs` | 23 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
 | `t-models-nowait.mjs` | `models()` 不阻塞（计时判 > 5 秒即失败，进程额外撑 45 秒） |
 | `t-seed-auth.mjs` | 账号摊平进 `plugin-auth.json`（占位键、不碰别人的键、回读校验） |
+| `t-auth-sync.mjs` | 启动时自动对齐 `plugin-auth.json`：摊平规则、只清本插件旧记录、别人的 oauth 登录态一条不删、幂等不重写、文件不存在能创建 |
 | `t-import-backup.mjs` | 备份导入：merge 判重、replace 还原但不碰黑名单、`--keep-disabled`、加密容器、错口令与非法格式被拒 |
 | `t-backup-keep.mjs` | `keepDisabledModels` 三态 + merge 不碰黑名单 |
 | `t-login-reclaim.mjs` | 放弃授权时回收占位账号（四字段判据：昵称等于 id 或白名单、无到期时间、不可 refreshable、10 分钟内创建；外加 `login.poll` 二次确认） |

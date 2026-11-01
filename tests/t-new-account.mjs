@@ -42,6 +42,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+// 测试绝不写真实 magpie 配置（2026-11-01 事故：单跑这个文件曾把用户 60 行账号写塌）
+process.env.JET_HUB_NO_AUTH_SYNC = '1'
+
 // 本文件会真的把容器拉起来（第 7 节 import index.mjs 建工厂），而
 // `src/container.mjs` 起控制台后，只要端口恰好落在 18500 且没设这个变量，就会写
 // `~/.config/magpie/jet-hub-console.json`。单跑本文件时 test-all 的那层保护不在，

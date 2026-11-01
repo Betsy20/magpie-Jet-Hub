@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
+import os from 'node:os'
 
 // 别用 `new URL(import.meta.url).pathname`：路径含空格或非 ASCII 时它会返回百分号编码的字串，
 // 此时所有用例都会“文件不存在”——整套回归静默失效。
@@ -16,7 +17,23 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.dirname(HERE)
 const TESTS = path.join(ROOT, 'tests')
 
-const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-deps.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-import-backup.mjs', 't-backup-keep.mjs', 't-login-reclaim.mjs', 't-console-backup.mjs', 't-new-account.mjs', 't-key-account.mjs', 't-magicrew-creds.mjs', 't-snapshot-segment.mjs', 't-model-efforts.mjs', 't-model-prices.mjs', 't-rpc-cover.mjs']
+// ⚠️ 2026-11-01 两次真实事故换来的：`~/.config/magpie/plugin-auth.json` 与
+// `jet-hub-models.json` 的路径都是从 `os.homedir()` 推的，`DSH_HOME` 隔离不了。
+// 而 `scripts/import-backup.mjs` 会 spawn `seed-auth.mjs`（它直接调
+// `syncPluginAuth`，不经过 `syncAuthQuietly` 的闸门）—— 于是跑一次测试就把用户
+// 真实的 magpie 账号列表写塌。这里给**所有**子进程指到一次性目录（**整个进程只建
+// 一个**：放在循环里会每个用例漏一个目录，实测一次跑漏 25 个）。
+const cfgSandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'jet-hub-cfg-'))
+const cfgEnv = {
+  // `NODE_ENV=test`：`syncPluginAuth` 的「测试态拒写真实路径」防线只认这个。
+  // 只在 `_iso.isolate()` 里设过，`test-all` 从不注入 ⇒ 那道防线在 test-all 里是死闸。
+  NODE_ENV: 'test',
+  JET_HUB_NO_AUTH_SYNC: '1',
+  JET_HUB_AUTH_PATH: path.join(cfgSandbox, 'plugin-auth.json'),
+  JET_HUB_MODELS_CACHE: path.join(cfgSandbox, 'jet-hub-models.json'),
+}
+
+const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-deps.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-auth-sync.mjs', 't-import-backup.mjs', 't-backup-keep.mjs', 't-login-reclaim.mjs', 't-console-backup.mjs', 't-new-account.mjs', 't-key-account.mjs', 't-magicrew-creds.mjs', 't-snapshot-segment.mjs', 't-model-efforts.mjs', 't-model-prices.mjs', 't-rpc-cover.mjs']
 const ENV = [
   { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
   // 直连层回归：真起容器跑一次 chat（流式 + 非流式）。取代了原来「内嵌网关端口」
@@ -83,6 +100,7 @@ for (const c of cases) {
   // 追加。这是「要真账号就得真数据」的固有代价，挡不掉，所以默认（不跑 ENV 组时）
   // 绝不注入；只有 `--all` 这种「明确要求连环境一起验」的场合才打开。
   const liveEnv = all ? { JET_HUB_LIVE: '1' } : {}
+
   const runOnce = (attempt) => {
     const capPath = path.join(ROOT, `.tmp-test-all-${process.pid}-${c.file}-${attempt}.log`)
     const capFd = fs.openSync(capPath, 'w')
@@ -93,7 +111,7 @@ for (const c of cases) {
         cwd: ROOT,
         stdio: ['ignore', capFd, capFd],
         timeout: 600_000,
-        env: { ...process.env, JET_HUB_NO_ADDR_FILE: '1', ...liveEnv },
+        env: { ...process.env, JET_HUB_NO_ADDR_FILE: '1', ...cfgEnv, ...liveEnv },
       })
     } finally {
       fs.closeSync(capFd)
@@ -150,4 +168,8 @@ for (const [mark, label, note] of rows) {
   console.log(`${mark} ${label.padEnd(w)}  ${note}`)
 }
 console.log(`\n${pass} 通过 / ${fail} 失败 / ${skip} 跳过`)
+// 子进程的一次性配置沙箱，跑完就删（里面可能有测试造出来的假凭据）
+try {
+  fs.rmSync(cfgSandbox, { recursive: true, force: true })
+} catch {}
 process.exit(fail ? 1 : 0)

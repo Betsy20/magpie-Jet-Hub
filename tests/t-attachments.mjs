@@ -15,6 +15,9 @@ import { join } from 'node:path'
 import { AttachmentFailure, IMAGE_LIMITS, JetHubAttachmentStore, sniffImage } from '../src/attachments.mjs'
 import { toGenerateOptions } from '../vendor/lib/openai-gateway/messages.js'
 
+// 测试绝不写真实 magpie 配置（2026-11-01 事故：单跑这个文件曾把用户 60 行账号写塌）
+process.env.JET_HUB_NO_AUTH_SYNC = '1'
+
 const problems = []
 const ok = (cond, msg) => { if (!cond) problems.push(msg) }
 
