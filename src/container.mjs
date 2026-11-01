@@ -19,7 +19,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { FileCredentialProvider } from './credentials.mjs'
+import { FileCredentialProvider, CRED_BASENAME, parseRefs } from './credentials.mjs'
 import { ConnectionSeam } from './connection.mjs'
 import { startHubServer } from './hub-server.mjs'
 import { JetHubAttachmentStore } from './attachments.mjs'
@@ -154,6 +154,39 @@ export class JetHubContainer {
    * 只在 `start()` 之后可用；`_start()` 的第三步 `ctx.plugin(mod)` 是异步排期，
    * 所以取用一律走 `await this.start()` 之后的 `this.llm`。
    */
+  /**
+   * 凭据文件的绝对路径（与 `FileCredentialProvider` 同一套规则）。
+   *
+   * 单独抽出来的理由：下面那个检查要**不启动容器**就能用 —— `ask()` / `authorize()`
+   * 都发生在启动之前，而启动一次要一两秒。
+   */
+  credentialFile() {
+    const home = this.home ?? homedir()
+    return /[\\/]\.dsh$/i.test(home) ? join(home, CRED_BASENAME) : join(home, '.dsh', CRED_BASENAME)
+  }
+
+  /**
+   * 这个账号的凭据还在不在。
+   *
+   * 2026-11-01 真机报障：magpie 里点「连接」挑了一个 9 月建的旧账号，magpie 显示
+   * 「已登录」，可查额度一直报 `undefined is not an object (evaluating 'product.id')`
+   * —— 那个账号在账号池里、`credentialRef` 也在，但 `~/.dsh/.credentials.yaml` 里
+   * **没有这条 ref**（凭据丢了，条目留下了）。签入之前必须问一句「凭据还在吗」。
+   *
+   * ⚠️ 读不到文件时返回 `true`（放行）。宁可不拦，也不能因为文件一时读不到
+   *    就把所有账号判成空壳、让用户谁也签不进来。
+   */
+  credentialAlive(ref) {
+    if (typeof ref !== 'string' || ref === '') return false
+    try {
+      const refs = parseRefs(readFileSync(this.credentialFile(), 'utf8'))
+      const raw = refs.get(ref)
+      return raw !== undefined && raw !== ''
+    } catch {
+      return true
+    }
+  }
+
   get llm() {
     return this.ctx?.get('llm')
   }

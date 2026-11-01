@@ -614,10 +614,48 @@ if (live()) {
     `「凭据不在了」的 JSC 报错要翻成提凭据的话（实际 ${JSON.stringify(cred)}）`,
   )
   ok(
-    !cred.includes('product.id'),
-    `翻完不该再把 product.id 原样丢给用户（实际 ${JSON.stringify(cred)}）`,
+    cred.includes("evaluating 'product.id'"),
+    `按约定要保留原文（同函数其它分支都留了原文，出问题才定位得到），实际 ${JSON.stringify(cred)}`,
+  )
+  // V8 形状：engines 是 node，只兜 JSC 等于在 node 宿主上什么都没做。
+  // 它不带对象名（只有 `(reading 'id')`），所以措辞只能到「可能」。
+  const v8 = human("Cannot read properties of undefined (reading 'id')")
+  ok(
+    v8.includes('凭据') && v8.includes('可能'),
+    `V8 形状也要朝凭据方向提示（实际 ${JSON.stringify(v8)}）`,
   )
   ok(human('别的错误原样透出') === '别的错误原样透出', '不认识的错误不许改写')
+
+  // 行为级锁：真 import vendor，构造「凭据解析不出来」的账号，看它回什么。
+  // 只锁文案是没用的 —— 删掉 vendor 里的 `product !== undefined &&`
+  // 文案层照样绿，而真实行为会退化成一句 TypeError。实测：删守卫后这里变红。
+  {
+    const { collectCreditBalances } = await import('../vendor/lib/jet-hub-rpc.js')
+    const out = await collectCreditBalances(
+      [{ id: 'probe-account', nickname: 'probe', credentialRef: 'Definitely_Missing_Ref' }],
+      undefined,
+      { resolve: async () => undefined },
+    )
+    ok(
+      out?.[0]?.error === '凭据未配置',
+      `凭据缺失时 vendor 应回「凭据未配置」（实际 ${JSON.stringify(out?.[0]?.error)}）—— 回 TypeError 说明 product 判空守卫被删了`,
+    )
+
+    // 另一处同形守卫在 `collectCreditsStatus`（credits.status 那条路）。它**不会**把
+    // 错误给用户（整段 catch 只 warn），所以结果层分不出来 —— 断言必须打在 warn 上：
+    // 守卫在时这条路径压根不抛；删了守卫才会有带 "reading 'id'" 的 warn。
+    const { collectCreditsStatus } = await import('../vendor/lib/jet-hub-rpc.js')
+    const warns = []
+    await collectCreditsStatus(
+      [{ id: 'probe-status', nickname: 'probe', credentialRef: 'Definitely_Missing_Ref' }],
+      undefined,
+      { resolve: async () => undefined, warn: (m) => warns.push(String(m)) },
+    )
+    ok(
+      !warns.some((w) => w.includes("reading 'id'")),
+      `credits.status 侧也不该抛 product.id（实际 warn：${JSON.stringify(warns)}）—— 两处守卫都要在`,
+    )
+  }
 }
 
 if (problems.length) {

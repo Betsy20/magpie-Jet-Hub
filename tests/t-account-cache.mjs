@@ -144,31 +144,64 @@ const listMod = new Function(`${listSrc}\nreturn { listAccountsOf, accountById, 
   )
   const decide = new Function(
     'inputs', 'ACCOUNT_INPUT', 'accountById', 'container', 'dshProvider', 'log',
+    // `credentialAliveOf` 是后来才加进 authorize 的（判断账号凭据还在不在），
+    // 这里作为形参注入：默认「一律放行」，与插件里 unknown -> true 同一语义。
+    'credentialAliveOf',
     `return (async () => {${blockSrc}\nreturn { picked, hit, key }})()`,
   )
+  const aliveAlways = () => true
 
   const fakeLookup = (row) => async () => row
 
   // B-1 挑了、池里有 ⇒ key 编进账号 id（钉号生效的前提）
-  const r1 = await decide({ [ACCOUNT_INPUT]: 'acc-1' }, ACCOUNT_INPUT, fakeLookup({ id: 'acc-1' }), {}, 'workbuddy', null)
+  const r1 = await decide({ [ACCOUNT_INPUT]: 'acc-1' }, ACCOUNT_INPUT, fakeLookup({ id: 'acc-1' }), {}, 'workbuddy', null, aliveAlways)
   ok(r1.key === 'jet-hub-local:workbuddy/acc-1', 'B-1 挑到账号时 key 里编进账号 id', r1.key)
 
   // B-2 没挑 ⇒ 老形状的标记 key（整家一个槽）
-  const r2 = await decide({}, ACCOUNT_INPUT, fakeLookup(undefined), {}, 'workbuddy', null)
+  const r2 = await decide({}, ACCOUNT_INPUT, fakeLookup(undefined), {}, 'workbuddy', null, aliveAlways)
   ok(r2.key === 'jet-hub-local:workbuddy:direct', 'B-2 没挑时退回整家一个槽', r2.key)
 
   // B-3 挑了但找不到 ⇒ 必须抛错（主修复点），且错误里要能看出是哪个账号、该怎么办
   let err = null
   try {
-    await decide({ [ACCOUNT_INPUT]: 'gone-9' }, ACCOUNT_INPUT, fakeLookup(undefined), {}, 'workbuddy', null)
+    await decide({ [ACCOUNT_INPUT]: 'gone-9' }, ACCOUNT_INPUT, fakeLookup(undefined), {}, 'workbuddy', null, aliveAlways)
   } catch (e) { err = e }
   ok(err instanceof Error, 'B-3a 挑了但找不到时抛错（不再静默走池内顺序）')
   ok(/gone-9/.test(String(err?.message)), 'B-3b 错误里带着那个账号 id', String(err?.message ?? '').slice(0, 60))
   ok(/重新点「连接」/.test(String(err?.message)), 'B-3c 错误里说了该怎么办')
 
   // B-4 空白字符串等同没挑（不能因为 magpie 回填空串就抛错）
-  const r4 = await decide({ [ACCOUNT_INPUT]: '   ' }, ACCOUNT_INPUT, fakeLookup(undefined), {}, 'workbuddy', null)
+  const r4 = await decide({ [ACCOUNT_INPUT]: '   ' }, ACCOUNT_INPUT, fakeLookup(undefined), {}, 'workbuddy', null, aliveAlways)
   ok(r4.key === 'jet-hub-local:workbuddy:direct', 'B-4 纯空白按「没挑」处理')
+
+  // B-5 账号在、凭据不在 ⇒ 拒签（2026-11-01 真机：9 月建的旧账号凭据丢了，
+  //     签进去之后 magpie 显示「已登录」，实际查额度报错、请求抛 MISSING_CREDENTIAL）
+  let errDead = null
+  try {
+    await decide(
+      { [ACCOUNT_INPUT]: 'acc-dead' },
+      ACCOUNT_INPUT,
+      fakeLookup({ id: 'acc-dead', credentialRef: 'GONE_REF' }),
+      {},
+      'buddy',
+      null,
+      (_c, ref) => ref !== 'GONE_REF',
+    )
+  } catch (e) { errDead = e }
+  ok(errDead instanceof Error, 'B-5a 凭据不在的账号拒绝签入')
+  ok(/凭据/.test(String(errDead?.message)), 'B-5b 报错说清是凭据问题', String(errDead?.message ?? '').slice(0, 50))
+
+  // B-6 凭据在 ⇒ 照常签入（别把正常账号也拦了）
+  const r6 = await decide(
+    { [ACCOUNT_INPUT]: 'acc-ok' },
+    ACCOUNT_INPUT,
+    fakeLookup({ id: 'acc-ok', credentialRef: 'OK_REF' }),
+    {},
+    'buddy',
+    null,
+    (_c, ref) => ref === 'OK_REF',
+  )
+  ok(r6.key === 'jet-hub-local:buddy/acc-ok', 'B-6 凭据在的账号照常签入')
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

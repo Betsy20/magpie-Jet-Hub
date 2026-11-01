@@ -1147,6 +1147,21 @@ async function abandonAccount(container, provider, accountId, log) {
  * 昵称优先（用户认得 `user-g7h8`，不认得 `workbuddy-9c0d1e2f`），后接 id 尾巴
  * 便于与 DSH / 控制台对上；已停用的标出来（否则用户会奇怪「为什么挑了它却 502」）。
  */
+/**
+ * 这个账号的凭据还在不在（不知道就放行）。
+ *
+ * 拿不到判断能力时返回 `true`，理由同 `container.credentialAlive` 的注释：
+ * 宁可不拦，也不能因为「查不了」就把所有账号判成空壳。测试里的假容器就是这种情况。
+ */
+function credentialAliveOf(container, ref) {
+  if (typeof container?.credentialAlive !== 'function') return true
+  try {
+    return container.credentialAlive(ref) !== false
+  } catch {
+    return true
+  }
+}
+
 function accountLabel(a) {
   const nick = String(a?.nickname ?? '').trim()
   const id = String(a?.id ?? '')
@@ -1330,8 +1345,14 @@ function humanizeUsageError(error) {
   // JSC（Bun）风格的同类报错：上游 `collectCreditBalances` 在「凭据解析不出来」时
   // 会去读 `product.id`，而那条路上的 `product` 恒为 undefined（已打本地补丁，
   // 但旧产物与宿主缓存里的旧文案仍可能带这个形状）。
+  // ⚠️ 两种引擎形状都要兜：`package.json` 的 engines 是 node（V8），而 magpie 侧
+  //    跑的是 Bun（JavaScriptCore）。只兜 JSC 等于在 node 宿主上什么都没做。
+  //    V8 的形状**不带对象名**（只有 `(reading 'id')`），所以措辞只能是「可能」。
   if (/evaluating 'product\.id'/.test(text)) {
-    return '这个账号在账号池里，但它的登录凭据已经不在了 —— 到 DSH 或 magpie 里重新登录一次，或者删掉它'
+    return `这个账号在账号池里，但它的登录凭据已经不在了（${text}）—— 到 DSH 或 magpie 里重新登录一次，或者删掉它`
+  }
+  if (/Cannot read propert(y|ies) of undefined \(reading 'id'\)/.test(text)) {
+    return `这个账号可能没有可用的登录凭据了（${text}）—— 到 DSH 或 magpie 里重新登录一次，或者删掉它`
   }
   if (/^Cannot read propert(y|ies) of/.test(text)) {
     return `该账号的余额查询内部出错（${text}），换个账号或重新登录后重试`
@@ -1914,11 +1935,20 @@ export function makePlugin(dshProvider) {
                 type: 'select',
                 key: ACCOUNT_INPUT,
                 message: `选一个要接进 magpie 的 ${dshProvider} 账号（DSH 里共 ${rows.length} 个）`,
-                options: rows.map((a) => ({
-                  label: accountLabel(a),
-                  value: String(a?.id ?? ''),
-                  hint: a?.enabled === false ? '在 DSH 里已停用，接进来后请求会 502' : undefined,
-                })),
+                options: rows.map((a) => {
+                  // 凭据丢了的账号**照样列出来**（用户可能就想看到它），但必须标明白：
+                  // 签进来的会是一个查不到额度、请求也走不通的空壳。
+                  const alive = credentialAliveOf(container, a?.credentialRef)
+                  return {
+                    label: alive ? accountLabel(a) : `${accountLabel(a)}（无登录凭据）`,
+                    value: String(a?.id ?? ''),
+                    hint: !alive
+                      ? '这个账号在账号池里，但它的凭据已经不在 ~/.dsh/.credentials.yaml 了 —— 签进来查不到额度，建议改用「新建账号」重新登一次'
+                      : a?.enabled === false
+                        ? '在 DSH 里已停用，接进来后请求会 502'
+                        : undefined,
+                  }
+                }),
               }
             },
 
@@ -1954,6 +1984,15 @@ export function makePlugin(dshProvider) {
                 throw new Error(
                   `你选的账号 ${picked} 已经不在 ${dshProvider} 的账号池里了（可能刚在 DSH 里被删除，或那次列账号没成功）。`
                   + `请重新点「连接」，在弹出的列表里重新选一个。`,
+                )
+              }
+              // 账号在、凭据不在 ⇒ 签进去只会得到一个空壳：magpie 显示「已登录」，
+              // 查额度报错、请求也抛 MISSING_CREDENTIAL（2026-11-01 真机：9 月建的
+              // buddy 账号就是这么被签进去的，用户以为登录成功，实际什么都用不了）。
+              if (hit !== undefined && !credentialAliveOf(container, hit.credentialRef)) {
+                throw new Error(
+                  `你选的账号 ${picked} 在账号池里，但它的登录凭据已经不在了（~/.dsh/.credentials.yaml 里没有这条）——`
+                  + ` 到 DSH 里重新登录这个账号，或者改用「新建账号」重新登一次。`,
                 )
               }
 
