@@ -122,7 +122,7 @@ console.log('\n① openAiEfforts()')
 console.log('\n② modelEntry()')
 
 // modelEntry 依赖 outputLimit()（OUTPUT_FALLBACKS 系列兜底），一起截进来求值。
-// 截段里带着给测试用的 `export { outputLimit }`，`new Function` 不认 ESM 语法，先摘掉。
+// 截段里带着给测试用的 `export { outputLimit, fallbackFor }`，`new Function` 不认 ESM 语法，先摘掉。
 const entrySrc = slice(PLUGIN, 'const OUTPUT_FALLBACKS = [', '// ---- 共享容器与模型缓存')
   .replace(/^export \{[^}]*\}\s*$/gm, '')
 const { modelEntry } = new Function(`${entrySrc}\nreturn { modelEntry }`)()
@@ -258,7 +258,9 @@ console.log('\n③ 两条采集腿')
   ok(JSON.stringify(gone?.input) === '["text","image"]', '③ -16 字段根本没返回 ⇒ 继承旧值（与「撤成空表」区分开）', JSON.stringify(gone?.input))
 
   // ── modelEntry 的行为已由 ② 组直接调真函数覆盖，这里只留源码锚点 ──────
-  const entry = slice(PLUGIN, 'function modelEntry(id, def, meta) {', '\n}\n')
+  // 起点只认函数名、不认形参列表——签名变了（比如多一个
+  // `price` 参数）不该让这条源码锚点跟着红。
+  const entry = slice(PLUGIN, 'function modelEntry(', '\n}\n')
   ok(/variants/.test(stripComments(entry)), '③ -5 modelEntry 写出了 variants')
   ok(/\[e, \{\}\]/.test(stripComments(entry)), '③ -6 variants 的值是空对象（只提供键）')
 
@@ -285,7 +287,10 @@ console.log('\n④ metaOf → modelsOfFull 接线')
   const entrySrc2 = slice(PLUGIN, 'const OUTPUT_FALLBACKS = [', '// ---- 共享容器与模型缓存')
     .replace(/^export \{[^}]*\}\s*$/gm, '')
   const { modelEntry: entry2 } = new Function(`${entrySrc2}\nreturn { modelEntry }`)()
-  const { metaOf, modelsOfFull, modelsOf } = new Function('modelEntry', `${region}\nreturn { metaOf, modelsOfFull, modelsOf }`)(entry2)
+  // `modelsOf*` 还会引用模块级的 `MODEL_PRICES`（目录价表）。这里只验能力接线，
+  // 不验价格（那是 `tests/t-model-prices.mjs` 的事），所以注入一个空表：模型条目不带
+  // `cost`，不影响本文件对 `efforts` / `input` / `limit` 的断言。
+  const { metaOf, modelsOfFull, modelsOf } = new Function('modelEntry', 'MODEL_PRICES', `${region}\nreturn { metaOf, modelsOfFull, modelsOf }`)(entry2, {})
 
   // metaById 是模块级、改不了；用 modelsOfFull 的真实实现，把行喂进去即可
   // —— 它内部靠 metaOf(id) 取 meta，而 metaById 为空时返回 undefined，
@@ -312,13 +317,14 @@ console.log('\n④ metaOf → modelsOfFull 接线')
   // 在同一个 Function 体里可以直接赋值），再看 magpie 拿到的模型条目。
   const seeded = new Function(
     'modelEntry',
+    'MODEL_PRICES',
     `${region}
 metaById = new Map([
   ['workbuddy/deepseek-v4.1-flash', { context: 1000000, output: 64000, input: ['text','image'], reasoning: true, efforts: ['low','high','max'] }],
   ['workbuddy/hy3', { reasoning: true, efforts: ['low','high'] }],
 ])
 return { modelsOfFull, modelsOf }`,
-  )(entry2)
+  )(entry2, {})
 
   const wired = seeded.modelsOfFull('workbuddy', rows)
   ok(JSON.stringify(Object.keys(wired['deepseek-v4.1-flash']?.variants ?? {})) === JSON.stringify(['low', 'high', 'max']), '④ -8 全量腿：magpie 拿到的条目真的带三档 variants', JSON.stringify(Object.keys(wired['deepseek-v4.1-flash']?.variants ?? {})))
