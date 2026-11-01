@@ -1396,10 +1396,24 @@ function windowName(pkg) {
 function toMagpieUsage(reading, provider) {
   // 用量卡标题同样不带前缀（与供应商卡片名一致，见 config() 里那处说明）。
   const plan = NAMES[provider] ?? provider
-  if (reading?.error) return { plan, error: humanizeUsageError(reading.error), windows: [] }
+  // ⚠️ `reading.error` 不等于「没有数据」。上游对「本次查询失败但还有上一次快照」的情形是
+  // 故意把快照一起回传的（`vendor/lib/jet-hub-rpc.js` 的注释：「`stale` 照样回传
+  // （用户宁可看到『昨天 12:00 的 6493』也不要空白）但必须带 `error` 说明这是历史数据」）。
+  //
+  // 但 magpie 一见 `error` 就整块只画错误、不画 `windows`（`app.js` 的 `accountQuota`：
+  // `if (!q || q.error || !q.windows?.length) { …只画一句错误文案 … }`）。两边相加的结果就是
+  // 截图里那个自相矛盾的卡片：一个数字都没显示，只显示一句「本次查询失败，
+  // 显示的是上一次成功读到的数据」—— 说自己显示了旧数据，而画面上什么都没有。
+  //
+  // 所以：有快照就照常画 `windows`，并把「本次没刷新到」写进条目名字（magpie 的
+  // window 没有 tooltip 位，只能放名字）；真没快照才回 `error`。
+  const staleNote = reading?.error ? humanizeUsageError(reading.error) : undefined
 
   const b = reading?.balance
-  if (b === undefined || b === null) return { plan, windows: [] }
+  if (b === undefined || b === null) {
+    // 连快照都没有（上游返回 `balance: null` + 错误）—— 这个时候才真的只能报错。
+    return staleNote !== undefined ? { plan, error: staleNote, windows: [] } : { plan, windows: [] }
+  }
 
   // ⚠️ 过滤 total=0 的空套餐：本体照样会返回 `{total:0, remaining:0}` 的条目
   //    （astudio 的「会员积分」实测就是这样），画成卡片就是「0/0、可用 100%」，
@@ -1465,7 +1479,17 @@ function toMagpieUsage(reading, provider) {
   // 这种情况退回 balance 文本，至少让人看见「0 积分」而不是空白。
   if (windows.length === 0) {
     const unit0 = packages[0]?.unit ?? '积分'
+    // 有快照但全是 0/0 且本次失败：没有可画的数字，就照实报错，
+    // 别把「0 积分」当成健康读数（那比空白更误导）。
+    if (staleNote !== undefined) return { plan, error: staleNote, windows: [] }
     return { plan, user: reading?.nickname !== undefined ? String(reading.nickname) : '', balance: `0 ${unit0}`.trim(), windows: [] }
+  }
+
+  // 有快照但本次没刷新到：把它标在第一条名字后（magpie 行内只画前 2 条，
+  // 标第一条最容易被看到）。不能放进 `error`—— 那会让 magpie 整块只画错误。
+  // （windows 非空在这里是必然的：上面 1479 已经把空的情况早退掉了）
+  if (staleNote !== undefined) {
+    windows[0].name = `${windows[0].name} · 本次未刷新，显示上次数据`
   }
 
   const total = Number(b.total) || 0

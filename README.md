@@ -296,7 +296,17 @@ node scripts/test-all.mjs --all  # 连环境的一起跑（要 magpie 网关 342
 
 ## 已知限制
 
-- **账号自身的额度 / refresh token 过期与本插件无关**。`codearts` 等会报 `STS5.1806 invalid refresh token: 'the refresh token has been used'`，需要在 DSH 里重新登录（refresh token 一次性，是上游设计）。
+- **账号自身的额度 / refresh token 过期与本插件无关**。`codearts` / `officeace` 等会报
+  `STS5.1806 invalid refresh token: 'the refresh token has been used'`，需要在 DSH 里重新登录
+  （refresh token 一次性，是上游设计）。
+  **为什么会被消耗**：DSH 本体与这里的容器各自持有一份凭据副本，两边都可能去续期；
+  谁先续期成功，另一份的 refresh token 就作废了。所以这条报错一旦出现就不会自己恢复，
+  必须回 DSH 重新登录那一个账号。
+- **额度查询失败时，卡片会显示「上一次成功读到的数据 + 本次未刷新的标注」**，不显示空白。
+  上游对「本次查询失败但还有快照」的情形是刻意把快照一起回传的（`stale` 读数）；
+  插件原本把它当成「没有数据」直接报错，结果是「说自己显示了旧数据、画面上却什么都没有」
+  （2026-11-01 用户截图）。现在照常画数据，并在第一条名字后标「本次未刷新，显示上次数据」——
+  因为 magpie 见到 `error` 就整块只画错误、不画 `windows`，所以那层标注只能写进条目名字里。
 - **死号会拖垮整个渠道**。本体的选号只看 `enabled` 与限流，不看 `expiresAt` / `refreshable`，所以「已过期且不可续期」的账号一旦排在前面，每次请求都撞 502。本插件在容器层过滤掉这类死号（`src/container.mjs` 的 `_filterDeadAccounts`）—— 但过滤只让它不参与选号，**不会删除**，彻底清掉请去 DSH 的 Jet Hub 删账号。
 - `zcode` 可能报「上游并发限流」，本体自带退避，属上游限制。
 - **本体的设置界面搬不过来**。那是 DSH 的前端 UI（`vendor/lib/client/jet-hub.js` 依赖宿主注入的 react 与 `connection` 服务），magpie 里由本插件自己的侧栏页 + 控制台替代。

@@ -381,6 +381,126 @@ if (live()) {
   }
 }
 
+// ── 「本次查询失败，但还有上一次快照」的展示 ────────────────────────
+//
+// 起因（2026-11-01 用户截图）：OfficeAce 的卡片只显示「暂时无法获取额度：本次查询失败，
+// 显示的是上一次成功读到的数据（可能已过期）」，一个数字都没有 —— 说自己显示了旧数据，
+// 而画面上什么都没有。原因是两层相叠：上游对「有快照 + 本次失败」故意把快照一起回传并
+// 带 `error` 标注；而 magpie 一见 `error` 就整块只画错误、不画 `windows`。
+// 修法：有快照就照常画 windows，把「本次未刷新」写进第一条的名字；真没快照才回 error。
+{
+  console.log('')
+  // 从源码里截 mergePackages/toMagpieUsage 求值，避免复制一份逻辑。
+  const fs2 = await import('node:fs')
+  const src2 = fs2.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8').replace(/\r\n/g, String.fromCharCode(10))
+  const a2 = src2.indexOf('function windowName(')
+  const b2 = src2.indexOf('function writeCache(')
+  ok(a2 >= 0 && b2 > a2, '能从 src/plugin.mjs 截到 windowName 到 toMagpieUsage 的片段')
+  const fn2 = new Function(
+    'NAMES',
+    'humanizeUsageError',
+    // 起点要在 mergePackages 之前：toMagpieUsage 会调它，截漏就 ReferenceError。
+    src2.slice(src2.indexOf('function mergePackages('), b2) + String.fromCharCode(10) + 'return { toMagpieUsage }',
+  )({ officeace: 'OfficeAce' }, (x) => `已人化:${x}`)
+
+  const withSnapshot = {
+    provider: 'officeace',
+    accountId: 'officeace-1',
+    nickname: 'OfficeAce 5c2eddfe',
+    // 上游在「有快照 + 本次失败」时就是这个形状：数据在，另带一条 error。
+    balance: {
+      total: 100,
+      packages: [{ name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true }],
+    },
+    error: '本次查询失败，显示的是上一次成功读到的数据（可能已过期）',
+  }
+  const uSnap = fn2.toMagpieUsage(withSnapshot, 'officeace')
+  ok(
+    Array.isArray(uSnap.windows) && uSnap.windows.length > 0,
+    `有快照时必须照常画 windows（实际 ${JSON.stringify(uSnap.windows?.length)}）—— 否则就是「说显示了旧数据却什么都没有」`,
+  )
+  ok(
+    !uSnap.error,
+    `有快照时不能带 error（实际 ${JSON.stringify(uSnap.error)}）—— magpie 见到 error 就只画错误、不画数据`,
+  )
+  ok(
+    String(uSnap.windows?.[0]?.name ?? '').includes('本次未刷新'),
+    `第一条名字要标出「本次未刷新」（实际 ${JSON.stringify(uSnap.windows?.[0]?.name)}）`,
+  )
+  ok(String(uSnap.windows?.[0]?.display ?? '').includes('100'), '数据本身不能丢（display 里仍有 100）')
+  // 标注是「后缀」，不是「替换」：套餐名与数字都必须原样保留，否则等于换了张脸。
+  ok(
+    String(uSnap.windows?.[0]?.name ?? '').includes('每日签到有礼'),
+    `标注不能盖掉原套餐名（实际 ${JSON.stringify(uSnap.windows?.[0]?.name)}）`,
+  )
+  ok(
+    Number.isFinite(uSnap.windows?.[0]?.used),
+    `used 必须仍是数字（实际 ${JSON.stringify(uSnap.windows?.[0]?.used)}）`,
+  )
+
+  // 多个套餐时只该标第一条：magpie 行内只画前 2 条，全标就是噪音。
+  const uTwo = fn2.toMagpieUsage(
+    {
+      provider: 'officeace',
+      accountId: 'officeace-2',
+      balance: {
+        total: 300,
+        packages: [
+          { name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true },
+          { name: '个人体验版', unit: 'Token', remaining: 200, total: 200, used: 0, active: true },
+        ],
+      },
+      error: '本次查询失败，显示的是上一次成功读到的数据（可能已过期）',
+    },
+    'officeace',
+  )
+  const marked = (uTwo.windows ?? []).filter((w) => String(w?.name ?? '').includes('本次未刷新'))
+  ok(marked.length === 1, `只标第一条（实际标了 ${marked.length} 条）`)
+
+  // 有快照、但所有套餐都是 0/0，且本次失败：没有数字可画，必须照实报错。
+  // 否则 magpie 会画成「Balance 0 积分」的健康读数 —— 比空白更误导。
+  const uZero = fn2.toMagpieUsage(
+    {
+      provider: 'officeace',
+      accountId: 'officeace-3',
+      balance: {
+        total: 0,
+        packages: [{ name: '每日签到有礼', unit: 'Token', remaining: 0, total: 0, used: 0, active: true }],
+      },
+      error: '本次查询失败，显示的是上一次成功读到的数据（可能已过期）',
+    },
+    'officeace',
+  )
+  ok(
+    uZero.error !== undefined,
+    `全 0/0 且本次失败时必须报错（实际 ${JSON.stringify(uZero.error)}）—— 否则 magpie 画成「0 积分」健康读数`,
+  )
+  ok(Array.isArray(uZero.windows) && uZero.windows.length === 0, '全 0/0 时 windows 为空')
+
+  // 连快照都没有：这个时候只能报错，但要带人话提示
+  const uNull = fn2.toMagpieUsage(
+    { provider: 'officeace', accountId: 'x', balance: null, error: '积分查询失败（凭据已失效）' },
+    'officeace',
+  )
+  ok(uNull.error !== undefined, '没快照时必须回 error')
+  ok(Array.isArray(uNull.windows) && uNull.windows.length === 0, '没快照时 windows 为空')
+
+  // 正常读数：不能凭空多标一句
+  const uOk = fn2.toMagpieUsage(
+    {
+      provider: 'officeace',
+      accountId: 'y',
+      nickname: 'n',
+      balance: { total: 100, packages: [{ name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true }] },
+    },
+    'officeace',
+  )
+  ok(
+    !String(uOk.windows?.[0]?.name ?? '').includes('本次未刷新'),
+    `正常读数时不该有「本次未刷新」标注（实际 ${JSON.stringify(uOk.windows?.[0]?.name)}）`,
+  )
+}
+
 if (problems.length) {
   console.log('✗ ' + problems.length + ' 处不符：')
   for (const p of problems) console.log('  ' + p)
