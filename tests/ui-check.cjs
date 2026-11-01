@@ -123,12 +123,15 @@ function makeClient(wsUrl, problems) {
     console.log('  截图', path.basename(p), fs.statSync(p).size, 'bytes')
   }
 
-  const tabs = ['start', 'models', 'usage', 'providers', 'settings', 'console']
+  // 侧栏页只有三个标签：模型目录 / 用量 / 供应商列表都交给 magpie 自己的页面了
+  const tabs = ['start', 'console', 'settings']
   const report = []
+  // 每个标签都必须真的点到；少一个说明 HTML 与这里的清单走偏了
+
   for (const name of tabs) {
     const r = await evalIn(`(()=>{const b=[...document.querySelectorAll('#tabs button')].find(x=>x.dataset.tab==='${name}');if(!b)return 'no tab ${name}';b.click();return 'ok'})()`)
     if (r !== 'ok') throw new Error(r)
-    await sleep(name === 'usage' ? 2500 : name === 'console' ? 6000 : 900)
+    await sleep(name === 'console' ? 6000 : 1200)
     await shot(name)
     const probe = await evalIn(`(()=>{
       const p=document.querySelector('.panel:not([hidden])');
@@ -137,11 +140,7 @@ function makeClient(wsUrl, problems) {
         panelTitle: p?(p.querySelector('h2')?.textContent||''):'NO PANEL',
         state:document.querySelector('#state')?.textContent,
         count:document.querySelector('#count')?.textContent,
-        groups:document.querySelectorAll('#groups details').length,
-        chips:document.querySelectorAll('.mid').length,
-        tiles:[...document.querySelectorAll('.tile')].map(t=>(t.querySelector('.k')?.textContent||'')+'='+(t.querySelector('.v')?.textContent||'')),
-        rows:document.querySelectorAll('#ubody tr').length,
-        provs:document.querySelectorAll('.prov').length,
+        tabs:document.querySelectorAll('#tabs button').length,
         snippetLen:(document.querySelector('#snippet')?.textContent||'').length,
         bodyH:Math.round(document.body.getBoundingClientRect().height),
         // 控制台标签必须显示快照里的真实端口，不能是写死的 18500
@@ -156,9 +155,17 @@ function makeClient(wsUrl, problems) {
   console.log(problems.length ? '--- 页面问题 ---' : '页面无 JS 报错')
   for (const p of [...new Set(problems)]) console.log('  ' + p)
 
+  // 标签点下去必须切到它自己的面板（走偏了在真浏览器里也能抓到）
   const bad = report.filter((r) => r.panelTitle === 'NO PANEL' || !r.state)
+  const wantTitle = { start: '接入点', console: '完整控制台', settings: '这个页面的选项' }
+  for (const r of report) {
+    if (r.panelTitle !== wantTitle[r.tab]) {
+      console.log(`⚠ 标签 ${r.tab} 显示的是「${r.panelTitle}」，不是「${wantTitle[r.tab]}」`)
+      bad.push({ tab: r.tab + '-panel' })
+    }
+  }
   if (bad.length) console.log('⚠ 有标签未正常渲染:', bad.map((b) => b.tab).join(','))
-  else console.log('✓ 六个标签均渲染正常')
+  else console.log('✓ 三个标签均渲染正常')
 
   // 控制台地址必须是快照里的真实端口（写死 18500 就会连到别的实例上）
   const con = report.find((r) => r.tab === 'console')

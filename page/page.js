@@ -7,13 +7,14 @@
 //   magpie.onTheme(fn)            主题或语言变了就调一次
 //   await magpie.read(name, p)    只有 package.json 里 magpie.permissions 声明的
 //                                 · providers:list → [{id, name}]
-//                                 · usage:summary  {period: today|7d|30d}
-//                                   → {calls, errors, input, output, cacheRead, cost, models:[…]}
+//                                   （只用来数有几家、判断本体装没装进来；
+//                                     用量不在这里读 —— 那是 magpie 自己 Usage 页的事）
 //   await magpie.options.get()    本插件自己的选项
 //   await magpie.options.set(o)   写回（窗口限 1 秒 1 次）
 //
 // 模型目录读不到（页面不能联网，providers:list 也不给模型），所以用
-// page/models.js 里的快照，由 scripts/snapshot-models.mjs 生成。
+// page/models.js 里的快照，由 scripts/snapshot-models.mjs 生成。快照只用于
+// 三件事：设置页的默认模型下拉、顶部的模型计数、控制台地址（快照里一并写了）。
 
 // 对外网关的**兜底**地址：真值来自 page/models.js 快照的 `gateway` 字段，而那个
 // 字段由 scripts/snapshot-models.mjs 写入（可用 JET_HUB_USER_GATEWAY 覆盖，与
@@ -26,15 +27,10 @@ const CATALOG = window.JET_HUB_CATALOG || { models: [], providers: {}, generated
 /* 每个本体 provider 都是独立的 magpie provider：jet-hub / jet-hub-codearts / …
    模型 id 形如 `jet-hub-codearts/deepseek-v4.1-flash`（第一段是 provider id）。 */
 const isOurs = (seg) => seg === 'jet-hub' || String(seg).startsWith('jet-hub-')
-const providerSeg = (id) => String(id || '').split('/')[0]
 
 const state = {
-  options: { model: '', period: 'today', prefix: true },
-  period: 'today',
+  options: { model: '', prefix: true },
   snippet: 'curl',
-  query: '',
-  allOpen: false,
-  onlyMine: true,
 }
 
 /* ── 小工具 ───────────────────────────── */
@@ -55,14 +51,6 @@ function setState(text, tone) {
   s.dataset.tone = tone
 }
 
-function num(n) {
-  if (n == null) return '—'
-  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B'
-  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'
-  if (n >= 1e4) return (n / 1e3).toFixed(1) + 'k'
-  return String(n)
-}
-const comma = (n) => (n == null ? '—' : Number(n).toLocaleString('en-US'))
 
 async function copy(text, btn) {
   try {
@@ -96,12 +84,6 @@ function modelId(m) {
   const id = String(m || '')
   return state.options.prefix ? id : bare(id)
 }
-
-function providerOf(model) {
-  return CATALOG.providers?.[providerSeg(model)] || null
-}
-
-const providerName = (model) => providerOf(model)?.name || String(model || '').split('/')[0]
 
 /* ── 接入：代码片段 ───────────────────── */
 
@@ -157,173 +139,6 @@ function drawSnippet() {
   }
 }
 
-/* ── 模型 ─────────────────────────────── */
-
-function drawModels() {
-  const box = $('#groups')
-  box.replaceChildren()
-  const models = CATALOG.models || []
-  const q = state.query.trim().toLowerCase()
-
-  if (!models.length) {
-    box.append(el('p', 'wait', '快照里一个模型都没有。账号登录后跑一次 node scripts/snapshot-models.mjs。'))
-    $('#modelsHint').textContent = ''
-    return
-  }
-
-  // 按 provider 分组
-  const groups = new Map()
-  for (const m of models) {
-    const seg = m.split('/')[0]
-    if (!groups.has(seg)) groups.set(seg, [])
-    groups.get(seg).push(m)
-  }
-
-  const rows = [...groups.entries()].sort((a, b) => b[1].length - a[1].length)
-  let shown = 0
-  let closed = 0
-
-  for (const [seg, list] of rows) {
-    const hit = q ? list.filter((m) => m.toLowerCase().includes(q) || seg.includes(q)) : list
-    const name = CATALOG.providers?.[seg]?.name || seg
-    const nameHit = q && (name.toLowerCase().includes(q) || seg.includes(q))
-    if (!hit.length && !nameHit) continue
-    shown += hit.length || list.length
-
-    const detail = el('details', 'group')
-    // ⚠️ 全量目录可能一家 540 条（cline 实测）。默认全展开会把页面撑爆，
-    //    所以只在搜索时自动展开；点「全部展开」才全开。
-    detail.open = Boolean(q) || state.allOpen
-    const sum = el('summary')
-    sum.append(el('span', '', name), el('span', 'pid', seg), el('span', 'n', `${list.length}`))
-    detail.append(sum)
-    const wrap = el('div', 'mlist')
-    for (const m of (hit.length ? hit : list)) {
-      const info = CATALOG.detail?.[m]
-      if (info?.disabled) closed += 1
-      const chip = el('button', 'mid')
-      chip.type = 'button'
-      chip.title = '点一下复制 ' + modelId(m) + (info?.disabled ? '（已在 Jet Hub 关闭，需在控制台打开才能用）' : '')
-      if (info?.disabled) chip.dataset.off = '1'
-      const label = state.options.prefix ? m : bare(m)
-      chip.append(document.createTextNode(label))
-      chip.onclick = () => copy(modelId(m), chip).then((ok) => {
-        if (ok) { chip.dataset.done = '1'; chip.textContent = '已复制 ' + modelId(m); setTimeout(() => { chip.replaceChildren(document.createTextNode(label)); delete chip.dataset.done }, 1400) }
-      })
-      wrap.append(chip)
-    }
-    detail.append(wrap)
-    box.append(detail)
-  }
-
-  if (!shown) box.append(el('p', 'wait', `没有匹配「${state.query}」的模型`))
-
-  const when = CATALOG.catalogAt ? new Date(CATALOG.catalogAt).toLocaleString('zh-CN', { hour12: false }) : '未知'
-  // 报清楚「这份目录是从哪台宿主的哪个端口取的」——P1 就是模型和地址错配到两个宿主上，
-  // 所以端口必须写出来，且和「控制台」标签里的地址是同一个端口。
-  const port = String(CATALOG.consolePort || '').trim()
-  const others = otherHosts()
-  $('#modelsHint').textContent =
-    `上游全量 ${models.length} 个模型 / ${rows.length} 个供应商，目录取自 ${when}（${CATALOG.source || '快照'}）。` +
-    (port ? ` 这份目录属 :${port} 那台宿主，和「控制台」标签里的地址同一台。` : '') +
-    (others.length ? ` ⚠ 另有 ${others.length} 个宿主在跑（:${others.map((h) => h.port).join('、:')}），它们的模型数和开关状态可能不同。` : '') +
-    (closed ? `其中 ${closed} 个在 Jet Hub 里是关闭状态（灰的），要先去控制台打开。` : '') +
-    ' 上游新上模型后跑 node scripts/snapshot-models.mjs 刷新。'
-}
-
-/* ── 用量 ─────────────────────────────── */
-
-function tile(k, v, unit) {
-  const t = el('div', 'tile')
-  t.append(el('span', 'k', k))
-  const val = el('span', 'v', v)
-  if (unit) val.append(el('span', 'u', unit))
-  t.append(val)
-  return t
-}
-
-function isMine(name) {
-  const seg = String(name || '').split('/')[0]
-  return Object.prototype.hasOwnProperty.call(CATALOG.providers || {}, seg)
-}
-
-async function drawUsage() {
-  const box = $('#tiles')
-  let data
-  try {
-    data = await magpie.read('usage:summary', { period: state.period })
-  } catch (err) {
-    box.replaceChildren(el('span', 'wait', '读不到用量：' + (err?.message || err)))
-    $('#utable').hidden = true
-    return
-  }
-
-  box.replaceChildren(
-    tile('请求', comma(data.calls)),
-    tile('失败', comma(data.errors)),
-    tile('输入 token', num(data.input)),
-    tile('输出 token', num(data.output)),
-    tile('缓存命中', num(data.cacheRead)),
-    tile('费用', data.cost ? '$' + Number(data.cost).toFixed(2) : '$0'),
-  )
-
-  const all = Array.isArray(data.models) ? data.models : []
-  const list = state.onlyMine ? all.filter((m) => isMine(m.model)) : all
-  const tbody = $('#ubody')
-  tbody.replaceChildren()
-
-  if (!list.length) {
-    $('#utable').hidden = true
-    $('#usageHint').textContent = state.onlyMine
-      ? '这个周期里还没有走过 Jet Hub 模型的请求（取消下面「只看 Jet Hub 的模型」可看全部）。'
-      : '这个周期里还没有请求。'
-    return
-  }
-
-  $('#utable').hidden = false
-  const max = Math.max(...list.map((m) => m.calls || 0), 1)
-  for (const m of list) {
-    const tr = el('tr')
-    const name = el('td', 'mname', m.model)
-    if (isMine(m.model)) name.append(el('span', 'tag', providerSeg(m.model)))
-    tr.append(name)
-    tr.append(el('td', 'num', comma(m.calls)))
-    tr.append(el('td', 'num', num(m.input)))
-    tr.append(el('td', 'num', num(m.output)))
-    tr.append(el('td', 'num', m.cost ? '$' + Number(m.cost).toFixed(3) : '—'))
-    const barCell = el('td')
-    const bar = el('div', 'bar')
-    bar.style.width = Math.max(2, Math.round(((m.calls || 0) / max) * 100)) + '%'
-    barCell.append(bar)
-    tr.append(barCell)
-    tbody.append(tr)
-  }
-
-  const since = data.since ? new Date(data.since).toLocaleString('zh-CN', { hour12: false }) : ''
-  $('#usageHint').textContent = `周期 ${data.period}${since ? '，从 ' + since + ' 起' : ''}；最多列 20 个模型。用量是整个 magpie 网关的，按模型名归集；费用是 magpie 自己按价格表算的，没配价格的模型排不上价，显示 —。`
-}
-
-/* ── 供应商 ───────────────────────────── */
-
-function drawProviders() {
-  const box = $('#provs')
-  box.replaceChildren()
-  const have = new Set((CATALOG.models || []).map((m) => m.split('/')[0]))
-  const entries = Object.entries(CATALOG.providers || {})
-  // 有模型的排前面
-  entries.sort((a, b) => Number(have.has(b[0])) - Number(have.has(a[0])) || a[1].name.localeCompare(b[1].name))
-  for (const [id, p] of entries) {
-    const card = el('div', 'prov')
-    const pn = el('div', 'pn')
-    if (have.has(id)) pn.append(el('span', 'dot'))
-    pn.append(el('span', '', p.name))
-    card.append(pn, el('div', 'pi', id))
-    const n = (CATALOG.models || []).filter((m) => m.split('/')[0] === id).length
-    card.append(el('div', 'pd', n ? `${n} 个模型` : (p.desc || '未登录 / 无模型')))
-    box.append(card)
-  }
-}
-
 /* ── 设置 ─────────────────────────────── */
 
 function drawSettings() {
@@ -331,14 +146,12 @@ function drawSettings() {
   sel.replaceChildren(new Option('（不设置）', ''))
   for (const m of CATALOG.models || []) sel.append(new Option(modelId(m), m))
   sel.value = state.options.model || ''
-  $('#optPeriod').value = state.options.period || 'today'
   $('#optPrefix').checked = state.options.prefix !== false
 }
 
 async function saveSettings() {
   const out = {
     model: $('#optModel').value || '',
-    period: $('#optPeriod').value || 'today',
     prefix: $('#optPrefix').checked,
   }
   const note = $('#saveState')
@@ -348,7 +161,7 @@ async function saveSettings() {
     note.textContent = '已保存'
     note.dataset.tone = 'ok'
     drawSnippet()
-    drawModels()
+    drawSettings()
   } catch (err) {
     note.textContent = '保存失败：' + (err?.message || err)
     note.dataset.tone = 'bad'
@@ -412,7 +225,6 @@ function fillConsole() {
 function showTab(name) {
   for (const b of $$('#tabs button')) b.setAttribute('aria-selected', String(b.dataset.tab === name))
   for (const p of $$('.panel')) p.hidden = p.dataset.panel !== name
-  if (name === 'usage') drawUsage()
   if (name === 'console') fillConsole()
 }
 
@@ -440,8 +252,6 @@ async function main() {
     const got = await magpie.options.get()
     if (got && typeof got === 'object') state.options = Object.assign({}, state.options, got)
   } catch { /* 用默认值 */ }
-  state.period = state.options.period || 'today'
-  $('#periods') && [...$$('#periods button')].forEach((b) => b.setAttribute('aria-selected', String(b.dataset.period === state.period)))
 
   // 供应商在不在
   try {
@@ -458,17 +268,14 @@ async function main() {
 
   // 静态部分
   drawSnippet()
-  drawModels()
-  drawProviders()
   drawSettings()
 
   const reads = {
-    'providers:list': '供应商的 id 和名字',
-    'usage:summary': '用量总计与前 20 个模型',
+    'providers:list': '供应商的 id 和名字（只用来数有几家、判断有没有装进来）',
   }
   const ul = $('#reads')
   ul.replaceChildren()
-  for (const name of ['providers:list', 'usage:summary']) {
+  for (const name of ['providers:list']) {
     const li = el('li')
     li.append(el('code', '', name), el('span', '', '— ' + reads[name]))
     ul.append(li)
@@ -488,32 +295,10 @@ async function main() {
   for (const b of $$('button[data-copy]')) {
     b.onclick = () => {
       const target = $(b.dataset.copy)
-      if (target) copy(target.textContent, b)
+      // <input readonly> 的 textContent 恒为空，值在 value 上（控制台地址框就是这种）
+      if (target) copy(target.value ?? target.textContent, b)
     }
   }
-
-  $('#q').oninput = (e) => { state.query = e.target.value; drawModels() }
-
-  $('#expand').onclick = () => {
-    state.allOpen = !state.allOpen
-    for (const d of $$('#groups details')) d.open = state.allOpen
-    $('#expand').textContent = state.allOpen ? '全部折叠' : '全部展开'
-  }
-
-  $('#copyAll').onclick = () => {
-    const ids = (CATALOG.models || []).map(modelId).join('\n')
-    copy(ids, $('#copyAll'))
-  }
-
-  for (const b of $$('#periods button')) {
-    b.onclick = () => {
-      state.period = b.dataset.period
-      for (const x of $$('#periods button')) x.setAttribute('aria-selected', String(x === b))
-      drawUsage()
-    }
-  }
-
-  $('#onlyMine').onchange = (e) => { state.onlyMine = e.target.checked; drawUsage() }
 
   $('#save').onclick = saveSettings
   $('#optPrefix').onchange = () => { /* 保存后生效 */ }
