@@ -806,10 +806,38 @@ console.log('\noauth 方法形状：')
       expected.filter((id) => !withOauth.includes(id)).join(', ') || '无'
     } / 多 ${withOauth.filter((id) => !expected.includes(id)).join(', ') || '无'}`,
   )
+  // ⚠️ 2026-11-01 起这两家**能新建**了，只是不走 `oauth` 那条（它们没有
+  // `account.create`），走各自的 `*.addAccount` —— 方法是 `api` 型 + `keyless`
+  // + `ask()` 收 Key。所以判据从「没有 oauth 方法」改成「有 Key 型新建方法」。
+  const keyNew = new Map()
+  for (const [name, fn] of Object.entries(mod)) {
+    if (typeof fn !== 'function') continue
+    const p = await fn({ client: { app: { log: () => {} } } }, { home: TMP_HOME })
+    // ⚠️ 判据不能靠 label 里的中文（改一个文案就假红）。结构上「新建」那条是
+    // **第二条** api+keyless+有 ask；第一条（接已有账号）也是 api+keyless+有 ask，
+    // 所以只能靠位置区分（这个顺序是设计决定：第一项是默认选中、
+    // 符合多数人的动作，见 src/plugin.mjs 里那段注释）。
+    const methods = p.auth.methods ?? []
+    const m = methods.length > 1
+      ? methods.find((x, i) => i > 0 && x.type === 'api' && x.keyless === true && typeof x.ask === 'function')
+      : undefined
+    if (m) keyNew.set(p.auth.provider, m)
+  }
   ok(
-    without.sort().join(',') === [...EXEMPT].sort().join(','),
-    `不能新建的正是那两家：${without.sort().join(', ')}`,
+    [...keyNew.keys()].sort().join(',') === [...EXEMPT].sort().join(','),
+    `有「贴 Key 新建」方法的正是那两家：${[...keyNew.keys()].sort().join(', ')}`,
   )
+  // `without` = 「没有 oauth 型新建方法」的家 —— 正好是那两家 Key 型渠道，
+  // 它们的新建走 `api` 型 + `ask()`，不该被算成「不能新建」。
+  ok(
+    without.slice().sort().join(',') === [...EXEMPT].sort().join(','),
+    `没有 oauth 方法的就是那两家（走 Key 型新建）：${without.slice().sort().join(', ')}`,
+  )
+  for (const [id, m] of keyNew) {
+    ok(m.type === 'api', `${id} 的 Key 新建方法是 api 型`)
+    ok(m.keyless === true, `${id} 的 Key 新建方法 keyless（让 magpie 跳过它自己的输入框）`)
+    ok(typeof m.authorize === 'function', `${id} 的 Key 新建方法有 authorize`)
+  }
 }
 
 /* ── 10. vendor 的 provider 表 vs 插件 DSH_PROVIDERS 对账 ── */

@@ -136,8 +136,11 @@ jet-hub-codearts           → 第一个账号
 |---|---|
 | 连接本机 DSH 账号 | 从已有账号里挑一个接进 magpie，挑完把账号 id 编进 key |
 | 在浏览器里新建一个账号 | 让本体真的建一个新号：调 `account.create` 拿登录页，你去浏览器登录，完成后这一行自动变成已签入 |
+| 新建一个账号（粘贴 API Key） | 只有 Key 型的两家（`jet-hub-modelscope` / `jet-hub-opencode`）有这条：贴一把 Key，插件调本家的 `*.addAccount` 直接建号 |
 
-`jet-hub-modelscope` / `jet-hub-opencode` 这两家**没有「新建」** —— 它们是 Key 型、走各自的 `*.addAccount`，对它们调 `account.create` 本体回 `unknown provider`，所以插件干脆不声明这个方法，免得用户点了才看到报错。
+`jet-hub-modelscope` / `jet-hub-opencode` 是 Key 型渠道，本体对它们调 `account.create` 会回 `unknown provider` —— 上游 UI 走的是各自的 `modelscope.addAccount` / `opencode.addAccount`（贴 Key 就建号，按 Key 尾段派生账号 id，同一把 Key 反复贴只会落到同一条）。插件照抄同一条路，所以这两家**能新建**，只是方法形状不同：`api` 型 + `keyless`，用 `ask()` 收 Key（`type: 'password'`），`authorize(inputs)` 里再把 Key 交给本家的 RPC。
+
+> 为什么 `keyless`：magpie 对 `api` 型方法会先弹它自己的 personal-key 输入框，而那个框的值只进 `key` 字段、**不会**传给 `authorize(inputs)`。标 `keyless` 让 magpie 跳过它，用户看到的就是插件自己的 Key 输入框。
 
 ### 挑哪一行就真的走哪个账号
 

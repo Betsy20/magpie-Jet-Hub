@@ -58,6 +58,27 @@ export const PROVIDER_PREFIX = 'jet-hub-'
  * `plugin-auth.json` 里，改它等于让老记录的 `metadata` 多一个孤儿键（无害）。
  */
 export const ACCOUNT_INPUT = 'dshAccount'
+/**
+ * Key 型渠道「新建账号」时问用户要 API Key 的 inputs 键。
+ *
+ * 与 `ACCOUNT_INPUT` 分开：一个是「挑一个已有账号」，一个是「贴一把新 Key」。
+ * 两条方法的 prompt 不共用键 —— 否则用户在一条方法里答过的值，会让另一条
+ * 的 `ask()` 误以为已经答过而直接跳过提问。
+ */
+export const KEY_INPUT = 'apiKey'
+
+/**
+ * Key 输入框的占位提示，按渠道给一句「去哪拿」。
+ *
+ * 只是占位文案，**不参与校验** —— Key 形状校验在本体（`vendor/lib/modelscope-rpc.js`
+ * 的 `KEY_PATTERN` = `^ms-[A-Za-z0-9_-]{16,}$`，`vendor/lib/opencode-rpc.js` 的
+ * `^[A-Za-z0-9_.-]{20,}$`）。本插件不抄一份：抄了就会在魔搭/OpenCode 改令牌
+ * 格式时把合法 Key 挡在门外，而那是用户完全无法自救的一类失败。
+ */
+const KEY_PLACEHOLDER = {
+  modelscope: 'ms-…（在 https://modelscope.cn/my/myaccesstoken 生成）',
+  opencode: '20 位以上的密钥串（在 https://opencode.ai/console/account 生成）',
+}
 
 /** 列表里显示的供应商名。 */
 export const DISPLAY_NAME = 'Jet Hub'
@@ -626,6 +647,29 @@ async function accountById(container, provider, id, log) {
  * 且 `tests/t-new-account.mjs` 会把本文件切段丢进 `new Function` 求值，
  * 段内出现 `export` 直接 SyntaxError。测试侧从源码文本里解析它。 */
 const NO_NEW_ACCOUNT = new Set(['modelscope', 'opencode'])
+
+/**
+ * Key 型渠道「贴 Key 建号」的本体 RPC —— **上游 UI 就是这么建的**。
+ *
+ * 上游客户端（`vendor/lib/client/jet-hub.js` 的 `submitOpencodeEntry`）对这两家
+ * 弹一个输入框、粘贴 Key、提交到下面这个方法：
+ *   · `modelscope.addAccount` —— `{ apiKey, nickname? }`；
+ *   · `opencode.addAccount` —— `{ apiKey, nickname? }`。
+ *
+ * 两家都**按 Key 尾段派生账号 id**（同一把 Key 反复贴只会落到同一条），所以这里
+ * 不需要自己去重。形状校验也由本体做。
+ *
+ * ⚠️ 两家的 `existed` 语义**不一样**：modelscope 命中同 id 直接回 `existed: true`，
+ * opencode 在同 id 但凭据读不出来（坏槽）时会覆盖写并回 `existed: false`。
+ * 所以插件侧**不把它写进 metadata**（写了反而语义相反）。
+ *
+ * ⚠️ 值里带 `provider` 是为了让测试能从源码文本里解析出「哪几家是 Key 型」，
+ * 不必在测试里再抄一份名单。
+ */
+const KEY_ACCOUNT_RPC = new Map([
+  ['modelscope', 'modelscope.addAccount'],
+  ['opencode', 'opencode.addAccount'],
+])
 
 /**
  * 超级麦吉（magicrew）`account.create` 要走的 `mode`，按顺序试。
@@ -1760,6 +1804,137 @@ export function makePlugin(dshProvider) {
                 }
               },
             }]),
+
+          /**
+           * Key 型渠道的「新建」：贴一把 API Key 就建号。
+           *
+           * 为什么单独一条、而不是并进上面那个 `oauth` 方法：那条的 `authorize()`
+           * 调 `account.create`，而这两家对 `account.create` 一律回
+           * `unknown provider`（`vendor/lib/jet-hub-rpc.js` 里没有它们的分支）。
+           * 上游 UI 走的是本家的 `*.addAccount`，这里照抄同一条路。
+           *
+           * 为什么 `keyless: true`：magpie 对 `api` 型方法会**先**弹它自己的
+           * personal-key 输入框，粘完它把值放进 `key` 字段、**不会**传给
+           * `authorize(inputs)`（宿主 `save()` 只把 `inputs` 当 metadata 合并）。
+           * 而我们要把 Key 交给本体的 `*.addAccount` —— 只能自己用 `ask()` 收。
+           * `keyless: true` 让 magpie 跳过它那个框（`PluginAPIKey` 里
+           * `strings.TrimSpace(key) == ""` 时只有 keyless 才放行），于是用户看到
+           * 的是我们 `ask()` 返回的输入框，答完带 `inputs` 进 `authorize()`。
+           *
+           * ⚠️ 这条排在 `api` 那条之后：magpie 前端在 `methods.length > 1` 时弹
+           * 「怎么登录」选择器，第一项是默认选中的「接已有账号」，符合多数人的动作。
+           */
+          ...(KEY_ACCOUNT_RPC.has(dshProvider)
+            ? [{
+              type: 'api',
+              keyless: true,
+              label: `新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（粘贴 API Key）`,
+
+              /**
+               * 问用户要 API Key。
+               *
+               * 契约同上面那条的 `ask()`：返回 `{type,key,message,placeholder}`
+               * 或 null；非 null 时 magpie 渲染成输入框，答完带 `inputs[key]` 重调。
+               * 已经答过就返回 null，否则死循环。
+               *
+               * `type: 'password'` —— Key 是敏感材料，别在屏幕上明文显示
+               * （magpie 前端支持这个类型，见 `internal/plugin/providers.go` 的
+               * `Prompt.Type` 注释：「text, select, password (text typed unseen)」）。
+               */
+              async ask(inputs = {}) {
+                // ⚠️ 必须 trim 后再判空：authorize() 用的是 `String(...).trim()`，
+                // 这里若不 trim，用户粘了一串空格（复制时带上空白很常见）就会被当成
+                // 「已经答过」⇒ ask() 永远返 null、authorize() 永远抛「没有填 API Key」，
+                // 界面上再也回不到输入框，只能关掉重开（2026-11-01 二审实测）。
+                if (typeof inputs?.[KEY_INPUT] === 'string' && inputs[KEY_INPUT].trim() !== '') return null
+                return {
+                  type: 'password',
+                  key: KEY_INPUT,
+                  message: `粘贴 ${NAMES[dshProvider] ?? dshProvider} 的 API Key（在本体账号池里新建一条）`,
+                  placeholder: KEY_PLACEHOLDER[dshProvider] ?? 'API Key',
+                }
+              },
+
+              /**
+               * 把 Key 交给本体的 `*.addAccount`，拿回账号 id。
+               *
+               * 返回形状与上面那条一致（`{type:'success', key, accountId, uid,
+               * metadata}`），这样 `loader(getAuth)` 认号、`usage(getAuth)` 定位
+               * 账号、`scripts/seed-auth.mjs` 摊平都走同一套逻辑，不需要分支。
+               *
+               * `key` 里编进账号 id 的理由同上：宿主 `save()` 的 api 分支只落
+               * `{type, key, metadata}`，判重靠 `settle()` 的 secret 分支（key 字符串
+               * 相等）—— 不编 id 的话，同一个人再贴一次同一把 Key 会堆出第二条记录。
+               */
+              async authorize(inputs = {}) {
+                const apiKey = String(inputs?.[KEY_INPUT] ?? '').trim()
+                if (apiKey === '') {
+                  throw new Error(`没有填 API Key：新建 ${NAMES[dshProvider] ?? dshProvider} 账号需要先粘贴一把 Key`)
+                }
+
+                // 建号本身只是一次本地写盘，很快；但容器可能还没起 ——
+                // `rpc()` 自己会 `start()`，冷启动 20–30 秒，故套 45 秒上限
+                // （与 `CREATE_TIMEOUT_MS` 同一个预算；magpie 给 authorize() 1 分钟）。
+                const v = await withRpcDeadline(
+                  container,
+                  KEY_ACCOUNT_RPC.get(dshProvider),
+                  { apiKey },
+                  CREATE_TIMEOUT_MS,
+                  `新建 ${dshProvider} 账号`,
+                )
+                const accountId = String(v?.accountId ?? '')
+                if (accountId === '') {
+                  throw new Error(`本体没有返回账号 id（${dshProvider}.addAccount 回：${JSON.stringify(v)}）`)
+                }
+                // 新建的号一定还没被 `account.list` 那 15 秒缓存看见，不然后面
+                // `usage(getAuth)` / `ask()` 会拿旧列表，表现为「刚建的号查不到」。
+                accountsCache.delete(dshProvider)
+
+                // 建完再拉一次目录：Key 刚生效时模型列表可能刚变。
+                //
+                // ⚠️ 必须套上限：`liveAll` / `refreshFullCatalog` 内部走 `container.rpc()`，
+                // 那条路径不会自己超时（`route.fetch(req)` 没有 AbortSignal），实测上游挂住
+                // 时 authorize() 能一直不返回（二审把 refreshModels 打桩成挂 120 秒，60 秒没回）。
+                // 建号本身已经成功，目录拉不到不该把这一行签入也卡死。
+                try {
+                  await withDeadline(
+                    (async () => {
+                      await liveAll(container, log)
+                      fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+                      writeCache(log)
+                    })(),
+                    START_TIMEOUT_MS,
+                    '建号后刷新目录',
+                  )
+                } catch { /* 目录拉不到不影响建号 */ }
+
+                return {
+                  type: 'success',
+                  key: `jet-hub-local:${dshProvider}/${accountId}`,
+                  // accountId 与上面那条 oauth 方法一样传**显示文案**（宿主 `save()` 的 api
+                  // 分支只落 `{type,key,metadata}`，这个字段会被丢弃；写文案是为了两条方法
+                  // 语义一致，别让后来人以为它真会生效）。真正的账号 id 在 metadata.dshAccountId。
+                  accountId: `${NAMES[dshProvider] ?? dshProvider} · ${accountId}`,
+                  uid: accountId,
+                  metadata: {
+                    // ⚠️ **必须**用同名键把宿主并进来的 inputs.apiKey 盖掉。
+                    // 宿主 `save()` 是 `{ ...inputs, ...result.metadata }`（inputs 在前、
+                    // metadata 在后），而我们的 inputs 就是 `{ apiKey: <明文> }` ——
+                    // 不给同名键，那把 Key 会原样落进 magpie 的 `plugin-auth.json`，
+                    // 与「只存在本体的 .credentials.yaml」的预期相反（2026-11-01 审查实测）。
+                    // 赋 undefined 而不是删键：JSON.stringify 会丢弃值为 undefined 的键，
+                    // 于是最终落盘里连 `apiKey` 这个名字都不出现。
+                    apiKey: undefined,
+                    via: 'jet-hub',
+                    provider: dshProvider,
+                    dshAccountId: accountId,
+                    // 不记 `existed`：全仓没有消费方，且 opencode 新建时回 existed:false、
+                    // 命中已有账号时回 true，写成 `existed === true` 落盘反而语义相反。
+                  },
+                }
+              },
+            }]
+            : []),
           ],
 
         /**
