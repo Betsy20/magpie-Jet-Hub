@@ -52,20 +52,137 @@ function setState(text, tone) {
 }
 
 
-async function copy(text, btn) {
+/* 按钮文案临时改一下，1.6 秒后还原。原文存在 dataset 里，连点不会串。 */
+function flash(btn, text, ok = false) {
+  if (!btn) return
+  // ⚠️ 用 hasOwnProperty 判「存过没」而不是 `if (!dataset.label)`：按钮文案为空串时
+  // 后者会把 "" 再存一次、还原时又因空串 falsy 而不还原 ⇒ 按钮永久停在「已复制」。
+  if (!Object.prototype.hasOwnProperty.call(btn.dataset, 'label')) {
+    btn.dataset.label = btn.textContent
+    btn.dataset.html = btn.innerHTML
+  }
+  btn.textContent = text
+  // 只有成功才变绿：失败文案（「复制失败」「没有可复制的内容」）也走这个函数，
+  // 无条件设 data-done 会让失败看起来像成功。
+  if (ok) btn.dataset.done = '1'
+  clearTimeout(Number(btn.dataset.flashTimer) || 0)
+  btn.dataset.flashTimer = String(setTimeout(() => {
+    // 用 innerHTML 还原：按钮里若有 <span class="ico"> 之类子元素，textContent 会把它们拍平
+    if (btn.dataset.html !== undefined) btn.innerHTML = btn.dataset.html
+    else btn.textContent = btn.dataset.label
+    delete btn.dataset.done
+  }, 1600))
+}
+
+/* 老办法写剪贴板：造一个屏幕外的 textarea，选中后 execCommand('copy')。
+   不需要权限、不需要安全上下文，在沙箱 iframe 里也能用。 */
+function copyByExecCommand(text) {
+  let ok = false
+  let ta
+  // 造 textarea 会把焦点抢走（原焦点变成 body）。记下来，结束时还回去 ——
+  // magpie 自己的 copyByCommand 也是这么做的（internal/gui/assets/app.js）。
+  const was = document.activeElement
   try {
-    await navigator.clipboard.writeText(text)
-    if (btn) {
-      const old = btn.textContent
-      btn.dataset.done = '1'
-      btn.textContent = '已复制'
-      setTimeout(() => { btn.textContent = old; delete btn.dataset.done }, 1400)
-    }
-    return true
+    ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0'
+    document.body.append(ta)
+    ta.select()
+    ta.setSelectionRange(0, text.length)
+    ok = document.execCommand('copy')
   } catch {
-    if (btn) { btn.textContent = '复制失败'; setTimeout(() => { btn.textContent = '复制' }, 1400) }
+    ok = false
+  } finally {
+    if (ta) ta.remove()
+    if (was && typeof was.focus === 'function' && was !== document.body) {
+      try { was.focus({ preventScroll: true }) } catch { /* 焦点还回去失败不影响复制结果 */ }
+    }
+  }
+  return ok === true
+}
+
+/* 直接对当前选区执行 copy —— 配合 selectTextOf 用。 */
+function copySelection() {
+  try {
+    return document.execCommand('copy') === true
+  } catch {
     return false
   }
+}
+
+/* 前两级都失败时，把目标内容选中，让用户自己按 Ctrl+C。 */
+function selectTextOf(node) {
+  if (!node) return false
+  try {
+    if (typeof node.select === 'function') {
+      node.focus()
+      node.select()
+      return true
+    }
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const sel = window.getSelection()
+    if (!sel) return false
+    sel.removeAllRanges()
+    sel.addRange(range)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/* 复制走三级降级。下面这条是实测出来的（CDP 起真 Edge，复刻 magpie 的加载条件：
+   <iframe sandbox="allow-scripts" allow="" referrerpolicy="no-referrer"> + pagePolicy() 的完整 CSP）。
+
+   ⚠️ 根因是 **Permissions Policy**，不是「文档没有焦点」：
+   magpie 给插件页 iframe 设了 allow=""（internal/gui/assets/pluginpages.js 里
+   f.setAttribute("allow", "")），等于把 clipboard-write 从本页彻底关掉 ⇒
+     writeText 抛 NotAllowedError: The Clipboard API has been blocked because of a
+     permissions policy applied to the current document.
+   对照实验证实了因果：allow="" + CSP → 该错误；去掉 sandbox 指令仍是该错误；
+   而 allow="clipboard-write; clipboard-read" → writeText 直接成功。
+   （所以别去调「焦点」——那不是在 magpie 里失败的原因。）
+
+   顺带纠正一个易混点：sandbox 没有 allow-same-origin 时，不透明源体现在
+   self.origin === "null"，而 location.origin 仍是正常 URL；两者不要混着说。
+
+   三级降级：
+   ① navigator.clipboard —— 普通网页（含控制台 http://127.0.0.1:18500）最稳；
+   ② execCommand('copy') —— 先选中真实目标再 copy，不依赖权限与安全上下文，
+      沙箱 iframe 里也能用（实测四个按钮全走这一级成功）；
+   ③ 选中目标文本 + 提示手动复制 —— 万一浏览器连 execCommand 也禁了。 */
+async function copy(text, btn, target) {
+  const val = String(text ?? '')
+  if (val === '') {
+    flash(btn, '没有可复制的内容')
+    return false
+  }
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(val)
+      flash(btn, '已复制', true)
+      return true
+    } catch {
+      /* 沙箱 iframe 里必定走到这里，继续降级 */
+    }
+  }
+  // 先试「选中真实目标 → copy」：选区落在用户看得见的元素上，比临时 textarea 稳。
+  // 实测（真 Edge + 真实鼠标点击）：这一级返回 true，剪贴板真的写进去了。
+  if (selectTextOf(target) && copySelection()) {
+    flash(btn, '已复制', true)
+    return true
+  }
+  if (copyByExecCommand(val)) {
+    flash(btn, '已复制', true)
+    return true
+  }
+  if (selectTextOf(target)) {
+    flash(btn, '已选中，按 Ctrl+C', true)
+    return true
+  }
+  flash(btn, '复制失败')
+  return false
 }
 
 /* `jet-hub-codearts/deepseek-v4.1-flash` → `codearts/deepseek-v4.1-flash`
@@ -295,8 +412,9 @@ async function main() {
   for (const b of $$('button[data-copy]')) {
     b.onclick = () => {
       const target = $(b.dataset.copy)
-      // <input readonly> 的 textContent 恒为空，值在 value 上（控制台地址框就是这种）
-      if (target) copy(target.value ?? target.textContent, b)
+      // <input readonly> 的 textContent 恒为空，值在 value 上（控制台地址框就是这种）；
+      // 第三个参数是降级用的目标节点 —— 前面两级都写不进剪贴板时选中它让用户手动复制
+      if (target) copy(target.value ?? target.textContent, b, target)
     }
   }
 

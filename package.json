@@ -61,9 +61,6 @@
     "maxConcurrency": 8,
     "page": {
       "title": "Jet Hub",
-      "titles": {
-        "zh": "Jet Hub（本体直装）"
-      },
       "file": "page/index.html",
       "icon": "page/icon.svg"
     },
