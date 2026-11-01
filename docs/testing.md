@@ -30,6 +30,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-dead-account.mjs` | 死号过滤判据 |
 | `t-account-pin.mjs` | 选号钉住：并发隔离、钉住死号仍被拦、两个入口判据一致 |
 | `t-account-cache.mjs` | 账号列表缓存与失败路径 |
+| `t-cred-alive.mjs` | 凭据还在不在：真容器判路径推导与五种情形（ref 在 / ref 不在 / 文件缺失放行 / 结构不认识放行 / 有 refs 段但段内为空不放行），以及 `ask()` 与 `authorize()` 的接线方向 |
 | `t-usage.mjs` | 用量换算、积分包合并与到期日排序；第 7 节是「凭据不在了」的文案 + 一段直接 import `vendor/lib/jet-hub-rpc.js` 的行为锁（删 `product` 判空守卫会红） |
 | `t-checkin.mjs` | 一键领积分 |
 | `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 23 家图标（`data:image`、≤1MB、互不相同） |

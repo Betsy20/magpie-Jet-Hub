@@ -1142,12 +1142,6 @@ async function abandonAccount(container, provider, accountId, log) {
 }
 
 /**
- * 账号在 magpie 里显示成什么。
- *
- * 昵称优先（用户认得 `user-g7h8`，不认得 `workbuddy-9c0d1e2f`），后接 id 尾巴
- * 便于与 DSH / 控制台对上；已停用的标出来（否则用户会奇怪「为什么挑了它却 502」）。
- */
-/**
  * 这个账号的凭据还在不在（不知道就放行）。
  *
  * 拿不到判断能力时返回 `true`，理由同 `container.credentialAlive` 的注释：
@@ -1162,6 +1156,12 @@ function credentialAliveOf(container, ref) {
   }
 }
 
+/**
+ * 账号在 magpie 里显示成什么。
+ *
+ * 昵称优先（用户认得 `user-g7h8`，不认得 `workbuddy-9c0d1e2f`），后接 id 尾巴
+ * 便于与 DSH / 控制台对上；已停用的标出来（否则用户会奇怪「为什么挑了它却 502」）。
+ */
 function accountLabel(a) {
   const nick = String(a?.nickname ?? '').trim()
   const id = String(a?.id ?? '')
@@ -1943,7 +1943,7 @@ export function makePlugin(dshProvider) {
                     label: alive ? accountLabel(a) : `${accountLabel(a)}（无登录凭据）`,
                     value: String(a?.id ?? ''),
                     hint: !alive
-                      ? '这个账号在账号池里，但它的凭据已经不在 ~/.dsh/.credentials.yaml 了 —— 签进来查不到额度，建议改用「新建账号」重新登一次'
+                      ? '这个账号在账号池里，但它的凭据已经不在凭据文件里了 —— 签进来查不到额度、请求也走不通。建议改用「新建账号」重新登一次，或把它从 DSH 里删掉'
                       : a?.enabled === false
                         ? '在 DSH 里已停用，接进来后请求会 502'
                         : undefined,
@@ -1991,7 +1991,7 @@ export function makePlugin(dshProvider) {
               // buddy 账号就是这么被签进去的，用户以为登录成功，实际什么都用不了）。
               if (hit !== undefined && !credentialAliveOf(container, hit.credentialRef)) {
                 throw new Error(
-                  `你选的账号 ${picked} 在账号池里，但它的登录凭据已经不在了（~/.dsh/.credentials.yaml 里没有这条）——`
+                  `你选的账号 ${picked} 在账号池里，但它的登录凭据已不可用了（凭据文件里没有这条、或者它的值是空的）——`
                   + ` 到 DSH 里重新登录这个账号，或者改用「新建账号」重新登一次。`,
                 )
               }

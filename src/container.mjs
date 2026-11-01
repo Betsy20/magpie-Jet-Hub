@@ -19,11 +19,14 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { FileCredentialProvider, CRED_BASENAME, parseRefs } from './credentials.mjs'
+import { FileCredentialProvider, CRED_BASENAME, parseRefs, scanRefKeys } from './credentials.mjs'
 import { ConnectionSeam } from './connection.mjs'
 import { startHubServer } from './hub-server.mjs'
 import { JetHubAttachmentStore } from './attachments.mjs'
 import { chatCompletion, modelsPayload, llmReady, jsonResponse, errorResponse, openAiEfforts } from './llm-bridge.mjs'
+
+/** `refs:` 段头（含空段 `refs: {}` 与尾注释）。用来区分「整份文件不认识」与「认得这一段但没有这条」。 */
+const HAS_REFS_HEAD = /^refs:\s*(?:\{\s*\})?\s*(?:#.*)?$/m
 
 /**
  * 「死号判据对本家不可信」的 provider 名单 —— 命中即**不判死**。
@@ -149,12 +152,6 @@ export class JetHubContainer {
   }
 
   /**
-   * 本体的 llm 服务（`ctx.llm`）。直连层的唯一入口。
-   *
-   * 只在 `start()` 之后可用；`_start()` 的第三步 `ctx.plugin(mod)` 是异步排期，
-   * 所以取用一律走 `await this.start()` 之后的 `this.llm`。
-   */
-  /**
    * 凭据文件的绝对路径（与 `FileCredentialProvider` 同一套规则）。
    *
    * 单独抽出来的理由：下面那个检查要**不启动容器**就能用 —— `ask()` / `authorize()`
@@ -178,15 +175,41 @@ export class JetHubContainer {
    */
   credentialAlive(ref) {
     if (typeof ref !== 'string' || ref === '') return false
+    let text
     try {
-      const refs = parseRefs(readFileSync(this.credentialFile(), 'utf8'))
-      const raw = refs.get(ref)
-      return raw !== undefined && raw !== ''
+      text = readFileSync(this.credentialFile(), 'utf8')
     } catch {
+      // 读不到文件（还没有、没权限、占着）—— 不知道，放行
       return true
     }
+    const refs = parseRefs(text)
+    const raw = refs.get(ref)
+    if (raw !== undefined && raw !== '') return true
+
+    // 走到这里说明「按 ref 取值」失败了。失败有四种原因，只有前一种该判不可用：
+    //   ① 认得这份文件，但没有这条 ref（或值为空串）        → 不可用
+    //   ② 整份文件我们根本不认识（空文件 / 只有注释 / 半截 JSON / 段名拼错）
+    //   ③ 有 `refs:` 段且有键，但 parseRefs 解不出值（写法超出解析器）
+    //   ④ 文件读不到（上面 catch 已放行）
+    // ②③ 一律放行：判 false 会把**所有人**标成空壳、谁也签不进来，与「宁可不拦」冲突。
+    const keys = scanRefKeys(text)
+    // ③ 的判据必须落在**这一条 ref** 上：三审实测 `refs.size === 0 && keys.size > 0`
+    // 在 20 万例随机文本与 400 组合下 0 命中（两个函数共用同一套键正则，键能扫到就
+    // 意味着 parseRefs 至少解出了一条）—— 那条分支是死代码，而真会发生的
+    // 「同一份文件里别的键解得出、这条解不出」（值里有未闭合引号把后续行吞了）反而
+    // 判不到。改成按 ref 比对。
+    if (keys.has(ref) && !refs.has(ref)) return true
+    if (!HAS_REFS_HEAD.test(text)) return true
+    // 有 `refs:` 段头、里面也确实没这条（含宿主删空后写的 `refs: {}`）—— 真不可用
+    return false
   }
 
+  /**
+   * 本体的 llm 服务（`ctx.llm`）。直连层的唯一入口。
+   *
+   * 只在 `start()` 之后可用；`_start()` 的第三步 `ctx.plugin(mod)` 是异步排期，
+   * 所以取用一律走 `await this.start()` 之后的 `this.llm`。
+   */
   get llm() {
     return this.ctx?.get('llm')
   }

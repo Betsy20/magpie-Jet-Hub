@@ -312,12 +312,17 @@ function refLines(key, value) {
 /**
  * 文本扫 refs 段里**所有** `  KEY:` 行，返回 key 集合。
  *
- * 这是「这个 ref 在不在文件里」的真相源，**不能改用 `parseRefs`**：
- * `parseRefs` 会漏解几种形态（裸 key 无值 `KEY:`、块标量 `KEY: |-` 的值），
- * 漏解就等于「不存在」，`upsertRefsInto` 于是又追加一条同名 key ⇒ 落盘出现
+ * 这是「这个 ref 在不在文件里」的真相源。为什么不用 `parseRefs`：
+ * 它的职责是「把值解出来」，遇到解不出的写法会**跳过那一条**（返回空表而不是报错），
+ * 跳过就等于「不存在」，`upsertRefsInto` 于是又追加一条同名 key ⇒ 落盘出现
  * 重复 key ⇒ 本体 yaml（`uniqueKeys: true`）报 `Map keys must be unique`，
  * **整份凭据文件读不了**。2026-10-31 审查实测：
  * `refs:\n  EMPTY:\n  A: 'a'` + `set('EMPTY')` 落盘两条 EMPTY。
+ *
+ * 分工（2026-11-01 审查追问后写明）：判「这份文件认得出来吗」用本函数；
+ * 判「这条 ref 的值能不能用」必须用 parseRefs —— 本函数只扫键、不看值。
+ * container.credentialAlive 两件事都做：先 parseRefs 取值判空串，取不到时
+ * 再用本函数区分「文件认得但没有这条」与「整份文件根本解析不出」。
  */
 export function scanRefKeys(text) {
   const lines = text.split(/\r?\n/)
@@ -757,9 +762,10 @@ export function deleteRefsFrom(text, names) {
  */
 export function upsertRefsInto(text, changed) {
   // Existence must come from scanRefKeys (text scan), not parseRefs
-  // (verified by review 2026-10-31): parseRefs misses the "bare key with no
-  // value" and "block scalar" shapes, and a miss reads as "not present", so
-  // a duplicate key gets appended -> the host's yaml (uniqueKeys: true)
+  // (verified by review 2026-11-01): parseRefs' job is to *decode values*, so it
+  // silently skips an entry it cannot decode (an unterminated quote swallows the
+  // following lines) — a skip reads as "not present", so a duplicate key gets
+  // appended -> the host's yaml (uniqueKeys: true)
   // reports `Map keys must be unique` and the ENTIRE credentials file
   // becomes unreadable. HEAD's failure mode was only "this one ref cannot be
   // updated, throw without writing", which is strictly milder.
@@ -948,7 +954,8 @@ export class FileCredentialProvider extends Service {
     // 实测：文件里补一条 B 后调 unset('B')，缓存里没有 B ⇒ B 原样留在文件里。
     // 判存在性放在链内（2026-10-31 审查）：链外先判、再排队写，中间别的写者
     // 可能已经改了文件，判据就过期了（TOCTOU）。判据本身用 scanRefKeys
-    // （文本扫）而不是 parseRefs —— 后者漏解裸 key 与块标量。
+    // （文本扫，只看键不看值）而不是 parseRefs —— 后者的职责是解值，解不出会跳过那条，
+    // 「跳过」在这里会被当成「不存在」，于是 unset 变成什么都不做。
     await serializeWrite(this.file, async () => {
       const raw = readFileSync(this.file, 'utf8')
       if (!scanRefKeys(raw).has(name)) return
