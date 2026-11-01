@@ -13,6 +13,7 @@
     "vendor",
     "page",
     "console",
+    "docs",
     "README.md",
     "LICENSE"
   ],
@@ -54,7 +55,7 @@
       "dsh-codearts-auth"
     ],
     "version": "2.9.261029",
-    "note": "vendor/ 是上游源码 commit 6fa74723d42ff605d1de349589c21a1ac4eb7ba2 的构建产物（npm install 触发 tsc + copy-assets + client/build），比 npm 包 2.9.261029 多 36 个 magicrew 文件、少 README.md / cordis.patch.yml；gemini-oauth.* 两个常量拆成两段拼接（值相等）。详见 README「vendor/ 的来源与许可」"
+    "note": "vendor/ 是上游源码 commit 6fa74723d42ff605d1de349589c21a1ac4eb7ba2 的构建产物（npm install 触发 tsc + copy-assets + client/build），比 npm 包 2.9.261029 多 36 个 magicrew 文件、少 README.md / cordis.patch.yml；gemini-oauth.* 两个常量拆成两段拼接（值相等）。详见 docs/vendor.md"
   },
   "magpie": {
     "maxConcurrency": 8,
@@ -67,8 +68,7 @@
       "icon": "page/icon.svg"
     },
     "permissions": [
-      "providers:list",
-      "usage:summary"
+      "providers:list"
     ]
   }
 }
