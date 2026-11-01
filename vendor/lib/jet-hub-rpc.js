@@ -679,7 +679,12 @@ export async function collectCreditsStatus(accounts, product, deps) {
                 accountId = entry.id;
                 nickname = entry.nickname;
                 let resolved = await deps.resolve(credentialRef(entry.credentialRef));
-                if (resolved === undefined && product.id === ASTUDIO.id) {
+                // ⚠️ 本地补丁（2026-11-01）：`credits.balances` 的调用点传的 `product` 就是
+                //    `undefined`（见 `collectCreditBalances(accounts, undefined, {…})`，各家读数已由 `deps.fetchBalance` 闭包带走）。
+                //    而这里**无条件**求值 `product.id` ⇒ 一旦走到「凭据解析不出来」这条分支就抛
+                //    `undefined is not an object (evaluating 'product.id')`，把本该显示「凭据未配置」的情形
+                //    变成一句看不懂的 JS 报错。上游修掉后可删。
+                if (resolved === undefined && product !== undefined && product.id === ASTUDIO.id) {
                     resolved = await deps.resolve(credentialRef(ASTUDIO.defaultCredentialRef));
                 }
                 if (resolved !== undefined) {
@@ -899,7 +904,12 @@ export async function collectCreditBalances(accounts, product, deps) {
         if (balance === null) {
             try {
                 let resolved = await deps.resolve(credentialRef(entry.credentialRef));
-                if (resolved === undefined && product.id === ASTUDIO.id) {
+                // ⚠️ 本地补丁（2026-11-01）：`credits.balances` 的调用点传的 `product` 就是
+                //    `undefined`（见 `collectCreditBalances(accounts, undefined, {…})`，各家读数已由 `deps.fetchBalance` 闭包带走）。
+                //    而这里**无条件**求值 `product.id` ⇒ 一旦走到「凭据解析不出来」这条分支就抛
+                //    `undefined is not an object (evaluating 'product.id')`，把本该显示「凭据未配置」的情形
+                //    变成一句看不懂的 JS 报错。上游修掉后可删。
+                if (resolved === undefined && product !== undefined && product.id === ASTUDIO.id) {
                     resolved = await deps.resolve(credentialRef(ASTUDIO.defaultCredentialRef));
                 }
                 if (resolved === undefined) {

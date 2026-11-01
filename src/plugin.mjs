@@ -1327,6 +1327,12 @@ function toMagpieCheckin(row) {
  */
 function humanizeUsageError(error) {
   const text = String(error ?? '')
+  // JSC（Bun）风格的同类报错：上游 `collectCreditBalances` 在「凭据解析不出来」时
+  // 会去读 `product.id`，而那条路上的 `product` 恒为 undefined（已打本地补丁，
+  // 但旧产物与宿主缓存里的旧文案仍可能带这个形状）。
+  if (/evaluating 'product\.id'/.test(text)) {
+    return '这个账号在账号池里，但它的登录凭据已经不在了 —— 到 DSH 或 magpie 里重新登录一次，或者删掉它'
+  }
   if (/^Cannot read propert(y|ies) of/.test(text)) {
     return `该账号的余额查询内部出错（${text}），换个账号或重新登录后重试`
   }

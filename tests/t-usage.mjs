@@ -595,6 +595,31 @@ if (live()) {
   )
 }
 
+// ── 7. 「凭据不在了」这句报错必须说人话 ────────────────────────────
+//
+// 上游 `collectCreditBalances` 在「凭据解析不出来」时会去读 `product.id`，而那条
+// 路上的 `product` 恒为 undefined ⇒ 真实报错是
+// `undefined is not an object (evaluating 'product.id')`。
+// 用户看到这句只会来问「为什么额度取不到」，所以插件必须把它翻成可执行的话。
+{
+  const fs3 = await import('node:fs')
+  const src3 = fs3.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8').split(String.fromCharCode(13)).join('')
+  const a3 = src3.indexOf('function humanizeUsageError(')
+  const b3 = src3.indexOf('function groupName(')
+  ok(a3 >= 0 && b3 > a3, '能从 src/plugin.mjs 截到 humanizeUsageError')
+  const human = new Function(src3.slice(a3, b3) + String.fromCharCode(10) + 'return humanizeUsageError')()
+  const cred = human("undefined is not an object (evaluating 'product.id')")
+  ok(
+    cred.includes('凭据'),
+    `「凭据不在了」的 JSC 报错要翻成提凭据的话（实际 ${JSON.stringify(cred)}）`,
+  )
+  ok(
+    !cred.includes('product.id'),
+    `翻完不该再把 product.id 原样丢给用户（实际 ${JSON.stringify(cred)}）`,
+  )
+  ok(human('别的错误原样透出') === '别的错误原样透出', '不认识的错误不许改写')
+}
+
 if (problems.length) {
   console.log('✗ ' + problems.length + ' 处不符：')
   for (const p of problems) console.log('  ' + p)
