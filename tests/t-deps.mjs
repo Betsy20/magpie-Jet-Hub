@@ -40,9 +40,11 @@
 // 它的 react / react-dom 由浏览器宿主注入，跟 Node 包解析无关，必须排除。
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { builtinModules } from 'node:module'
 
-const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
+// 路径含空格/中文时 `pathname` 会被百分号编码，用 fileURLToPath。
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.dirname(HERE)
 
 const problems = []

@@ -34,10 +34,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 process.env.JET_HUB_NO_ADDR_FILE = '1'
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..')
+// 路径含空格/中文时 `pathname` 会被百分号编码，用 fileURLToPath。
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = path.join(ROOT, 'src', 'plugin.mjs')
 const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
 
