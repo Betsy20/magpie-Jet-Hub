@@ -40,6 +40,9 @@
  */
 
 import { JetHubContainer } from './container.mjs'
+// 上游的**积分/签到能力表** —— 由它直接回答「这家有没有签到」，
+// 而不是在插件里再抄一份名单（抄了必然漂移）。
+import { createProviderCredits, creditsOf } from '../vendor/lib/provider-credits.js'
 import { iconFor } from './icons.mjs'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -647,6 +650,65 @@ async function accountById(container, provider, id, log) {
  * 且 `tests/t-new-account.mjs` 会把本文件切段丢进 `new Function` 求值，
  * 段内出现 `export` 直接 SyntaxError。测试侧从源码文本里解析它。 */
 const NO_NEW_ACCOUNT = new Set(['modelscope', 'opencode'])
+
+/**
+ * 上游 `credits.claimAll` 里**走特例分支**的渠道 —— 它们的签到能力**不在**能力表里。
+ *
+ * 真源（`vendor/lib/jet-hub-rpc.js` 的 `case 'credits.claimAll'`）：
+ *   · `if (isQoderFamily(req.provider))` —— qoder / qodercn 走 `claimQoderDailyCheckin`
+ *     （国际版还要按账号取出口代理），表里**刻意**没有它们；
+ *   · `if (req.provider === ZCODE.id)` —— zcode 走 `claimDailyFor`（每个 plan 现产 captcha），
+ *     同样不在表里。
+ * 其余渠道才是「表里有 `impl.claim` 才算支持」。
+ *
+ * ⚠️ 这三个 id 是**照抄**上游分支条件的（不是抄一份签到能力名单）—— 上游把某家
+ * 挪进/挪出特例分支时这里会失真，所以 `tests/t-checkin.mjs` 有一条守卫：
+ * 如果这三家**开始**在 vendor 表里出现 `claim`，测试会红，提示把这行删掉。
+ */
+const SPECIAL_CLAIM_PROVIDERS = new Set(['qoder', 'qodercn', 'zcode'])
+
+/**
+ * 上游的积分能力表（构造一次即可：里面全是配置与函数引用，不联网、不读盘）。
+ *
+ * `createProviderCredits({})` 的入参是**可选注入**（MiniMax 国际站的按账号代理等），
+ * 空对象就是上游在单测里的用法；我们只读它的键与 `claim` 是否存在，不调任何实现。
+ */
+let creditsTableMemo
+/**
+ * 惰性构造能力表（**不能写成模块级常量**）。
+ *
+ * 一是有 `tests/*.mjs` 会把本文件的区段切出来丢进 `new Function` 求值，
+ * 那些段里没有 `createProviderCredits` 的绑定 —— 模块级调用会让它们一启动就
+ * `ReferenceError`（2026-11-01 实测 t-model-efforts / t-new-account 双双变红）。
+ * 二来这张表只在注册 provider 时才用得上，没必要在 import 阶段就建。
+ */
+function creditsTable() {
+  if (creditsTableMemo === undefined) creditsTableMemo = createProviderCredits({})
+  return creditsTableMemo
+}
+
+/**
+ * 这家渠道在上游到底支不支持「每日签到」？
+ *
+ * 为什么要在插件侧也判一次：magpie 的签到开关**只看插件有没有声明 `auth.checkin`**
+ * （宿主 `host.js` 的 `checkin: typeof a.auth.checkin === "function"`，Go 侧
+ * `Provider.Checkin` 再决定 Settings 里显不显示）。给 23 家都声明，就等于给
+ * 「后端根本没有签到接口」的 9 家也画了一个开关 —— 用户点了只能看到失败，
+ * 而那是**能力缺失**，不是故障（2026-11-01 用户报「部分供应商签到失败」的根因）。
+ *
+ * ⇒ 不支持的渠道**根本不声明** `checkin`，magpie 那边连开关都不出现。
+ * 判据直接问上游的能力表，不维护第二份名单。
+ */
+function canCheckin(dshProvider) {
+  if (SPECIAL_CLAIM_PROVIDERS.has(dshProvider)) return true
+  try {
+    return typeof creditsOf(creditsTable(), dshProvider)?.claim === 'function'
+  } catch {
+    // 表结构变了 / 查不动：保守地当作「支持」，走原来的 ineligible 兜底，
+    // 而不是悄悄把签到能力关掉（关掉了用户连点都点不了，更难发现）。
+    return true
+  }
+}
 
 /**
  * Key 型渠道「贴 Key 建号」的本体 RPC —— **上游 UI 就是这么建的**。
@@ -2090,40 +2152,47 @@ export function makePlugin(dshProvider) {
           }
         },
 
-        /**
-         * 每日签到：把本体 `credits.claimAll` 的**真实领取结果**报给 magpie。
-         *
-         * 签名（`_mp_host.js` 的 `checkinOf`）：
-         *   auth.checkin(getAuth, provider) → {
-         *     outcome: 'claimed' | 'done' | 'ineligible' | 'inactive' | 'captcha' | 'failed',
-         *     credit?, streak?, message? }
-         *
-         * 本体侧的 `credits.claimAll` 一次领取**整家渠道所有账号**，返回
-         * `{ results: [{accountId, nickname, outcome: {kind, credit?, message?}}],
-         *    summary: {claimed, totalCredit, alreadyClaimed, inactive, failed, ...} }`。
-         * 所以这里同样要按账号 id 挑出属于本账号的那一条 —— 不能报整家渠道的合计。
-         */
-        async checkin(getAuth) {
-          try {
-            const account = typeof getAuth === 'function' ? await getAuth() : undefined
-            // 与 `usage()` 同源，统一走 `dshAccountIdOf`（理由见那边注释）
-            const want = dshAccountIdOf(account, dshProvider)
-            const v = await container.rpc('credits.claimAll', { provider: dshProvider })
-            const rows = Array.isArray(v?.results) ? v.results : []
-            const mine = rows.find((r) => String(r?.accountId ?? '') === want) ?? (want === '' ? rows[0] : undefined)
-            if (mine === undefined) {
-              return { outcome: 'ineligible', message: `本体里没有 ${dshProvider} 的可签到账号` }
+        // ⚠️ **不支持签到的渠道根本不声明这个方法** —— magpie 的签到开关只看
+        // `typeof auth.checkin === "function"`（宿主 host.js），声明了就等于给用户
+        // 画一个点了必然失败的开关。判据见 `canCheckin()`（直接问上游的积分能力表）。
+        ...(canCheckin(dshProvider)
+          ? {
+          /**
+           * 每日签到：把本体 `credits.claimAll` 的**真实领取结果**报给 magpie。
+           *
+           * 签名（`_mp_host.js` 的 `checkinOf`）：
+           *   auth.checkin(getAuth, provider) → {
+           *     outcome: 'claimed' | 'done' | 'ineligible' | 'inactive' | 'captcha' | 'failed',
+           *     credit?, streak?, message? }
+           *
+           * 本体侧的 `credits.claimAll` 一次领取**整家渠道所有账号**，返回
+           * `{ results: [{accountId, nickname, outcome: {kind, credit?, message?}}],
+           *    summary: {claimed, totalCredit, alreadyClaimed, inactive, failed, ...} }`。
+           * 所以这里同样要按账号 id 挑出属于本账号的那一条 —— 不能报整家渠道的合计。
+           */
+          async checkin(getAuth) {
+            try {
+              const account = typeof getAuth === 'function' ? await getAuth() : undefined
+              // 与 `usage()` 同源，统一走 `dshAccountIdOf`（理由见那边注释）
+              const want = dshAccountIdOf(account, dshProvider)
+              const v = await container.rpc('credits.claimAll', { provider: dshProvider })
+              const rows = Array.isArray(v?.results) ? v.results : []
+              const mine = rows.find((r) => String(r?.accountId ?? '') === want) ?? (want === '' ? rows[0] : undefined)
+              if (mine === undefined) {
+                return { outcome: 'ineligible', message: `本体里没有 ${dshProvider} 的可签到账号` }
+              }
+              return toMagpieCheckin(mine)
+            } catch (e) {
+              const msg = String(e?.message ?? e)
+              // 「这家没有签到功能」是能力缺失，不是故障 ⇒ `ineligible`。
+              // 判据见 `isCheckinUnsupported()` 的长注释（实测 40 条失败里 33 条属于这类）。
+              if (isCheckinUnsupported(msg)) return { outcome: 'ineligible', message: msg }
+              // 其余（401 / 网络 / 上游报错）在 magpie 里等同 failed，但带上原文更有用
+              return { outcome: 'failed', message: msg }
             }
-            return toMagpieCheckin(mine)
-          } catch (e) {
-            const msg = String(e?.message ?? e)
-            // 「这家没有签到功能」是能力缺失，不是故障 ⇒ `ineligible`。
-            // 判据见 `isCheckinUnsupported()` 的长注释（实测 40 条失败里 33 条属于这类）。
-            if (isCheckinUnsupported(msg)) return { outcome: 'ineligible', message: msg }
-            // 其余（401 / 网络 / 上游报错）在 magpie 里等同 failed，但带上原文更有用
-            return { outcome: 'failed', message: msg }
+          },
           }
-        },
+          : {}),
       },
 
       provider: {
