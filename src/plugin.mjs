@@ -1065,6 +1065,46 @@ async function balanceOf(container, provider, wantAccountId, log) {
 }
 
 /**
+ * 本体的**「这家渠道没有签到功能」**这类回答 —— 都该报 `ineligible`，不是 `failed`。
+ *
+ * 为什么必须单独认出来：magpie 的六种 outcome 里 `failed` 是**红旗**（用户会以为
+ * 插件坏了、要去排查），而「这家后端压根没有签到接口」是**能力缺失**，用户什么
+ * 也做不了，标红只会制造噪音。2026-11-01 用户报「部分供应商签到失败」，实测
+ * `~/.config/magpie/plugin-checkin.json` 里 40 条失败中 33 条属于这一类：
+ *
+ *   workbuddy ×21  `WorkBuddy 国际版不支持每日签到（其后端没有签到接口）`
+ *   cline ×6       `Cline 不支持每日签到（其后端没有签到接口）`
+ *   magicrew ×5    `超级麦吉暂不支持每日签到（本插件未接该端点）`
+ *   raccoon ×1     `Raccoon Work 不支持每日签到（每日积分由服务端自动发放…）`
+ *   modelscope/opencode/officeace  `unsupported provider: <id>`
+ *
+ * 两种来源（`vendor/lib/jet-hub-rpc.js` 的 `credits.claimAll`）：
+ *   ① 能力表里有专属文案 ⇒ 回 `claimUnavailableReason`（上面那些中文）；
+ *   ② 表里没有专属文案（gemini / opencode / aggregate 等）⇒ 回旧的
+ *      `unsupported provider: <id>`。
+ *
+ * ⚠️ 这里**不维护一份「哪家支持签到」的名单**：那份名单在 vendor 的能力表里
+ * （`runtime.credits`），抄一份就会漂移（上游加一家签到，插件继续把它标成不支持）。
+ * 只按**错误的措辞族**判定 —— 这正是本体区分「不支持」与「真失败」的方式。
+ * 真失败（HTTP 401 / 网络错误 / 上游报错）不含这些词，仍走 `failed`。
+ */
+const CHECKIN_UNSUPPORTED_PATTERNS = [
+  /^unsupported provider:/i, // ② 能力表里没有专属文案的已登记渠道
+  /不支持每日签到/, // ① workbuddy / cline / raccoon / buddy 系
+  /暂不支持每日签到/, // ① magicrew
+  /其后端没有签到接口/, // ① 与上面重合，但单独列出免得改文案时静默失效
+  /未接该端点/, // ① magicrew 的另一半措辞
+  /每日积分由服务端自动发放/, // ① raccoon 的专属说明
+]
+
+/** 这条签到错误是「这家没有签到功能」还是「真的失败了」？ */
+function isCheckinUnsupported(message) {
+  const text = String(message ?? '')
+  if (text === '') return false
+  return CHECKIN_UNSUPPORTED_PATTERNS.some((re) => re.test(text))
+}
+
+/**
  * 把本体的签到结果翻译成 magpie 的 `auth.checkin` 返回形状。
  *
  * 本体的 `kind` 与 magpie 的 `outcome` 不是一一对应：
@@ -1095,6 +1135,9 @@ function toMagpieCheckin(row) {
     case 'captcha':
       return { outcome: 'captcha', ...base }
     default:
+      // 同一条判据也覆盖「结果走 results、不抛错」的形态（例如某家 claim 内部
+      // 自己回了一句「不支持每日签到」而不是在入口就拒）。
+      if (isCheckinUnsupported(message)) return { outcome: 'ineligible', ...base }
       return { outcome: 'failed', message: message ?? (kind === '' ? '本体未返回签到结果' : kind) }
   }
 }
@@ -2073,8 +2116,12 @@ export function makePlugin(dshProvider) {
             }
             return toMagpieCheckin(mine)
           } catch (e) {
-            // 抛异常在 magpie 里等同 failed，但带上原文更有用
-            return { outcome: 'failed', message: String(e?.message ?? e) }
+            const msg = String(e?.message ?? e)
+            // 「这家没有签到功能」是能力缺失，不是故障 ⇒ `ineligible`。
+            // 判据见 `isCheckinUnsupported()` 的长注释（实测 40 条失败里 33 条属于这类）。
+            if (isCheckinUnsupported(msg)) return { outcome: 'ineligible', message: msg }
+            // 其余（401 / 网络 / 上游报错）在 magpie 里等同 failed，但带上原文更有用
+            return { outcome: 'failed', message: msg }
           }
         },
       },
