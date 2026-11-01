@@ -1282,6 +1282,28 @@ function humanizeUsageError(error) {
 }
 
 /**
+ * 合并用的分组名：把「用来区分单笔」的日期段剥掉。
+ *
+ * 上游 minimax 的包名是 `积分包 2026/10/9`（发放日，每笔都不同）—— 那是给人对上
+ * 「哪一笔」的标识，不是箱子的种类。若按原名分组，30 笔赠送就是 30 行一模一样的
+ * `0 / 400 credit · 剩余 100%`，把整张卡撑成流水账（2026-11-01 用户截图）。
+ * 剥掉日期后它们归成一类，显示成 `积分包 ×30 · 10-09~12-01 到期`。
+ *
+ * 只剥**结尾**的完整日期段（`积分包 2026/10/9`、`名字 2026-10-09`）；剥完为空就
+ * 保留原名 —— 别把本来就叫这个的箱子改坏。
+ */
+function groupName(name) {
+  // 先 trim 再剥：上游若给了 `积分包 2026/10/9 `（尾随空格），
+  // 结尾锚点 `$` 会落在空格上，日期就剥不掉了。
+  const raw = String(name).trim()
+  const cut = raw
+    .replace(/(?:\s+\d{4}\/\d{1,2}\/\d{1,2})+$/, '')
+    .replace(/(?:\s+\d{4}-\d{1,2}-\d{1,2})+$/, '')
+    .trim()
+  return cut === '' ? raw : cut
+}
+
+/**
  * 同名同单位的积分包合并成一条。
  *
  * 本体（以及上游）会把「签到奖励」这类小额包**逐次**列出来：实测 trae 一个账号
@@ -1301,7 +1323,8 @@ function humanizeUsageError(error) {
 function mergePackages(list) {
   const byKey = new Map()
   for (const p of list) {
-    const name = String(p?.name ?? '积分')
+    // 分组与显示都用剥掉日期的名字（见 groupName 的注释），否则一笔一个组。
+    const name = groupName(String(p?.name ?? '积分'))
     const unit = String(p?.unit ?? '')
     const total = Number(p?.total) || 0
     const remaining = Number(p?.remaining) || 0
@@ -1340,6 +1363,24 @@ function mergePackages(list) {
   }
   for (const g of byKey.values()) g.untils.sort((a, b) => a - b)
   return [...byKey.values()]
+}
+
+/**
+ * 额度的显示文本：最多两位小数，整数不带 `.00`。
+ *
+ * 上游给的是**原始浮点**（officeace 实测 `4584.442685714286`），直接拼进
+ * `balance` 就是卡片上那串 12 位小数（2026-11-01 用户截图）。magpie 对
+ * `windows[].display` 会自己按数字格式化，但 `balance` 是**纯文本**原样贴上去，
+ * 所以这一处必须由我们收敛。
+ *
+ * 为什么不四舍五入到整数：额度确实可能是小数（实测 `8.064516129032259`），
+ * 抹成整数会让「0.5 → 1」这种小额度失真。
+ */
+function fmtNum(n) {
+  const v = Number(n)
+  if (!Number.isFinite(v)) return String(n)
+  // 先截到两位，再去掉末尾的 0 与孤立的小数点（`100.00` → `100`、`8.50` → `8.5`）
+  return v.toFixed(2).replace(/\.?0+$/, '')
 }
 
 /**
@@ -1499,7 +1540,8 @@ function toMagpieUsage(reading, provider) {
   return {
     plan,
     user: reading?.nickname !== undefined ? String(reading.nickname) : '',
-    balance: `${total} ${unit}`.trim(),
+    // `total` 是原始浮点，必须过 fmtNum —— 见它的注释（magpie 不格式化 balance）
+    balance: `${fmtNum(total)} ${unit}`.trim(),
     ...(untils.length ? { until: Math.min(...untils) } : {}),
     windows,
   }

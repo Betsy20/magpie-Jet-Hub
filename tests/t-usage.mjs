@@ -178,7 +178,8 @@ if (live()) {
 {
   const fs = await import('node:fs')
   const src = fs.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8')
-  const from = src.indexOf('function mergePackages')
+  // 起点要在 groupName 之前：mergePackages 会调它，截漏就 ReferenceError。
+  const from = src.indexOf('function groupName')
   const to = src.indexOf(String.fromCharCode(10) + 'function writeCache')
   ok(from > 0 && to > from, '从 src/plugin.mjs 截不到 mergePackages/toMagpieUsage')
   if (from > 0 && to > from) {
@@ -400,7 +401,8 @@ if (live()) {
     'NAMES',
     'humanizeUsageError',
     // 起点要在 mergePackages 之前：toMagpieUsage 会调它，截漏就 ReferenceError。
-    src2.slice(src2.indexOf('function mergePackages('), b2) + String.fromCharCode(10) + 'return { toMagpieUsage }',
+    // 起点要在 groupName 之前：它被 mergePackages 调用，截漏就 ReferenceError。
+    src2.slice(src2.indexOf('function groupName('), b2) + String.fromCharCode(10) + 'return { toMagpieUsage, groupName }',
   )({ officeace: 'OfficeAce' }, (x) => `已人化:${x}`)
 
   const withSnapshot = {
@@ -476,6 +478,98 @@ if (live()) {
     `全 0/0 且本次失败时必须报错（实际 ${JSON.stringify(uZero.error)}）—— 否则 magpie 画成「0 积分」健康读数`,
   )
   ok(Array.isArray(uZero.windows) && uZero.windows.length === 0, '全 0/0 时 windows 为空')
+
+  // ── 名字里带发放日的包要归成一类 ──
+  //
+  // 上游 minimax 把每个积分包起名成 `积分包 2026/10/9`（发放日，每笔都不同）。
+  // 按原名分组的话，30 笔赠送就是 30 行一模一样的流水账（2026-11-01 用户截图）。
+  const gn = fn2.groupName
+  ok(gn('积分包 2026/10/9') === '积分包', `剥掉结尾的 yyyy/m/d（实际 ${JSON.stringify(gn('积分包 2026/10/9'))}）`)
+  ok(gn('积分包 2026-10-09') === '积分包', `剥掉结尾的 yyyy-mm-dd（实际 ${JSON.stringify(gn('积分包 2026-10-09'))}）`)
+  ok(gn('每日签到有礼') === '每日签到有礼', '不带日期的名字原样保留')
+  ok(gn('Free Plan Subscription') === 'Free Plan Subscription', 'Free Plan 不能被误剥')
+  ok(gn(' 2026/10/9') === '2026/10/9', '只由日期组成的名字剥空后要退回原名（不能变成空串）')
+
+  const uMiniPkgs = [
+          ...Array.from({ length: 20 }, (_, i) => ({
+            name: `积分包 2026/10/${9 + i}`,
+            unit: 'credit',
+            remaining: 400,
+            total: 400,
+            used: 0,
+            active: true,
+            deductionEndTime: Date.UTC(2026, 10, 3 + i),
+          })),
+          ...Array.from({ length: 2 }, (_, i) => ({
+            name: `积分包 2026/11/${1 + i}`,
+            unit: 'credit',
+            remaining: 1000,
+            total: 1000,
+            used: 0,
+            active: true,
+            deductionEndTime: Date.UTC(2026, 10, 28 + i),
+          })),
+        ]
+  const uMini = fn2.toMagpieUsage(
+    {
+      provider: 'minimax',
+      accountId: 'minimax-1',
+      balance: {
+        total: 20 * 400 + 2 * 1000,
+        packages: uMiniPkgs,
+      },
+    },
+    'minimax',
+  )
+  ok(
+    uMini.windows?.length === 1,
+    `22 笔带发放日的积分包要合成 1 条（实际 ${JSON.stringify(uMini.windows?.length)} 条）—— 否则卡片变成流水账`,
+  )
+  ok(
+    String(uMini.windows?.[0]?.name ?? '').includes('积分包 ×22'),
+    `合并后名字要带 ×22（实际 ${JSON.stringify(uMini.windows?.[0]?.name)}）`,
+  )
+  ok(
+    !String(uMini.windows?.[0]?.name ?? '').includes('/'),
+    `合并后名字里不该再留发放日（实际 ${JSON.stringify(uMini.windows?.[0]?.name)}）`,
+  )
+  ok(
+    String(uMini.windows?.[0]?.name ?? '').includes('~'),
+    `合并后要给出到期区间（实际 ${JSON.stringify(uMini.windows?.[0]?.name)}）`,
+  )
+  // 「最早到期」不能取第一条：夹具是升序的，实现里写成 `untils[0]` 也会绿。
+  // 这里把顺序打乱再问一次，钉住「取最小」而不是「取第一个」。
+  const miniPkgs = uMiniPkgs
+  const uShuffled = fn2.toMagpieUsage(
+    { provider: 'minimax', accountId: 'minimax-2', balance: { total: 8800, packages: [...miniPkgs].reverse() } },
+    'minimax',
+  )
+  ok(
+    uShuffled.until === Date.UTC(2026, 10, 3),
+    `乱序输入时 until 仍要取最早（实际 ${JSON.stringify(uShuffled.until)}，期望 ${Date.UTC(2026, 10, 3)}）`,
+  )
+  ok(
+    uMini.until === Date.UTC(2026, 10, 3),
+    `升序输入时 until 同样是最早（实际 ${JSON.stringify(uMini.until)}）`,
+  )
+
+  // 余额是纯文本，magpie 原样贴 —— 上游给的是原始浮点，不过 fmtNum 就是 12 位小数
+  // 的 `4584.442685714286 Token`（2026-11-01 用户截图）。
+  const uLong = fn2.toMagpieUsage(
+    {
+      provider: 'officeace',
+      accountId: 'officeace-9',
+      balance: {
+        total: 4584.442685714286,
+        packages: [{ name: '个人体验版', unit: 'Token', remaining: 500, total: 500, used: 0, active: true }],
+      },
+    },
+    'officeace',
+  )
+  ok(
+    uLong.balance === '4584.44 Token',
+    `余额最多两位小数（实际 ${JSON.stringify(uLong.balance)}）`,
+  )
 
   // 连快照都没有：这个时候只能报错，但要带人话提示
   const uNull = fn2.toMagpieUsage(
