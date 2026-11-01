@@ -45,6 +45,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-magicrew-creds.mjs` | 超级麦吉凭据读取（在 IndexedDB 不在 localStorage；末节读真实 Edge，读到就验） |
 | `t-snapshot-segment.mjs` | 快照脚本的分段归一（网关返回的 id 两种形态混着来） |
 | `t-model-efforts.mjs` | 推理档位：`variants` 键列表、私有档位名翻规范名、能力字段不粘滞 |
+| `t-model-prices.mjs` | 用量费用的目录价：价格表格式、`cost` 形状、**表里没有就不发**、真挂到 `provider.models()` 上 |
 | `t-rpc-cover.mjs` | 控制台接了本体哪些 RPC、哪些明确交给 magpie 或弃用 |
 
 **ENV（要真环境，`--all` 才跑）**

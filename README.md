@@ -20,6 +20,7 @@
 - [凭据：不需要再登一次](#凭据不需要再登一次)
 - [从 dsh-providers-hub 的备份导入](#从-dsh-providers-hub-的备份导入)
 - [模型目录：上游全量](#模型目录上游全量)
+- [用量页的费用（目录价）](#用量页的费用目录价)
 - [冷启动](#冷启动)
 - [侧栏页与控制台](#侧栏页与控制台)
 - [供应商开关与模型能力](#供应商开关与模型能力)
@@ -197,6 +198,49 @@ magpie 里每个 `jet-hub-*` 用的是后者。全量里已在本体关掉的模
 
 两种情况下要重跑 `node scripts/snapshot-models.mjs`：上游上新模型后；以及**控制台端口变了以后** ——
 侧栏「控制台」标签的地址读的就是这份快照（`page/models.js` 的 `console` 字段），不重跑会一直指向旧端口、连到别的实例。
+
+## 用量页的费用（目录价）
+
+magpie 的「观测 / 用量」里有一列**费用**。默认它对本插件的请求显示「—」，因为它自己
+查价时走 `pricedNames()`，那个函数**只按整串模型名**查 models.dev 目录、不剥
+`provider/` 前缀；而这里的模型 id 是 `workbuddy/deepseek-v4.1-flash` 这种形状，
+一律查不到。
+
+所以由插件把价格挂到模型条目上（`provider.models()` 返回项的 `cost` 字段，magpie 的
+`pluginPrice()` 认这个形状）：
+
+```jsonc
+"deepseek-v4.1-flash": {
+  "name": "DeepSeek V4.1 Flash",
+  "cost": { "input": 0.247776, "output": 1.152575, "cache": { "read": 0.006, "write": 0 } }
+}
+```
+
+（这条是 22 家来源的中位数，所以小数位很长；官方直营的条目常见一到两位，
+`cache.*` 可能到三四位。）
+
+单位是 **USD / 1M tokens**，与 magpie 内部的 `catalog.Price` 同口径。价格表在
+`src/model-prices.mjs`，由 `node scripts/gen-model-prices.mjs` 从 magpie 缓存的
+models.dev 目录（`~/.cache/magpie/models.json`）按**模型尾名**匹配生成：本插件的快照
+里有 745 个模型、657 个唯一尾名，其中 464 个能在目录里找到价；剩下的多是各渠道自造的
+私有名（`@preset/cline-*`、`DeepSeek-V4-Pro-Official` 之类），公开目录里没有。
+
+尾名匹配会**撞上别家同名型号** —— 同一个名字目录里常有多家在卖、价差 2–10 倍。所以
+取价有三条规则：`auto` / `standard` / `professional` / `ultimate` 这类**路由名和档位名直接跳过**
+（它们在目录里撞上的同名条目属于别家产品，贴过来就是编数字）；有**厂商直营**报价就用
+它；官方没收录才取所有来源的**逐字段中位数**。每条价来自哪家记在同文件的
+`MODEL_PRICE_SRC` 里（`official:google` 或 `median(3)`），换价时 `git diff` 能看出是
+谁变了。
+
+三条要记住的：
+
+- **表里没有就绝不发这个字段。** magpie 的判据是 `Cost == nil || (Input <= 0 && Output <= 0)`，
+  发一个全 0 的对象等于「确认免费」，会把「不知道」说成 0；不发才落回它自己的兜底链。
+- **这是参考价，不是账单。** 这些渠道多数是订阅制（买会员、送积分），按 token 计价只是
+  拿公开目录价换算出来的口径，用来横向比较「哪个模型贵、这次调用大概多少钱」。
+- 换新模型后重跑 `node scripts/gen-model-prices.mjs` 再重启 magpie。生成器是**可复现**的：
+  枚举与输出都按名字排序、表头时间取目录文件的 mtime，所以目录没变就不会产生假变更，
+  重跑后 `git diff` 里只会出现「价格真的变了」的条目。
 
 ## 冷启动
 

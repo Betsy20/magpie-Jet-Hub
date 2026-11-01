@@ -7,13 +7,16 @@
 
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 
-const HERE = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
+// 别用 `new URL(import.meta.url).pathname`：路径含空格或非 ASCII 时它会返回百分号编码的字串，
+// 此时所有用例都会“文件不存在”——整套回归静默失效。
+const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.dirname(HERE)
 const TESTS = path.join(ROOT, 'tests')
 
-const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-deps.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-import-backup.mjs', 't-backup-keep.mjs', 't-login-reclaim.mjs', 't-console-backup.mjs', 't-new-account.mjs', 't-key-account.mjs', 't-magicrew-creds.mjs', 't-snapshot-segment.mjs', 't-model-efforts.mjs', 't-rpc-cover.mjs']
+const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-deps.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-import-backup.mjs', 't-backup-keep.mjs', 't-login-reclaim.mjs', 't-console-backup.mjs', 't-new-account.mjs', 't-key-account.mjs', 't-magicrew-creds.mjs', 't-snapshot-segment.mjs', 't-model-efforts.mjs', 't-model-prices.mjs', 't-rpc-cover.mjs']
 const ENV = [
   { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
   // 直连层回归：真起容器跑一次 chat（流式 + 非流式）。取代了原来「内嵌网关端口」

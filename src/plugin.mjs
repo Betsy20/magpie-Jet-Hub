@@ -44,6 +44,9 @@ import { JetHubContainer } from './container.mjs'
 // 而不是在插件里再抄一份名单（抄了必然漂移）。
 import { createProviderCredits, creditsOf } from '../vendor/lib/provider-credits.js'
 import { iconFor } from './icons.mjs'
+// 模型目录价（USD / 1M tokens）。由 `node scripts/gen-model-prices.mjs` 生成，
+// 数据来自 magpie 缓存的 models.dev 目录——见那个文件的头注释（含「参考价不是账单」的声明）。
+import { MODEL_PRICES } from './model-prices.mjs'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -266,7 +269,7 @@ function fallbackFor(dshProvider) {
   for (const [id, def] of Object.entries(FALLBACK_MODELS)) {
     if (!id.startsWith(`${dshProvider}/`)) continue
     const bare = id.slice(dshProvider.length + 1)
-    out[bare] = modelEntry(bare, def)
+    out[bare] = modelEntry(bare, def, undefined, MODEL_PRICES[bare])
   }
   return out
 }
@@ -317,8 +320,15 @@ function outputLimit(id, declared) {
   return undefined
 }
 
-/** 供回归测试直接验兜底口径（`tests/t-plugin.mjs`），不参与插件契约。 */
-export { outputLimit }
+/**
+ * 供回归测试直接验兜底口径，不参与插件契约。
+ *
+ * - `outputLimit`：单次输出上限的三层兜底（`tests/t-plugin.mjs`）
+ * - `fallbackFor`：静态目录兜底（两份目录都空时才走到），
+ *   导出它是为了让 `tests/t-model-prices.mjs` 能直接验「这条腿也挂价」
+ *   —— 不导出就只能靠真启动且目录全空才走得到，那一条路径就没人守。
+ */
+export { outputLimit, fallbackFor }
 
 /**
  * magpie 的模型条目。
@@ -348,8 +358,20 @@ export { outputLimit }
  * @param {string} id 模型名（已剥 provider 前缀）
  * @param {{name?:string, limit?:{context?:number, output?:number}, tool_call?:boolean}} [def] 静态兜底表里的声明
  * @param {{context?:number, output?:number, input?:string[], reasoning?:boolean, efforts?:string[]}} [meta] 从本体现采的能力元数据
+ * @param {[number, number, number, number] | undefined} [price] 目录价
+ *   `[输入, 输出, 缓存读, 缓存写]`（USD / 1M tokens，来自 `MODEL_PRICES`）。
+ *   传空、`undefined` 或全 0 时**不发** `cost` 字段—— magpie 的判据是
+ *   不发就不会被当成有价；而**发一个全 0 的对象**会被 magpie 当成「声明免费」
+ *   （`pluginFree` 分支），等于把「不知道」说成 0。两者判据分别在
+ *   `pluginPrice` 与 `pluginFree`，不要混。
+ *
+ * 为什么是参数而不是函数内部查 `MODEL_PRICES`：两个测试（`t-model-efforts` / `t-model-prices`）
+ * 会用 `new Function` 把本函数截段求值，段内引用模块级常量会 ReferenceError。
+ *
+ * 发出的字段形状（与 magpie `internal/provider/plugins.go` 的 `pluginPrice()` 对齐）：
+ * `cost: { input, output, cache: { read, write } }`。
  */
-function modelEntry(id, def, meta) {
+function modelEntry(id, def, meta, price) {
   const context = meta?.context ?? def?.limit?.context
   const output = outputLimit(id, meta?.output ?? def?.limit?.output)
   const input = Array.isArray(meta?.input) && meta.input.length > 0 ? meta.input : ['text']
@@ -390,6 +412,22 @@ function modelEntry(id, def, meta) {
   // 没有 `variants` 就等于「会思考但一档都挑不了」——所以有档位才发、没档位不发。
   const efforts = Array.isArray(meta?.efforts) ? meta.efforts : []
   if (reasoning && efforts.length > 0) entry.variants = Object.fromEntries(efforts.map((e) => [e, {}]))
+  // 目录价：magpie 的 `pluginListPrice()` → `pluginPrice()` 读这个字段算用量页的费用
+  // （USD / 1M tokens，与它内部的 catalog.Price 同口径）。
+  //
+  // 为什么必须由插件给：magpie 自己查价时走 `pricedNames()`，那个函数只按**整串**
+  // 模型名查目录、不剥 `provider/` 前缀，而本插件的模型 id 是
+  // `workbuddy/deepseek-v4.1-flash` 这种形状 ⇒ 一律查不到 ⇒ 用量页「费用」列永远是「—」。
+  //
+  // ⚠️ 表里没有就**不发**这个字段：magpie 的判据是 `Cost == nil || (Input <= 0 && Output <= 0)`
+  // ⇒ 发一个空对象等于「确认不收费」，把「不知道」说成 0；不发才落回它自己的兜底链。
+  if (Array.isArray(price) && (Number(price[0]) > 0 || Number(price[1]) > 0)) {
+    entry.cost = {
+      input: Number(price[0]) || 0,
+      output: Number(price[1]) || 0,
+      cache: { read: Number(price[2]) || 0, write: Number(price[3]) || 0 },
+    }
+  }
   return entry
 }
 
@@ -674,6 +712,8 @@ const SPECIAL_CLAIM_PROVIDERS = new Set(['qoder', 'qodercn', 'zcode'])
  * 空对象就是上游在单测里的用法；我们只读它的键与 `claim` 是否存在，不调任何实现。
  */
 let creditsTableMemo
+/** 能力表读不到时只警告一次（`canCheckin()` 每个 provider 都会调一遍）。 */
+let creditsTableWarned = false
 /**
  * 惰性构造能力表（**不能写成模块级常量**）。
  *
@@ -701,13 +741,26 @@ function creditsTable() {
  */
 function canCheckin(dshProvider) {
   if (SPECIAL_CLAIM_PROVIDERS.has(dshProvider)) return true
+  let table
   try {
-    return typeof creditsOf(creditsTable(), dshProvider)?.claim === 'function'
-  } catch {
-    // 表结构变了 / 查不动：保守地当作「支持」，走原来的 ineligible 兜底，
-    // 而不是悄悄把签到能力关掉（关掉了用户连点都点不了，更难发现）。
+    // ⚠️ `try` 只包**构造表**这一步。`creditsOf()` 也包进来的话，
+    // 「表造出来了、但我们自己查错了字段」这种代码 bug 会被一起吞成「支持」，
+    // 那就不是能力缺失而是掩盖缺陷了（2026-11-01 补审指出）。
+    table = creditsTable()
+  } catch (e) {
+    // 表造不出来（上游改了结构）：保守地当作「支持」，走 `isCheckinUnsupported()`
+    // 的 ineligible 兜底 —— 而不是悄悄把签到能力关掉（关掉了用户连点都点不了，更难发现）。
+    // 只警告一次：这个函数每个 provider 都会调一遍。
+    if (!creditsTableWarned) {
+      creditsTableWarned = true
+      console.warn(
+        `[jet-hub] 读不到上游积分能力表（${String(e?.message ?? e)}）：`
+        + '签到能力一律按「支持」处理，不支持的渠道会显示成 ineligible 而不是从 Settings 里消失。',
+      )
+    }
     return true
   }
+  return typeof creditsOf(table, dshProvider)?.claim === 'function'
 }
 
 /**
@@ -1132,7 +1185,9 @@ async function balanceOf(container, provider, wantAccountId, log) {
  * 为什么必须单独认出来：magpie 的六种 outcome 里 `failed` 是**红旗**（用户会以为
  * 插件坏了、要去排查），而「这家后端压根没有签到接口」是**能力缺失**，用户什么
  * 也做不了，标红只会制造噪音。2026-11-01 用户报「部分供应商签到失败」，实测
- * `~/.config/magpie/plugin-checkin.json` 里 40 条失败中 33 条属于这一类：
+ * `~/.config/magpie/plugin-checkin.json` 里的 `failed` 绝大多数属于这一类
+ * （2026-11-01 现场快照：workbuddy 21 / cline 6 / magicrew 5 / raccoon 1 /
+ * modelscope+opencode+officeace+aggregate 各 1；具体条数会随账号增减变，别把它当常量）：
  *
  *   workbuddy ×21  `WorkBuddy 国际版不支持每日签到（其后端没有签到接口）`
  *   cline ×6       `Cline 不支持每日签到（其后端没有签到接口）`
@@ -1532,7 +1587,7 @@ function modelsOfFull(dshProvider, rows) {
     // `deepseek-flash` 这类 id 根本匹配不到兜底表，「未申报 output」的渠道
     // 一直是漏的。展示名走 `def.name`。
     const label = row?.disabled === true ? `${base} · 已在 Jet Hub 关闭` : base
-    out[bare] = modelEntry(bare, label === bare ? undefined : { name: label }, metaOf(id))
+    out[bare] = modelEntry(bare, label === bare ? undefined : { name: label }, metaOf(id), MODEL_PRICES[bare])
   }
   return out
 }
@@ -1544,7 +1599,7 @@ function modelsOf(dshProvider, list) {
   for (const id of list ?? []) {
     if (!id.startsWith(prefix)) continue
     const bare = id.slice(prefix.length)
-    out[bare] = modelEntry(bare, undefined, metaOf(id))
+    out[bare] = modelEntry(bare, undefined, metaOf(id), MODEL_PRICES[bare])
   }
   return out
 }
@@ -2185,7 +2240,7 @@ export function makePlugin(dshProvider) {
             } catch (e) {
               const msg = String(e?.message ?? e)
               // 「这家没有签到功能」是能力缺失，不是故障 ⇒ `ineligible`。
-              // 判据见 `isCheckinUnsupported()` 的长注释（实测 40 条失败里 33 条属于这类）。
+              // 判据见 `isCheckinUnsupported()` 的长注释（那类文案占了 `failed` 的绝大多数）。
               if (isCheckinUnsupported(msg)) return { outcome: 'ineligible', message: msg }
               // 其余（401 / 网络 / 上游报错）在 magpie 里等同 failed，但带上原文更有用
               return { outcome: 'failed', message: msg }
