@@ -11,7 +11,7 @@
  * （`PROVIDER_IDS` / `DSH_PROVIDERS` / `idOf`）都留在 `src/plugin.mjs` 里，
  * 需要时从那里 import。
  *
- * ⚠️ 只有 **23** 个工厂：`aggregate`（聚合路由）与 `jet-hub-auto`（自动选号）
+ * ⚠️ 只有 **25** 个工厂：`aggregate`（聚合路由）与 `jet-hub-auto`（自动选号）
  * 这两个路由组没有自己的账号池与模型目录，注册成 magpie provider 只会得到一张
  * 永远没账号、也永远选不了具体模型的空卡，所以不注册。
  */
@@ -60,6 +60,9 @@ export const JetHubLoomyPlugin = byId.get('jet-hub-loomy')
 /** 本体 `magicrew`（magpie id `jet-hub-magicrew`）。 */
 export const JetHubMagicrewPlugin = byId.get('jet-hub-magicrew')
 
+/** 本体 `magicrewintl`（magpie id `jet-hub-magicrewintl`，国际站）。 */
+export const JetHubMagicrewintlPlugin = byId.get('jet-hub-magicrewintl')
+
 /** 本体 `minimax`（magpie id `jet-hub-minimax`）。 */
 export const JetHubMinimaxPlugin = byId.get('jet-hub-minimax')
 
@@ -74,6 +77,9 @@ export const JetHubOfficeacePlugin = byId.get('jet-hub-officeace')
 
 /** 本体 `opencode`（magpie id `jet-hub-opencode`）。 */
 export const JetHubOpencodePlugin = byId.get('jet-hub-opencode')
+
+/** 本体 `qiniu`（magpie id `jet-hub-qiniu`）。 */
+export const JetHubQiniuPlugin = byId.get('jet-hub-qiniu')
 
 /** 本体 `qoder`（magpie id `jet-hub-qoder`）。 */
 export const JetHubQoderPlugin = byId.get('jet-hub-qoder')

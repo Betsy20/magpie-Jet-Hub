@@ -10,7 +10,7 @@
  *
  * magpie 宿主 `servers(mod)` 会取模块导出的**每一个函数**，`auths()` 再按
  * `hooks.auth.provider` 建映射 —— 所以一个插件包导出 N 个插件工厂，就能注册
- * N 个 provider id。本文件对本体里**除两个路由组之外**的 23 个 provider 各生成一个工厂。
+ * N 个 provider id。本文件对本体里**除两个路由组之外**的 25 个 provider 各生成一个工厂。
  *
  * ## 架构
  *
@@ -19,7 +19,7 @@
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
- *   └─ …（23 个）                     ┘
+ *   └─ …（25 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
  *             └─ 直连本体 llm：ctx.llm.stream()（src/llm-bridge.mjs）
  *                  └─ 各 provider 的真实上游
@@ -29,7 +29,7 @@
  * `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以
  * `container.forward()` 在进程内就完成了整件事 —— 不占端口、不需要 apiKey。
  *
- * ⚠️ 容器**必须模块级共享**：23 个插件工厂各自 new 一个容器的话，会拉起 23 个
+ * ⚠️ 容器**必须模块级共享**：25 个插件工厂各自 new 一个容器的话，会拉起 25 个
  * cordis（23 份账号池 + 23 份模型目录），冷启动直接炸。
  *
  * ## 凭据从哪来
@@ -85,6 +85,7 @@ export const KEY_INPUT = 'apiKey'
 const KEY_PLACEHOLDER = {
   modelscope: 'ms-…（在 https://modelscope.cn/my/myaccesstoken 生成）',
   opencode: '20 位以上的密钥串（在 https://opencode.ai/console/account 生成）',
+  qiniu: '七牛云的 API Key（在 https://portal.qiniu.com/ai-inference/api-key 生成）',
 }
 
 /** 列表里显示的供应商名。 */
@@ -117,11 +118,13 @@ export const DSH_PROVIDERS = [
   'lobsterai',
   'loomy',
   'magicrew',
+  'magicrewintl',
   'minimax',
   'minimaxintl',
   'modelscope',
   'officeace',
   'opencode',
+  'qiniu',
   'qoder',
   'qodercn',
   'raccoon',
@@ -147,11 +150,14 @@ const NAMES = {
   lobsterai: 'LobsterAI (有道)',
   loomy: 'Loomy (讯飞)',
   magicrew: '超级麦吉',
+  // 上游 `displayName` 就叫 `MagiCrew`；加「（国际版）」是为了在列表里与国内站区分。
+  magicrewintl: 'MagiCrew (国际版)',
   minimax: 'MiniMax Code (中国版)',
   minimaxintl: 'MiniMax Code (国际版)',
   modelscope: 'ModelScope (魔搭)',
   officeace: 'OfficeAce',
   opencode: 'OpenCode',
+  qiniu: 'Qiniu (七牛云)',
   qoder: 'Qoder',
   qodercn: 'Qoder (中国版)',
   raccoon: 'Raccoon (商汤)',
@@ -209,6 +215,8 @@ const FALLBACK_MODELS = {
   'accio/glm-5-3-flash': { name: 'Accio · GLM-5.3 Flash' },
   'codely/codely-flash': { name: 'Codely · Flash' },
   'magicrew/deepseek-v4.1-flash': { name: 'Magicrew · DeepSeek V4.1 Flash' },
+  'magicrewintl/deepseek-v4.1-flash': { name: 'MagiCrew 国际 · DeepSeek V4.1 Flash' },
+  'qiniu/qwen3-max': { name: 'Qiniu · Qwen3 Max' },
 }
 
 /** DSH 家目录（凭据所在处）。可用插件 options 的 `home` 覆盖。 */
@@ -434,7 +442,7 @@ function modelEntry(id, def, meta, price) {
 
 // ---- 共享容器与模型缓存 -------------------------------------------------------
 
-/** 模块级单例：23 个 provider 共用同一个容器。 */
+/** 模块级单例：25 个 provider 共用同一个容器。 */
 let shared = null
 
 /**
@@ -484,7 +492,7 @@ function containerFor(options, log) {
 }
 
 /**
- * 把 23 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
+ * 把 25 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
  *
  * 给 `syncAuthQuietly()` 用：它要的是「全量账号」，而 `account.list` 必须按
  * provider 逐家问。失败一律当「这家没有账号」——未登录的渠道本来就该失败，
@@ -736,13 +744,14 @@ async function accountById(container, provider, id, log) {
  */
 
 /**
- * 本体里**没有** `account.create` 分支的两家（`unknown provider: xxx`）：
+ * 本体里**没有** `account.create` 分支的三家（`unknown provider: xxx`）：
  * 都是 Key 型渠道，走各自的 `*.addAccount`，不接受 `account.create`。
- * 对它们不声明「新建账号」方法，免得用户点了才看到 `unknown provider`。
+ * 对它们不声明「新建账号」方法，免得用户点了才看到 `unknown provider`；
+ * 它们的「新建」走 `KEY_ACCOUNT_RPC` 那条贴 Key 的路子。
  * 不能 `export`：`index.mjs` 只许导出插件工厂（多导一个就整个插件加载失败），
  * 且 `tests/t-new-account.mjs` 会把本文件切段丢进 `new Function` 求值，
  * 段内出现 `export` 直接 SyntaxError。测试侧从源码文本里解析它。 */
-const NO_NEW_ACCOUNT = new Set(['modelscope', 'opencode'])
+const NO_NEW_ACCOUNT = new Set(['modelscope', 'opencode', 'qiniu'])
 
 /**
  * 上游 `credits.claimAll` 里**走特例分支**的渠道 —— 它们的签到能力**不在**能力表里。
@@ -787,7 +796,7 @@ function creditsTable() {
  *
  * 为什么要在插件侧也判一次：magpie 的签到开关**只看插件有没有声明 `auth.checkin`**
  * （宿主 `host.js` 的 `checkin: typeof a.auth.checkin === "function"`，Go 侧
- * `Provider.Checkin` 再决定 Settings 里显不显示）。给 23 家都声明，就等于给
+ * `Provider.Checkin` 再决定 Settings 里显不显示）。给 25 家都声明，就等于给
  * 「后端根本没有签到接口」的 9 家也画了一个开关 —— 用户点了只能看到失败，
  * 而那是**能力缺失**，不是故障（2026-11-01 用户报「部分供应商签到失败」的根因）。
  *
@@ -839,10 +848,11 @@ function canCheckin(dshProvider) {
 const KEY_ACCOUNT_RPC = new Map([
   ['modelscope', 'modelscope.addAccount'],
   ['opencode', 'opencode.addAccount'],
+  ['qiniu', 'qiniu.addAccount'],
 ])
 
 /**
- * 超级麦吉（magicrew）`account.create` 要走的 `mode`，按顺序试。
+ * 超级麦吉两站（`magicrew` 国内 / `magicrewintl` 国际）`account.create` 要走的 `mode`，按顺序试。
  *
  * 这一家的 `account.create` **必须**带 `mode`，不带会被本体直接拒：
  * `'超级麦吉请用「从本机浏览器导入」或「网页登录」，不支持手机号密码登录'`
@@ -956,7 +966,7 @@ async function withRpcDeadline(container, method, payload, ms, what) {
  * 有效期。所以这里返回的 `accountId` 此时还只是个占位，不能当成「已登录」。
  */
 async function startNewAccount(container, provider, log, mode) {
-  // 只有超级麦吉要带 `mode`（见下方 `MAGICREW_CREATE_MODES` 的说明），
+  // 只有超级麦吉两站要带 `mode`（见下方 `MAGICREW_CREATE_MODES` 的说明），
   // 其余 22 家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
   const v = await withRpcDeadline(
     container,
@@ -1009,13 +1019,13 @@ async function startNewAccount(container, provider, log, mode) {
 /**
  * 起一个登录流程，按 provider 决定要不要按顺序试多种 `mode`。
  *
- * 除超级麦吉外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
- * 超级麦吉两条腿都失败时，**报第二条腿的错误**：`local-browser` 的失败是
+ * 除超级麦吉两站外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
+ * 超级麦吉两站两条腿都失败时，**报第二条腿的错误**：`local-browser` 的失败是
  * 「本机浏览器里没有登录态」这种预期内的话，用户真正会撞上的失败是 `browser`
  * 那条（窗口起不来 / 授权被拒），报它才定位得到问题。
  */
 async function startNewAccountSmart(container, provider, log) {
-  if (provider !== 'magicrew') return startNewAccount(container, provider, log)
+  if (provider !== 'magicrew' && provider !== 'magicrewintl') return startNewAccount(container, provider, log)
 
   let firstError
   for (const mode of MAGICREW_CREATE_MODES) {
@@ -2135,7 +2145,7 @@ export function makePlugin(dshProvider) {
            * Key 型渠道的「新建」：贴一把 API Key 就建号。
            *
            * 为什么单独一条、而不是并进上面那个 `oauth` 方法：那条的 `authorize()`
-           * 调 `account.create`，而这两家对 `account.create` 一律回
+           * 调 `account.create`，而这三家对 `account.create` 一律回
            * `unknown provider`（`vendor/lib/jet-hub-rpc.js` 里没有它们的分支）。
            * 上游 UI 走的是本家的 `*.addAccount`，这里照抄同一条路。
            *
@@ -2428,5 +2438,5 @@ export function makePlugin(dshProvider) {
   }
 }
 
-/** 全部 23 个工厂（`index.mjs` 逐个具名导出）。 */
+/** 全部 25 个工厂（`index.mjs` 逐个具名导出）。 */
 export const PLUGINS = DSH_PROVIDERS.map((p) => [idOf(p), makePlugin(p)])

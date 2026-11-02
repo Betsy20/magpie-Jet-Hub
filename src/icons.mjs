@@ -23,6 +23,7 @@
 
 import { ZCODE_PNG_BASE64 } from './zcode-icon.mjs'
 import { MAGICREW_PNG_BASE64 } from './magicrew-icon.mjs'
+import { QINIU_PNG_BASE64 } from './site-icons.mjs'
 import {
   CODELY_PNG_BASE64,
   LOBSTERAI_PNG_BASE64,
@@ -140,6 +141,22 @@ function intl(svg) {
 const ZCODE_URI = `data:image/png;base64,${ZCODE_PNG_BASE64}`
 
 /** provider → SVG。 */
+/**
+ * 给**位图**加一圈虚线地球环 —— `intl()` 的位图版本。
+ *
+ * 国际站与国内站同品牌，图必须不同（否则「每家图标互不相同」的断言红）；
+ * 地球环是这套图标里表示「国际」的既有记号（`autoclawintl` / `qodercn` 也用它）。
+ */
+function withIntl(dataUri) {
+  // 返回 SVG 字符串而不是 data URI：`ICON_URIS` 会统一编码，这里自己编码会重复一次。
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">`
+    + `<rect width="64" height="64" rx="14" fill="#ffffff"/>`
+    + `<image href="${dataUri}" x="11" y="11" width="42" height="42"/>`
+    + `<circle cx="32" cy="32" r="30" fill="none" stroke="#111827" stroke-width="2"`
+    + ` stroke-dasharray="4 5" opacity="0.55"/>`
+    + `</svg>`
+}
+
 const PROVIDER_SVG = {
   // Accio 是阿里的业务，用阿里 logo
   accio: badge(ALIBABA),
@@ -158,6 +175,11 @@ const PROVIDER_SVG = {
   loomy: `data:image/png;base64,${LOOMY_PNG_BASE64}`,
   // 超级麦吉只有官方 PNG（favicon 就是那个卡通形象），见 src/magicrew-icon.mjs
   magicrew: `data:image/png;base64,${MAGICREW_PNG_BASE64}`,
+  // 国际站与国内站是同一家的两张站点，品牌图一样会让「每家图标互不相同」的断言失败，
+  // 所以国际站套一圈虚线地球环（与 autoclawintl / qodercn 同一手法）。
+  magicrewintl: withIntl(`data:image/png;base64,${MAGICREW_PNG_BASE64}`),
+  // 七牛云：官网 favicon，见 src/site-icons.mjs
+  qiniu: `data:image/png;base64,${QINIU_PNG_BASE64}`,
   minimax: badge(MINIMAX),
   minimaxintl: intl(badge(MINIMAX)),
   modelscope: badge(MODELSCOPE),

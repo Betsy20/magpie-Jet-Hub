@@ -120,6 +120,7 @@
       <div class="rows">
         <div class="row"><div><b>渠道原生搜索</b><p>让上游自己做联网检索（不是 magpie 的 web_search）。</p></div><label class="sw"><input type="checkbox" id="setSearch"><i></i></label></div>
         <div class="row"><div><b>面板入口</b><p>在 DSH 里这个面板挂在侧栏还是设置页。</p></div><select id="setPanel"><option value="sidebar">sidebar</option><option value="settings">settings</option></select></div>
+        <div class="row"><div><b>ZCode 会话负载均衡</b><p>同一账号今日负载达阈值后沉底、正在跑的会话迁移一次。关掉则回到「手动顺序首个可用」。只影响 ZCode。</p></div><label class="sw"><input type="checkbox" id="setSession"><i></i></label></div>
         <div class="row"><div><b>MiniMax XFF</b><p>发给 MiniMax 的 X-Forwarded-For，空表示不伪造。</p></div><input id="setXff" class="grow"></div>
       </div>
       <div id="setMsg" class="msg"></div>

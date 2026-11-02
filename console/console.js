@@ -327,7 +327,7 @@ async function onAccAction(e) {
         openProxyModal(provider, id)
         return
       } else if (act === 'rekey') {
-        openRekeyModal(id)
+        openRekeyModal(id, provider)
         return
       } else if (act === 'rotfp') {
         // rotateFingerprint 自己写完再整表重读（代次变了要在行里显示出来）；
@@ -562,6 +562,11 @@ const KEY_CHANNELS = {
     hint: 'OpenCode Zen 的 Key，20 位以上、不含空格。同一把 Key 重复添加会复用同一条账号；若那条账号的凭据已读不出来（坏槽），会覆盖写并如实回报为新建。',
     where: 'https://opencode.ai/console/account',
   },
+  qiniu: {
+    method: 'qiniu.addAccount',
+    hint: '七牛云 AI 的 API Key。同一把 Key 重复添加会复用同一条账号。',
+    where: 'https://portal.qiniu.com/ai-inference/api-key',
+  },
 }
 
 /** 弹 Key 输入框（替代 startLogin 的授权流程）。 */
@@ -617,19 +622,29 @@ async function submitKeyAccount(btn) {
  * ⇒ 界面必须**整表重读**：就地改一行的话，旧 id 那行还在、新 id 那行没有，
  * 用户会以为账号没变、实际已经换了一条。`renamed:false` 才是真正就地刷新凭据。
  *
+ * qiniu 有同款的 `qiniu.setApiKey`（`vendor/lib/qiniu-rpc.js`，语义与 modelscope 一致：
+ * Key 尾段派生 id、先建后删、回 `renamed`），所以它也有这个按钮。
  * opencode **没有** setApiKey（对照 `opencode-rpc.js` 的 case 表，只有 addAccount），
  * 唯一出路是先删后加 —— 所以这里不给 opencode 这个按钮，不让用户看到一条走不通的路。
  */
 const REKEY_CHANNELS = {
   modelscope: {
+    method: 'modelscope.setApiKey',
     hint: '换成另一把 Key 会**换一条账号**（id 随 Key 尾 8 位变）：本体先建新号再删旧号，' +
       '昵称与停用状态都继承旧的。填同一把 Key 则只刷新凭据，账号不变。',
     where: 'https://modelscope.cn/my/myaccesstoken',
   },
+  qiniu: {
+    method: 'qiniu.setApiKey',
+    hint: '换成另一把 Key 会**换一条账号**（id 随 Key 派生）：本体先建新号再删旧号，' +
+      '昵称与停用状态都继承旧的。填同一把 Key 则只刷新凭据，账号不变。',
+    where: 'https://portal.qiniu.com/ai-inference/api-key',
+  },
 }
 
-function openRekeyModal(accountId) {
-  const provider = $('#accProvider').value
+function openRekeyModal(accountId, provider) {
+  // `provider` 由调用方（账号行按钮）传进来 —— 不能读 `#accProvider`，
+  // 那个下拉是「新建账号」用的，跟这行的账号可能不是同一家。
   const cfg = REKEY_CHANNELS[provider]
   if (!cfg) throw new Error(`没有换 Key 端点的 provider：${provider}`)
   const acc = ACC.find((a) => a.id === accountId)
@@ -659,8 +674,11 @@ async function submitRekey(btn) {
   }
   try {
     await busy(btn, async () => {
-      // 方法名写字面量（tests/t-rpc-cover.mjs 按字面量数覆盖率，用变量拼会数不到）
-      const v = await rpc('modelscope.setApiKey', { accountId, apiKey })
+      // 方法名写字面量（tests/t-rpc-cover.mjs 按字面量数覆盖率，用变量拼会数不到）——
+      // 所以这里按家分支写两句字面量，而不是按 REKEY_CHANNELS 表取方法名。
+      const v = provider === 'qiniu'
+        ? await rpc('qiniu.setApiKey', { accountId, apiKey })
+        : await rpc('modelscope.setApiKey', { accountId, apiKey })
       if (v?.renamed === true) {
         say('#rkMsg', `已换成另一把 Key：账号从 ${accountId} 变成 ${v.accountId}（旧号已删）`, 'ok')
       } else {
@@ -1127,12 +1145,14 @@ async function badgeSave(btn) {
 
 async function loadSettings() {
   try {
-    const [ns, pe, xff] = await Promise.all([
+    const [ns, pe, xff, sb] = await Promise.all([
       rpc('nativeSearch.getEnabled').catch(() => ({})),
       rpc('panelEntry.get').catch(() => ({})),
       rpc('minimax.getXff').catch(() => ({})),
+      rpc('sessionBalance.getEnabled').catch(() => ({})),
     ])
     $('#setSearch').checked = ns?.enabled === true
+    $('#setSession').checked = sb?.enabled === true
     if (pe?.entry) $('#setPanel').value = pe.entry
     $('#setXff').value = xff?.xff ?? ''
     say('#setMsg', '')
@@ -1149,6 +1169,7 @@ async function saveSetting(what, value) {
     if (what === 'search') await rpc('nativeSearch.setEnabled', { enabled: value })
     if (what === 'panel') await rpc('panelEntry.set', { entry: value })
     if (what === 'xff') await rpc('minimax.setXff', { xff: value })
+    if (what === 'session') await rpc('sessionBalance.setEnabled', { enabled: value })
     say('#setMsg', '已保存', 'ok')
   } catch (e) {
     say('#setMsg', String(e.message ?? e), 'err')
@@ -1547,6 +1568,7 @@ async function boot() {
   $('#setSearch').addEventListener('change', (e) => saveSetting('search', e.target.checked))
   $('#setPanel').addEventListener('change', (e) => saveSetting('panel', e.target.value))
   $('#setXff').addEventListener('change', (e) => saveSetting('xff', e.target.value.trim()))
+  $('#setSession').addEventListener('change', (e) => saveSetting('session', e.target.checked))
   $('#capDemand').addEventListener('click', (e) => captchaAction(e.currentTarget, 'demand'))
   $('#capCarrier').addEventListener('click', (e) => captchaAction(e.currentTarget, 'carrier'))
   $('#capContribute').addEventListener('click', (e) => captchaAction(e.currentTarget, 'contribute'))

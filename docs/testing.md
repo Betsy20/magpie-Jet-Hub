@@ -33,7 +33,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-cred-alive.mjs` | 凭据还在不在：真容器判路径推导与五种情形（ref 在 / ref 不在 / 文件缺失放行 / 结构不认识放行 / 有 refs 段但段内为空不放行），以及 `ask()` 与 `authorize()` 的接线方向 |
 | `t-usage.mjs` | 用量换算、积分包合并与到期日排序；第 7 节是「凭据不在了」的文案 + 一段直接 import `vendor/lib/jet-hub-rpc.js` 的行为锁（删 `product` 判空守卫会红） |
 | `t-checkin.mjs` | 一键领积分 |
-| `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 23 家图标（`data:image`、≤1MB、互不相同） |
+| `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 25 家图标（`data:image`、≤1MB、互不相同） |
 | `t-attachments.mjs` | 附件服务（内容寻址、去重、上限） |
 | `t-plugin.mjs` | 23 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
 | `t-models-nowait.mjs` | `models()` 不阻塞（计时判 > 5 秒即失败，进程额外撑 45 秒） |
@@ -43,7 +43,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-backup-keep.mjs` | `keepDisabledModels` 三态 + merge 不碰黑名单 |
 | `t-login-reclaim.mjs` | 放弃授权时回收占位账号（四字段判据：昵称等于 id 或白名单、无到期时间、不可 refreshable、10 分钟内创建；外加 `login.poll` 二次确认） |
 | `t-console-backup.mjs` | 控制台解壳：与 CLI / 前端导出侧三方契约常量对账、口令不裁剪、非 JSON 不被说成口令错 |
-| `t-new-account.mjs` | 「在 magpie 里新建账号」链路（两家豁免、只拿 URL 就返回、三种终态） |
+| `t-new-account.mjs` | 「在 magpie 里新建账号」链路（三家豁免、只拿 URL 就返回、三种终态） |
 | `t-magicrew-creds.mjs` | 超级麦吉凭据读取（在 IndexedDB 不在 localStorage；末节读真实 Edge，读到就验） |
 | `t-snapshot-segment.mjs` | 快照脚本的分段归一（网关返回的 id 两种形态混着来） |
 | `t-model-efforts.mjs` | 推理档位：`variants` 键列表、私有档位名翻规范名、能力字段不粘滞 |

@@ -38,19 +38,20 @@ npm pack deepseek-harness-codearts@2.9.261029   # 取其中的 package.json 与 
 
 ## 与上游构建产物的差异
 
-`lib/` 共 1010 个文件，其中 **1005 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 5 个：
+`lib/` 共 1058 个文件，其中 **1051 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 7 个（5 类改动，两类落在 .js/.d.ts 两个文件上）：
 
 | 差异 | 原因 |
 |---|---|
 | `lib/gemini-oauth.js` 与 `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报。**值完全相等**（两个常量 `===`，长度 73 / 35 字符一致），另有环境变量可覆盖。边缘副作用：`.d.ts` 是声明文件，`declare const` 的初始值按 TS 规范只能是字面量，单文件 `tsc file.d.ts` 会报两条 `TS1254` —— 本仓库不编译类型声明，正常使用路径不受影响 |
 | `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭据，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB |
 | `lib/magicrew-browser-login.js` 开窗前回收上次遗留的一次性 profile 目录 | 上游 `ChromiumSession.dispose()` 的删除只退避 2.1 秒，而窗口被用户关掉时没有任何回调保证走到 `dispose()`。两条路叠加的结果是 `%TEMP%` 里攒了 11 个 `magicrew-login-*` / 856 MB。现在开窗前扫一遍、只删够老的（Windows 1 小时、其它平台 6 小时）、每轮最多删 3 个（这函数同步跑在「点连接」与「窗口出现」之间，清完 856 MB 要约 7 秒，会让用户以为按钮坏了） |
+| `lib/backup.js` 与 `.d.ts` 的 `importBackup` 多一个 `keepDisabledModels` 选项 | 控制台导入备份时不让备份里的模型黑名单覆盖本机现状（用户 2026-10-31 报了「导入后 920 个模型全被关掉」）。未传该选项时行为与上游完全一致；CLI 的 `--keep-disabled` 是反向意图 |
 | `lib/jet-hub-rpc.js` 给 `product.id` 加一层判空守卫（两处） | `credits.balances` / `credits.status` 的调用点传的 `product` 就是 `undefined`（各家读数由 `deps.fetchBalance` 闭包带走），而共享骨架里有一处**无条件**求值 `product.id`。`&&` 左侧恰好是「凭据解析不出来」——唯一会短路到右边的情形，于是**只要某个账号凭据丢了就必然抛** `undefined is not an object (evaluating 'product.id')`，把本该显示的「凭据未配置」变成看不懂的 JS 报错。**这是本仓库唯一改上游行为的差异**（其余四个只是改写法或补读取路径）。加守卫而非删句，是为了保留「外部传真 `product` 时」的上游原语义 |
 | 没有 npm 包里的 `README.md` 与 `cordis.patch.yml`（缺失项，不计入上面的 5 个） | 那是 DSH 前端与插件补丁用的，magpie 侧用不到 |
 
 保留时长为什么分平台：判据「只删够老的」是启发式。Windows 上还有第二道网（正被占用的文件删不掉，`rmSync` 抛 `EPERM`/`EBUSY`）；**POSIX 没有这道网** —— `unlink` 对已打开的文件是合法操作，删除会成功，于是「删了正在用的目录」反而成功，只是把那个窗口弄坏。所以 POSIX 只能靠阈值自保，取 6 小时。真正在用的目录存活上限是登录本身 4 分钟（`MAGICREW_BROWSER_LOGIN_TIMEOUT_MS = 240_000`），两个阈值都留了十几倍余量。
 
-除这 5 个之外，本仓库对上游代码**没有其它改动**。
+除这 7 个文件之外，本仓库对上游代码**没有其它改动**。
 
 `lib/jet-hub-rpc.js` 那条是本仓库**唯一改上游行为**的差异，上游当前仍是原样（未跟进），
 所以每次同步 vendor 都必须把它重新打上 —— 漏掉的后果是：只有「账号凭据丢了」的机器才会

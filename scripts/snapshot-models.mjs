@@ -94,7 +94,14 @@ function probeMeta(url) {
  */
 function candidates() {
   const list = []
-  for (let port = 18500; port < 18510; port += 1) list.push(`http://127.0.0.1:${port}/`)
+  // `JET_HUB_META_PORT`：明确指定只探这一台。用途是「magpie 里还跑着旧插件、
+  // 而临时起的新容器在 18502」这种场合 —— 不指定时按区间顺序，先命中的是旧插件。
+  const forced = String(process.env.JET_HUB_META_PORT ?? '').trim()
+  const add = (u) => { if (!list.includes(u)) list.push(u) }
+  // ⚠️ 必须去重：forced 通常就落在 18500..18509 区间内，不去重会让同一台被探两次，
+  //    后面「检测到 N 个宿主同时在跑」就会把这台算成两台并打一条假警告。
+  if (/^\d+$/.test(forced)) add(`http://127.0.0.1:${forced}/`)
+  for (let port = 18500; port < 18510; port += 1) add(`http://127.0.0.1:${port}/`)
   try {
     const j = JSON.parse(fs.readFileSync(CONSOLE_FILE, 'utf8'))
     if (typeof j?.url === 'string' && /^https?:\/\//.test(j.url)) {
@@ -111,7 +118,7 @@ function candidates() {
  * 本插件实际注册成 magpie provider 的那些 id。
  *
  * ⚠️ 宿主 `/__meta` 给的是**本体全部** provider 的模型目录（含 `aggregate` /
- * `jet-hub-auto` 两个路由组），但插件只注册其中 23 家真渠道。快照必须跟着插件走，
+ * `jet-hub-auto` 两个路由组），但插件只注册其中 25 家真渠道。快照必须跟着插件走，
  * 否则页面上会列出 `jet-hub-aggregate/…` 这种复制出去 404 的 id。
  * 白名单直接取 `src/plugin.mjs` 的 `DSH_PROVIDERS`（不抄一份），`idOf` 也复用它的
  * —— 那边改了这里自动跟着变。
@@ -157,11 +164,13 @@ const NAMES = {
   'jet-hub-lobsterai':     ['LobsterAI (有道)', '网易有道 LobsterAI'],
   'jet-hub-loomy':         ['Loomy (讯飞)', '讯飞 Loomy'],
   'jet-hub-magicrew':      ['超级麦吉', '超级麦吉（Magicrew）'],
+  'jet-hub-magicrewintl':  ['MagiCrew (国际版)', 'MagiCrew 国际站（与国内站账号体系隔离）'],
   'jet-hub-minimax':       ['MiniMax Code (中国版)', 'MiniMax Code 国内站'],
   'jet-hub-minimaxintl':   ['MiniMax Code (国际版)', 'MiniMax Code 国际版'],
   'jet-hub-modelscope':    ['ModelScope (魔搭)', '魔搭社区'],
   'jet-hub-officeace':     ['OfficeAce', '华为云 OfficeAce'],
   'jet-hub-opencode':      ['OpenCode', 'OpenCode'],
+  'jet-hub-qiniu':         ['Qiniu (七牛云)', '七牛云（本 fork 独有）'],
   'jet-hub-qoder':         ['Qoder', 'Qoder'],
   'jet-hub-qodercn':       ['Qoder (中国版)', 'Qoder 国内站'],
   'jet-hub-raccoon':       ['Raccoon (商汤)', '商汤 Raccoon'],

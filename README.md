@@ -2,10 +2,10 @@
 
 [![repo](https://img.shields.io/badge/github-Betsy20/magpie--Jet--Hub-blue)](https://github.com/Betsy20/magpie-Jet-Hub)
 
-把 **deepseek-harness-codearts 插件本体**装进 magpie。装上之后，magpie 的供应商列表里会多出 23 家 AI 编码渠道，用的是你在 DSH 里已经登录好的那批账号 —— 不需要重新登录，也不需要复制凭据。
+把 **deepseek-harness-codearts 插件本体**装进 magpie。装上之后，magpie 的供应商列表里会多出 25 家 AI 编码渠道，用的是你在 DSH 里已经登录好的那批账号 —— 不需要重新登录，也不需要复制凭据。
 
 > **上游插件**：[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)（MIT）。
-> 它给 DSH 提供 23 家供应商的登录、多账号池、静默续期、积分领取。
+> 它给 DSH 提供 25 家供应商的登录、多账号池、静默续期、积分领取。
 > 本仓库**不是它的分支、也不修改它的行为** —— 只把它的发布产物装进 [`vendor/`](vendor/)，
 > 外面加一层 magpie 适配。供应商适配、登录流程、续期算法本身的问题去上游提；
 > 装不进 magpie、卡片显示不对、控制台没反应，才是本仓库的。
@@ -36,7 +36,7 @@ magpie 的一个插件包可以注册多个供应商：宿主取模块导出的*
 ```
 magpie 网关（默认 3425，JET_HUB_USER_GATEWAY 可覆盖）
   ├─ jet-hub-codearts   ┐
-  ├─ jet-hub-workbuddy  │ 23 个 provider id
+  ├─ jet-hub-workbuddy  │ 25 个 provider id
   ├─ jet-hub-qoder      ├─ 全部共用同一个容器实例
   └─ …                  ┘
        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
@@ -89,7 +89,7 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 
 ## 23 个供应商，不是一个
 
-本体里有 25 个 provider，其中 **2 个是路由组**（`aggregate` 聚合路由、`jet-hub-auto` 自动选号）。路由组没有自己的账号池和模型目录，注册成 magpie 供应商只会得到一张永远空着的卡，所以**本插件只接那 23 家真渠道**。
+本体里有 27 个 provider，其中 **2 个是路由组**（`aggregate` 聚合路由、`jet-hub-auto` 自动选号）。路由组没有自己的账号池和模型目录，注册成 magpie 供应商只会得到一张永远空着的卡，所以**本插件只接那 25 家真渠道**。
 
 完整名单以 `src/plugin.mjs` 的 `DSH_PROVIDERS` 为准（下表只列几行示例）。
 
@@ -101,7 +101,9 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 | `jet-hub-accio` | Accio (阿里) |
 | `jet-hub-codely` | Codely (Unity) |
 | `jet-hub-magicrew` | 超级麦吉 |
-| …共 23 家 | |
+| `jet-hub-magicrewintl` | MagiCrew (国际版) |
+| `jet-hub-qiniu` | Qiniu (七牛云) |
+| …共 25 家 | |
 
 模型 id 是 `<provider>/<model>`：
 
@@ -152,9 +154,9 @@ jet-hub-codearts           → 第一个账号
 |---|---|
 | 连接本机 DSH 账号 | 从已有账号里挑一个接进 magpie，挑完把账号 id 编进 key |
 | 在浏览器里新建一个账号 | 让本体真的建一个新号：调 `account.create` 拿登录页，你去浏览器登录，完成后这一行自动变成已签入 |
-| 新建一个账号（粘贴 API Key） | 只有 Key 型的两家（`jet-hub-modelscope` / `jet-hub-opencode`）有这条：贴一把 Key，插件调本家的 `*.addAccount` 直接建号 |
+| 新建一个账号（粘贴 API Key） | 只有 Key 型的三家（`jet-hub-modelscope` / `jet-hub-opencode` / `jet-hub-qiniu`）有这条：贴一把 Key，插件调本家的 `*.addAccount` 直接建号 |
 
-`jet-hub-modelscope` / `jet-hub-opencode` 是 Key 型渠道，本体对它们调 `account.create` 会回 `unknown provider` —— 上游 UI 走的是各自的 `modelscope.addAccount` / `opencode.addAccount`（贴 Key 就建号，按 Key 尾段派生账号 id，同一把 Key 反复贴只会落到同一条）。插件照抄同一条路，所以这两家**能新建**，只是方法形状不同：`api` 型 + `keyless`，用 `ask()` 收 Key（`type: 'password'`），`authorize(inputs)` 里再把 Key 交给本家的 RPC。
+`jet-hub-modelscope` / `jet-hub-opencode` / `jet-hub-qiniu` 是 Key 型渠道，本体对它们调 `account.create` 会回 `unknown provider` —— 上游 UI 走的是各自的 `modelscope.addAccount` / `opencode.addAccount` / `qiniu.addAccount`（贴 Key 就建号，按 Key 尾段派生账号 id，同一把 Key 反复贴只会落到同一条）。插件照抄同一条路，所以这三家**能新建**，只是方法形状不同：`api` 型 + `keyless`，用 `ask()` 收 Key（`type: 'password'`），`authorize(inputs)` 里再把 Key 交给本家的 RPC。
 
 > 为什么 `keyless`：magpie 对 `api` 型方法会先弹它自己的 personal-key 输入框，而那个框的值只进 `key` 字段、**不会**传给 `authorize(inputs)`。标 `keyless` 让 magpie 跳过它，用户看到的就是插件自己的 Key 输入框。
 
@@ -266,7 +268,7 @@ models.dev 目录（`~/.cache/magpie/models.json`）按**模型尾名**匹配生
 
 本体冷启动要建容器、拉凭据链、预热目录，**20–30 秒**（预热过的实例通常 1–2 秒），而 magpie 给 `provider.models` 的超时只有 **20 秒**。所以在 `models()` 里 `await` 必然超时。
 
-`models()` 因此分三档：内存缓存命中 → 立刻返回并后台刷新；磁盘缓存命中 → 立刻返回真实目录；都没有 → 返回静态兜底表（23 家各一条），启动甩到后台。`authorize()` 与 `usage()` 由用户点击触发、允许长时间，走真等。
+`models()` 因此分三档：内存缓存命中 → 立刻返回并后台刷新；磁盘缓存命中 → 立刻返回真实目录；都没有 → 返回静态兜底表（25 家各一条），启动甩到后台。`authorize()` 与 `usage()` 由用户点击触发、允许长时间，走真等。
 
 ## 侧栏页与控制台
 
@@ -345,7 +347,7 @@ src/
   connection.mjs       给容器补一个 connection 服务（DSH 里由宿主提供）
   hub-server.mjs       控制台 HTTP 服务
   attachments.mjs      图片附件服务
-  icons.mjs            23 家内联矢量图标
+  icons.mjs            25 家内联矢量图标
   site-icons.mjs       四家从官网取的位图（base64）
   magicrew-icon.mjs    \ 两家单独存放的位图，体积大、与上面分开
   zcode-icon.mjs       /
@@ -360,5 +362,5 @@ docs/                  截图、vendor.md、testing.md
 ## 上游与致谢
 
 - 上游插件：[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)（MIT，`Copyright (c) 2026 Jet`）—— 本仓库 `vendor/` 是它的构建产物，`vendor/LICENSE` 随目录一起分发。
-- 23 家渠道的登录 / 续期 / 选号逻辑全部来自上游，本仓库只做 magpie 适配层。
+- 25 家渠道的登录 / 续期 / 选号逻辑全部来自上游，本仓库只做 magpie 适配层。
 - 图标：多数来自各厂商官方标识，少数取自 [LobeHub icons](https://github.com/lobehub/lobe-icons)。
