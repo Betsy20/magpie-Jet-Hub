@@ -260,30 +260,6 @@ function hostnameOf(url) {
  * HTTP 200 + `code:403`（见 `magicrew-local-browser.ts` 头部的配对纪律）。
  *
  * `n` 是 `localStorage.length`：**空 = 还没登完**（见下面的判据）。
- *
- * ## ⚠️⚠️ 为什么还要读 IndexedDB（2026-10-30 真机报障换来的）
- *
- * 原先只读 `localStorage`。真机上用户「网页已经登录成功」，插件却白等满 4 分钟、
- * 最后报「请在浏览器中完成超级麦吉 登录」——因为 magicrew 网页版**根本不往
- * `localStorage` 写凭据**：它把登录态存在 IndexedDB 的 `magic-global` 库里，
- * `user` 这个 object store 下的两个 key：
- *
- *     authorization   → 354 字符的 JWT
- *     organizations   → 组织码（`magic_organization_code` / `teamshare_organization_code`）
- *
- * 前端自己的读法是 `e.user.authorization` / `e.user.organizationCode`
- * （`AiLLMService-*.js`），而 `e.user` 就是从这个 store 水合的。实测本机 Edge：
- * `Local Storage/leveldb` 里 `authorization` 出现 **0 次**，同一个站点的
- * `IndexedDB/https_www.letsmagic.cn_0.indexeddb.leveldb` 里 **7 次**。
- *
- * 所以两条腿都要读、`localStorage` 先读（老版本 / 未来回退），IndexedDB 兜住现状。
- * `ii` 是「IndexedDB 那条腿有没有跑成」（0 = 没跑成），`ie` / `id` 是它的失败原因；
- * 两者只在**放弃等待**那行诊断里用得上（见 {@link createMagicrewCredentialWaiter}）。
- *
- * ⚠️ 用 `indexedDB.databases()` **先列后开**，绝不直接 `indexedDB.open('magic-global')`：
- * 库不存在时 `open()` 会**当场新建一个空库**（还留下版本变更记录），而我们只是来读的 ——
- * 在用户 profile 里凭空造一个 `magic-global` 库是副作用。`databases()` 在个别旧内核上
- * 不可用 ⇒ 退化成 `open()` 但只读不写（无 store 时立即 `close()`，不触发任何写事务）。
  */
 const CDP_CREDENTIAL_EXPRESSION = `(async () => {
   const out = {
@@ -352,6 +328,18 @@ const CDP_CREDENTIAL_EXPRESSION = `(async () => {
  * 一条卡死的命令会把整轮等待预算（4 分钟）吃掉一小半，且期间磁盘兜底也不会被读到。
  */
 const CDP_CREDENTIAL_TIMEOUT_MS = 3_000;
+/**
+ * `Page.navigate` 的上限。
+ *
+ * ⚠️ **不能**复用 {@link CDP_CREDENTIAL_TIMEOUT_MS}（3 秒）
+ * （2026-10-30 四路审计 P3-1 修）：真机实测把页面导航到**黑洞地址**时，
+ * `Page.navigate` **15 秒都没返回** ⇒ 3 秒超时会让用户看到
+ * 「CDP Page.navigate 超时（3000ms）」这种**内部超时文案**（而不是
+ * 「登录页打不开」这种能指路的文案）。
+ *
+ * ⇒ 导航是**一次性**动作（不是 500ms 一拍的轮询）⇒ 给它更宽的预算。
+ */
+const CDP_NAVIGATE_TIMEOUT_MS = 30_000;
 /** `eyJ…` 三段（JWT 形状）。⚠️ 形状对 ≠ 有效，但形状不对**一定**不是 jwt。 */
 function isJwtShaped(value) {
     if (!value.startsWith('eyJ'))
@@ -424,15 +412,19 @@ function parseEvaluatedCredential(value) {
     return pickCredential(parsed.ia, organizationFromIndexedDb(parsed.io), undefined);
 }
 
-/**
- * 从 `Runtime.evaluate` 的返回值里取「IndexedDB 那条腿为什么没读到」。
- *
- * ⚠️ 存在的理由与 `failure` 通道完全一样：凭据没读到时，`credential` 上
- * 「用户还没登完」与「我们读 IndexedDB 的方式坏了」是同形的（都 `undefined`），
- * 只有这句话能分开。它最终会进「放弃等待」那行诊断。
- *
- * @returns 一句人话；读通了或没有任何记录 ⇒ 空串。
- */
+function pickCredential(jwt, organization, fallbackOrganization) {
+    const authorization = typeof jwt === 'string' ? jwt : '';
+    if (!isJwtShaped(authorization))
+        return undefined;
+    const org = typeof organization === 'string' && organization.length > 0
+        ? organization
+        : typeof fallbackOrganization === 'string' && fallbackOrganization.length > 0 ? fallbackOrganization : '';
+    // ⚠️ 缺组织码 ⇒ `undefined`（**不造假**）：空 org 配 jwt 在上游是 HTTP 200 + code:403。
+    if (org.length === 0)
+        return undefined;
+    return { jwt: authorization, organizationCode: org };
+}
+
 function indexedDbNoteOf(value) {
     if (typeof value !== 'string' || value.length === 0)
         return '';
@@ -480,24 +472,6 @@ function organizationFromIndexedDb(value) {
     }
     return '';
 }
-
-/**
- * 把一对「jwt × 组织码」候选值校验成凭据。
- *
- * @returns 形状不合法或缺组织码 ⇒ `undefined`（**不造假**）。
- */
-function pickCredential(jwt, organization, fallbackOrganization) {
-    const authorization = typeof jwt === 'string' ? jwt : '';
-    if (!isJwtShaped(authorization))
-        return undefined;
-    const org = typeof organization === 'string' && organization.length > 0
-        ? organization
-        : typeof fallbackOrganization === 'string' && fallbackOrganization.length > 0 ? fallbackOrganization : '';
-    // ⚠️ 缺组织码 ⇒ `undefined`（**不造假**）：空 org 配 jwt 在上游是 HTTP 200 + code:403。
-    if (org.length === 0)
-        return undefined;
-    return { jwt: authorization, organizationCode: org };
-}
 /**
  * 尝试**一次**通过 CDP 读实时凭据（并把失败原因带出来）。
  *
@@ -538,18 +512,11 @@ async function attemptCredentialViaCdp(session, hostnames) {
         if (attachedId.length === 0)
             return { failure: 'Target.attachToTarget 没给出 sessionId' };
         sessionId = attachedId;
-        /**
-         * @param awaitPromise 必须为 `true`：表达式现在是一个 **async IIFE**
-         *   （要读 IndexedDB，必须 await）。不传它就拿到一个未 settle 的
-         *   Promise 包装（`returnByValue` 下是 `{}`）—— 与「用户还没登完」完全同形，
-         *   诊断上看不出来（实测 2026-10-30：表达式单跑能读到、这里返回 `{}`）。
-         */
         const evaluated = await cdp.send('Runtime.evaluate', { expression: CDP_CREDENTIAL_EXPRESSION, awaitPromise: true, returnByValue: true }, CDP_CREDENTIAL_TIMEOUT_MS, attachedId);
         if (evaluated?.exceptionDetails !== undefined) {
             return { failure: 'Runtime.evaluate 在页面里抛错（页面可能正在导航）' };
         }
         const credential = parseEvaluatedCredential(evaluated?.result?.value);
-        // ⚠️ 没读到 = 「用户还没登完」这种**正常**未完成态 ⇒ 不记 failure。
         if (credential !== undefined)
             return { credential };
         // 但 IndexedDB 那条腿自己报的错（库不存在 / databases() 不可用 / open 抛错）
@@ -727,6 +694,127 @@ export function createMagicrewCredentialWaiter(deps) {
         return undefined;
     };
 }
+/**
+ * 「**空白/新标签页**」的 URL 形态集合。
+ *
+ * ⚠️⚠️ **`chrome://newtab/` 不算 `about:blank`**（2026-10-30 四路审计 P1 D-05 修）：
+ * 实测 `new URL('chrome://newtab/').hostname` = **`'newtab'``**（**非空**）⇒
+ * `sameSite('newtab', 'www.letsmagic.cn')` = false ⇒ 旧实现会把它当成
+ * 「一个普通页面」⇒ 兜底 `pages[0]` 被导航 ⇒ **冲掉用户正在看的标签页**。
+ *
+ * ⚠️ 真机实测（2026-10-30 正向审计）：带 URL 启动时 CDP 就绪那刻 page URL
+ * **已经是**目标 URL；不带 URL 时是 **`chrome://newtab/`**（**不是**
+ * `about:blank`）⇒ 「about:blank 竞态」这条 PR 声称的前提**真机未复现**。
+ * ⇒ 但**空白页总得处理**：本集合把三种「空白」形态一视同仁。
+ *
+ * ⚠️⚠️ **判据必须用「前缀」而不是「全等」**（2026-10-30 第二轮审计 P3-1 修）：
+ * 真机实测的空白页形态**远不止三种**（第二轮审计实测出 5 种漏网）：
+ * ```
+ * chrome://new-tab-page-third-party/     ← 第三方新标签页
+ * chrome-search://local-ntp/...          ← 本地搜索新标签页
+ * edge://newtab/                        ← Edge 的新标签页
+ * chrome://new-tab-page/?foo=1           ← 带查询串
+ * about:blank#x                         ← 带 fragment
+ * ```
+ * ⇒ 全等判据 ⇒ 这些**漏掉** ⇒ 用户面对空白首屏、且插件**不导航**。
+ * ⇒ 改为「**前缀匹配**」：`about:blank` 走前缀、`chrome://new-tab-page` 与
+ * `chrome-search://local-ntp` 与 `edge://newtab` 走前缀。
+ */
+const BLANK_PAGE_URL_PREFIXES = [
+    'about:blank',
+    'chrome://newtab',
+    'chrome://new-tab-page',
+    'chrome-search://local-ntp',
+    'edge://newtab',
+    'brave://newtab',
+    'vivaldi://newtab',
+];
+/** 这个 URL 是不是「空白页 / 新标签页」（⇒ 可以安全地导航它）。 */
+export function isBlankPageUrl(url) {
+    return BLANK_PAGE_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
+}
+/**
+ * 把「初始仍是空白页」的窗口导航到登录页。
+ *
+ * CDP 就绪早于首屏导航时，启动参数里的 URL 可能尚未落到 page target。
+ * 此时不能让用户面对空白页；已有同站点页面则不重复导航。
+ *
+ * ⚠️⚠️ **失败不抛**（2026-10-30 四路审计 P1 D-06 修）：
+ * 旧实现抛错 ⇒ 冒泡到 `createChromiumMagicrewLogin` 的 catch ⇒
+ * `session.dispose()` ⇒ `loginViaBrowser` 抛 ⇒ RPC 层 `failLogin` ⇒
+ * **占位账号被删、整条登录腿失败** —— 而此时**窗口还开着**、用户完全可以
+ * 自己操作 ⇒ 用户看到「登录失败」却明明有个窗口在。
+ *
+ * ⇒ 现在改成：**导航失败只记一条 warn，登录流程继续**（窗口留着，用户可以
+ * 自己在里面登录；凭据等待循环照样能读到）。
+ * ⚠️ 与同文件既有纪律同口径：`attemptCredentialViaCdp` 是「任何一步失败都
+ * **返回**不抛」。
+ * ⚠️ **唯一的例外**：`cdp === undefined`（通道压根没就绪）仍然抛 —— 那时连
+ * 「窗口开着」都不成立。
+ *
+ * @param url - 登录页 URL。
+ * @param log - 诊断出口（缺省不记）。
+ */
+export async function ensureMagicrewLoginPage(session, url, log) {
+    const cdp = session.cdp;
+    if (cdp === undefined)
+        throw new Error('超级麦吉: 浏览器调试通道未就绪，无法打开登录页');
+    let targets;
+    try {
+        targets = await cdp.send('Target.getTargets', {}, CDP_CREDENTIAL_TIMEOUT_MS);
+    }
+    catch (error) {
+        // ⚠️ 同上：**不抛**（窗口开着，用户可自己操作）。
+        log?.(`[magicrew] 读取浏览器页面列表失败，登录页未自动打开：${String(error)}`);
+        return;
+    }
+    const pages = (targets.targetInfos ?? []).filter((info) => (info.type === 'page' && typeof info.targetId === 'string' && typeof info.url === 'string'));
+    if (pages.some((page) => sameSite(hostnameOf(page.url), hostnameOf(url))))
+        return;
+    // ⚠️⚠️ **只导航「空白页」**（2026-10-30 审计 P1 D-05 修）：
+    // 旧实现是 `pages.find(about:blank) ?? pages[0]` ⇒ 兜底会**抢走用户正在看
+    // 的标签页**（实测 `chrome://newtab/` 的 hostname 是 `'newtab'`、非空 ⇒
+    // 它既不是 `about:blank`、也不是同站点 ⇒ 落到 `pages[0]` 被导航）。
+    // ⇒ 现在**只**导航三种空白形态；**没有空白页就不导航**（宁可让用户自己
+    // 切到登录页，也不冲掉他的标签页）。
+    const blank = pages.find((page) => isBlankPageUrl(page.url));
+    if (blank === undefined) {
+        log?.('[magicrew] 没有找到空白页，未自动打开登录页（请手动切换到登录页）');
+        return;
+    }
+    let attached;
+    try {
+        attached = await cdp.send('Target.attachToTarget', { targetId: blank.targetId, flatten: true }, CDP_CREDENTIAL_TIMEOUT_MS);
+    }
+    catch (error) {
+        log?.(`[magicrew] 连接登录页面失败，登录页未自动打开：${String(error)}`);
+        return;
+    }
+    if (typeof attached.sessionId !== 'string' || attached.sessionId.length === 0) {
+        log?.('[magicrew] 无法连接登录页面，登录页未自动打开');
+        return;
+    }
+    const sessionId = attached.sessionId;
+    try {
+        const navigated = await cdp.send('Page.navigate', { url }, CDP_NAVIGATE_TIMEOUT_MS, sessionId);
+        if (typeof navigated.errorText === 'string' && navigated.errorText.length > 0) {
+            // ⚠️ **不抛**（同本函数头部注释）—— 只记一条诊断。
+            log?.(`[magicrew] 打开登录页失败（${navigated.errorText}），窗口仍开着，可手动操作`);
+        }
+    }
+    catch (error) {
+        // ⚠️ **不抛**（同本函数头部注释）。
+        log?.(`[magicrew] 打开登录页失败，窗口仍开着，可手动操作：${String(error)}`);
+    }
+    finally {
+        try {
+            await cdp.send('Target.detachFromTarget', { sessionId }, CDP_CREDENTIAL_TIMEOUT_MS);
+        }
+        catch {
+            // 会话关闭时连接可能已断开；导航结果不能被清理错误覆盖。
+        }
+    }
+}
 /** 一个已起好浏览器的网页登录会话（实现 {@link MagicrewBrowserLogin}）。 */
 class ChromiumProfileLogin {
     session;
@@ -830,6 +918,18 @@ export async function createChromiumMagicrewLogin(url, deps = {}) {
     });
     try {
         await session.start();
+        // ⚠️⚠️ **导航失败不阻断登录**（2026-10-30 四路审计 P1 D-06 修）：
+        // 旧实现在这里抛错 ⇒ catch ⇒ dispose ⇒ `loginViaBrowser` 抛 ⇒ RPC 层
+        // `failLogin` ⇒ **占位账号被删**；而此时**窗口还开着**、用户完全可以
+        // 自己登录 ⇒ 用户看到「登录失败」却明明有个窗口在。
+        // ⇒ `ensureMagicrewLoginPage` 现在**自己**吞掉导航失败（只记 warn），
+        //    这里只保留一个**兜底 try**（防未来实现变回抛错时又删号）。
+        try {
+            await (deps.ensureLoginPage ?? ensureMagicrewLoginPage)(session, url, deps.log);
+        }
+        catch (error) {
+            deps.log?.(`[magicrew] 登录页未自动打开，窗口仍开着可手动操作：${String(error)}`);
+        }
     }
     catch (error) {
         /**

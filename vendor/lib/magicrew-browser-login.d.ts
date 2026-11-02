@@ -236,6 +236,33 @@ export interface MagicrewCredentialWaiterDeps {
  * 5. 每轮最多睡到**剩余预算**为止（不越过 deadline 多睡一格）。
  */
 export declare function createMagicrewCredentialWaiter(deps: MagicrewCredentialWaiterDeps): (timeoutMs: number) => Promise<MagicrewCredential | undefined>;
+/** 这个 URL 是不是「空白页 / 新标签页」（⇒ 可以安全地导航它）。 */
+export declare function isBlankPageUrl(url: string): boolean;
+/**
+ * 把「初始仍是空白页」的窗口导航到登录页。
+ *
+ * CDP 就绪早于首屏导航时，启动参数里的 URL 可能尚未落到 page target。
+ * 此时不能让用户面对空白页；已有同站点页面则不重复导航。
+ *
+ * ⚠️⚠️ **失败不抛**（2026-10-30 四路审计 P1 D-06 修）：
+ * 旧实现抛错 ⇒ 冒泡到 `createChromiumMagicrewLogin` 的 catch ⇒
+ * `session.dispose()` ⇒ `loginViaBrowser` 抛 ⇒ RPC 层 `failLogin` ⇒
+ * **占位账号被删、整条登录腿失败** —— 而此时**窗口还开着**、用户完全可以
+ * 自己操作 ⇒ 用户看到「登录失败」却明明有个窗口在。
+ *
+ * ⇒ 现在改成：**导航失败只记一条 warn，登录流程继续**（窗口留着，用户可以
+ * 自己在里面登录；凭据等待循环照样能读到）。
+ * ⚠️ 与同文件既有纪律同口径：`attemptCredentialViaCdp` 是「任何一步失败都
+ * **返回**不抛」。
+ * ⚠️ **唯一的例外**：`cdp === undefined`（通道压根没就绪）仍然抛 —— 那时连
+ * 「窗口开着」都不成立。
+ *
+ * @param url - 登录页 URL。
+ * @param log - 诊断出口（缺省不记）。
+ */
+export declare function ensureMagicrewLoginPage(session: {
+    cdp: CdpChannel | undefined;
+}, url: string, log?: (message: string) => void): Promise<void>;
 /** {@link createChromiumMagicrewLogin} 的依赖（生产缺省全接线；单测逐个注入）。 */
 export interface ChromiumMagicrewLoginDeps {
     /** 产品常量（只用于诊断文案）。 */
@@ -259,6 +286,8 @@ export interface ChromiumMagicrewLoginDeps {
     pollIntervalMs?: number;
     /** 读凭据原语（单测注入）。 */
     readCreds?: typeof readMagicrewLocalCreds;
+    /** 登录页导航原语（单测注入，验证 about:blank 修复而不起真实浏览器）。 */
+    ensureLoginPage?: typeof ensureMagicrewLoginPage;
     /** 实时读凭据原语（缺省 {@link readCredentialViaCdp}；单测注入假 session）。 */
     readRealtime?: (session: {
         cdp: CdpChannel | undefined;

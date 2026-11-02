@@ -16,7 +16,7 @@ import { signRequestHuawei } from './sign.js';
 // 「同一语义两套实现」—— 而共享实现已经把 12 家的坑（工具结果内嵌图片提升为
 // 独立 user 消息、空 Map 不降级、`[image unavailable]` 占位符、递归深度与
 // `collectImages` 对齐）全部踩过了。**故直接复用，不另写。**
-import { collectImages, detailFieldText, serializeMessages } from './openai-compat.js';
+import { collectImages, contentToText, detailFieldText, serializeMessages } from './openai-compat.js';
 /**
  * 重新导出共享的 `serializeMessages`（**只为了让既有调用方与测试的导入路径不变**）。
  *
@@ -302,12 +302,19 @@ const CODEARTS_QUOTA_EXHAUSTED_CODE = 'QUOTA_EXCEEDED';
 //
 // ⚠️ VL 模型（`kimi-k2.6-vl` / `Qwen3-VL-235B`）**刻意不入本表**：它们被
 // `catalogEntries` 的可见性过滤挡在主列表外，只经 `analyzeImage` 间接调用。
-const DEFAULT_MODELS = [
+//
+// ⚠️⚠️ **`kimi-k3` 也不在本表**（2026-10-30 第二轮审计 P1 N-1 修）：
+// 它是**只在 AgentCenter 出现**的模型（builtin 漏发）⇒ AgentCenter
+// **不下发倍率** ⇒ 它进目录必然是**裸名** ⇒ `priceFactorFromName` 恒
+// `Infinity` ⇒ 聚合里 codearts 恒排最后、永远不被挑中（静默）。
+// ⇒ **窗口源条目一律不进对话目录**（两条路径：远端与冷缓存兜底）。
+// ⚠️ 它的**上下文窗口**仍可用：见 `CONTEXT_WINDOWS`（静态兜底）与
+// `remoteContextWindows`（动态权威）—— 用户手填 `kimi-k3` 时分母是对的。
+export const DEFAULT_MODELS = [
     'GLM-5.2', 'GLM-5.1',
     'glm-5.3', 'glm-5.2-sft-harmony',
     'openpangu-2.0-flash', 'openpangu-2.0-pro',
     'deepseek-v4-flash', 'deepseek-v4.1-flash', 'deepseek-v4.1-flash-1017',
-    'kimi-k3',
 ];
 /**
  * 模型上下文窗口（最大合并请求+响应 token 数）。
@@ -328,23 +335,27 @@ const DEFAULT_MODELS = [
  *
  * | 模型 | `limit.context` | 取值历史 |
  * |---|---|---|
- * | `GLM-5.2` | **1_048_576** | 09-11~10-20 是 `202_752`，**10-21 起上游改成 1M** |
+ * | `GLM-5.2` | **202_752** | 09-11~10-20 是 `202_752`；**10-21 改 1_048_576**；
+ * | | | **10-29 IDE 0.2.6 抓包 + AgentCenter 又改回 202_752**（三次漂移，见下） |
  * | `glm-5.3` | **1_048_576** | 同上（09 月表里没有它，10-17 起出现，先 202752 后 1M） |
- * | `glm-5.2-sft-harmony` | **202_752** | 全期稳定（09-11~10-21） |
- * | `openpangu-2.0-flash` / `-pro` | **524_288** | 全期稳定 |
+ * | `glm-5.2-sft-harmony` | **202_752** | 全期稳定（09-11~10-29，AgentCenter 一致） |
+ * | `openpangu-2.0-flash` / `-pro` | **524_288** | 全期稳定（AgentCenter 一致） |
  * | `deepseek-v4.1-flash` | **1_048_576** | 全期稳定（本表原先写 1_000_000，**已按 IDE 权威值改正**） |
+ * | `kimi-k3` | **1_048_576** | 2026-10-29 补（IDE 0.2.6 + AgentCenter 一致；此前缺行走 524_288 兜底） |
  * | `glm-5.3-flash` | **1_048_576** | 逆向自 IDE gateway/config（对齐 deveco-code-rust 90aeb17d） |
  * | `deepseek-v4-flash` / `-pro` | **1_048_576** | UI 标注「每日 1000 万免费 Tokens」同批（对齐 fb1b4a2） |
  *
- * ⚠️ **`GLM-5.2` 的 202_752 已过期**（那是 10-20 及以前的配置）。留着它有两个
- * 真实后果，且都是**静默**的：① 占用比被封顶成 100%（分母小 5 倍）；
- * ② 自动压缩阈值 = `0.8 × 202752 ≈ 162K` ⇒ **1M 的能力永远吃不到**
- * （与 `officeace-product.ts` 那次「估值偏小 5.3 倍」逐字同因）。
+ * ⚠️⚠️ **`GLM-5.2` 的窗口是本表唯一三次漂移的行**：202_752（09~10-20）→
+ * 1_048_576（10-21 校准）→ **202_752（10-29 复测，IDE 0.2.6 抓包 + AgentCenter
+ * 动态源双源一致）**。⇒ 结论：**10-21 那次不是「上游永久上调」而是临时值/灰度**。
+ * 本表现按 2026-10-29 权威写回 202_752 —— 但它是**兜底**（冷缓存/AgentCenter
+ * 失败时才用到）：运行时权威已由 AgentCenter 动态下发（`RemoteModel.contextWindow`，
+ * 优先于本表），下次上游再漂移不再依赖改这张表。
  *
  * ⚠️ **本表查不到时不再省略 `context`** —— 见 {@link CODEARTS_FALLBACK_CONTEXT_WINDOW}。
  */
 const CONTEXT_WINDOWS = new Map([
-    ['GLM-5.2', 1_048_576],
+    ['GLM-5.2', 202_752],
     ['glm-5.3', 1_048_576],
     ['glm-5.3-flash', 1_048_576],
     ['glm-5.2-sft-harmony', 202_752],
@@ -360,6 +371,10 @@ const CONTEXT_WINDOWS = new Map([
     //    不补这一行会让它走 524_288 的具名兜底 ⇒ 分母错 2 倍、压缩阈值偏早
     //    （正是 `CODEARTS_FALLBACK_CONTEXT_WINDOW` 注释里记录的那条报障形态）。
     ['deepseek-v4.1-flash-1017', 1_048_576],
+    // ⚠️ `kimi-k3` 在 IDE 0.2.6 与 AgentCenter 目录里都有（2026-10-29 取证），
+    //    但 2026-10-29 前的 `/v1/model/builtin` 快照**没有它** ⇒ 曾走 524_288
+    //    兜底（分母错 2 倍）。现由 AgentCenter 动态补目录 + 窗口，本行是兜底。
+    ['kimi-k3', 1_048_576],
 ]);
 /**
  * 本表查不到时**必须**给的那个窗口（`undefined` 在本家是不可接受的）。
@@ -460,6 +475,37 @@ export function codeartsRateSuffix(display) {
  * （有兜底），输出上限这里是**恒定收敛**（无兜底分支）。
  */
 const CODEARTS_MAX_OUTPUT_TOKENS = 65_536;
+/**
+ * `maxTokens` **缺省时**下发的输出上限 —— 与 IDE 逐字一致（2026-10-30 取证）。
+ *
+ * ## 为什么有两个常量（`CODEARTS_MAX_OUTPUT_TOKENS` vs 本值）
+ *
+ * 它们回答的是**两个不同问题**，混用会让其中一个静默失效：
+ *
+ * | 常量 | 回答的问题 | 值 |
+ * |---|---|---|
+ * | {@link CODEARTS_MAX_OUTPUT_TOKENS} | 「上游**最多**接受多少」的**安全边界** | 65_536 |
+ * | **本值** | 「**没人指定时我们该发多少**」的**默认预算** | 32_000 |
+ *
+ * ## 取证
+ *
+ * Reqable 抓包 4 条真实 IDE 聊天请求，`model=deepseek-v4.1-flash-1017` 的
+ * `max_tokens` **恒为 32000**（4/4，无一例外），而 AgentCenter 的
+ * `model_parameters.max_tokens` 给的**上限**是 65536。
+ * ⇒ IDE 的 32000 是**客户端默认预算**，不是模型能力上限。
+ *
+ * ## ⚠️⚠️ 为什么不能直接把 {@link CODEARTS_MAX_OUTPUT_TOKENS} 改成 32000
+ *
+ * 那个常量是**钳制上界**（`clampCodeArtsMaxTokens` 用它 `Math.min`）。改成
+ * 32000 会**静默削掉**调用方明确要求的长输出 —— 而长输出正是本家接
+ * `tool_stream` 的理由（大文件 write 的参数 JSON 需数万 token，截断会产出
+ * 非法 JSON，harness 报 `invalid arguments`）。⇒ 两者必须分开：
+ * **默认值降级对齐 IDE，上界保持 65536**。
+ *
+ * ⚠️ 与 `RemoteModel.maxOutputTokens` 的取舍一致：上游声明的上限**不**当默认
+ * 预算用（否则宿主的压缩预留会跟着变，见 `readAgentCenterWindow` 的注释）。
+ */
+const CODEARTS_DEFAULT_MAX_OUTPUT_TOKENS = 32_000;
 /**
  * 收敛输出上限到安全区间；非法值返回 undefined（不编造，交由调用方取默认）。
  *
@@ -1324,8 +1370,13 @@ export class CodeArtsAdapter extends LlmAdapter {
              * ⚠️ **不要推广到别家**：多数家的窗口来自远端该模型的配置，对未知 id
              *    编一个就是**假窗口**（分母错 ⇒ 占用比与压缩阈值一起错）。
              *    取值理由见 `CODEARTS_FALLBACK_CONTEXT_WINDOW` 的长注释。
+             *
+             * ⚠️ 2026-10-29 修订（AgentCenter 接入）：取值顺序改为「动态值优先、
+             *    静态表兜底」—— 此前「目录窗口全来自静态表」已过期；AgentCenter
+             *    与 IDE 内核权威逐值一致（GLM-5.2 现值 202752），静态表有三次漂移史
+             *    （见 `CONTEXT_WINDOWS` 的 GLM-5.2 行）；远端失败/无该 id 时仍回静态表。
              */
-            unknownModelContextWindow: (modelId) => codeartsContextWindow(modelId),
+            unknownModelContextWindow: (modelId) => this.remoteContextWindowOf(modelId) ?? codeartsContextWindow(modelId),
             /**
              * ★ **强制重拉**（供后台 20 分钟刷新器与「用户改设置」）。
              *
@@ -1356,6 +1407,49 @@ export class CodeArtsAdapter extends LlmAdapter {
     }
     /** 动态模型缓存（首次 listModels 成功后填充）。 */
     remoteModels;
+    /**
+     * AgentCenter 动态窗口表（**独立于目录可见性**）。
+     *
+     * ⚠️⚠️ **为什么必须与目录解耦**（2026-10-30 四路审计 P3 D6 定案）：
+     * `src/model-catalog.ts` 的 `unknownModelContextWindow` 调用点**只在
+     * `entry === undefined`（模型不在目录里）时**才走；而旧实现查的是
+     * `this.remoteModels` —— 可 `catalogEntries()` 正是由 `this.remoteModels`
+     * 映射而来 ⇒ **「在 remoteModels 里」⟺「在目录里」** ⇒ 动态腿在
+     * 「手填模型 id」场景**基本不可达**（实测唯一例外是 VL 模型，而 VL 走
+     * `analyzeImage` 那条路**根本不需要窗口** ⇒ 实际收益 ≈ 0）。
+     *
+     * ⇒ 这张表只装「AgentCenter 下发的窗口」，**与目录可见性无关**：
+     * 任何 id 只要 AgentCenter 给过窗口，就能查到正确分母。
+     *
+     * ⚠️ 键用**原始 id**（不做 `normalizeModelId` 归一）—— 与
+     * `src/models.ts` 的 `seen` 键口径一致（归一会把 `deepseek-v4.1-flash` 与
+     * `deepseek-v4.1-flash-1017` 并成一条，那是**两个不同模型**）。
+     */
+    remoteContextWindows = new Map();
+    /**
+     * 「只作窗口源」的模型 id 集合（**独立于目录**）。
+     *
+     * ⚠️⚠️ **必须是独立集合，不能只看条目的 `windowOnly` 属性**
+     * （2026-10-30 第二轮审计 P1 N-1 修）：原先只看属性 ⇒ **只在「远端拉取
+     * 成功」时生效** ⇒ 冷缓存（首启 / 远端失败 / 上游抖动）走 `DEFAULT_MODELS`
+     * 兜底 ⇒ 那些条目**没有** `windowOnly` 属性 ⇒ `kimi-k3` 以**裸名**进目录
+     * ⇒ `priceFactorFromName('kimi-k3')` = `Infinity` ⇒ 聚合里 codearts 恒排
+     * 最后 ⇒ 第一轮 P1-2 的症状**原样复发**（实测）。
+     *
+     * ⇒ 这里在**远端拉到窗口源条目时**记下它们的 id ⇒ 之后**冷缓存也记得**
+     * ⇒ 两条路径口径一致。
+     */
+    windowOnlyIds = new Set();
+    /**
+     * AgentCenter 动态窗口优先查（2026-10-29 接入；2026-10-30 改为查独立表）。
+     *
+     * ⚠️ 查**表**（O(1)）而不是扫数组：旧实现是线性 `find`，且因与目录耦合
+     * 而基本走不到；改成表之后它才真的会被调用（手填 id 场景）。
+     */
+    remoteContextWindowOf(modelId) {
+        const w = this.remoteContextWindows.get(modelId);
+        return typeof w === 'number' && w > 0 && Number.isFinite(w) ? w : undefined;
+    }
     /**
      * 已落缓存的目录是否**所有来源都取全**（issue IKJVTF，审计 I3）。
      *
@@ -1424,6 +1518,31 @@ export class CodeArtsAdapter extends LlmAdapter {
             if (models.length === 0)
                 return false;
             this.remoteModels = models;
+            // ⚠️⚠️ **同步重建窗口表**（2026-10-30 审计 P3 D6 修）：
+            //    动态窗口**必须与目录可见性解耦** —— `unknownModelContextWindow`
+            //    只在「模型不在目录里」时被调，而旧实现查的是 `remoteModels`
+            //    ⇒ 「在 remoteModels 里」⟺「在目录里」⇒ 动态腿在「手填模型 id」
+            //    场景**基本不可达**（实测唯一例外是 VL，而 VL 不需要窗口）。
+            //    ⇒ 这里把**全部**带窗口的条目（含 `windowOnly` 的窗口源条目）
+            //    收进表里，与目录可见性无关。
+            //
+            //    ⚠️ 键用**原始 id**（不做归一）—— 与 `src/models.ts` 的 `seen` 键
+            //    口径一致（归一会把 `deepseek-v4.1-flash` 与 `-1017` 并成一条，
+            //    那是**两个不同模型**）。
+            const windows = new Map();
+            for (const model of models) {
+                const w = model.contextWindow;
+                if (typeof w === 'number' && Number.isFinite(w) && w > 0)
+                    windows.set(model.id, w);
+            }
+            this.remoteContextWindows = windows;
+            // ⚠️⚠️ **同时记下「窗口源 id」**（2026-10-30 第二轮审计 P1 N-1 修）：
+            //    这些 id **只在 AgentCenter 出现**（builtin 没有）⇒ 若它们进目录，
+            //    就是**裸名**（AgentCenter 不下发倍率）⇒ `priceFactorFromName` 恒
+            //    `Infinity` ⇒ 聚合里 codearts 恒排最后。
+            //    ⇒ 记进**独立集合**（`windowOnlyIds`）⇒ 之后**冷缓存也记得**
+            //    ⇒ 远端路径与兜底路径口径一致。
+            this.windowOnlyIds = new Set(models.filter((m) => m.windowOnly === true).map((m) => m.id));
             // ⚠️ **只在成功赋值后**记时刻：失败/空结果不写，否则一次抖动会把上界
             //    刷新掉、下轮还要等满 20 分钟才发现上游没恢复。
             this.catalogAt = this.options.now?.() ?? Date.now();
@@ -1481,9 +1600,17 @@ export class CodeArtsAdapter extends LlmAdapter {
      *    故**不**臆造 low/high/max 强度阶梯。
      */
     toCatalogEntry(model) {
-        // ⚠️ **恒有值**（表内优先、查不到走具名兜底）—— 缺它用户就没有上下文占用条，
-        //    见 `CODEARTS_FALLBACK_CONTEXT_WINDOW` 的长注释（真实报障 2026-10-21）。
-        const contextWindow = codeartsContextWindow(model.id);
+        // ⚠️ **恒有值**（远端动态值优先 → 静态表 → 具名兜底，恒返回正数）——
+        //    缺它用户就没有上下文占用条，见 `CODEARTS_FALLBACK_CONTEXT_WINDOW`
+        //    的长注释（真实报障 2026-10-21）。
+        //    2026-10-29 起动态源：AgentCenter 带回的窗口与 IDE 内核权威逐值一致，
+        //    静态表只是冷缓存/失败兜底（GLM-5.2 漂移史见 `CONTEXT_WINDOWS`）。
+        //    ⚠️ 这里**直接读条目自身的 `contextWindow`**（条目本就来自
+        //    `this.remoteModels`，再 `find` 一遍是 O(N²) 重建——IKL3YH 同型）；
+        //    `DEFAULT_MODELS` 的骨架条目没有该字段 ⇒ 走静态表。
+        const contextWindow = typeof model.contextWindow === 'number' && model.contextWindow > 0 && Number.isFinite(model.contextWindow)
+            ? model.contextWindow
+            : codeartsContextWindow(model.id);
         // ⚠️ 倍率拼进 `name`（与 officeace / buddy / loomy / raccoon 同款：
         //    `name` 带倍率、`resolveModel` 用裸名，骨架只认 `name`）。
         //
@@ -1529,6 +1656,32 @@ export class CodeArtsAdapter extends LlmAdapter {
             // ⚠️ **无条件落键**（`codeartsContextWindow` 恒返回正数）—— 写成
             //    `...contextWindow !== undefined ? {...} : {}` 就是本缺陷的成因。
             contextWindow,
+            // ⚠️⚠️ **刻意不声明 `maxTokens`**（2026-10-30 四路审计 P1-1 定案）：
+            //
+            //    上游 AgentCenter 的 `max_tokens`（单次输出上限）**看起来**该落这里，
+            //    但 DSH 的契约不是「上限」而是「**默认输出预算**」：
+            //    `dsh-llm` 把 `defaultMaxTokens` 注入 `config.maxTokens`
+            //    （`node_modules/@deepseek-ai/dsh-llm/lib/index.js:2183-2185`），
+            //    而 `dsh-compaction-basic` 的 `reservedCompletionTokens(agent,
+            //    defaultMaxTokens)`（`lib/index.js:757`）读的**正是同一个值** ——
+            //    它把该值当作「**输出侧预留**」**从上下文窗口里扣掉**。
+            //
+            //    ⇒ 落键的后果（实测，宿主默认 thresholdRatio=0.8 / headroom=65536）：
+            //      GLM-5.2 压缩触发点 **162,201 → 109,772**、压力预算 **137,216 → 71,680**；
+            //      窗口 131,072 的模型配上 65536 的预留 ⇒ pressure=0 ⇒ 宿主**抛**
+            //      `TargetPressureConfigError`（**不是降级**）。
+            //    ⇒ 而 `master` 的 `toCatalogEntry` **全文没有 `maxTokens` 键**
+            //      ⇒ `defaultMaxTokens` 恒 undefined ⇒ 预留恒 0 ⇒ 上述回归是
+            //      **本 PR 新引入的**。
+            //
+            //    ⚠️ 与本仓既有先例同口径：`src/opencode-adapter.ts:392-413`
+            //    **刻意不声明** `defaultMaxTokens`，理由逐字为「能力表里的
+            //    `limit.output` 是**模型单次输出上限**，不是『合理的默认输出预算』……
+            //    下发等于**我们替用户决定**每轮按上限请求」。本家照此办理。
+            //    ⚠️ 出站侧的钳制**不受影响**：`clampCodeArtsMaxTokens` 只 `Math.min`
+            //    向下、不抬预算，默认预算仍由 `CODEARTS_MAX_OUTPUT_TOKENS` 单点决定
+            //    （`src/llm-adapter.ts:1965`）⇒ 撤掉本键**不改变实际发出去的
+            //    `max_tokens`**（上游声明值 65535 与本地 65536 的 1 token 差异也一并消失）。
             reasoning: {
                 // ⚠️ 顺序 = **强度序（弱 → 强）**，逐条理由见 `CODEARTS_REASONING_EFFORTS`
                 // 的长注释（Issue IKLIDV）—— 简言之：DSH 把该数组当展示顺序、客户端不排序，
@@ -1550,11 +1703,44 @@ export class CodeArtsAdapter extends LlmAdapter {
     async catalogEntries() {
         await this.ensureRemoteModels();
         const source = this.remoteModels ?? DEFAULT_MODELS.map((id) => ({ id, name: id }));
-        // ⚠️ 与 `listModels` 保持**同一套**「可见性」过滤（VL 多模态不参与），
-        // 唯一区别是不套用户黑名单 —— 那条区别现在由骨架的 `listAllModels` 承担。
         return source
-            .filter((m) => !/-VL-/i.test(m.id) && !/-VL$/i.test(m.id))
+            .filter((m) => this.isVisibleCatalogEntry(m))
             .map((m) => this.toCatalogEntry(m));
+    }
+    /**
+     * 一条远端条目**该不该进对话目录**（**两条路径共用**，2026-10-30 第二轮审计 P1 N-2 修）。
+     *
+     * ⚠️⚠️ **必须共用**（实测踩到）：`catalogEntries()`（异步，给 `listModels` /
+     * `resolveModel` 用）与 `syncCatalogEntries()`（同步，给 `listAllModels` 用）
+     * **原本各写一遍** ⇒ 守卫只覆盖了异步那条 ⇒ 变异「删掉同步那条的过滤」
+     * ⇒ **全量 11476 条用例全绿**（零保护）⇒ 而 `listAllModels()` 是
+     * **Jet Hub 模型开关清单**的数据源（`src/jet-hub-rpc.ts` 的 `fullCatalogIds()`）
+     * ⇒ 窗口源条目会**以裸名**出现在设置页（正是 P1-2 想消灭的形态）。
+     *
+     * ⇒ 现在**一份判据、两条路径共用** ⇒ 不可能再分叉。
+     *
+     * 判据两条：
+     * 1. ⚠️ **窗口源条目不进目录** —— AgentCenter 不下发倍率 ⇒ 进目录就是裸名
+     *    ⇒ `priceFactorFromName` 恒 `Infinity` ⇒ 聚合里 codearts 恒排最后、
+     *    永远不被挑中（静默）。它们的**窗口**仍可用 ——
+     *    见 {@link remoteContextWindows}。
+     *    ⚠️⚠️ **判据是「id 集合」而不是「条目属性」**（2026-10-30 第二轮审计
+     *    P1 N-1 修）：原先只看条目的 `windowOnly` 属性 ⇒ **只在「远端拉取成功」
+     *    时生效** ⇒ 冷缓存（首启 / 远端失败 / 上游抖动）走
+     *    `DEFAULT_MODELS` 兜底 ⇒ 那里的条目**没有** `windowOnly` 属性 ⇒
+     *    `kimi-k3` 以**裸名**进目录 ⇒ 第一轮 P1-2 的症状**原样复发**。
+     *    ⇒ 现在判据是 {@link windowOnlyIds} 这个**独立 id 集合**（远端来时填、
+     *    **冷缓存时也留着**）⇒ 两条路径口径一致。
+     * 2. ⚠️ **VL 多模态不进对话目录**（上下文小、不支持工具调用；当 agent 主模型
+     *    会踩别的坑）。⚠️ 与 `src/models.ts` 的 `parseModelInfo` **同口径**
+     *    （大小写**不敏感**）。
+     */
+    isVisibleCatalogEntry(model) {
+        if (model.windowOnly === true)
+            return false;
+        if (this.windowOnlyIds.has(model.id))
+            return false;
+        return !/-VL-/i.test(model.id) && !/-VL$/i.test(model.id);
     }
     /**
      * 同步视图（`listAllModels` 用）。
@@ -1564,8 +1750,11 @@ export class CodeArtsAdapter extends LlmAdapter {
      */
     syncCatalogEntries() {
         const source = this.remoteModels ?? DEFAULT_MODELS.map((id) => ({ id, name: id }));
+        // ⚠️⚠️ **判据与 `catalogEntries()` 共用**（`isVisibleCatalogEntry`）——
+        //    原先两条路径**各写一遍** ⇒ 守卫只覆盖异步那条 ⇒ 同步那条（**Jet Hub
+        //    模型开关清单**的数据源）零保护（2026-10-30 第二轮审计 P1 N-2 修）。
         return source
-            .filter((m) => !/-VL-/i.test(m.id) && !/-VL$/i.test(m.id))
+            .filter((m) => this.isVisibleCatalogEntry(m))
             .map((m) => this.toCatalogEntry(m));
     }
     async listModels(_provider) {
@@ -1668,6 +1857,33 @@ export class CodeArtsAdapter extends LlmAdapter {
             }
         }
         const messages = serializeMessages(options.messages, imageUrls);
+        /**
+         * IDE 的 `user_prompt`：**回看原始 `options.messages`（不是序列化后的 wire 数组）**
+         * 里最后一条**真正的用户发言**的纯文本。
+         *
+         * ⚠️⚠️ **必须从原始入参取，不能从 `messages` 取**：
+         * 1. **语义正确性**：`user_prompt` 的值域是「用户原话」，从原始入参取让
+         *    取值判据独立于 `serializeMessages` 的投影方式。实测（对抗审计 M16
+         *    三场景探针）当前投影把工具结果发成独立 `role:'tool'`、永不命中
+         *    `role==='user'`，两取法**逐字同形** —— 但那是投影的**当前巧合**，
+         *    不是取值判据的依据；投影一改（如工具结果折回 user 消息），从 wire
+         *    取就会静默变成「几百 KB 的文件内容」，与 IDE 的「用户一句话」语义
+         *    完全相反。
+         * 2. `messages` 已被 `unshift` 插入 system、且可能被 DSML 模式注入过提示
+         *    ⇒ 扫 wire 数组要多绕开这些注入项。
+         */
+        const lastUserPromptText = (() => {
+            for (let i = options.messages.length - 1; i >= 0; i--) {
+                const message = options.messages[i];
+                if (message.role !== 'user')
+                    continue;
+                // 该条是否**只**含工具结果（没有真正的用户文本）⇒ 跳过
+                const text = contentToText(message.content).trim();
+                if (text.length > 0)
+                    return text;
+            }
+            return undefined;
+        })();
         // harness 的 GenerateOptions.system 是独立的系统提示（如标题生成的
         // systemPrompt、agent 的 persona）。后端 chat/completions 只接受
         // messages 数组里的 system 角色，必须显式插入——否则模型看不到
@@ -1728,25 +1944,69 @@ export class CodeArtsAdapter extends LlmAdapter {
             model: options.model,
             messages,
             stream: true,
-            // prompt_cache_key 让服务端启用前缀缓存并在 usage 中返回 cached_tokens，
-            // 缺少该字段时缓存命中恒为 0（实测 2026-08-24）。
+            /**
+             * ⚠️⚠️ **以下字段集与 IDE 抓包逐项对齐**（2026-10-30 真机对照）。
+             *
+             * ## 取证（Reqable 抓包，4 条真实 IDE 聊天请求，键集 4/4 完全一致）
+             *
+             * IDE 的 11 个键：
+             * `enable_thinking, max_tokens, messages, model, stream, stream_options,
+             *  temperature, tool_choice, tool_stream, tools, user_prompt`
+             *
+             * 插件此前**多发 3 个**（IDE 一个都不发）、**少发 5 个**：
+             *
+             * | 字段 | 旧插件 | IDE | 本次处置 |
+             * |---|---|---|---|
+             * | `prompt_cache_key` | 发 | **不发** | **保留**（见下，有实测收益） |
+             * | `include` | 发 | **不发** | **移除**（IDE 不请求加密 reasoning） |
+             * | `reasoning_summary` | 发 | **不发** | **移除**（同上） |
+             * | `enable_thinking` | 不发 | `true` | **新增**（唯一真正生效的思考开关） |
+             * | `stream_options` | 不发 | `{include_usage:true}` | **新增**（要 usage 帧） |
+             * | `temperature` | 不发 | `0` | **新增** |
+             * | `tool_choice` | 不发 | `'auto'` | **新增** |
+             * | `user_prompt` | 不发 | 用户原话 | **新增** |
+             *
+             * ## ⚠️ `prompt_cache_key` 为什么**不**跟着删（与 IDE 一致的那条唯一例外）
+             *
+             * IDE 不发它也能吃到缓存（实测 `cached_tokens 148480/148949`，99.7% 命中，
+             * 靠服务端自动前缀缓存）。但插件显式发会话 id 有**独立收益**：
+             * 会话级亲和让同一会话的多轮/并发请求落同一后端实例 ⇒ 命中率稳定。
+             * 2026-10-30 真机 A/B：带它 200 且 `cached=256`，不带也 200 且同样 `cached=256`
+             * ⇒ **无害**，故保留（不是「与 IDE 不一致」的误配）。
+             *
+             * ## ⚠️⚠️ `enable_thinking` 是**唯一真正生效**的思考开关（实测判别）
+             *
+             * 用「17×23 step by step」+ `reasoning_tokens` 作判据，三轮真机：
+             *
+             * | 请求 | `reasoning_tokens` | reasoning 字符 |
+             * |---|---|---|
+             * | `enable_thinking: true`  | **34** | 129 |
+             * | `enable_thinking: false` | **n/a（无该字段）** | **0** |
+             * | 不发该字段              | 45 | 175 |
+             *
+             * ⇒ `true`/`false` **双向都生效**；不发 = 服务端默认（开）。
+             * ⚠️ 这推翻了本文件上方「顶层 `thinking.type` 是唯一生效控制」的旧结论
+             * —— 那是 2026-09-29 只测了 `thinking.type` 得出的，**两条腿并存**：
+             * `enable_thinking:false`（IDE 方言）与 `thinking:{type:'disabled'}`（旧方言）
+             * 实测**等价**（都让 `reasoning_tokens` 归零），故按 IDE 用前者。
+             */
+            // ⚠️ 删 `include` / `reasoning_summary` 的依据：IDE 从不下发它们，
+            // 而本仓也没有任何消费者读「加密 reasoning」⇒ 纯冗余出站字段。
+            // ⚠️ `prompt_cache_key` **保留**（唯一有意偏离 IDE 的字段，理由见上方长注释）。
             prompt_cache_key: this.sessionId,
-            // include/reasoning_summary 对齐 Rust 端 CodeArtsExtraFields，
-            // 让服务端返回加密 reasoning 内容与摘要。
-            include: ['reasoning.encrypted_content'],
-            reasoning_summary: 'auto',
-            // 思考开关（实测，2026-09-29）：档位「关闭」翻成本网关真正认的字段。
-            // ⚠️ 是**顶层** `thinking`，不是 raccoon 那种 `extra_body.thinking` 方言
-            // （两者是不同网关的方言，混用会静默无效）。
-            // 实测判据：`disabled` → reasoning_tokens 3/3 全为 0、正文仍正确；
-            // `enabled` 与不传等价（服务端默认就开着），故「开启」档**不发**该字段。
-            //
-            // ⚠️ 标题请求走 `titlePlan`（上方），它会把档位定成 `'off'`，
-            // 于是这里同样发 `disabled` —— 两条判据**合并写**在一个表达式里，
-            // 避免「标题请求绕开了关闭」这类静默失效。
-            ...titlePlan.thinkingOff || options.reasoningEffort === 'off'
-                ? { thinking: { type: 'disabled' } }
-                : {},
+            // 思考开关：按 IDE 的 `enable_thinking`（关档发 false，其余发 true）。
+            // ⚠️ **不发 `thinking:{type:'disabled'}`** —— 与 IDE 对齐后两者只留一份，
+            //    避免「同一语义两个字段」（旧方言仍被服务端接受，但不该再发）。
+            enable_thinking: !(titlePlan.thinkingOff || options.reasoningEffort === 'off'),
+            // IDE 每次请求都带 `stream_options.include_usage`（要 usage 帧）。
+            // ⚠️ 本仓的 usage 消费方（token-meter / 占用条）依赖 `assistant/message.usage`，
+            //    拿不到 usage 会让分子的唯一来源变空 ⇒ 这不是可选美化项。
+            stream_options: { include_usage: true },
+            // ⚠️ `temperature: 0` 与 IDE 逐字一致（IDE 4/4 请求全是 0）。
+            temperature: 0,
+            // ⚠️ `tool_choice: 'auto'`：只在真带工具时发（无工具时下发的 `tools` 已省略，
+            //    此时发 `tool_choice` 是无意义字段，IDE 也只在有工具时发它）。
+            ...wireTools !== undefined && wireTools.length > 0 ? { tool_choice: 'auto' } : {},
             // 对齐 CodeArts Agent IDE 请求体（deveco-code 内核日志实证）：
             // tool_stream=true 让后端将超大工具调用参数（如大文件 file_write）
             // 分段流式传输，避免单次 SSE 事件过大导致连接被掐断
@@ -1770,8 +2030,26 @@ export class CodeArtsAdapter extends LlmAdapter {
             // ⚠️ 抬预算（`titlePlan.maxTokens`，关不掉思考时才有值）必须走**同一个**
             // 钳制函数，否则会被钳回原值、兜底静默失效。标题请求的 512 远小于上限，
             // 故实际不会被钳；这里统一走一遍是为了「预算只有一个出口」。
-            max_tokens: clampCodeArtsMaxTokens(titlePlan.maxTokens) ?? CODEARTS_MAX_OUTPUT_TOKENS,
+            max_tokens: clampCodeArtsMaxTokens(titlePlan.maxTokens) ?? CODEARTS_DEFAULT_MAX_OUTPUT_TOKENS,
             ...wireTools !== undefined && wireTools.length > 0 ? { tools: wireTools } : {},
+            /**
+             * ⚠️ `user_prompt` = **最后一条 user 消息的纯文本**（IDE 的语义）。
+             *
+             * 实测（Reqable 4 条 IDE 请求）它的值恒为「用户这一轮的原话」，例如
+             * `"继续按照设计稿优化UI代码dart，然后每完成一个模块，就提交一个git"`。
+             *
+             * ## 它是什么 / 不是什么
+             *
+             * - **不是**发给模型的提示（模型看的是 `messages`），大概率是服务端用于
+             *   **会话计费/审计/标题**的旁路字段 ⇒ 缺失不影响出流（旧的插件请求
+             *   不带它也能稳定 200，两年实测如此）。
+             * - 但既然用户要求「尽量与 IDE 一致」，就按 IDE 下发：取值语义必须**对齐**
+             *   （用户原话，不是拼好的 system 或工具结果），否则不如不发。
+             *
+             * ⚠️ 取不到（无 user 消息 / 内容全是工具结果）时**省略该键** —— 发一个
+             * 空串会与 IDE 的真实形态（恒非空）不符，反而制造新的差异。
+             */
+            ...lastUserPromptText !== undefined ? { user_prompt: lastUserPromptText } : {},
         });
         const url = `${CHAT_API_BASE}/chat/completions`;
         // CodeArts 按账户限制并发：当会话上限

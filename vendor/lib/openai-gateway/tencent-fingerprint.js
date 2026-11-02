@@ -316,11 +316,20 @@ const CONTENT_FINGERPRINTS = [
         //
         // `find` 刻意不带尾句点：一条同时覆盖带句点与不带句点两种形态。
         find: 'You are an AI agent powered by DeepSeek Harness',
+        // ⚠️⚠️ **漂移容忍**（2026-10-30 实测定案，见下方「2026-10-30」一节）：
+        // 上游的匹配器**大小写不敏感**、且**归一空白**，但**不跨标点** ——
+        // 于是「形态」这一维可以放宽，而语义仍锁在整句上。
+        findRegex: 'You\\s+are\\s+an?\\s+AI\\s+(?:coding\\s+)?agent\\s*,?\\s*powered\\s+by\\s+'
+            + '(?:the\\s+)?DeepSeek\\s+Harness',
         // 见上方「2026-10-21」一节：官方同形 + 官方原生兜底措辞。
         replace: 'You are an AI coding assistant, powered by a large language model',
         note: '本机 2026-10-20 对 copilot.tencent.com 实测：system 绝对行首 400/11128，'
             + '前接任意字符放行；2026-10-21 换成官方同形措辞后**实测放行**（buddy 站 / '
-            + 'deepseek-v4.1-flash），另实测该句在 www.workbuddy.ai 两模型**均不拦**（站点相关）',
+            + 'deepseek-v4.1-flash），另实测该句在 www.workbuddy.ai 两模型**均不拦**（站点相关）'
+            + '；2026-10-30 复测（buddy / deepseek-v4.1-flash / 账号 A6146635）：原文 400'
+            + '，全小写与全大写**同样 400**（⇒ 大小写不敏感），双空格**仍 400**（⇒ 空白归一）'
+            + '，`agent` 后加逗号**200**、`agent,` 无空格**200**（⇒ 匹配不跨标点）'
+            + '，裸两个词 DeepSeek Harness **200**（⇒ 认整句不认 token）',
     },
     {
         // **DSH Web 运行面的开头两句** —— 来自 DSH 的 `@deepseek-ai/dsh-harness-dev-context`
@@ -467,11 +476,27 @@ const CONTENT_FINGERPRINTS = [
 function escapeRegExp(literal) {
     return literal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+/**
+ * 从 `findRegex` 源码里取「预检锚」。
+ *
+ * ⚠️ 取法是**人工指定的常量**（每条规则自带 `precheckAnchor`），不从正则反推 ——
+ * 从正则反推「哪段必然出现」是**不可判定**的，猜错会让预检把真命中挡掉
+ * （症状：规则静默不生效，与「没登记」同形）。
+ */
+const PRECHECK_ANCHORS = {
+    // 第 4 条：锚取 `deepseek harness` 而**不是** `ai agent` ——
+    // 后者不含漂移形态 `ai **coding** agent`（实测：锚写成 `ai agent` 时
+    // 「coding agent」那一格**静默不匹配**，正是本轮要治的那类失效）。
+    // ⚠️ 锚只需「必然出现且够独特」：`deepseek harness` 在本句里恒在，
+    //    且不会命中无关文本（比 `powered by` 这种通用短语好得多）。
+    'You are an AI agent powered by DeepSeek Harness': 'deepseek harness',
+};
 const COMPILED = CONTENT_FINGERPRINTS.map((rule) => ({
     replace: rule.replace,
-    findLower: rule.find.toLowerCase(),
+    findLower: PRECHECK_ANCHORS[rule.find] ?? rule.find.toLowerCase(),
     // `g` = 全部出现都改写；`i` = 大小写不敏感（实测全小写 / 全大写同样被拦）。
-    pattern: new RegExp(escapeRegExp(rule.find), 'gi'),
+    // ⚠️ 有 `findRegex` 时用它（只放宽形态，仍锚整句）。
+    pattern: new RegExp(rule.findRegex ?? escapeRegExp(rule.find), 'gi'),
 }));
 /** 该 provider 是否走腾讯系后端（有这套内容级风控）。 */
 export function isTencentContentFingerprintProvider(provider) {

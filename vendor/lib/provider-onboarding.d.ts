@@ -26,6 +26,16 @@
  * 公共字段），且 `raccoon` 的「已领时 `earned` 报满分」这条语义**只有在这个形状上**
  * 才表达得出来 —— 压成 `ClaimOutcome` 会丢掉它（见 `ProviderOnboarding.claim`）。
  * 与 `ProviderBalanceDetail` 复用 `CreditsEndpointDeps` 的形状同款理由。
+ *
+ * ## Magicrew（2026-11-01 接入，用户要求）
+ *
+ * `magicrew`（国内）与 `magicrewintl`（国际）两站**共用**同一份协议实现
+ * （`src/magicrew-checkin.ts`），只有 `product` 常量不同。
+ *
+ * ⚠️⚠️ **国际站 `GET /onboarding/tasks` 恒返回 `{participant_type:null, tasks:[]}`**
+ * —— 那是「该账号没被登记进引导计划」，**不是**「已经领完了」。所以国际版
+ * `status` 会如实回 `total: 0`，UI 显示「无新人任务」而不是「已全部完成」。
+ * 代码照样登记（能领就领），只是**预期拿不到**。
  */
 import type { ClaimOutcome } from './credits.js';
 import type { LoomyCredential } from './loomy.js';

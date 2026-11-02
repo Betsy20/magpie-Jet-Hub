@@ -5,6 +5,8 @@ import { normalizeOpencodeGeneration } from './opencode-auth.js';
 import { maskProxyPassword } from './proxy-mask.js';
 // ⚠️ `model-queue.ts` **零 import**（纯函数模块，见其模块头）⇒ 不引入环。
 import { nextUtc8DayStartMs } from './model-queue.js';
+import { readTokenLedgerDayMap, utc8DayKey } from './token-ledger.js';
+import { accountLoadIndex, overflowRequestsThreshold, rankAccountsBySessionWithOverflow, shuffleAccounts } from './session-balance.js';
 // 兼容既有的导入路径：命名空间名与黑名单类型原本定义在本模块。
 export { JET_HUB_NS } from './jet-hub-store.js';
 /**
@@ -368,6 +370,17 @@ export class AccountPool {
      */
     nativeWebSearchCache = true;
     /**
+     * 「ZCode 会话负载均衡」开关的进程内副本。
+     *
+     * 缺键语义是**启用**（与 {@link nativeWebSearchCache} 同一方向）：老文档没有
+     * 本键时保持会话亲和，不会因读取失败而静默改回「手动顺序压一个号」
+     *（那正是 2026-10-30 用户要求修掉的形态）。
+     *
+     * ⚠️ 与 {@link nativeWebSearchCache} 同级、**不需要**独立文档：丢失本键的
+     * 唯一后果是回到手动顺序，用户再开一次即可。
+     */
+    sessionBalanceCache = true;
+    /**
      * 「面板入口」的进程内副本：Jet Hub 的唯一入口位置（两个取值互斥）。
      *
      * 缺键语义是 `'sidebar'`「仅侧栏」（与 {@link nativeWebSearchCache} 同一方向）：
@@ -495,6 +508,8 @@ export class AccountPool {
             this.gatewayAllowLanCache = state.gatewayAllowLan === true;
             // 原生搜索总开关同理：老文档没有该键 → 保持默认启用。
             this.nativeWebSearchCache = state.nativeWebSearchEnabled !== false;
+            // 会话负载均衡开关同理：老文档没有该键 → 保持默认启用。
+            this.sessionBalanceCache = state.sessionBalanceEnabled !== false;
             // 面板入口同理：老文档没有该键（或值是脏值）→ 回到默认「仅侧栏」。
             // 过一遍 sanitize：store 层的 load 已归一，这里再判一次是因为老契约
             // 后端可能绕过 schema 直接给出原始文档。
@@ -600,6 +615,10 @@ export class AccountPool {
                 //    重启后静默回到只绑回环（用户会以为开关坏了）。
                 gatewayAllowLan: this.gatewayAllowLanCache,
                 nativeWebSearchEnabled: this.nativeWebSearchCache,
+                // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同一个整体替换陷阱）：
+                //    漏键会让用户明确关闭的「会话负载均衡」在任何一次其它写入时被抹掉，
+                //    重启后静默回到开启。
+                sessionBalanceEnabled: this.sessionBalanceCache,
                 // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同一个整体替换陷阱）：
                 //    漏键会让用户改过的面板入口在**任何**一次账号/黑名单/网关/顺序写入时
                 //    被静默清掉，重启后入口又变回默认「仅侧栏」。
@@ -1094,6 +1113,36 @@ export class AccountPool {
         this.loaded = true;
         if (this.store.kind === 'memory') {
             this.ctx.logger?.warn?.('[jet-hub] 无持久化后端，原生搜索开关仅本次会话有效');
+            return;
+        }
+        await this.queueStoreSave();
+    }
+    /**
+     * 「ZCode 会话负载均衡」开关当前是否启用。
+     *
+     * 缺键语义为**启用**（见 {@link sessionBalanceCache}）。
+     *
+     * ⚠️ 调用方（`credential-resolver.ts` 与 `zcode-adapter.ts` 的选号路径）
+     * **必须每次现读**，不能缓存返回值：用户随时可能在 Jet Hub 页头切换。
+     */
+    sessionBalanceEnabled() {
+        this.ensureLoaded();
+        return this.sessionBalanceCache;
+    }
+    /**
+     * 打开/关闭「ZCode 会话负载均衡」并落盘。
+     *
+     * 关闭后 ZCode 回到「手动顺序首个可用账号」的既有语义 —— 与开关加入前
+     * 逐字节同路径（`getAvailableAccount`），不经过 session 排序。
+     */
+    async setSessionBalanceEnabled(enabled) {
+        this.ensureLoaded();
+        if (this.sessionBalanceCache === enabled)
+            return;
+        this.sessionBalanceCache = enabled;
+        this.loaded = true;
+        if (this.store.kind === 'memory') {
+            this.ctx.logger?.warn?.('[jet-hub] 无持久化后端，会话负载均衡开关仅本次会话有效');
             return;
         }
         await this.queueStoreSave();
@@ -2247,7 +2296,84 @@ export class AccountPool {
      * 而它们本就不关心具体形状。
      */
     async getAvailableAccount(provider, modelId, excludeAccountIds) {
-        const candidates = this.readAccounts()
+        const candidates = this.candidateAccounts(provider, modelId, excludeAccountIds);
+        if (candidates.length === 0)
+            return null;
+        // 候选顺序即**用户在 Jet Hub 拖拽设定的手动顺序**（`reorderAccounts` 写入）。
+        //
+        // 为什么不再按「限流重置时间最早到期」重排（早期实现如此）：
+        // 那个排序会让手动顺序形同虚设 —— 用户把某账号拖到首位，只要另一个
+        // 账号的限流重置时间更早，实际选中的仍是后者，拖拽变成纯 UI 装饰。
+        // 现在的语义是「手动顺序优先，限流豁免」：顺序完全由用户决定，
+        // 而当前正处于限流期的账号已被候选筛排除，不会选到。
+        //
+        // 注意 candidates 来自 readAccounts() 的 filter，而 filter 保持原数组
+        // 顺序，故这里天然就是手动顺序，无需任何排序。
+        return await this.resolveFirstCredential(provider, candidates);
+    }
+    /**
+     * 按 **sessionId** 选号（ZCode 专用，2026-10-30 用户要求）。
+     *
+     * - `sessionId` 非空：用 rendezvous 哈希把同一会话**稳定映射**到同一个候选
+     *   账号（会话亲和），不同会话自动分散到不同账号；账号集合变化时只迁移
+     *   原本落在该账号上的会话。
+     * - `sessionId` 为空/未传：随机洗牌后取第一个可用账号（本地 OpenAI 网关等
+     *   不带 DSH 会话标识的请求，随机均衡）。
+     *
+     * ⚠️ 本方法**刻意覆盖手动顺序** —— 这是 ZCode 用户明确要求的负载均衡语义。
+     * 其余 provider 继续走 {@link getAvailableAccount}（手动顺序优先），不受影响。
+     *
+     * `excludeAccountIds` 与 {@link getAvailableAccount} 同义：请求级换号时
+     * 排除刚失败的账号，避免拿回同一个。
+     */
+    async getAvailableAccountForSession(provider, modelId, sessionId, excludeAccountIds) {
+        const candidates = this.candidateAccounts(provider, modelId, excludeAccountIds);
+        if (candidates.length === 0)
+            return null;
+        const ordered = sessionId !== undefined && sessionId.length > 0
+            ? // ⚠️ 溢出均衡（2026-10-31 用户报障「每个账号的负载并不太均衡」）。
+                //
+                // 语义是**上限（cap）不是均衡器**：账号今日请求数达阈值后整组沉底，
+                // 于是**新会话**落到还有余量的号上；而一个**正在跑的会话**，一旦它所在
+                // 账号越过阈值，下一次请求就会迁移 —— 本修法正是靠这次迁移把长会话摊开的
+                // （**不是**「已有会话保持亲和」，初版这么写是错的，见
+                // `session-balance.ts` 的 `rankAccountsBySessionWithOverflow` 长注释）。
+                //
+                // 阈值 env `DSH_ZCODE_SESSION_BALANCE_OVERFLOW_REQUESTS`（缺省 300，0=关闭）。
+                // 负载数据源 = token-ledger 日聚合（纯内存读，零网络请求，实测 ~1 µs）。
+                //
+                // ⚠️ 账本读取**不得反噬推理**（与 `src/index.ts` 记账处同一条纪律）：
+                // 记账后端是外部注入点，`load()` 抛错不该让选号整体失败 —— 失败时按
+                // 「读不到负载」处理，即全员 fresh，退回纯哈希亲和（与没装这个功能逐字节
+                // 同语义）。**不要**为了「看得见错误」把它改成 rethrow：那会让一次统计
+                // 故障变成整条推理链路不可用。
+                rankAccountsBySessionWithOverflow(candidates, sessionId, provider, this.sessionLoadIndex(provider), overflowRequestsThreshold())
+            : shuffleAccounts(candidates);
+        return await this.resolveFirstCredential(provider, ordered);
+    }
+    /**
+     * 今日账号负载索引（`provider` 维度）；任何读取异常都退化为**空表**。
+     *
+     * 抽成方法是为了让「失败兜底」只有一份实现（`getAvailableAccountForSession`
+     * 与将来的调用点共用），也让单测能单独验证兜底语义（见
+     * `tests/unit/session-balance.spec.ts` 的「账本读取抛错」用例）。
+     */
+    sessionLoadIndex(provider) {
+        try {
+            return accountLoadIndex(readTokenLedgerDayMap(), provider, utc8DayKey(Date.now()));
+        }
+        catch {
+            return new Map();
+        }
+    }
+    /**
+     * 选号候选：`provider` + `enabled` + 不在 `excludeAccountIds` + 目标模型未限流。
+     *
+     * 与 {@link getAvailableAccount} / {@link getAvailableAccountForSession} 共用，
+     * 避免同一判据出现两份实现（两份必然漂移）。
+     */
+    candidateAccounts(provider, modelId, excludeAccountIds) {
+        return this.readAccounts()
             .filter(a => a.provider === provider && a.enabled)
             .filter(a => excludeAccountIds === undefined || !excludeAccountIds.has(a.id))
             .filter(a => {
@@ -2259,20 +2385,14 @@ export class AccountPool {
             const resetAt = a.modelRateLimits[modelId];
             return resetAt === undefined || resetAt === 0 || Date.now() >= resetAt;
         });
-        if (candidates.length === 0)
-            return null;
-        // 候选顺序即**用户在 Jet Hub 拖拽设定的手动顺序**（`reorderAccounts` 写入）。
-        //
-        // 为什么不再按「限流重置时间最早到期」重排（早期实现如此）：
-        // 那个排序会让手动顺序形同虚设 —— 用户把某账号拖到首位，只要另一个
-        // 账号的限流重置时间更早，实际选中的仍是后者，拖拽变成纯 UI 装饰。
-        // 现在的语义是「手动顺序优先，限流豁免」：顺序完全由用户决定，
-        // 而当前正处于限流期的账号已被上面的 filter 排除，不会选到。
-        //
-        // 注意 candidates 来自 readAccounts() 的 filter，而 filter 保持原数组
-        // 顺序，故这里天然就是手动顺序，无需任何排序。
-        //
-        // 逐个尝试解析凭据，跳过占位/损坏条目（并记录原因，避免静默失败）
+    }
+    /**
+     * 按给定顺序逐个解析凭据，返回第一个可用账号；坏的跳过并记录原因。
+     *
+     * 抽成私有方法是为了让「手动顺序」与「sessionId / 随机顺序」共用**同一份**
+     * 凭据解析与日志语义 —— 否则两条选号路径对「凭据损坏」的处理会分叉。
+     */
+    async resolveFirstCredential(provider, candidates) {
         const failures = [];
         for (const entry of candidates) {
             let resolved;

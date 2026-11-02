@@ -175,6 +175,33 @@ export declare class OpencodeAdapter extends LlmAdapter {
     private resolveImageUrls;
     /** 用指定槽发一次请求（轮换循环的复用单元）。 */
     protected streamVia(slot: IdentitySlot, options: GenerateOptions): AsyncIterable<StreamChunk>;
+    /**
+     * 传输层：先用 Bun 指纹发，**模块加载不到时**才回退常规 fetch。
+     *
+     * ## 为什么免费与付费共用这一条（不分叉）
+     *
+     * 两者的请求形状**逐字节相同**，差别只在「用哪个槽 / key 能不能过免费判定」
+     * （见 `pickSlot`）。传输层若按付费/免费分叉，等于凭一个未经证实的假设
+     * 分两套判据 —— 本仓库的红线。实测旁证：付费模型名 + 匿名 key 回的是
+     * **401 `AuthError`**（鉴权层拒绝，不是门禁层），说明两条通道的门禁位置不同，
+     * 但都受益于「更像官方客户端」。
+     *
+     * ## 回退的边界（只这一种）
+     *
+     * 只接 {@link BunTlsUnavailableError}：它意味着**请求还没发出去**
+     * （模块解析失败），重发不会产生双份副作用。其它错误一律原样抛给轮换层 ——
+     * 把 401/429 也回退会让同一次失败既记账又重发。
+     *
+     * ## ⚠️ 这里**刻意不调 `warn`**
+     *
+     * 回退是**静默**的。理由：本方法在 `streamVia` 里逐请求调用，而
+     * `warn` 在本仓库是**协议层诊断**的通道 —— 响应层剔调用时的用例用
+     * `toHaveBeenCalledTimes(1)` 精确计数（`opencode-stream.spec.ts` 多处）。
+     * 传输层往里插一条会让那些计数变成 2、把「剔除留痕」的判据淹成噪音。
+     * 可观测性改由 {@link bunTlsUnavailableReason} 对外暴露，由接线层
+     * （`index.ts`）在**启动期**读一次并记日志。
+     */
+    private fetchWithBunFingerprint;
 }
 /** 在 `ctx.llm` 上注册 opencode 路由。 */
 export declare function registerOpencodeLlm(ctx: Context, options: OpencodeAdapterOptions): OpencodeAdapter;

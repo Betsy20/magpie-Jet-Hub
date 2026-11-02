@@ -68,6 +68,9 @@ export const jetHubSchema = Schema.object({
     // 「允许局域网访问」：默认关闭（暴露面变大必须是显式选择）。
     gatewayAllowLan: Schema.boolean().default(false),
     nativeWebSearchEnabled: Schema.boolean().default(true),
+    // 「ZCode 会话负载均衡」：默认开启（2026-10-30 用户要求）。关闭 = ZCode
+    // 回到「手动顺序首个可用账号」的既有语义。判据在 sanitizeSessionBalanceEnabled。
+    sessionBalanceEnabled: Schema.boolean().default(true),
     // 缺键 = 「仅侧栏」（升级前的默认就是显示那一行；改掉是显式动作）。
     // ⚠️ 用 `Schema.string()` 而不是 `Schema.union([...])`：schema 只负责类型，
     // 取值合法性由 `sanitizePanelEntry` 在**读写两侧**统一判（老契约后端不经过
@@ -132,6 +135,19 @@ export function sanitizeGatewayAllowLan(raw) {
  * 要 API Key。
  */
 export function sanitizeNativeWebSearchEnabled(raw) {
+    return raw !== false;
+}
+/**
+ * 归一化「ZCode 会话负载均衡」开关（{@link JetHubState.sessionBalanceEnabled}）。
+ *
+ * 缺键语义为**启用**（2026-10-30 用户要求的默认方向）：老文档没有本键、或被
+ * 老版本代码整体重写时丢键，都回到「会话亲和 + 随机分摊」开启态 —— 与
+ * {@link sanitizeNativeWebSearchEnabled} 的判据同构（`raw !== false`）。
+ *
+ * ⚠️ 字符串 `'false'` **不算** `false`（与 panelEntry 那条同款）：那是脏数据，
+ * 不是用户意图。
+ */
+export function sanitizeSessionBalanceEnabled(raw) {
     return raw !== false;
 }
 /**
@@ -801,6 +817,8 @@ class SettingsStore {
             gatewayAllowLan: sanitizeGatewayAllowLan(value.gatewayAllowLan),
             // 老文档没这个键 → 启用（原生搜索本就是新功能，默认开启才符合「装上就能用」）。
             nativeWebSearchEnabled: sanitizeNativeWebSearchEnabled(value.nativeWebSearchEnabled),
+            // 老文档没这个键 → 启用（2026-10-30 用户要求的默认方向）。
+            sessionBalanceEnabled: sanitizeSessionBalanceEnabled(value.sessionBalanceEnabled),
             // 老文档没新键 → 按老布尔迁移（只有明确 false 才是「仅设置页」）；两者都没有 → 仅侧栏。
             panelEntry: sanitizePanelEntry(value.panelEntry, value.sidebarEntryEnabled),
             // 老文档没这个键 → 空数组（未自定义），展示侧按声明顺序渲染。
@@ -851,6 +869,10 @@ class SettingsStore {
             //    探针实测（老契约后端）：`setNativeWebSearchEnabled(false)` 的
             //    replace 载荷里根本没有本键，新实例读回 `true`。
             nativeWebSearchEnabled: state.nativeWebSearchEnabled !== false,
+            // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同因，是同一个
+            //    `replace` 整体替换陷阱）：漏键会让用户明确关闭的「ZCode 会话负载
+            //    均衡」在任何一次其它写入时被抹掉，重启后**静默回到开启**。
+            sessionBalanceEnabled: state.sessionBalanceEnabled !== false,
             // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同因，是同一个
             //    `replace` 整体替换陷阱的第二个受害者）：漏键会让用户改过的
             //    「面板入口」在**任何**一次账号/黑名单/网关/顺序写入时被抹掉，
@@ -953,6 +975,14 @@ const REF_PREFIX_TO_PROVIDER = [
     //    上游整套反代命名空间都不存在，且 `account.create` 生成的账号 ref 恒为
     //    `${provider.toUpperCase()}_ACCOUNT_${suffix}` —— 两者必须对上，否则本表认不出它。
     ['MODELSCOPE', 'modelscope'],
+    // ⚠️ **本 fork 独有**的 provider（qiniu，2026-10-29）—— 同款坑第 **六** 次。
+    // 漏加 = `QINIU_ACCOUNT_*` 的账号在 `state.json` 缺失时**静默消失**
+    //（凭据还在 `.credentials.yaml` 里，只是索引建不出来，用户只能重新粘贴 Key）。
+    //
+    // ⚠️ 前缀取 `QINIU`：`account.create` 生成的账号 ref 恒为
+    //    `${provider.toUpperCase()}_ACCOUNT_${suffix}`（见 `qiniu-rpc.ts` 的
+    //    `qiniuSlotNamesOf`），两者必须对上，否则本表认不出它。
+    ['QINIU', 'qiniu'],
     // ⚠️ 第 14 个 provider（gemini，2026-10-03）—— 同款坑第 **三** 次。
     // 漏加 = `GEMINI_ACCOUNT_*` 的账号在 `state.json` 缺失时静默消失
     //（凭据还在 `.credentials.yaml` 里，只是索引建不出来，用户只能重新授权）。
@@ -983,6 +1013,13 @@ const REF_PREFIX_TO_PROVIDER = [
     // 漏加 = `MAGICREW_ACCOUNT_*` 的账号在 `state.json` 缺失时**静默消失**
     //（凭据还在 `.credentials.yaml` 里，只是索引建不出来，用户只能重新导入）。
     ['MAGICREW', 'magicrew'],
+    // ⚠️ MagiCrew 国际站（`magicrewintl`，2026-11-01）—— 同款坑第 **九** 次。
+    // 漏加 = `MAGICREWINTL_ACCOUNT_*` 的账号在 `state.json` 缺失时**静默消失**
+    //（凭据还在 `.credentials.yaml` 里，只是索引建不出来，用户只能重新导入）。
+    // ⚠️ 与 `MAGICREW` 是**超串关系**（`MAGICREWINTL` 以 `MAGICREW` 开头）——
+    //    顺序由 `ACCOUNT_REF_RE` 内部的**长度降序排序**保证，与本数组书写顺序无关
+    //    （与 `MINIMAX` / `MINIMAXINTL`、`AUTOCLAW` / `AUTOCLAWINTL` 同型）。
+    ['MAGICREWINTL', 'magicrewintl'],
     // ⚠️ 第 19 个 provider（autoclawintl，2026-10-20）—— 同款坑第 **七** 次。
     // 漏加 = `AUTOCLAWINTL_ACCOUNT_*` 的账号在 `state.json` 缺失时**静默消失**
     //（凭据还在 `.credentials.yaml` 里，只是索引建不出来，用户只能重新导入）。
@@ -1154,6 +1191,8 @@ class FileStore {
                 gatewayAllowLan: sanitizeGatewayAllowLan(value.gatewayAllowLan),
                 // 老文档没这个键 → 启用，与升级前行为一致。
                 nativeWebSearchEnabled: sanitizeNativeWebSearchEnabled(value.nativeWebSearchEnabled),
+                // 老文档没这个键 → 启用，与升级前行为一致。
+                sessionBalanceEnabled: sanitizeSessionBalanceEnabled(value.sessionBalanceEnabled),
                 // 老文档没新键 → 按老布尔迁移（与 `SettingsStore` 同一判据）；两者都没有 → 仅侧栏。
                 panelEntry: sanitizePanelEntry(value.panelEntry, value.sidebarEntryEnabled),
                 // 老文档没这个键 → 空数组（未自定义），展示侧按声明顺序渲染。
@@ -1227,6 +1266,8 @@ class FileStore {
                 gatewayAllowLan: false,
                 // 同上：恢复出的文档不含原生搜索开关信息 → 启用（与全新安装一致）。
                 nativeWebSearchEnabled: true,
+                // 同上：恢复出的文档不含会话负载均衡开关信息 → 启用（与全新安装一致）。
+                sessionBalanceEnabled: true,
                 // 同上：恢复出的文档不含面板入口信息 → 默认「仅侧栏」（与全新安装一致）。
                 panelEntry: DEFAULT_PANEL_ENTRY,
                 // 凭据文件里也没有顺序信息 → 空数组（未自定义，与全新安装一致）。

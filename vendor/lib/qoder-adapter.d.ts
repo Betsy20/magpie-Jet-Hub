@@ -112,6 +112,19 @@ export declare function looksLikeUpstreamProviderError(text: string): boolean;
  * | `auth`     | `AUTH` / 401 / 403 | ✅ | ❌ **绝不** |
  * | `upstream` | `SERVER` **且** {@link looksLikeUpstreamProviderError} | ✅ | ❌ **绝不** |
  * | `other`    | 其余（400 参数错、风控页、空响应…） | ❌ | ❌ |
+ * | `transport`| **不来自 {@link classifyQoderFailure}**：由适配器在 `fetch` 抛
+ *               传输错误时（`sendEncrypted`）**直接传入** | ✅ | ❌ **绝不**
+ *              （连不上是出口/网络问题，写冷却会把健康号封到当天 24 点） |
+ *
+ * ## ⚠️ `transport` 是**内部入参**，不是分类结果
+ *
+ * {@link classifyQoderFailure} **永不返回** `'transport'`（实测：喂
+ * `('TRANSPORT', <含 UND_ERR 的 detail>)` 得 `'other'`）。原因：这条类别只在
+ * 「建连/首包」这条腿上有意义，而 `fetch` 的传输错误在进入任何分类器**之前**
+ * 就已被 `sendEncrypted` 包成 `LlmError(code='TRANSPORT')` 并直接送进换号分支。
+ *
+ * ⚠️ **SSE 中途**的 `sse transport error` 因此**不换号**（被归 `other`）——
+ * 那是刻意的：那时正文可能已吐了一半，换号重发会重复内容。
  *
  * ## ⚠️ `auth` / `upstream` 只换号、绝不写冷却
  *
@@ -128,7 +141,49 @@ export declare function looksLikeUpstreamProviderError(text: string): boolean;
  * 后者是**额度专用**判据（含文案兜底），保留原样不动（既有调用方与测试
  * 依赖它）。本函数是**更宽**的分类入口，额度也在其中。
  */
-export type QoderFailureClass = 'quota' | 'rate' | 'auth' | 'upstream' | 'other';
+export type QoderFailureClass = 'quota' | 'rate' | 'auth' | 'upstream' | 'other' | 'transport';
+/**
+ * 单次 `stream()` 里，**传输级失败**最多允许的额外尝试次数（不含首发）。
+ *
+ * ## 为什么要有上限（而不是「换到没号为止」）
+ *
+ * 每一次尝试都要等一个 **10 秒 connect 超时**（undici 默认 `connectTimeout`，
+ * 实测 10,713ms）。若不设上限：5 个账号 × 10s = 50s，而宿主对 `TRANSPORT` 还有
+ * 5 次重试（`DEFAULT_RETRYABLE_CODES`，退避 500ms→10s）⇒ 最坏 6 × 50s ≈ 5 分钟
+ * 才报错，用户只看到「卡住」。
+ *
+ * ## 为什么不「同号退避重试」
+ *
+ * 同号重试只对瞬时的 socket 重置有意义，而那件事**宿主已经在做**（`TRANSPORT`
+ * 在 `DEFAULT_RETRYABLE_CODES` 里，5 次、退避 500ms→10s）。再叠一层只是把
+ * 「完全离线」的最坏耗时成倍放大（10s → 30s/轮），换不来任何新路径。
+ *
+ * ⇒ 每次重试**必须换一个账号**（换号 = 换出口：每账号可配独立代理，见 `618a090`
+ * 「国际版 SNI 阻断下唯一出路」）；换不到号就**立即抛原错误**，交给宿主退避。
+ * 预算只给 **2** 次 ⇒ 单轮最坏 3 发 ≈ 30s（宿主再退避重试 5 次的总时长仍可控）。
+ */
+export declare const QODER_TRANSPORT_MAX_RETRIES = 2;
+/**
+ * 把一次传输失败的**可操作信息**拼成一句话（沿 `cause` 链取更深几层）。
+ *
+ * ## 为什么必须拼（issue IKR5ZD，2026-10-28）
+ *
+ * 用户看到的只有 `qoder: transport error: fetch failed` —— 而真正能定位问题的
+ * 东西全在 `cause` 链里：
+ *
+ * ```
+ * TypeError: fetch failed
+ *   └ cause: UND_ERR_CONNECT_TIMEOUT
+ *            Connect Timeout Error (attempted address: 1.2.3.4:443, timeout: 10000ms)
+ * ```
+ *
+ * 「连到哪个 IP / 是超时还是被重置 / 超时多少毫秒」直接决定处置方式
+ *（换 IP、换出口代理、改超时），缺了它这条报错**等于没有信息**。
+ *
+ * ⚠️ 链长有界（4 层）+ 去重，避免自引用 `cause` 造成死循环。
+ * ⚠️ 结果经 {@link maskProxyPassword} 脱敏：代理故障的 message 里可能带 userinfo。
+ */
+export declare function transportErrorDetail(error: unknown): string;
 /**
  * 把一次失败归类。
  *
@@ -146,7 +201,10 @@ export declare function shouldRotateQoderAccount(cls: QoderFailureClass): boolea
 /**
  * 该类别是否**写冷却标记**。
  *
- * ⚠️ **`auth` 与 `upstream` 恒 false**（见 {@link QoderFailureClass} 的语义表）。
+ * ⚠️ **`auth` / `upstream` / `transport` 恒 false**（见 {@link QoderFailureClass}
+ * 的语义表）。`transport` 尤其不能记：连不上是**出口/网络**的问题，写冷却会把
+ * 一个可能完全健康的账号封到当天 24 点 —— 那正是「换了号还是超时、第二天才好」
+ * 这类最难查的症状（issue IKR5ZD 的处置必须避开它）。
  * 这条是「一个请求封死整池」与「坏账号永远轮不到」之间的取舍点。
  */
 export declare function recordsQoderRateLimit(cls: QoderFailureClass): boolean;

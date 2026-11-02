@@ -13,6 +13,7 @@
  *           载体页见 src/zcode-carrier-page.ts 与 src/captcha-carrier-server.ts）/
  *           backup.export / backup.import / backup.status /
  *           nativeSearch.getEnabled / nativeSearch.setEnabled /
+ *           sessionBalance.getEnabled / sessionBalance.setEnabled /
  *           panelEntry.get / panelEntry.set /
  * 另有一条 GET 路由 `/api/jet-hub/captcha-carrier`：渲染内部载体的载体页
  * （⚠ 手工诊断用；guest 加载不到它，见该路由注释里的主进程取证）。
@@ -40,6 +41,7 @@ type OfficeAceAuth = typeof OfficeAceAuthModule;
 import type { AccioAuth } from './accio-auth.js';
 import type { AutoclawAuth } from './autoclaw-auth.js';
 import type { ModelscopeAuth } from './modelscope-auth.js';
+import type { QiniuAuth } from './qiniu-auth.js';
 import { type AstudioAuth } from './astudio-auth.js';
 import { type MagicrewAuth } from './magicrew-auth.js';
 import type { CodelyAuth } from './codely-auth-service.js';
@@ -653,6 +655,20 @@ export interface JetHubAuths {
      * spy 收不到注册循环的调用（本仓库复发过 6 次）。
      */
     readonly magicrew: MagicrewAuth;
+    /**
+     * **MagiCrew 国际站**（`magicrewintl`，2026-11-01 用户要求）。
+     *
+     * ⚠️ 与 `magicrew` **共用同一个 `MagicrewAuth` 类**（两站只差产品配置），
+     * 故类型相同、只是**另一个实例** —— 与 `minimax` / `minimaxintl`、
+     * `qoder` / `qodercn` 同型。
+     * ⚠️ 两站账号体系**物理隔离**（同一个 Go 服务的两个数据面）、凭据 ref 前缀不同
+     * （`MAGICREW_*` / `MAGICREWINTL_*`）。若这里的**键与值接错**，症状是
+     * 「国际站账号的续期去刷了国内站凭据」，而 `authOf` 会把国际站账号
+     * 分派到**国内站实例**上。
+     * ⚠️ 值必须是 `index.ts` 里 `registerProviderRuntime` 的 `registry` 数组中
+     * `['magicrewintl', magicrewIntlAuth]` 的**同一个对象**（同 `magicrew` 那条）。
+     */
+    readonly magicrewintl: MagicrewAuth;
     readonly autoclaw: AutoclawAuth;
     /**
      * **AutoClaw 国际版**（`autoclawintl`）。
@@ -674,6 +690,12 @@ export interface JetHubAuths {
      * ⚠️ 值是 `ModelscopeAuth` **Service 实例**（与 accio 同款），不是命名空间。
      */
     readonly modelscope: ModelscopeAuth;
+    /**
+     * 七牛云 AI（Qiniu）—— **本 fork 独有**（上游 rc.11 仍无此 provider）。
+     *
+     * ⚠️ 值是 `QiniuAuth` **Service 实例**，与 modelscope 同款。
+     */
+    readonly qiniu: QiniuAuth;
 }
 /**
  * 按 provider id 取 auth 实例。

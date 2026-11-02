@@ -8,8 +8,20 @@
  *
  * | 产品              | endpoint                    | platform       | genieVersion |
  * |-------------------|-----------------------------|----------------|--------------|
- * | CodeBuddy（中国） | https://copilot.tencent.com | ide            | —            |
- * | WorkBuddy（国际） | https://www.workbuddy.ai    | workbuddy-ai   | 5.5.2        |
+ * | CodeBuddy（中国） | https://copilot.tencent.com | ide            | 4.12.2       |
+ * | WorkBuddy（国际） | https://www.workbuddy.ai    | workbuddy-ai   | 5.9.4        |
+ *
+ * ⚠️⚠️ **`genieVersion` 是本表最关键的一列**：客户端发出去的 `X-IDE-Version` 与
+ * `User-Agent` 里的版本**都取它**（反编译实证见 `CODEBUDDY.clientVersion` 的注释）。
+ * 它来自客户端 `product.json` 的 `genieVersion`，**不是**同文件的 `version`
+ * （后者是 VS Code 基底版本，只在 `genieVersion` 缺失时兜底）。
+ * 实测值来源（2026-10-30）：
+ * - CodeBuddy：`CodeBuddy CN/resources/app/product.json` → `version=1.106.1`、`genieVersion=4.12.2`
+ * - WorkBuddy：`WorkBuddyAI/resources/app.asar.unpacked/cli/product.json` → `genieVersion=5.9.4`
+ *
+ * ⚠️ **本仓仍缺一个客户端会发的头：`X-Product-Version`**（= 客户端的
+ * `productVersion`，与 `platformVersion` 是两个量）。官方拦截器会发它，我们没发。
+ * 当前不发也能 200（实测），故先登记为缺口、不擅自新增未验证的信号。
  *
  * 关于「模型列表为何不能共用」：两者的**路径与响应解析完全相同**
  * （`GET /v3/config` → `data.data.models` / `data.data.agents`），
@@ -193,7 +205,7 @@ export declare const CODEBUDDY: BuddyProduct;
 /**
  * WorkBuddy 国际版（腾讯 WorkBuddy AI），platform = workbuddy-ai。
  *
- * 逆向自 `C:\Users\Jet\AppData\Local\Programs\WorkBuddyAI`（5.5.2）的 cli/product.json：
+ * 逆向自 `C:\Users\Jet\AppData\Local\Programs\WorkBuddyAI`（5.9.4）的 cli/product.json：
  * - `applicationName` = "workbuddy-ai"
  * - `endpoint` = "https://www.workbuddy.ai"（**与中国版不同**，模型池随区域变化）
  * - `authentication.attributes.platform` = "workbuddy-ai"

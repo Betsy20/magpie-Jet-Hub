@@ -522,6 +522,7 @@ export async function importBackup(credentials, pool, raw, options = {}) {
         await pool.mergeAccounts(importedAccounts);
     }
     else {
+        // ⚠️ 本仓改动（2026-10-31）：见上方 `keepDisabledModels` 的说明。
         const nextDisabledModels = keepDisabledModels
             ? pool.getStateSnapshot().disabledModels
             : payload.disabledModels;

@@ -119,8 +119,48 @@ export declare const ANALYZE_IMAGE_TOOL = "analyzeImage";
  *
  * 其余模型发图必被上游拒：
  * `{"error_code":"InferHub.001001020.406","error_msg":"The request model is not multimodal"}`。
+ *
+ * ## ⚠️ 本表已降级为**兜底**，权威来源是远端目录（2026-10-26 修）
+ *
+ * 上游会**持续新增/替换**多模态模型，而这张静态表**不会自己更新** ⇒ 新模型
+ * 一旦上线就必然被判成「不能收图」：`codeartsAcceptsImage` 返回 false ⇒
+ * `inputModalities` 声明成 `['text']` ⇒ DSH 在**图片入库阶段**就拒掉，请求根本
+ * 发不到上游。真实报障：`kimi-k3` 官方支持图片，但本表里没有它。
+ *
+ * ⇒ 现由 {@link setCodeartsImageModels} 把远端目录里 `supports_images: true` 的
+ * id 灌进来，判据取**并集**（目录 ∪ 本表）。
  */
 export declare const CODEARTS_VL_MODELS: readonly string[];
+/**
+ * 灌入远端目录里**能收图**的模型 id（由 `models.ts` 在目录拉取成功后调用）。
+ *
+ * ## ⚠️ 为什么用「注入」而不是让本模块 import 目录
+ *
+ * 本模块是**无依赖叶子**（理由见模块头：两侧消费者分居依赖图两端，import 会成环）。
+ * 目录在 `models.ts` 里，而 `models.ts` 反过来依赖本模块的判据 ⇒ 只能由
+ * `models.ts` **单向**把结果灌进来，本模块绝不反向 import。
+ *
+ * ## ⚠️ 「只增不减」由**本函数**兑现，不是调用方（2026-10-31 审计 P2 修）
+ *
+ * **空集不清空**：`ids` 归一化后为空、而当前已有非空集合时，**保持原集合不变**。
+ * 理由：`builtinModels: []`（或 AgentCenter 列表为空）可能是「请求成功但该账号
+ * 无下发」的合法状态，也可能只是上游该端点**临时**漏发 —— 无论哪种，把它当成
+ * 「确认全部下架」去清空，都会让所有目录派生的多模态模型瞬间失去收图能力，
+ * 只剩静态表两个兜底；而「真的全部下架」的代价只是发图被上游 406 拒（改动前
+ * 的既有行为）。两害相权，宁可陈旧、不清空。
+ *
+ * ⚠️ 调用方**仍然**负责「请求失败不调用」（`models.ts` 在 `snapArr === undefined`
+ * 时跳过）—— 本函数只兑现「成功但空 ⇒ 不清空」这半边。
+ *
+ * @param ids - 远端 `supports_images === true` 的模型 id（原始大小写均可）
+ */
+export declare function setCodeartsImageModels(ids: Iterable<string>): void;
+/**
+ * 清掉已灌入的目录集合（**仅供单测隔离**）。
+ *
+ * ⚠️ 生产不要调用：那会让判据退回静态表，等于把动态能力关掉。
+ */
+export declare function resetCodeartsImageModels(): void;
 /**
  * `analyzeImage` 用哪个 VL 模型。
  *
@@ -130,26 +170,77 @@ export declare const CODEARTS_VL_MODELS: readonly string[];
  *  candidates: kimi-k2.6-vl, Qwen3-VL-235B` ⇒ IDE 恒定选它，我们跟随。
  */
 export declare const CODEARTS_VISION_MODEL = "kimi-k2.6-vl";
-/** 该模型能否原生收图（大小写不敏感 —— 上游目录里两种写法都出现过）。 */
+/**
+ * 该模型能否原生收图（大小写不敏感 —— 上游目录里两种写法都出现过）。
+ *
+ * 判据 = **远端目录 ∪ 静态表**（目录未加载时只剩静态表）：
+ *
+ * 1. 先查 {@link setCodeartsImageModels} 灌进来的目录集合 ⇒ 上游新上的多模态
+ *    模型（如 `kimi-k3`）**自动跟随**，无需改代码；
+ * 2. 再查 {@link CODEARTS_VL_MODELS} ⇒ 目录未加载成功过时的兜底。
+ *
+ * ## ⚠️ 为什么取**并集**而不是「目录加载后以目录为准」
+ *
+ * 以目录为准的话，只要上游某天**不再下发** `supports_images` 字段（或改成
+ * `false`），`kimi-k2.6-vl` 就会**从能收图变成不能** ⇒ `analyzeImage` 借它识图
+ * 的整条链路当场失效，而症状是「工具莫名其妙不工作了」。
+ *
+ * 取并集的代价：上游**真的下线**某个静态表里的模型时，本判据仍会说它能收图，
+ * 发图会被上游 406 拒 —— **但那正是改动前的行为**，不引入新故障。两害相权，
+ * 宁可保留旧行为、也不新增一条静默失效路径。
+ */
 export declare function codeartsAcceptsImage(modelId: string): boolean;
 /** `analyzeImage` 用哪个 VL 模型（当前恒定返回 {@link CODEARTS_VISION_MODEL}）。 */
 export declare function codeartsVisionModel(): string;
+/**
+ * 该模型是不是**专用 VL 模型**（自己就是拿来识图的那个）。
+ *
+ * ## ⚠️ 与 {@link codeartsAcceptsImage} 是**两个不同的概念**（2026-10-26）
+ *
+ * 很容易混为一谈，但混了就会出事：
+ *
+ * | | 含义 | 用途 |
+ * |---|---|---|
+ * | `codeartsAcceptsImage` | 这个模型**能不能收图** | `inputModalities`、发图闸门 |
+ * | `codeartsIsVisionModel` | 这个模型是不是**专职识图的 VL 模型** | 要不要给它挂 `analyzeImage` |
+ *
+ * 上游新一代多模态主模型（如 `kimi-k3`）**两头都沾**：它能收图（目录
+ * `supports_images: true`），但它**不是**专用 VL 模型 —— 它的主业是当主模型。
+ * 若用「能收图」当作「不该挂工具」的判据，这类模型就会**拿不到识图工具**，
+ * 症状是「模型明明支持图片，却没有 analyze_image 可用」。
+ *
+ * ⇒ 挂不挂工具只看「是不是专职 VL」，与「能不能收图」**解耦**。
+ */
+export declare function codeartsIsVisionModel(modelId: string): boolean;
 /**
  * 判断**当前路由**该不该看到 `analyzeImage`。
  *
  * 判据三条，缺一不可：
  * 1. 路由 provider 是 `codearts`（别家的图片直发上游，不需要这个中转）；
- * 2. 该模型**收不了图**（VL 模型自己就能看，给它这个工具是多余的）；
+ * 2. 该模型**不是专用 VL 模型**（专职识图的模型自己就能看，给它这个工具是多余的）；
  * 3. 路由信息可解析（拿不到就**不挂** —— 宁可少一个工具，也不要挂一个用不了的）。
+ *
+ * ## ⚠️ 第 2 条曾用「**收不了图**」当判据，是错的（2026-10-26 修）
+ *
+ * 那时写作 `!accepts(model)`。对老模型（文本模型 `glm-5.3` 收不了图 ⇒ 挂；
+ * VL 模型 `kimi-k2.6-vl` 收得了 ⇒ 不挂）**恰好等价**，所以一直没暴露。
+ *
+ * 但上游新一代多模态主模型（如 `kimi-k3`）**能收图却不是专用 VL 模型** ⇒
+ * `!accepts` 判成「不需要工具」⇒ 它**拿不到 `analyzeImage`**，症状是
+ * 「官方说支持图片，却只有直发、没有识图工具可用」。
+ *
+ * ⇒ 改用 {@link codeartsIsVisionModel}：只看「是不是专职识图的 VL」，
+ *   与「能不能收图」**解耦**。文本模型照旧挂，`kimi-k3` 这类也挂，
+ *   只有 `kimi-k2.6-vl` / `Qwen3-VL-235B` 这类专职 VL 不挂。
  *
  * ⚠️ 本函数是**唯一定义处**：工具注册（`analyze-image.ts`）、执行期断言、
  * 以及注册期逐请求摘除（{@link withAnalyzeImageScoping}）三处共用它。
  *
  * @param provider - 路由的 provider id
  * @param model - 路由的 model id
- * @param accepts - 「该模型能否收图」的判据（默认用 codearts 的实现；注入以便单测）
+ * @param isVision - 「该模型是否专用 VL 模型」的判据（默认用 codearts 的实现；注入以便单测）
  */
-export declare function shouldOfferAnalyzeImage(provider: string | undefined, model: string | undefined, accepts?: (id: string) => boolean): boolean;
+export declare function shouldOfferAnalyzeImage(provider: string | undefined, model: string | undefined, isVision?: (id: string) => boolean): boolean;
 /** {@link stripAnalyzeImageTool} 读到的字段（`GenerateOptions` 的最小形状）。 */
 export interface AnalyzeImageScopedOptions {
     readonly provider?: string;

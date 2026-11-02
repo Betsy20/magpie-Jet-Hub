@@ -154,6 +154,26 @@ export interface ResolverPool<TCredential = unknown> {
         };
         credential: TCredential;
     } | null>;
+    /**
+     * 按 `sessionId` 选号（可选能力；供 `accountSelection: 'session-balance'` 使用）。
+     *
+     * 未实现时调用方回落到 {@link getAvailableAccount}。真实的 `AccountPool`
+     * 已实现；单测里的结构化替身可以继续只实现上面两个方法。
+     */
+    getAvailableAccountForSession?(provider: string, modelId: string, sessionId?: string, excludeAccountIds?: ReadonlySet<string>): Promise<{
+        entry: {
+            id: string;
+            credentialRef: string;
+        };
+        credential: TCredential;
+    } | null>;
+    /**
+     * 「ZCode 会话负载均衡」面板开关（可选能力；真实 `AccountPool` 已实现）。
+     *
+     * 每次选号**现读**（Jet Hub 页头可随时切换）。未实现时回落环境变量
+     * `DSH_ZCODE_SESSION_BALANCE`（默认开）—— 只为单测替身保留。
+     */
+    sessionBalanceEnabled?(): boolean;
 }
 /** 注入的共享设施。 */
 export interface CredentialResolverDeps<TCredential = unknown> {
@@ -172,6 +192,17 @@ export interface CredentialResolverDeps<TCredential = unknown> {
      *   它要**清空**「本次实际使用的账号」标记（留着旧 id 会误伤无辜账号）。
      */
     readonly reportAccount?: (accountId: string | undefined) => void;
+}
+/**
+ * 单次解析的「实际选中账号」出口。
+ *
+ * 为什么需要它：`deps.reportAccount` 是**进程级回调**（zcode 用它写
+ * `activeZcodeAccountId` Map）。多个会话并发时，共享 Map 会被别的请求覆盖，
+ * 适配器再读 `currentAccountId()` 就可能把失败记到别的账号头上。
+ * 把这个**按调用**的 out 参数传进来，适配器拿到的是本笔解析真正选中的 id。
+ */
+export interface CredentialPick {
+    accountId?: string;
 }
 /**
  * loomy 选号器的**结构化**形状。
@@ -313,6 +344,15 @@ export interface CredentialResolverConfig<TCredential> {
     }, modelId?: string) => void;
     /** 余额分档计划；缺省 ⇒ 纯池选号（骨架 A）。 */
     readonly balance?: BalancePlan;
+    /**
+     * 账号选择策略；缺省 `'manual'` = 池的手动顺序优先（既有语义）。
+     *
+     * `'session-balance'`：按本次请求的 `sessionId` 做会话亲和（同一会话**优先**
+     * 落同一账号；账号今日请求数达阈值后会被沉底，正在跑的会话会迁移一次 —— 见
+     * `session-balance.ts` 的 `rankAccountsBySessionWithOverflow`），没有
+     * `sessionId` 时随机分摊。目前仅 **zcode** 启用。
+     */
+    readonly accountSelection?: 'manual' | 'session-balance';
 }
 /**
  * 造一个与适配器契约一致的 `resolveCredential`。
@@ -320,5 +360,5 @@ export interface CredentialResolverConfig<TCredential> {
  * @param modelId - 本次请求的模型 id；⚠️ 会被透传给 `getAvailableAccount`
  *   与 `isFreeModel`（不要吞掉）。
  */
-export declare function createCredentialResolver<TCredential>(deps: CredentialResolverDeps<TCredential>, config: CredentialResolverConfig<TCredential>): (modelId?: string) => Promise<TCredential | undefined>;
+export declare function createCredentialResolver<TCredential>(deps: CredentialResolverDeps<TCredential>, config: CredentialResolverConfig<TCredential>): (modelId?: string, sessionId?: string, selection?: CredentialPick) => Promise<TCredential | undefined>;
 //# sourceMappingURL=credential-resolver.d.ts.map

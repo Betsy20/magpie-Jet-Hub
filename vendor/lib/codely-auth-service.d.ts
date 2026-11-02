@@ -67,10 +67,27 @@ export declare class CodelyAuth extends Service {
         writebackExpiry?: (accountId: string, expiresAtMs: number | undefined) => Promise<void>;
     });
     /**
+     * 记一条 warn。
+     *
+     * ⚠️ 为什么裹这么多可选链 + try：cordis 的 `ctx.logger` 在测试桩里可能整个不存在，
+     *    而这里只是想留一条排查线索 —— 因为打日志把续期流程打崩，比不打日志糟得多。
+     */
+    private warn;
+    /**
      * 续期某一个账号（守卫要求的方法）。
      *
      * @param refName 凭据 ref（`codely.account.<id>` 之类，直接交给凭据库）
      * @param _accountId 池里的账号 id（用于可选的池回写）
+     *
+     * ## ⚠️ 三处早退拆成**四条** warn（2026-10-24 补，2026-10-31 审计修正计数）
+     *
+     * 原来都是裸 `return`：凭据库没注入、读不到凭据、凭据在但没有 refresh_token、
+     * 上游续期失败 —— 四种**性质完全不同**的原因在现象上完全一致 ——
+     * 「续期永远不发生，日志零字」。这正是 A1/A5 那一轮要治的失效形态
+     * （静默失败比报错更难查）。别家在同类早退会把账号标成不可续期
+     * （`cline-auth.ts`）或至少记 warn（`modelscope-auth.ts`）。
+     * ⚠️ 四条 warn 有行为守卫（`codely-auth-service.spec.ts` 的
+     * 「续期早退必须留痕」describe），删掉任一调用点会红。
      */
     refreshAccountCredential(refName: string, _pool: unknown, accountId: string): Promise<void>;
     /**

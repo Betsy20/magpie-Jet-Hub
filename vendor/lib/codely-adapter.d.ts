@@ -58,9 +58,20 @@ export interface CodelyRemoteModel {
 /**
  * 「换号有用」的失败形态（cline / accio 同语义）：
  *
- * - **402** / 报文含 `budget_exceeded`：该账号积分或团队预算耗尽 —— 等待不会恢复，
+ * - **402** / 报文含 `budget_exceeded`：积分或团队预算耗尽 —— 等待不会恢复，
  *   换号（或签到 / 充值）才有用；
- * - **429**：短时限流 —— 换号立即恢复。
+ * - **429**：限流 —— 换号可能立即恢复。
+ *
+ * ## ⚠️ 两条腿对 429 的处置**故意不同**，这不是 bug（2026-10-24 澄清）
+ *
+ * | 端点 | 429 含义 | 处置 |
+ * |---|---|---|
+ * | **推理** `POST /v1/chat/...` | 账号级 RPM / TPM 超发 | 换号 + 记 1 小时冷却 |
+ * | **换发** `GET cli_api_key` | **网关全局**限流 | 归 `transient`，**不换号、不记账** |
+ *
+ * 换发侧的 429 换号也没用（撞的是同一个网关），所以不记账；推理侧换号确实有用，
+ * 所以记账。写成两处口径是为了各自正确，不是忘了统一 —— 详见
+ * `codely-auth.ts` 的 `CodelyCliApiKeyResult` 注释。
  *
  * ⚠️ 401/403 **不**换号：Codely 的 401 绝大多数是「团队无权访问该模型」
  * （换账号也撞同一个团队策略，见 `streamViaHttp` 里的取证表），真凭据失效
@@ -190,7 +201,29 @@ export declare class CodelyAdapter extends LlmAdapter {
      * - 续拉请求把 `text` 作为 `assistant` 消息带上（见 `stalled` 分支）。
      */
     private streamViaHttp;
-    /** 旧的 CLI 驱动路径（仅测试注入 `cliSpawner` 时使用，生产不走）。 */
+    /**
+     * 旧的 CLI 驱动路径（仅测试注入 `cliSpawner` 时使用，生产不走）。
+     *
+     * ## ⚠️ 与 `streamViaHttp` 的**行为差异**（2026-10-24 显式记录）
+     *
+     * 这条路径**不具备** HTTP 路径的请求级能力，别照着 HTTP 那套去理解它：
+     *
+     * | 能力 | HTTP 路径 | 本路径 |
+     * |---|---|---|
+     * | 换发 `cli_api_key` | ✅ | ❌ 不换发 |
+     * | 从池选号 / 换号重试 | ✅（上限 `CODERLY_MAX_ROTATE`） | ❌ 不选号，无换号 |
+     * | 失败记账（`updateModelRateLimit`） | ✅ | ❌ 完全不记账 |
+     * | 目录前置校验 | ✅ | ❌ |
+     * | 停滞续拉 | ✅ | ❌ 一次跑完 |
+     *
+     * ⇒ **别拿这条路径去验证换号 / 冷却 / 团队级判定**：它压根不走那些分支，
+     *   在那里写断言会得到「看起来通过了、其实什么都没测」的假绿。那些行为请走
+     *   `codely-rotation.spec.ts`（注入的是 HTTP 路径）。
+     *
+     * 保留它的唯一理由：保住 `codely-cli.ts` 的调用点（零调用点是本仓库记过的
+     * 陷阱）与既有用例。生产由 `stream()` 的 `cliSpawner === undefined` 挡住，
+     * 永远走 HTTP。
+     */
     private streamViaCli;
     private loadCatalogEntries;
     /**

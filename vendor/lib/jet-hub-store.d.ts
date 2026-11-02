@@ -205,6 +205,18 @@ export interface JetHubState {
      */
     nativeWebSearchEnabled?: boolean;
     /**
+     * 「ZCode 会话负载均衡」开关（{@link sanitizeSessionBalanceEnabled}）。
+     *
+     * 语义：**开** = ZCode 多账号按 DSH sessionId 做会话亲和（同一会话**优先**
+     * 落同一账号；账号今日负载达阈值后会被沉底、正在跑的会话会迁移一次），没有
+     * sessionId 的请求随机分摊；**关** = 回到「手动顺序首个可用账号」的既有语义。
+     *
+     * ⚠️ 与 `nativeWebSearchEnabled` 同级、**可以**住在这里：老版本代码整体
+     * 重写 `state.json` 时丢掉本键，后果仅是**回到手动顺序**，用户再开一次即可
+     * —— 没有任何不可逆后果。缺键语义为**启用**（2026-10-30 用户要求的默认）。
+     */
+    sessionBalanceEnabled?: boolean;
+    /**
      * 「面板入口」：Jet Hub 的**唯一**入口位置（{@link PanelEntry}）。
      *
      * 两个取值**严格互斥**，任一时刻只有一个入口存在：
@@ -360,6 +372,7 @@ export declare const jetHubSchema: Schema<Schemastery.ObjectS<NoInfer<{
     gatewayEnabled: Schema<boolean, boolean, "defined">;
     gatewayAllowLan: Schema<boolean, boolean, "defined">;
     nativeWebSearchEnabled: Schema<boolean, boolean, "defined">;
+    sessionBalanceEnabled: Schema<boolean, boolean, "defined">;
     panelEntry: Schema<string, string, "plain">;
     providerOrder: Schema<string[], string[], "defined">;
     minimaxXff: Schema<string, string, "defined">;
@@ -371,6 +384,7 @@ export declare const jetHubSchema: Schema<Schemastery.ObjectS<NoInfer<{
     gatewayEnabled: Schema<boolean, boolean, "defined">;
     gatewayAllowLan: Schema<boolean, boolean, "defined">;
     nativeWebSearchEnabled: Schema<boolean, boolean, "defined">;
+    sessionBalanceEnabled: Schema<boolean, boolean, "defined">;
     panelEntry: Schema<string, string, "plain">;
     providerOrder: Schema<string[], string[], "defined">;
     minimaxXff: Schema<string, string, "defined">;
@@ -410,6 +424,17 @@ export declare function sanitizeGatewayAllowLan(raw: unknown): boolean;
  * 要 API Key。
  */
 export declare function sanitizeNativeWebSearchEnabled(raw: unknown): boolean;
+/**
+ * 归一化「ZCode 会话负载均衡」开关（{@link JetHubState.sessionBalanceEnabled}）。
+ *
+ * 缺键语义为**启用**（2026-10-30 用户要求的默认方向）：老文档没有本键、或被
+ * 老版本代码整体重写时丢键，都回到「会话亲和 + 随机分摊」开启态 —— 与
+ * {@link sanitizeNativeWebSearchEnabled} 的判据同构（`raw !== false`）。
+ *
+ * ⚠️ 字符串 `'false'` **不算** `false`（与 panelEntry 那条同款）：那是脏数据，
+ * 不是用户意图。
+ */
+export declare function sanitizeSessionBalanceEnabled(raw: unknown): boolean;
 /**
  * 归一化「面板入口」（{@link JetHubState.panelEntry}）。
  *

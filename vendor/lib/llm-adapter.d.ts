@@ -4,6 +4,7 @@ import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm';
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import { AccountPool } from './account-pool.js';
+import { type RemoteModel } from './models.js';
 import { serializeMessages } from './openai-compat.js';
 /**
  * 重新导出共享的 `serializeMessages`（**只为了让既有调用方与测试的导入路径不变**）。
@@ -107,6 +108,7 @@ export declare function claimCodeArtsBenefitShared(credential: CodeArtsCredentia
 }): Promise<string>;
 /** 清空领取去重表（仅供单测隔离）。 */
 export declare function resetCodeArtsBenefitClaimFlight(): void;
+export declare const DEFAULT_MODELS: readonly string[];
 /**
  * 本表查不到时**必须**给的那个窗口（`undefined` 在本家是不可接受的）。
  *
@@ -185,11 +187,7 @@ export interface CodeArtsAdapterOptions {
     resolveCredential: () => Promise<CodeArtsCredential | undefined>;
     refresh: () => Promise<void>;
     /** 动态拉取远端模型列表；失败时调用方回退到静态列表。 */
-    fetchRemoteModels?: () => Promise<Array<{
-        id: string;
-        name: string;
-        rateLabel?: string;
-    }>>;
+    fetchRemoteModels?: () => Promise<RemoteModel[]>;
     /**
      * 最近一次目录拉取的**各来源成败**（issue IKJVTF，审计 I3）。
      *
@@ -723,6 +721,46 @@ export declare class CodeArtsAdapter extends LlmAdapter {
     /** 动态模型缓存（首次 listModels 成功后填充）。 */
     private remoteModels;
     /**
+     * AgentCenter 动态窗口表（**独立于目录可见性**）。
+     *
+     * ⚠️⚠️ **为什么必须与目录解耦**（2026-10-30 四路审计 P3 D6 定案）：
+     * `src/model-catalog.ts` 的 `unknownModelContextWindow` 调用点**只在
+     * `entry === undefined`（模型不在目录里）时**才走；而旧实现查的是
+     * `this.remoteModels` —— 可 `catalogEntries()` 正是由 `this.remoteModels`
+     * 映射而来 ⇒ **「在 remoteModels 里」⟺「在目录里」** ⇒ 动态腿在
+     * 「手填模型 id」场景**基本不可达**（实测唯一例外是 VL 模型，而 VL 走
+     * `analyzeImage` 那条路**根本不需要窗口** ⇒ 实际收益 ≈ 0）。
+     *
+     * ⇒ 这张表只装「AgentCenter 下发的窗口」，**与目录可见性无关**：
+     * 任何 id 只要 AgentCenter 给过窗口，就能查到正确分母。
+     *
+     * ⚠️ 键用**原始 id**（不做 `normalizeModelId` 归一）—— 与
+     * `src/models.ts` 的 `seen` 键口径一致（归一会把 `deepseek-v4.1-flash` 与
+     * `deepseek-v4.1-flash-1017` 并成一条，那是**两个不同模型**）。
+     */
+    private remoteContextWindows;
+    /**
+     * 「只作窗口源」的模型 id 集合（**独立于目录**）。
+     *
+     * ⚠️⚠️ **必须是独立集合，不能只看条目的 `windowOnly` 属性**
+     * （2026-10-30 第二轮审计 P1 N-1 修）：原先只看属性 ⇒ **只在「远端拉取
+     * 成功」时生效** ⇒ 冷缓存（首启 / 远端失败 / 上游抖动）走 `DEFAULT_MODELS`
+     * 兜底 ⇒ 那些条目**没有** `windowOnly` 属性 ⇒ `kimi-k3` 以**裸名**进目录
+     * ⇒ `priceFactorFromName('kimi-k3')` = `Infinity` ⇒ 聚合里 codearts 恒排
+     * 最后 ⇒ 第一轮 P1-2 的症状**原样复发**（实测）。
+     *
+     * ⇒ 这里在**远端拉到窗口源条目时**记下它们的 id ⇒ 之后**冷缓存也记得**
+     * ⇒ 两条路径口径一致。
+     */
+    private windowOnlyIds;
+    /**
+     * AgentCenter 动态窗口优先查（2026-10-29 接入；2026-10-30 改为查独立表）。
+     *
+     * ⚠️ 查**表**（O(1)）而不是扫数组：旧实现是线性 `find`，且因与目录耦合
+     * 而基本走不到；改成表之后它才真的会被调用（手填 id 场景）。
+     */
+    private remoteContextWindowOf;
+    /**
      * 已落缓存的目录是否**所有来源都取全**（issue IKJVTF，审计 I3）。
      *
      * ⚠️ **这是短路判据的第二半**：CodeArts 有两个目录端点，残缺目录也落
@@ -806,6 +844,35 @@ export declare class CodeArtsAdapter extends LlmAdapter {
      * 会造成「关掉的模型又冒出来」）。
      */
     private catalogEntries;
+    /**
+     * 一条远端条目**该不该进对话目录**（**两条路径共用**，2026-10-30 第二轮审计 P1 N-2 修）。
+     *
+     * ⚠️⚠️ **必须共用**（实测踩到）：`catalogEntries()`（异步，给 `listModels` /
+     * `resolveModel` 用）与 `syncCatalogEntries()`（同步，给 `listAllModels` 用）
+     * **原本各写一遍** ⇒ 守卫只覆盖了异步那条 ⇒ 变异「删掉同步那条的过滤」
+     * ⇒ **全量 11476 条用例全绿**（零保护）⇒ 而 `listAllModels()` 是
+     * **Jet Hub 模型开关清单**的数据源（`src/jet-hub-rpc.ts` 的 `fullCatalogIds()`）
+     * ⇒ 窗口源条目会**以裸名**出现在设置页（正是 P1-2 想消灭的形态）。
+     *
+     * ⇒ 现在**一份判据、两条路径共用** ⇒ 不可能再分叉。
+     *
+     * 判据两条：
+     * 1. ⚠️ **窗口源条目不进目录** —— AgentCenter 不下发倍率 ⇒ 进目录就是裸名
+     *    ⇒ `priceFactorFromName` 恒 `Infinity` ⇒ 聚合里 codearts 恒排最后、
+     *    永远不被挑中（静默）。它们的**窗口**仍可用 ——
+     *    见 {@link remoteContextWindows}。
+     *    ⚠️⚠️ **判据是「id 集合」而不是「条目属性」**（2026-10-30 第二轮审计
+     *    P1 N-1 修）：原先只看条目的 `windowOnly` 属性 ⇒ **只在「远端拉取成功」
+     *    时生效** ⇒ 冷缓存（首启 / 远端失败 / 上游抖动）走
+     *    `DEFAULT_MODELS` 兜底 ⇒ 那里的条目**没有** `windowOnly` 属性 ⇒
+     *    `kimi-k3` 以**裸名**进目录 ⇒ 第一轮 P1-2 的症状**原样复发**。
+     *    ⇒ 现在判据是 {@link windowOnlyIds} 这个**独立 id 集合**（远端来时填、
+     *    **冷缓存时也留着**）⇒ 两条路径口径一致。
+     * 2. ⚠️ **VL 多模态不进对话目录**（上下文小、不支持工具调用；当 agent 主模型
+     *    会踩别的坑）。⚠️ 与 `src/models.ts` 的 `parseModelInfo` **同口径**
+     *    （大小写**不敏感**）。
+     */
+    private isVisibleCatalogEntry;
     /**
      * 同步视图（`listAllModels` 用）。
      *

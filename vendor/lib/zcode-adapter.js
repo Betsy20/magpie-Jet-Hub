@@ -68,6 +68,7 @@ import { registerAdapterIdempotent, } from './llm-register-compat.js';
 import { captchaRequirementKey, clearCaptchaRequirement, isCaptchaKnownRequired, noteCaptchaRequired, noteKnownRequiredHit, noteProbeFirst, noteUpfrontCaptcha, } from './captcha-requirement.js';
 import { describeZcodeRequestShape, extractZcodeLogId, formatZcodeDiagnostic, formatZcodeEdgePageHint, formatZcodeUnusualActivityMessage, hasZcodeUnusualActivity, looksLikeZcodeEsaPage, looksLikeZcodeHtmlPage, noteZcodeRequestFailed, noteZcodeRequestOk, noteZcodeRequestSent, readZcodeBusinessCodeFromBody, } from './zcode-diagnostics.js';
 import { planSessionTitleThinking } from './session-title.js';
+import { sessionBalanceEnabled } from './session-balance.js';
 /** 本适配器注册的 provider 路由名（等价于 `ZCODE.id`）。 */
 export const PROVIDER = 'zcode';
 /**
@@ -650,8 +651,9 @@ export class ZcodeAdapter extends LlmAdapter {
          * 里那次 add + 写进池的 `modelRateLimits`），**单点删除任一处行为断言仍全绿**，
          * 故必须直接断言「首次切号时 `tried` 含失败账号、且标记已写下」。
          */
-        let credential = await this.resolveCredentialOrThrow(options);
-        let activeAccountId = this.options.currentAccountId?.();
+        const resolved = await this.resolveCredentialOrThrow(options);
+        let credential = resolved.credential;
+        let activeAccountId = resolved.accountId ?? this.options.currentAccountId?.();
         if (activeAccountId !== undefined && activeAccountId.length > 0)
             tried.add(activeAccountId);
         /**
@@ -1268,16 +1270,18 @@ export class ZcodeAdapter extends LlmAdapter {
      * 而「拿不到 → refresh → 再拿」这套顺序必须与既有实现逐字一致。
      */
     async resolveCredentialOrThrow(options) {
-        let credential = await this.options.resolveCredential(options.model);
+        /** 本次请求私有的「实际选中账号」出口；不读进程级 Map，避免并发会话串号。 */
+        const picked = {};
+        let credential = await this.options.resolveCredential(options.model, options.sessionId, picked);
         if (credential === undefined) {
             await this.options.refresh();
-            credential = await this.options.resolveCredential(options.model);
+            credential = await this.options.resolveCredential(options.model, options.sessionId, picked);
         }
         if (credential === undefined) {
             throw new LlmError('zcode: 没有可用的凭据 —— 请在 Jet Hub 的 ZCode 面板点「添加账号」完成登录'
                 + '（本插件只用它自己的授权流程，不会读取本机 ZCode 客户端的登录态）', 'MISSING_CREDENTIAL');
         }
-        return credential;
+        return { credential, accountId: picked.accountId };
     }
     /**
      * 把**一次**上游请求经过闸门发出去，并把传输层异常翻译成 harness 的错误类别。
@@ -1362,7 +1366,17 @@ export class ZcodeAdapter extends LlmAdapter {
             await pool.updateModelRateLimit(activeAccountId, options.model, nextUtc8DayStartMs());
             tried.add(activeAccountId);
         }
-        const next = await pool.getAvailableAccount(this.product.id, options.model, tried);
+        // ⚠ 生产 `AccountPool` 一定有 `getAvailableAccountForSession`；单测里的
+        //    结构化替身可能只实现 `getAvailableAccount`，故保留同语义的回落。
+        //    ⚠ 总开关 = **池里的面板开关**（Jet Hub 页头，每次现读）；替身没实现
+        //    `sessionBalanceEnabled` 时退回环境变量 `DSH_ZCODE_SESSION_BALANCE`
+        //    （默认开）。与 `credential-resolver.ts` ③ 处同一套判据，不会分叉。
+        const poolSwitch = typeof pool.sessionBalanceEnabled === 'function'
+            ? pool.sessionBalanceEnabled()
+            : sessionBalanceEnabled();
+        const next = poolSwitch && typeof pool.getAvailableAccountForSession === 'function'
+            ? await pool.getAvailableAccountForSession(this.product.id, options.model, options.sessionId, tried)
+            : await pool.getAvailableAccount(this.product.id, options.model, tried);
         if (next === null || next === undefined || tried.has(next.entry.id))
             return undefined;
         tried.add(next.entry.id);

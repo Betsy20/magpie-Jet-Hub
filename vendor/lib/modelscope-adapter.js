@@ -47,7 +47,7 @@
  */
 import { LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import { createModelCatalog } from './model-catalog.js';
-import { MODELSCOPE, MODELSCOPE_FALLBACK_MODELS, classifyModelscopeError, } from './modelscope-product.js';
+import { MODELSCOPE, MODELSCOPE_FALLBACK_MODELS, classifyModelscopeError, findModelscopeFallback, } from './modelscope-product.js';
 import { modelscopeChatUrl, modelscopeHeaders, normalizeModelscopeModelId } from './modelscope.js';
 import { buildModelscopePayload } from './modelscope-messages.js';
 import { collectImages, consumeOpenAiSse, httpErrorCode, serializeMessages } from './openai-compat.js';
@@ -103,7 +103,12 @@ export function parseModelscopeCatalog(body) {
         if (id.length === 0 || seen.has(id))
             continue;
         seen.add(id);
-        const fallback = MODELSCOPE_FALLBACK_MODELS.find((m) => m.id === id);
+        // ⚠️ **不能用 `find(m => m.id === id)`**（Issue #12）：魔搭会定期换日期快照
+        // id（`…-Flash` → `…-Flash-1017`），而兜底表登记的往往还是无后缀那个。
+        // 精确查找在这条缝里恒不命中 ⇒ 能力/窗口全部退化成「未知」⇒ 那个模型被判成
+        // 纯文本（真机实测它能收图）。改走 `findModelscopeFallback`（精确优先 +
+        // `-` 边界 + 最长前缀）。
+        const fallback = findModelscopeFallback(id);
         const name = typeof record.name === 'string' && record.name.trim().length > 0
             ? record.name.trim()
             : fallback?.name ?? id;

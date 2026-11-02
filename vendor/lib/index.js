@@ -90,7 +90,7 @@ import { fetchQoderBalanceDetailed, fetchQoderCreditBalance } from './qoder-cred
 //    `CreditBalance | null`）。两个变体**都接**（见上方长注释），选号器优先用 Detailed。
 import { MagicrewAuth } from './magicrew-auth.js';
 import { MagicrewService } from './magicrew.js';
-import { MAGICREW } from './magicrew-product.js';
+import { MAGICREW, MAGICREW_INTL } from './magicrew-product.js';
 import { registerAdapterIdempotent } from './llm-register-compat.js';
 import { fetchAstudioBalanceDetailed, fetchAstudioCreditBalance } from './astudio-credits.js';
 // ⚠️ MiniMax 两站的 `fetchMinimaxCreditBalance`（2026-10-20，同为「永久积分锁定」新增）：
@@ -171,6 +171,13 @@ import { ModelscopeAuth } from './modelscope-auth.js';
 import { ModelscopeAdapter, registerModelscopeLlm } from './modelscope-adapter.js';
 import { MODELSCOPE } from './modelscope-product.js';
 import { modelscopeModelsUrl, modelscopeHeaders } from './modelscope.js';
+// ⚠️ **本 fork 独有**的 provider（上游 rc.11 仍无 qiniu）。七牛云 AI 与 modelscope
+// **同格**：OpenAI 兼容 + 长期有效的静态 API Key（无 refresh、无余额端点），
+// 故整套实现是 modelscope 范式的镜像。见 `src/qiniu-product.ts` 模块头的出处表。
+import { QiniuAuth } from './qiniu-auth.js';
+import { QiniuAdapter, registerQiniuLlm } from './qiniu-adapter.js';
+import { QINIU } from './qiniu-product.js';
+import { qiniuModelsUrl, qiniuHeaders } from './qiniu.js';
 import { GEMINI_DEFAULT_PROJECT, GEMINI_SESSION_LANE_SMOKE } from './gemini.js';
 import { createProviderCredits, creditsOf } from './provider-credits.js';
 import { createProviderOnboarding, onboardingOf } from './provider-onboarding.js';
@@ -646,6 +653,16 @@ export const probeById = {
             product: MODELSCOPE,
             // ⚠️ 不传 `warn`：`probeById` 是**模块级**常量（在 `apply()` 之前求值），
             //    此处**没有 `ctx`**。与 cline / lobsterai 的 probe 条目同款。
+        }),
+    },
+    // 七牛云 AI（**本 fork 独有**）—— 与 modelscope 同格：静态 API Key、OpenAI 兼容。
+    // 探测同样只喂**这一份凭据**（单槽），不需要池；`fetchRemoteCatalog` 留空
+    // （`/v1/models` 实测免鉴权也回 200 ⇒ 目录探测不构成「凭据有效」的证据）。
+    qiniu: {
+        createProbeAdapter: (ref, credential) => new QiniuAdapter({
+            credentialRef: credentialRef(ref),
+            slots: async () => [{ id: QINIU.id, apiKey: credential.access_token }],
+            product: QINIU,
         }),
     },
     // ZCode（智谱）→ Anthropic Messages 体 + 阿里云 captcha 参数。
@@ -3630,6 +3647,37 @@ export function apply(ctx) {
     // 超级麦吉（Magicrew 国内站，2026-10-29）。MagicrewAuth 构造时自 provide（服务名 magicrewAuth）。
     const magicrewAuth = new MagicrewAuth(ctx);
     /**
+     * **MagiCrew 国际站**（`magicrewintl`，2026-11-01 用户要求）。
+     *
+     * ⚠️ 服务名由 `MagicrewAuth` 构造里 `super(ctx, `${product.id}Auth`)` **自动派生**
+     *    为 `magicrewintlAuth` ⇒ 这里**不需要**再 `ctx.provide`。
+     * ⚠️ 两站是同一个 Go 服务的两个**数据面**（账号体系物理隔离）⇒ 必须是两个实例：
+     *    共用一个实例会让 `states` 按 ref 串号、`currentCredential()` 互相覆盖。
+     */
+    const magicrewIntlAuth = new MagicrewAuth(ctx, { product: MAGICREW_INTL });
+    /**
+     * 两站共用的**读图桥接**（`ctx.attachments.readImage` → 适配器的
+     * `{data, mediaType}`）。
+     *
+     * ⚠️ 必须**惰性** `ctx.get('attachments')`，不能写 `ctx.attachments` ——
+     *    后者是 cordis 的 inject 服务，在同步代码里直接访问会抛
+     *    `cannot get property "…" without inject` 并**打断整个 `apply()`**
+     *    （实测：`ctx.provide('accountPool', …)` 在 5977 行，被打断后 minimax 的
+     *    巡检定时器读不到它 ⇒ `wiring-lifecycle-guards.spec.ts` 两条红）。
+     *    惰性取时缺服务返回 `undefined` ⇒ 适配器抛 `INVALID_REQUEST`（可见失败，
+     *    不是静默降级：静默降级会让模型「看不到图却以为看到了」，那是幻觉源）。
+     */
+    const magicrewReadImage = async (attachment) => {
+        const attachments = ctx.get('attachments');
+        if (attachments?.readImage === undefined)
+            return undefined;
+        const stored = await attachments.readImage(attachment);
+        if (stored === undefined)
+            return undefined;
+        // 形状转换：宿主给 `{ ref, data }`，适配器要 `{ data, mediaType }`（拼 data URL 用）。
+        return { data: stored.data, mediaType: stored.ref.mediaType };
+    };
+    /**
      * 适配器**必须**拿到 `resolveCredential` 与 `fetchRemoteModels`：
      * 缺前者 ⇒ 每条请求抛 `AUTH`「账号未登录」（已登录用户也看到，且 AUTH 吞文案）；
      * 缺后者 ⇒ 目录只剩静态兜底（静默退化，用户看到的是过期 ctx/档位）。
@@ -3672,16 +3720,7 @@ export function apply(ctx) {
          *    惰性取时缺服务返回 `undefined` ⇒ 适配器抛 `INVALID_REQUEST`（可见失败，
          *    不是静默降级）。
          */
-        readImage: async (attachment) => {
-            const attachments = ctx.get('attachments');
-            if (attachments?.readImage === undefined)
-                return undefined;
-            const stored = await attachments.readImage(attachment);
-            if (stored === undefined)
-                return undefined;
-            // 形状转换：宿主给 `{ ref, data }`，适配器要 `{ data, mediaType }`（拼 data URL 用）。
-            return { data: stored.data, mediaType: stored.ref.mediaType };
-        },
+        readImage: magicrewReadImage,
         fetchRemoteModels: async () => {
             const credential = await magicrewAuth.currentCredential();
             if (credential === undefined)
@@ -3706,6 +3745,42 @@ export function apply(ctx) {
     const magicrewAdapter = magicrewService.adapter;
     // 与 accio / aggregate 同款幂等注册（`llm-register-compat.ts` 负责记账与剔除包装）。
     registerAdapterIdempotent(ctx.llm, [MAGICREW.id], magicrewAdapter);
+    /**
+     * ## MagiCrew 国际站（`magicrewintl`，2026-11-01 用户要求）
+     *
+     * 与国内版**共用全部实现**，只有 `product` 常量不同 —— 判据与理由见
+     * `src/magicrew-product.ts` 的 `MAGICREW_INTL` 注释（账号体系物理隔离、
+     * host 不同、网关强制 org）。
+     *
+     * 下面这一整块与国内版逐行同构，**故意不抽公共工厂**：两处差异点（product /
+     * auth 实例）都出现 5 次以上，抽工厂会让「哪一处漏改」变得不可见 ——
+     * 而本仓库记录过多次「一份语义两处实现，改一处漏一处」的缺陷
+     *（`minimaxintl` / `autoclawintl` 都选了同样的显式两份，见 `index.ts:850` / `:1819`）。
+     */
+    const magicrewIntlResolver = createCredentialResolver({ pool: pool }, {
+        product: MAGICREW_INTL,
+        readCredential: (refName) => magicrewIntlAuth.currentCredential(refName),
+        fallback: { kind: 'ref', refName: MAGICREW_INTL.defaultCredentialRef },
+        // ⚠️ 同上：不传会把「全部账号被限流」误报成「未登录」。
+        throwIfAllRateLimited: throwIfAllAccountsRateLimited,
+    });
+    const magicrewIntlService = new MagicrewService({
+        product: MAGICREW_INTL,
+        auth: magicrewIntlAuth,
+        resolveCredential: magicrewIntlResolver,
+        readImage: magicrewReadImage,
+        fetchRemoteModels: async () => {
+            const credential = await magicrewIntlAuth.currentCredential();
+            if (credential === undefined)
+                return [];
+            return await magicrewIntlAuth.fetchCatalogModels(credential.jwt, credential.organizationCode);
+        },
+        // ⚠️ 必须传（与国内版同因）：缺了会让「关掉的模型照样出现在选择器里」，
+        //    且在构造期读 `ctx.accountPool` 会抛错打断整个 `apply()`。
+        accountPool: pool,
+    });
+    const magicrewIntlAdapter = magicrewIntlService.adapter;
+    registerAdapterIdempotent(ctx.llm, [MAGICREW_INTL.id], magicrewIntlAdapter);
     /**
      * 按凭据 ref 解析 AStudio 凭据（供**选号器查余额**与最终取凭据共用）。
      *
@@ -3960,6 +4035,77 @@ export function apply(ctx) {
         // 关闭意图统一从上面那个 `accountPool` 读。⚠️ **不要把回调加回来** ——
         // 那会让「同一语义两套判据」重现（本仓库红线），且会掩盖池没接上的缺陷。
     });
+    // ===== 七牛云 AI（Qiniu）—— **本 fork 独有** =====
+    //
+    // 与 modelscope **同格**：OpenAI 兼容协议 + 长期有效的静态 API Key ⇒ 无 OAuth、
+    // 无 refresh 端点、无余额端点（`credits.balance: false`）。故整套实现是
+    // modelscope 范式的逐字镜像（`src/qiniu-*.ts` 七个文件）。
+    //
+    // ⚠️ 与 modelscope 的**唯一实质差异**：`slots()` 里模型级限流判据完全一致，但
+    //    `fetchRemoteCatalog` 打在 `/v1/models` 上 —— 该端点**实测免鉴权也回 200**
+    //    ⇒ 「目录能读到」**不构成**凭据有效的证据（本仓库对这条一贯的要求，
+    //    见 officeace / opencode 的登记）。凭据有效性只由推理请求的真实结果判定。
+    //
+    // 服务名由 QiniuAuth 依 product.id 派生，注册为 ctx.qiniuAuth。
+    const qiniu = new QiniuAuth(ctx);
+    const qiniuAdapter = registerQiniuLlm(ctx, {
+        // 单凭据回退 ref：池里没有 qiniu 账号时用它（与其余 provider 同约定）。
+        credentialRef: credentialRef(QINIU.defaultCredentialRef),
+        // 槽序列由**接线层**解析好传进来（适配器不直接读凭据）。
+        // `modelId` 透传：据此过滤「该模型正处于限流窗口」的账号。
+        slots: async (modelId) => {
+            const entries = await pool.listAccounts(QINIU.id);
+            const usable = await Promise.all(entries.map(async (entry) => {
+                if (!entry.enabled)
+                    return undefined;
+                // ⚠️ 模型级限流标记：`modelId` 缺省时**不查**（目录路径刻意不传 ——
+                //    传了会让被限流的账号把整个目录一起拖空）。
+                if (modelId !== undefined && modelId.length > 0) {
+                    const resetAt = entry.modelRateLimits?.[modelId];
+                    if (typeof resetAt === 'number' && resetAt > Date.now())
+                        return undefined;
+                }
+                const resolved = await ctx.credentials.resolve(credentialRef(entry.credentialRef));
+                if (!resolved)
+                    return undefined;
+                try {
+                    const parsed = JSON.parse(resolved.value);
+                    if (typeof parsed.access_token !== 'string' || parsed.access_token.length === 0)
+                        return undefined;
+                    return { id: entry.id, apiKey: parsed.access_token };
+                }
+                catch {
+                    return undefined;
+                }
+            }));
+            return usable.filter((s) => s !== undefined);
+        },
+        accountPool: pool,
+        product: QINIU,
+        // 限流标记的**写入端**。⚠️ 读端（上面 `slots()` 里的 `modelRateLimits` 判据）
+        // 与写端必须成对存在 —— 只读不写 ⇒ 那段判据恒不命中（死代码）；
+        // 只写不读 ⇒ 标记写进池却永远不影响选号。与 modelscope / opencode 同款。
+        markLimited: async (slotId, modelId, resetAtMs) => {
+            await pool.updateModelRateLimit(slotId, modelId, resetAtMs);
+        },
+        // 远端目录：`GET https://api.qnaigc.com/v1/models`。失败回退
+        // `QINIU_FALLBACK_MODELS`（适配器的 `loadQiniuCatalog` 内部兜底，不会抛）。
+        // ⚠️ **必须带超时**：桌面版到外部域名的 fetch 可能永不 settle（opencode 的
+        //    真机事故 2026-10-02：没有超时 ⇒ listModels 永不返回 ⇒ 模型列表与徽标
+        //    同时空白）。超时后回退兜底表，UI 立刻可用。
+        fetchRemoteCatalog: (apiKey, signal) => fetch(qiniuModelsUrl(QINIU), {
+            headers: qiniuHeaders(apiKey),
+            signal: signal ?? AbortSignal.timeout(10_000),
+        }),
+        // 图片走 `readImage` 单一路径，逐模型按目录下发的模态声明（七牛云 `/v1/models`
+        // **不下发 modalities** ⇒ 见 `parseQiniuCatalog` 的说明：一律按文本声明，
+        // 宁可不给图也不静默幻觉 —— 与 accio 的纪律同源）。
+        readImage: makeReadImage(ctx),
+        // ⚠️ **黑名单与「关闭供应商」一律由共享骨架从账号池读走**（与 modelscope
+        //    2026-10-23 迁移同款）：不要在这里加回 `disabledModels` /
+        //    `providerClosed` 两个回调 —— 那会让「同一语义两套判据」重现（本仓库红线），
+        //    且会掩盖池没接上的缺陷。
+    });
     // 一次性修复**老账号**的昵称与凭据字段（与上面 WorkBuddy 的启动清理同类）。
     //
     // 早期实现把服务端的 `name` 直接当昵称用，而实测它是**自动生成的默认名**
@@ -4114,6 +4260,12 @@ export function apply(ctx) {
              * 回归断言见 `buddy-ratelimit-misreport.spec.ts` 的「zcode 同型缺陷判定」段。
              */
             fallback: { kind: 'custom', resolve: async () => await zcode.current() },
+            // ZCode 用户要求（2026-10-30）：按 DSH sessionId 做账号亲和（同一会话
+            // **优先**落同一账号；账号今日负载达阈值后会被沉底，正在跑的会话会迁移一次
+            // 以摊平「长会话独占一个号」，见 `session-balance.ts` 的溢出均衡），没有
+            // sessionId 的请求（如本机 OpenAI 网关的一次性调用）随机分摊。
+            // 其余 provider 不设本项，继续走手动顺序。
+            accountSelection: 'session-balance',
         }),
         refresh: async () => {
             /**
@@ -5127,7 +5279,15 @@ export function apply(ctx) {
         //    退化到 `llm.listModels`（已按黑名单过滤）⇒ 「关闭整个 provider」时
         //    漏写黑名单 ⇒ 出现「provider 显示已关闭、模型却仍可选用」的矛盾态。
         modelscope: pruned(MODELSCOPE.id, modelscopeAdapter),
+        // ⚠️ **本 fork 独有**（qiniu，2026-10-29）。必须进这张表，理由与 modelscope
+        //    逐条相同：`provider.status` 的「已关闭」判据是 `total > 0 &&
+        //    disabled === total`，读的是 `listAllModels()` 那份**不套黑名单**的全量
+        //    目录。表里缺它 ⇒ 退化到已过滤的 `llm.listModels` ⇒「关闭整个 provider」
+        //    时漏写黑名单 ⇒「provider 显示已关闭、模型却仍可选用」的矛盾态。
+        qiniu: pruned(QINIU.id, qiniuAdapter),
         magicrew: pruned(MAGICREW.id, magicrewAdapter),
+        // MagiCrew 国际站（2026-11-01）：与国内版同款剪枝，目录/黑名单逻辑共用。
+        magicrewintl: pruned(MAGICREW_INTL.id, magicrewIntlAdapter),
         // OfficeAce（华为 MaaS 云端直连）：目录静态 + 平台侧可用性，同其余渠道。
         officeace: pruned(OFFICEACE.id, officeAceAdapter),
         // AStudio（上游 MAAS 云端直连）：目录来自 model-manager 远端 + 兜底表，同其余渠道。
@@ -5493,11 +5653,20 @@ export function apply(ctx) {
             // ⚠️ **本 fork 独有**的 provider（上游 rc.11 仍无 modelscope）。
             //    漏加这一行 = 它不出现在注册表里 ⇒ 续期/积分/探测三条链路全部静默失效。
             ['modelscope', modelscope],
+            // ⚠️ **本 fork 独有**的 provider（qiniu，2026-10-29）。
+            //    漏加这一行 = 它不出现在注册表里 ⇒ 续期/积分/探测三条链路全部静默失效
+            //    （`provider-runtime.ts` 的注册表是按本数组逐个 `registerProviderRuntime`
+            //    建的；主循环本身不需要改）。
+            ['qiniu', qiniu],
             // ⚠️ 超级麦吉（Magicrew，2026-10-29）：值必须是 `registerJetHubRpc` 的
             //    `auths.magicrew` 是**同一个对象**，否则守卫用例布在该实例上的 spy
             //    收不到本循环的调用（本仓库复发过 6 次）。
             //    漏加这一行 = 它不进注册表 ⇒ 续期/积分/探测三条链路全部静默失效。
             ['magicrew', magicrewAuth],
+            // ⚠️ 国际站必须**单独一行**（2026-11-01）：`provider-runtime-wiring.spec.ts`
+            //    与续期/积分/探测三条链路都按 provider id 取实例，漏了它 = 国际站账号
+            //    的 token 永不过期检测、积分永不刷新、重测按钮点了没反应（全静默）。
+            ['magicrewintl', magicrewIntlAuth],
         ];
         for (const [id, auth] of registry) {
             const descriptor = descriptorOf(id);
@@ -5675,10 +5844,18 @@ export function apply(ctx) {
         //    「客户端已登记但宿主没有同名键」⇒ zcode-wiring 的守卫会红，
         //    且 Jet Hub 的 modelscope 面板所有 RPC 全部 `unknown provider`。
         modelscope,
+        // ⚠️ **本 fork 独有**（qiniu，2026-10-29）：同款陷阱第 **六** 次。漏加 ⇒
+        //    客户端的 qiniu 面板所有 RPC 报 `unknown provider`，且
+        //    `credits-balance-self-heal.spec.ts` 的反向守卫（JetHubAuths 每个键
+        //    必须在自愈表或豁免表里）会红。
+        qiniu,
         // ⚠️ 超级麦吉（Magicrew，2026-10-29）：值必须是 `registerProviderRuntime` 那个
         //    registry 数组里 `['magicrew', magicrewAuth]` 的**同一个实例**，否则
         //    `provider-runtime-wiring.spec.ts` 布在该实例上的 spy 收不到调用。
         magicrew: magicrewAuth,
+        // ⚠️ MagiCrew 国际站（2026-11-01）：必须与上面 `['magicrewintl', magicrewIntlAuth]`
+        //    是**同一个实例**，否则 spec 布在该实例上的 spy 收不到调用。
+        magicrewintl: magicrewIntlAuth,
     }, modelAdapters);
     // 网关是旁路功能：这里传 `pool` 只为读设置页里的开关，其内部任何失败都已
     // 自行降级为日志，绝不会让插件 apply() 失败。

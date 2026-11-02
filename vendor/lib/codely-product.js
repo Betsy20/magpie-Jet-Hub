@@ -22,8 +22,10 @@
  *
  * - **推理网关**：`https://codely-litellm.tuanjie.cn/v1`（OpenAI 兼容），
  *   鉴权为 `sk-` CLI API Key + `X-Codely-Signature`（HMAC 签名）。
- *   ⚠️ **签名密钥尚未取得**（见 `codely-adapter.ts` 模块头），故本渠道
- *   当前**只有目录、没有推理**。
+ *
+ *   ✅ **已接通**：签名密钥已还原（见 `codely-sign.ts` 的 `CODELY_SIGNING_SECRET`），
+ *   推理默认走 **HTTP 自签直连**（见 `codely-adapter.ts` 模块头），CLI 子进程
+ *   只是测试兜底路径，不是主链路。
  *
  * ## 为什么是独立接口（平行而非继承）
  *

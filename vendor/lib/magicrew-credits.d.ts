@@ -24,6 +24,23 @@
 import { type MagicrewProduct } from './magicrew-product.js';
 import type { CreditBalance } from './credits.js';
 /**
+ * Magicrew 业务 API 的请求头 —— **全仓唯一一份**。
+ *
+ * ⚠️ 导出（2026-11-01）：签到（`magicrew-checkin.ts`）与积分走同一个 Go 服务、
+ * 同一套网关校验。此前 `magicrew-auth.ts` 与本文各有一份私有实现
+ *（`magicrewHeaders` / `headersOf`），形状已经**几乎**一样但 UA 取值不同 ——
+ * 再复制第三份就是「一份语义三处实现」。签到侧复用本函数。
+ *
+ * ⚠️ `origin` 必带：网关会看 Origin，缺了偶发 403。
+ * ⚠️ `organization-code` 只在非空时附 —— 国际站缺了会回 HTTP 500 + 裸文本，
+ * 所以**调用方**必须保证 `organizationCode` 真的取到了（不是这里补空串）。
+ */
+export declare function magicrewApiHeaders(params: {
+    jwt: string;
+    organizationCode: string;
+    product: MagicrewProduct;
+}): Record<string, string>;
+/**
  * 解析 `2026-11-27 13:47:42`（**无时区**）为毫秒时间戳，按 UTC+8 解释。
  *
  * 解析不出来返回 `undefined`（**不编造**）。

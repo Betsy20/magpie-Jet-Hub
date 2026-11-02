@@ -277,6 +277,17 @@ export declare class AccountPool {
      */
     private nativeWebSearchCache;
     /**
+     * 「ZCode 会话负载均衡」开关的进程内副本。
+     *
+     * 缺键语义是**启用**（与 {@link nativeWebSearchCache} 同一方向）：老文档没有
+     * 本键时保持会话亲和，不会因读取失败而静默改回「手动顺序压一个号」
+     *（那正是 2026-10-30 用户要求修掉的形态）。
+     *
+     * ⚠️ 与 {@link nativeWebSearchCache} 同级、**不需要**独立文档：丢失本键的
+     * 唯一后果是回到手动顺序，用户再开一次即可。
+     */
+    private sessionBalanceCache;
+    /**
      * 「面板入口」的进程内副本：Jet Hub 的唯一入口位置（两个取值互斥）。
      *
      * 缺键语义是 `'sidebar'`「仅侧栏」（与 {@link nativeWebSearchCache} 同一方向）：
@@ -659,6 +670,22 @@ export declare class AccountPool {
      *（需要 `DEEPSEEK_API_KEY`）—— 即所有渠道的搜索行为统一。
      */
     setNativeWebSearchEnabled(enabled: boolean): Promise<void>;
+    /**
+     * 「ZCode 会话负载均衡」开关当前是否启用。
+     *
+     * 缺键语义为**启用**（见 {@link sessionBalanceCache}）。
+     *
+     * ⚠️ 调用方（`credential-resolver.ts` 与 `zcode-adapter.ts` 的选号路径）
+     * **必须每次现读**，不能缓存返回值：用户随时可能在 Jet Hub 页头切换。
+     */
+    sessionBalanceEnabled(): boolean;
+    /**
+     * 打开/关闭「ZCode 会话负载均衡」并落盘。
+     *
+     * 关闭后 ZCode 回到「手动顺序首个可用账号」的既有语义 —— 与开关加入前
+     * 逐字节同路径（`getAvailableAccount`），不经过 session 排序。
+     */
+    setSessionBalanceEnabled(enabled: boolean): Promise<void>;
     /**
      * 「面板入口」的当前取值：Jet Hub 的唯一入口位置。
      *
@@ -1206,6 +1233,47 @@ export declare class AccountPool {
         entry: ProviderAccountEntry;
         credential: TCredential;
     } | null>;
+    /**
+     * 按 **sessionId** 选号（ZCode 专用，2026-10-30 用户要求）。
+     *
+     * - `sessionId` 非空：用 rendezvous 哈希把同一会话**稳定映射**到同一个候选
+     *   账号（会话亲和），不同会话自动分散到不同账号；账号集合变化时只迁移
+     *   原本落在该账号上的会话。
+     * - `sessionId` 为空/未传：随机洗牌后取第一个可用账号（本地 OpenAI 网关等
+     *   不带 DSH 会话标识的请求，随机均衡）。
+     *
+     * ⚠️ 本方法**刻意覆盖手动顺序** —— 这是 ZCode 用户明确要求的负载均衡语义。
+     * 其余 provider 继续走 {@link getAvailableAccount}（手动顺序优先），不受影响。
+     *
+     * `excludeAccountIds` 与 {@link getAvailableAccount} 同义：请求级换号时
+     * 排除刚失败的账号，避免拿回同一个。
+     */
+    getAvailableAccountForSession<TCredential = CodeArtsCredential | BuddyCredential>(provider: string, modelId: string, sessionId?: string, excludeAccountIds?: ReadonlySet<string>): Promise<{
+        entry: ProviderAccountEntry;
+        credential: TCredential;
+    } | null>;
+    /**
+     * 今日账号负载索引（`provider` 维度）；任何读取异常都退化为**空表**。
+     *
+     * 抽成方法是为了让「失败兜底」只有一份实现（`getAvailableAccountForSession`
+     * 与将来的调用点共用），也让单测能单独验证兜底语义（见
+     * `tests/unit/session-balance.spec.ts` 的「账本读取抛错」用例）。
+     */
+    private sessionLoadIndex;
+    /**
+     * 选号候选：`provider` + `enabled` + 不在 `excludeAccountIds` + 目标模型未限流。
+     *
+     * 与 {@link getAvailableAccount} / {@link getAvailableAccountForSession} 共用，
+     * 避免同一判据出现两份实现（两份必然漂移）。
+     */
+    private candidateAccounts;
+    /**
+     * 按给定顺序逐个解析凭据，返回第一个可用账号；坏的跳过并记录原因。
+     *
+     * 抽成私有方法是为了让「手动顺序」与「sessionId / 随机顺序」共用**同一份**
+     * 凭据解析与日志语义 —— 否则两条选号路径对「凭据损坏」的处理会分叉。
+     */
+    private resolveFirstCredential;
     /**
      * 取某 provider **全部启用账号**的凭据（按手动顺序）。
      *

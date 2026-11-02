@@ -181,8 +181,9 @@ async function magicrewCall(params) {
          * 后排队的所有账号续期一起卡住（且它在 `refreshAll` 的 per-account try 之外
          * 没有第二道闸）。其余每家 `*-credits.ts` 都有 `AbortSignal.timeout`。
          * 用 `requestTimeoutMs`（业务 API 口径）；**不要**用推理那三个超时。
+         * ⚠️ 2026-11-01 二审：值改由调用方按 `product` 传入（不再写死 `MAGICREW`）。
          */
-        signal: AbortSignal.timeout(MAGICREW.requestTimeoutMs),
+        signal: AbortSignal.timeout(params.timeoutMs),
     });
     const text = await response.text();
     let parsed;
@@ -286,6 +287,7 @@ export async function issueMagicrewGatewayKey(params) {
         }),
         body: '{}',
         fetchImpl,
+        timeoutMs: product.requestTimeoutMs,
     });
     const data = (parsed.data ?? {});
     const apiKey = readString(data, 'api_key');
@@ -322,6 +324,7 @@ export async function refreshMagicrewKey(params) {
         headers: magicrewHeaders({ webOrigin: product.webOrigin }),
         body: JSON.stringify({ refresh_token: params.refreshToken }),
         fetchImpl,
+        timeoutMs: product.requestTimeoutMs,
     });
     const data = (parsed.data ?? {});
     const apiKey = readString(data, 'api_key');

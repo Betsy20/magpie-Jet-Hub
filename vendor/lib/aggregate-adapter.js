@@ -1122,6 +1122,16 @@ export class AggregateAdapter extends LlmAdapter {
         //    ⚠️ **不许用「猜一个每日 UTC+8 零点」消除它** —— 那是凭空造一个上游从未
         //    承诺的重置时刻（本仓库红线「绝不编造数字」）。
         'modelscope',
+        // ⚠️ qiniu（七牛云，2026-10-29）：`channel: true` ⇒ 必须进聚合目录，否则它的
+        //    模型**永不进聚合、静默不可见**。
+        //
+        // ⚠️⚠️ **本数组只是第一道门**（模型层归并）。决定「在不在候选表里」的是
+        //    `aggregate-expiry.ts` 的 `WIRED_EXPIRY_PROVIDERS` —— 而 qiniu **刻意不进
+        //    那张表**：七牛云**没有余额端点**（用量只在控制台可见）⇒ 折算恒
+        //    `UNUSABLE`，与 cline / raccoon / gemini 同格。它已登记在
+        //    `expiry-runtime-parity.spec.ts` 的 `NOT_EXPIRY_WIRED` 豁免表里，
+        //    由「豁免理由被验证」那条用例钉住。
+        'qiniu',
         // officeace（2026-10-12）：华为 MaaS 云端直连渠道，`channel: true`
         // ⇒ 必须进聚合目录，否则它的模型**永不进聚合、静默不可见**。
         // ⚠️ 本数组**只是第一道门**（模型层归并）。真正决定「在不在候选表里」的是
@@ -1194,6 +1204,14 @@ export class AggregateAdapter extends LlmAdapter {
         //    **只加本数组不够** —— 决定候选表可见性的是 `aggregate-expiry.ts` 的
         //    `WIRED_EXPIRY_PROVIDERS`，漏了它 ⇒ 折算恒 UNUSABLE ⇒ 该渠道静默消失。
         'magicrew',
+        // ⚠️ **MagiCrew 国际版**（`magicrewintl`，2026-11-01）：与 `magicrew` 是
+        //    **两个 provider**（host 不同、账号体系物理隔离）⇒ 必须各自登记，
+        //    否则国际站的模型**永不进聚合目录、静默不可见**
+        //    （同款陷阱已复发五次：cline → accio → officeace → autoclaw → magicrew）。
+        //    ⚠️ 与 `magicrew` 一样**不只加本数组**：还要进 `aggregate-expiry.ts` 的
+        //    `WIRED_EXPIRY_PROVIDERS` 与 `provider-expiry.ts` 的条目，
+        //    且后者必须传 `MAGICREW_INTL`（传国内版会拿国内基址查国际账号余额）。
+        'magicrewintl',
     ]);
     /**
      * 本插件注册的渠道 id（`aggregate` 与 `jet-hub-auto` 自身除外）。

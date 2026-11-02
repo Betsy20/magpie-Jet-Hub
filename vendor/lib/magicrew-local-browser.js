@@ -43,6 +43,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { registeredBrowserUserDataRoots } from './chromium-session.js';
 /**
  * 窗口宽度。
  *
@@ -68,6 +69,11 @@ export function magicrewBrowserRoots() {
             { browser: 'Brave', root: join(local, 'BraveSoftware', 'Brave-Browser', 'User Data') },
             { browser: 'Chromium', root: join(local, 'Chromium', 'User Data') },
             { browser: 'Vivaldi', root: join(local, 'Vivaldi', 'User Data') },
+            // Windows App Paths 会登记便携版 Chrome；其 `<install>/Data` 不在上面的固定目录里。
+            ...registeredBrowserUserDataRoots().map((root) => ({ browser: '已登记浏览器（含便携版）', root })),
+            ...process.env.MAGICREW_CHROME_USER_DATA?.trim()
+                ? [{ browser: 'Chrome 便携版', root: process.env.MAGICREW_CHROME_USER_DATA.trim() }]
+                : [],
             // ── 国产 Chromium 系 ──
             // ⚠️ 参考实现 2026-10-28 实测：用户日常用的是 360 极速浏览器 X（360ChromeX），
             //   它的 localStorage 里确实有 www.letsmagic.cn 的记录。不加这一行，
@@ -273,7 +279,6 @@ const IDB_ORGANIZATION_KEYS = [
 /** 三段式 JWT 的固定开头。与 `magicrew-browser-login.js` 的 `isJwtShaped()` 同判据。 */
 const IDB_JWT_HEAD = 'e\u0000y\u0000J\u0000';
 const IDB_JWT_MIN = 80;
-
 /** 把 UTF-16LE 的 ASCII 段解回普通字符串；不是这种段就返回空串。 */
 function utf16AsciiAt(text, at) {
     let out = '';
@@ -287,7 +292,6 @@ function utf16AsciiAt(text, at) {
     }
     return out;
 }
-
 /** 扫出文本里所有「像 JWT」的 UTF-16LE 段（去重、保持出现顺序）。 */
 function idbJwtsIn(text) {
     const out = [];
@@ -304,7 +308,6 @@ function idbJwtsIn(text) {
     }
     return out;
 }
-
 /** 扫出文本里所有 `<键>"<长度字节><值>` 形态的组织码记录。 */
 function idbOrganizationsIn(text) {
     const out = [];
@@ -326,7 +329,6 @@ function idbOrganizationsIn(text) {
     out.sort((left, right) => left.index - right.index);
     return out;
 }
-
 /**
  * 从 IndexedDB 的 leveldb 文本里取 `jwt × organizationCode`。
  *

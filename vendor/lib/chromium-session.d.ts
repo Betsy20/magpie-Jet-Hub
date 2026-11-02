@@ -73,6 +73,156 @@
  */
 export declare function scoopRootFromPath(env: Record<string, string | undefined>, exists?: (path: string) => boolean): string | undefined;
 /**
+ * Windows「App Paths」里登记的 Chromium 可执行文件（**带缓存**）。
+ *
+ * ⚠️ **缓存只对默认查询器生效**（注入了 `query` 的调用点 —— 即单测 ——
+ * 走的是**未缓存**那条路，保留确定性）。
+ */
+export declare function windowsRegisteredBrowserPathsCached(nowMs?: number): string[];
+/** 清掉注册表查询缓存（**仅供单测**，避免用例之间互相污染）。 */
+export declare function resetRegistryPathsCache(): void;
+/**
+ * Windows「App Paths」里登记的 Chromium 可执行文件。
+ *
+ * ⚠️⚠️⚠️ **编码是本函数最容易错的一格**（2026-10-30 四路审计 P0 D-01 定案）：
+ *
+ * `reg.exe` 的输出**不是 UTF-8**，而是**系统 OEM 代码页**
+ * （中文 Windows = **GBK/CP936**，英文 = CP1252）。旧实现写死
+ * `encoding: 'utf8'` ⇒ 路径里的中文被解成 **U+FFFD**（**不可逆**）⇒
+ * 拼出**不存在的目录** ⇒ 「便携版已修好」在中文路径下**从未成立**。
+ *
+ * 实测取证（本机中文 Windows，写入临时 HKCU 键后删除）：
+ * ```
+ * stdout hex: …28 c4 ac c8 cf 29…  REG_SZ  …44 3a 5c d6 b5 c5 eb…
+ *              ↑↑↑↑↑↑↑↑ GBK 的「默认」二字    ↑↑↑↑↑↑ GBK 的「我的工具」
+ * utf8 解码 => "…    (Ĭ��)    REG_SZ    D:\�ҵĹ���\Chrome\App\chrome.exe"
+ * gbk  解码 => "…    (默认)    REG_SZ    D:\我的工具\Chrome\App\chrome.exe"  ✅
+ * ```
+ *
+ * ⇒ 修法：**取原始字节**（`encoding: 'buffer'`）再按**系统代码页**解码。
+ * ⚠️ 代码页**必须按系统语言选**（见 {@link registryCodePage}）——
+ * **不能无条件先试 `gb18030`**（英文 Windows 上会把 1252 的字节解成别的字符）。
+ * ⚠️ Node 内置 `TextDecoder` 支持 `gb18030` / `windows-1252`（实测 Node 22 可用）。
+ *
+ * ⚠️ **更稳的替代**：`reg export` 输出 **UTF-16LE**（无代码页歧义）⇒
+ * 用 `TextDecoder('utf-16le')` 解即可。本实现**不用**它是因为 `reg export`
+ * 需要导出整棵子树、输出体积大得多；`/ve` 单值查询 + 代码页解码已足够，
+ * 且**存在性过滤**（见下）会把解错的路径直接筛掉。
+ */
+export declare function windowsRegisteredBrowserPaths(query?: (key: string) => {
+    status: number | null;
+    stdout: string;
+}): string[];
+/**
+ * 本机 `reg.exe` 输出用的**代码页**（`'gb18030'` 或 `'windows-1252'`）。
+ *
+ * ⚠️⚠️⚠️ **不能无条件先试 `gb18030`**（2026-10-30 第二轮审计发现并修）：
+ * 两个解码器**都能解任何字节序列**（`fatal: false`）⇒ 「先试 gb18030」在
+ * **英文 Windows**（代码页 1252）上会把 1252 的字节解成**别的字符**：
+ * ```
+ * 路径 C:\Users\José\Chrome
+ *   gb18030    ⇒ "C:\Users\Jos閈\Chrome"   ← 错了
+ *   windows-1252 ⇒ "C:\Users\José\Chrome"  ✅
+ * ```
+ * ⇒ 在英文系统上，路径被解错 ⇒ **存在性过滤把它筛掉** ⇒ 整条注册表腿
+ * **静默失效**（比「解成 U+FFFD」更难发现，因为它至少还是有效文本）。
+ *
+ * ⚠️⚠️⚠️ **判据源必须是「注册表里的 OEMCP」，不能是 `Intl` 的 locale**
+ * （2026-10-30 第二轮审计 P1-1 修）：第一版按 `Intl.DateTimeFormat()
+ * .resolvedOptions().locale` 判「CJK ⇒ GBK」⇒ **ja / ko / zh-TW 全错**：
+ * - 日文 Windows 的 OEMCP 是 **932（Shift-JIS）** ⇒ `gb18030` 会把 `あ`(82 A0)
+ *   解成 `偁`；
+ * - 韩文是 **949（EUC-KR）**；
+ * - **繁体中文是 950（Big5）** ⇒ `gb18030` 会把 `中` 解成 `い`。
+ * ⚠️ 而且 `Intl` 的 locale 是**用户区域格式**、**不一定等于 UI 语言**
+ * （「英文 UI + 中文区域格式」的机器会分叉）。
+ *
+ * ⇒ 修法：读**权威**的 OEM 代码页
+ * `HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage` 的 `OEMCP` 值
+ * （实测本机 = **936**；命令形态是 `reg query <key> /v OEMCP`）。
+ * ⇒ 一次覆盖 936 / 932 / 949 / 950 / 1252 / 65001 六档，且**不依赖语言**。
+ */
+export type RegistryEncoding = 'gb18030' | 'shift_jis' | 'euc-kr' | 'big5' | 'windows-1252' | 'utf-8';
+/**
+ * OEM 代码页数值 → `TextDecoder` 的编码名。
+ *
+ * ⚠️ 只列**实测会用到的**几档（其余一律退回 `windows-1252` —— 存在的
+ * 后果只是「解错 ⇒ 存在性过滤筛掉 ⇒ 找不到」，**安全降级**，不会误命中）。
+ */
+export declare function encodingForOemCodePage(codePage: number): RegistryEncoding;
+/** `HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage` 里 `OEMCP` 值的路径。 */
+export declare const OEM_CODEPAGE_REG_KEY = "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage\\OEMCP";
+/**
+ * 读本机的 **OEM 代码页**（权威来源）。
+ *
+ * ⚠️ 读不出来时返回 `undefined` ⇒ 调用方退回 locale 启发式（再退回 1252）。
+ */
+export declare function readOemCodePage(query?: (key: string, args: readonly string[]) => {
+    status: number | null;
+    stdout: string;
+}): number | undefined;
+/**
+ * 本机 `reg.exe` 输出用的**代码页**。
+ *
+ * ⚠️ **优先读注册表的 OEMCP**（权威、与 UI 语言一致）；
+ * ⚠️ 读不到时退回 **locale 启发式**（次优，但比「无条件先试 gb18030」好得多）。
+ */
+export declare function registryCodePage(oemCodePage?: number, locale?: string): RegistryEncoding;
+/**
+ * 把 `reg.exe` 的原始输出字节按**系统 OEM 代码页**解码成文本。
+ *
+ * ⚠️ 中文 Windows 的 OEM 代码页是 **936（GBK）**；英文是 **1252**。
+ * ⚠️ **不能**用 UTF-8（中文会变 U+FFFD，不可逆）—— 见
+ * {@link windowsRegisteredBrowserPaths} 的头部注释。
+ * ⚠️ **也不能**无条件先试 `gb18030`（英文系统上会解错）—— 见
+ * {@link registryCodePage}。
+ *
+ * @param raw - `reg.exe` 的原始输出字节（`encoding: 'buffer'` 拿到的）。
+ * @param encoding - 代码页（缺省按 {@link registryCodePage} 判定）。
+ */
+export declare function decodeRegistryOutput(raw: Buffer | string | undefined, encoding?: RegistryEncoding): string;
+/**
+ * 把 `reg.exe` 的原始输出字节解码成文本，**并在首选编码解出 U+FFFD 时重试**。
+ *
+ * ⚠️⚠️ **为什么需要重试**（2026-10-30 第二轮审计）：首选编码**猜错**时，
+ * `TextDecoder`（`fatal: false`）**不会抛** ⇒ 只会产出 **U+FFFD** ⇒ 路径被
+ * 存在性过滤筛掉 ⇒ 整条注册表腿静默失效。
+ *
+ * ⇒ 判据：「解出来的文本含 U+FFFD」⇒ 说明这个编码**大概率不对** ⇒
+ * 依次试**其它**候选编码，取**第一个不含 U+FFFD** 的。
+ *
+ * ⚠️⚠️ **但 U+FFFD 也不够**（2026-10-30 第二轮审计）：`gb18030` 解 1252 的 `é`(0xE9)
+ * 得到的是 `闈`（U+95C8）——一个「合法」字符，**不含 U+FFFD**！
+ * ⇒ 判据必须再加一条：「**备选解码的结果与首选不同**」⇒ 首选可疑 ⇒ 取那个。
+ *
+ * ⚠️ 候选顺序：首选（权威 OEMCP）→ 1252 → 936 → 932 → 949 → 950 → UTF-8。
+ * ⚠️ ⚠️ **纯 ASCII 的输出**（路径里没有非 ASCII）⇒ 任何编码都解得出**同样**
+ * 的结果 ⇒ 第一个候选直接命中 ⇒ **零额外开销**（这是绝大多数情况）。
+ */
+export declare function decodeRegistryOutputWithFallback(raw: Buffer | string | undefined, preferred?: RegistryEncoding): string;
+/**
+ * 已登记浏览器的默认与便携版 User Data 目录。
+ *
+ * ⚠️⚠️ **布局不能硬编码「两级」**（2026-10-30 四路审计 P0 D-02 修）：
+ * 旧实现用 `dirname(dirname(executable))` —— 它只对 `<install>/App/chrome.exe`
+ * 这一种布局成立：
+ * ```
+ * <install>/App/chrome.exe       → dirname(dirname) = <install>       ✅
+ * <install>/chrome.exe           → dirname(dirname) = <install> 的父级 ❌ 高一级
+ * <install>/Chrome/App/chrome.exe→ dirname(dirname) = <install>/Chrome ✅（恰好）
+ * ```
+ * ⇒ 高一级 ⇒ 拼出 `<父级>/Data` ⇒ **永远读不到** ⇒ 静默 0 结果。
+ *
+ * ⇒ 修法：**逐级向上探测**，取**存在** `Data/Default` 或 `User Data/Default`
+ * 的那一级（最多 4 级）。`existsSync` 判据同时把「解错的路径」筛掉。
+ *
+ * ⚠️ 便携版 Chrome **不注册 App Paths**（那是**安装器**的行为）⇒ 这条腿
+ * 在**最需要它的场景**下恒不产出；真兜底是 `MAGICREW_CHROME_USER_DATA`
+ * （见 `src/magicrew-local-browser.ts`）。本函数仍值得保留：① 少数工具
+ * 确实会登记；② `Data` 候选对**已注册**的绿色版软件仍然有效。
+ */
+export declare function registeredBrowserUserDataRoots(paths?: readonly string[]): string[];
+/**
  * 浏览器可执行文件的**候选链**（按优先级，`ZCODE_CHROME_PATH` 恒排第一）。
  *
  * ## 为什么抽成**纯函数**

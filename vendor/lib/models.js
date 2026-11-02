@@ -1,5 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { signRequestHuawei } from './sign.js';
+import { isSignedQueryValueSafe, signRequestHuawei } from './sign.js';
+// ⚠️ 单向依赖：`codearts-vision.ts` 是**无依赖叶子**（不 import 任何模块），
+//    故这里 import 它不会成环；反过来让它 import 本文件就会（它还被
+//    `llm-register-compat.ts` 消费，而那条链最终回到 `llm-adapter.ts`）。
+import { setCodeartsImageModels } from './codearts-vision.js';
 /**
  * opengw 网关配置端点 — 返回 benefit（免费额度）模型列表（glm-5.3-flash 等）。
  * 逆向自 CodeArts Agent IDE mitmproxy 抓包（2026-08）。
@@ -12,6 +16,41 @@ export const OPENGW_GATEWAY_CONFIG_URL = 'https://opengw.developer.huaweicloud.c
  * 替代旧 SNAP_STATISTICS_URL（statistics/plugin 已不再返回 model_metrics）。
  */
 export const SNAP_MODEL_BUILTIN_URL = 'https://snap-access.cn-north-4.myhuaweicloud.com/v1/model/builtin';
+/**
+ * snap-access AgentCenter 端点组 — **动态上下文窗口权威源**（2026-10-29 接入）。
+ *
+ * ## 为什么需要第三个来源
+ *
+ * 上下文窗口此前只有**静态表**（`CONTEXT_WINDOWS`，llm-adapter.ts），而静态表
+ * 必然腐坏：GLM-5.2 实测 2026-09~10 为 202_752、10-21 起上游改成 1_048_576、
+ * **10-29 IDE 0.2.6 抓包又改回 202_752** —— 每次漂移都让插件的下分母错数倍
+ * （占用条 / 自动压缩阈值全错）。而 builtin 与 gateway/config 两个端点都实测
+ * **不下发**任何窗口字段（providers-codearts.md 笔记）。
+ *
+ * AgentCenter（`codearts2api` 参考实现一直在用的两个端点，2026-10-29 用本仓
+ * STS 凭据真机验证）是唯一找到的**按账号动态下发窗口**的来源：
+ *
+ * 1. `GET /v1/agent-center/agents/useragents?offset=0&limit=100`
+ *    → `{ agents: [{ id, is_primary_agent, ... }] }`；
+ * 2. `GET /v1/agent-center/agents/detail?agent_id={id}`
+ *    → `{ gpts: { models: [{ model_id, model_alias, model_parameters:
+ *         { context_window, max_tokens, supports_images } }] } }`。
+ *
+ * 实测 8 模型全带窗口，与 IDE 内核 `/cag/global/config` 权威**逐值一致**
+ * （GLM-5.2=202752 max 65536、openpangu=524288、glm-5.3 / ds-v4.1-flash(-1017)
+ * / kimi-k3=1048576）。取 primary agent（`is_primary_agent`，缺省第一条）。
+ *
+ * ## 签名与路由要求（全部真机判别过）
+ *
+ * - `agent-type: AgentCenter` + `x-language: zh-cn` 头**必须带且参与签名**
+ *   （不带 x-language ⇒ 400 `TM.00001001`「未找到合法可路由api」；带 AgentCenter
+ *   打 PromptCenter 专有端点也回同一 400 —— 该头是**路由判据**）；
+ * - query 必须**排序**后签名（`offset` < `limit` 恰好已是字典序，但本 signer
+ *   现已统一排序，见 `canonicalQueryOf`）；
+ * - `accept` / `content-type`（GET）参与与否都 200（非必需）。
+ */
+export const SNAP_AGENT_CENTER_USERAGENTS_URL = 'https://snap-access.cn-north-4.myhuaweicloud.com/v1/agent-center/agents/useragents?offset=0&limit=100';
+export const SNAP_AGENT_CENTER_DETAIL_URL = 'https://snap-access.cn-north-4.myhuaweicloud.com/v1/agent-center/agents/detail';
 /** 远端动态模型列表缓存文件名（~/.cache/deveco/codearts_models.json）。 */
 const CODEARTS_MODELS_CACHE_FILENAME = 'codearts_models.json';
 /**
@@ -94,6 +133,12 @@ nowMs) {
     // 过滤视觉（VL）多模态模型
     // id 含 -VL- 或以 -VL 结尾（如 Qwen3-VL-235B），上下文小、不支持工具调用，
     // 不适合当 agent 主模型，从列表隐藏；只通过 analyzeImage 等工具间接调用。
+    //
+    // ⚠️ 本判据**大小写敏感**（登记，2026-10-31 审计）：真机 `kimi-k2.6-vl` 是
+    //    小写 `-vl`，会**逃过**本过滤留在 `models`/`remoteModels` 与磁盘缓存里；
+    //    目录可见性由 `llm-adapter.ts` 的 `catalogEntries`（`/-VL-/i`，不敏感）
+    //    二次拦下 ⇒ 最终仍不进目录。两层口径分叉是**既有行为**，不在此擅自统一
+    //    （统一属行为变更，须另行登记取证）。
     if (id.includes('-VL-') || id.endsWith('-VL'))
         return undefined;
     const rawName = m['model_name'];
@@ -238,11 +283,39 @@ function extractJsonArray(text, path) {
 /**
  * 签名 GET 请求远端端点并读取文本；网络失败或非 200 时返回 undefined
  * （不阻断调用方）。
+ *
+ * ⚠️ **导出**（2026-10-30 第二轮审计 P2 修）：上一版守卫**只测安全集函数本身**、
+ * 不测**调用点** ⇒ 变异「删掉下面的闸门调用」⇒ **12 条全绿** ⇒ 第一轮 P2 D1
+ * 的修复**可零阻力复活**。⇒ 导出它，让守卫能**行为级**地断言
+ * 「query 不安全 ⇒ **fetcher 零调用**」。
  */
-async function fetchSignedGet(fetcher, url, ak, sk, st, 
+export async function fetchSignedGet(fetcher, url, ak, sk, st, 
 /** 签名后追加的头（不参与 SDK-HMAC-SHA256 签名计算）。 */
-extraUnsignedHeaders) {
-    const signed = await signRequestHuawei(ak, sk, st, 'GET', url, new Uint8Array());
+extraUnsignedHeaders, 
+/**
+ * **参与签名**的额外头（传入 `signRequestHuawei` 的 `extraHeaders`）——
+ * AgentCenter 的 `agent-type` / `x-language` 是路由判据，必须签上
+ * （builtin 的 Agent-Type 实测不签也能过，但 AgentCenter 按同口径从严）。
+ */
+extraSignedHeaders) {
+    // ⚠️⚠️ **query 值必须落在安全集内**，否则**不发这个请求**（2026-10-30 审计 P2 D1）。
+    //
+    //    `canonicalQueryOf` 的往返（decode → encode）在安全集外**可能与服务端口径
+    //    分叉**（`+` 在表单语义下是空格、`&`/`=` 会被重编码）⇒ 服务端按自己收到
+    //    的参数重算 canonical 时算出**另一个值** ⇒ `401 verify ak sk signature fail`。
+    //
+    //    ⇒ 与其静默 401（症状是「目录拿不到窗口 ⇒ 分母退化」，与「上游没这模型」
+    //    **同形**，极难定位），不如**当场不发**并留一条脱敏日志。
+    //    ⚠️ 现网全部 query 值都在安全集内（uuid、模型 id、`msg`、`DESKTOP`、数字）
+    //    ⇒ 这道闸**当前不会拦掉任何真实请求**（它只拦「上游改口径」这种情况）。
+    // ⚠️⚠️ **闸门已下沉到 `signRequestHuawei`**（2026-10-30 第二轮审计 P1 N-3 修）
+    //    ⇒ 那里是**唯一入口**、覆盖**全部**签名请求（原先只盖 4 条 GET 里的 1 条）。
+    //    ⇒ 这里保留这一层是为了**给出脱敏日志**（签名器里抛错没有上下文）。
+    if (!isSignedQueryValueSafe(url)) {
+        console.warn('[codearts] 已跳过一个 query 值不在安全集内的签名请求（避免验签分叉）');
+        return undefined;
+    }
+    const signed = await signRequestHuawei(ak, sk, st, 'GET', url, new Uint8Array(), extraSignedHeaders);
     const headers = new Headers();
     signed.forEach((v, k) => {
         if (k !== 'host')
@@ -267,9 +340,214 @@ extraUnsignedHeaders) {
     }
 }
 /**
- * 从两个远端端点拉取模型列表并合并去重：
+ * AgentCenter 单模型的 `model_parameters` → 动态窗口。
+ *
+ * ⚠️ 只认**正整数**（上游实测形态 `202752` / `1048576`）；浮点、0、
+ * 负数、字符串一律**不落键**（绝不臆造/强转 —— 字符串数字强转是「静态表
+ * 腐坏」的同型病：上游改形态时就静默喂错值）。
+ *
+ * ⚠️⚠️ **`max_tokens` 刻意不取**（2026-10-30 第二轮审计 D-4 修）：
+ * 它是「单次输出上限」，而本仓唯一的去处 `CatalogEntry.maxTokens` 会被
+ * 宿主当成「默认输出预算」+「上下文预留」⇒ **压缩阈值掉 48%**、小窗口模型
+ * 直接抛 `TargetPressureConfigError`。⇒ 上游的输出上限**不**进
+ * `RemoteModel`（见该接口 `contextWindow` 旁的注释）；出站预算由
+ * `CODEARTS_MAX_OUTPUT_TOKENS` 单点决定。
+ *
+ * ⚠️ **`supports_images` 也不在本函数读**（2026-10-31 审计修）—— 它是
+ * 「图片能力」不是「窗口」，本函数只管窗口；`supports_images` 的灌入在
+ * {@link fetchAgentCenterWindows} 的收集循环里直接做（见该处注释）。
+ */
+export function readAgentCenterWindow(m) {
+    const params = m['model_parameters'];
+    if (typeof params !== 'object' || params === null)
+        return {};
+    const p = params;
+    const out = {};
+    const ctx = p['context_window'];
+    if (typeof ctx === 'number' && Number.isInteger(ctx) && ctx > 0)
+        out.contextWindow = ctx;
+    return out;
+}
+/**
+ * AgentCenter 通道本轮收到的「能收图」模型 id（`supports_images === true`）。
+ *
+ * ⚠️ 为什么不直接在收集循环里调 `setCodeartsImageModels`：灌入判据要与
+ * builtin 通道取**并集**（builtin 有、AgentCenter 漏的模型不能被后者冲掉），
+ * 所以这里只暂存、由 `fetchCodeArtsRemoteModels` 在两个通道都跑完后统一灌。
+ * 空数组**不清空**由 `setCodeartsImageModels` 自身兑现（空集守卫）。
+ */
+let agentCenterImageIds = [];
+/**
+ * 取走 AgentCenter 本轮收到的图片能力 id 并清空暂存（仅供
+ * {@link fetchCodeArtsRemoteModels} 在合并阶段调用一次）。
+ */
+function takeAgentCenterImageIds() {
+    const taken = agentCenterImageIds;
+    agentCenterImageIds = [];
+    return taken;
+}
+/**
+ * 拉 AgentCenter 的动态窗口表（best-effort：两步请求**任何一步**失败都返回
+ * 空 Map，**不阻断**调用方 —— 窗口缺失只是退化到静态表，目录本身不受影响）。
+ *
+ * 流程：`useragents` 选 primary agent（`is_primary_agent`，无标记取第一条）
+ * → `detail?agent_id=` → `gpts.models[]` 按 `model_id` 收
+ * `{ contextWindow, name }`（name = `model_alias`）。
+ * 只有带窗口的条目才收（无窗口的条目对调用方无信息量）。
+ */
+export async function fetchAgentCenterWindows(fetcher, ak, sk, st) {
+    const out = new Map();
+    // ⚠️⚠️ **路由判据头必须「参与签名」**（去掉 x-language ⇒ 400 TM.00001001，
+    // 真机判别 2026-10-29；accept 实测非必需）。
+    //
+    // ⚠️⚠️⚠️ **头名大小写与「是否签名」两条口径在本仓内部是分岔的**
+    // （2026-10-30 两轮审计 P2 D2 / N-4 **未修已登记**，理由见下）：
+    //
+    // | 端点 | 头名拼写 | 是否参与签名 | 出处 |
+    // |---|---|---|---|
+    // | AgentCenter | `agent-type` / `x-language`（**小写**） | **签** | 本函数 |
+    // | builtin | `Agent-Type` / `X-Language`（大写） | **不签** | `fetchSignedGet` 的 `extraUnsignedHeaders` |
+    // | ops/claim / benefit | `Agent-Type` / `X-Language`（大写） | **不签** | `src/codearts-credits.ts` |
+    // | queue/status | `Agent-Type` / `X-Language`（大写） | **不签** | `src/llm-adapter.ts` 的 `queryQueueStatus` |
+    //
+    // ⚠️ **HTTP 头名大小写不敏感**，但**参与签名时 SignedHeaders 里的大小写会
+    // 逐字进入 canonical** ⇒ 服务端若按「自己收到的头名」重算 canonical，两种
+    // 拼写会得到**不同的 SignedHeaders 串** ⇒ 验签失败。
+    // ⇒ **本仓无法自证哪种拼写对**（需要真实上游）⇒ 现状是「实测能过的那个」。
+    // ⇒ ⚠️ **上游一旦统一口径**（例如 builtin 也要求签 `Agent-Type`），
+    //   那条 unsigned 腿会**立刻 401** ⇒ 这是一条**已登记的脆弱点**。
+    // ⇒ 修法（需真实上游逐端点验证后再做）：把「路由头」抽成**一份**常量
+    //   （名字 + 值 + 是否参与签名），四个端点共用；并在常量注释里写明
+    //   「实测矩阵（端点 × 头拼写 × 是否签名 → 状态码）」。
+    const signedExtras = { 'agent-type': 'AgentCenter', 'x-language': 'zh-cn' };
+    const listText = await fetchSignedGet(fetcher, SNAP_AGENT_CENTER_USERAGENTS_URL, ak, sk, st, undefined, signedExtras);
+    if (listText === undefined)
+        return out;
+    let agents;
+    try {
+        const parsed = JSON.parse(listText);
+        const arr = typeof parsed === 'object' && parsed !== null
+            ? parsed['agents']
+            : undefined;
+        if (!Array.isArray(arr))
+            return out;
+        agents = arr;
+    }
+    catch {
+        return out;
+    }
+    // 选 primary agent：有标记的优先，否则第一条可用的（与 codearts2api 参考实现同口径）。
+    let agentId;
+    for (const item of agents) {
+        if (typeof item !== 'object' || item === null)
+            continue;
+        const a = item;
+        /**
+         * ⚠️⚠️ **字段名是 `agent_id`，不是 `id`**（2026-10-30 真机实测修正）。
+         *
+         * 首版读 `a['id']` —— 上游 17 个 agent **一个都没有 `id` 键**，于是 `id`
+         * 恒 `undefined` ⇒ 直接 `return out` ⇒ **整条 AgentCenter 窗口腿静默失效**
+         * （只留一句「动态窗口不可用，退回静态兜底表」的 warn）。
+         *
+         * 实测键全集：`agent_id, original_id, domain_id, avatar_id, provider_id,
+         *  provider_name, agent_name, agent_type, agent_version, is_public, alias,
+         *  is_primary_agent, agent_order, …, is_system, status`
+         *
+         * ⇒ 兼容读两个键（`agent_id` 优先、`id` 兜底）：写死单个键会在上游改名时
+         * **静默失效**，而兜底一腿至少留一线。守卫见
+         * `codearts-agentcenter-windows.spec.ts` 的「agent_id 字段名」用例
+         * （用**真实上游形状**的 fixture，不是自造的 `id`）。
+         */
+        const rawId = a['agent_id'] ?? a['id'];
+        const id = typeof rawId === 'string' ? rawId : undefined;
+        if (id === undefined || id.length === 0)
+            continue;
+        if (a['is_primary_agent'] === true) {
+            agentId = id;
+            break;
+        }
+        if (agentId === undefined)
+            agentId = id;
+    }
+    if (agentId === undefined)
+        return out;
+    const detailUrl = `${SNAP_AGENT_CENTER_DETAIL_URL}?agent_id=${encodeURIComponent(agentId)}`;
+    const detailText = await fetchSignedGet(fetcher, detailUrl, ak, sk, st, undefined, signedExtras);
+    if (detailText === undefined)
+        return out;
+    try {
+        const parsed = JSON.parse(detailText);
+        if (typeof parsed !== 'object' || parsed === null)
+            return out;
+        const gpts = parsed['gpts'];
+        if (typeof gpts !== 'object' || gpts === null)
+            return out;
+        const gptsModels = gpts['models'];
+        if (!Array.isArray(gptsModels))
+            return out;
+        for (const item of gptsModels) {
+            if (typeof item !== 'object' || item === null)
+                continue;
+            const m = item;
+            /**
+             * ⚠️⚠️ **`gpts.models[]` 的条目里没有 `model_id`**（2026-10-30 真机实测修正）。
+             *
+             * 条目键全集：`model_alias, model_name, model_type, model_mode,
+             * model_parameters, credit, notice, model_tag` —— **无 `model_id`**。
+             * 首版按 `model_id` 取值 ⇒ 恒空串 ⇒ `continue` ⇒ **8 条模型一条都收不到**
+             * ⇒ 修了 `agent_id` 之后仍然 `windows: 0`（同一功能的第二个独立缺陷）。
+             *
+             * ⇒ 取值顺序：`model_id`（若上游将来补上）→ `model_alias` → `model_name`。
+             * 三者都要**过 VL 过滤与目录 id 对齐**：`model_alias` 实测与 builtin 的
+             * `model_id` 逐字相同（`GLM-5.2` / `deepseek-v4.1-flash-1017` / `kimi-k3`），
+             * 故可直接当目录 id 用。
+             */
+            const rawId = m['model_id'] ?? m['model_alias'] ?? m['model_name'];
+            const id = typeof rawId === 'string' ? rawId.trim() : '';
+            if (id.length === 0)
+                continue;
+            // ⚠️⚠️ **`supports_images` 在这里顺路收走**（2026-10-31 审计修 kimi-k3 盲区）：
+            //    `kimi-k3` 只在 AgentCenter 出现（builtin 漏发，见
+            //    `providers-codearts.md` 的漂移表），而 builtin 灌入通道只扫 builtin ——
+            //    不在这里收 ⇒ 报障主诉模型永远进不了 `codeartsAcceptsImage` 的判定集。
+            //    实测该端点的 `model_parameters` 里就带 `supports_images`
+            //    （文档 `providers-codearts.md` 的端点表逐字记载）。
+            //    ⚠️ 与窗口收集**解耦**：不带窗口但带图能力的条目也要收
+            //    （`continue` 在下面才发生）。
+            //    收进模块级暂存，由 {@link flushAgentCenterImageModels} 统一灌给
+            //    `codearts-vision.ts`（与 builtin 通道**并集**，见调用点注释）。
+            if (m['model_parameters']?.['supports_images'] === true) {
+                agentCenterImageIds.push(id);
+            }
+            const w = readAgentCenterWindow(m);
+            if (w.contextWindow === undefined)
+                continue;
+            /**
+             * 展示名：**优先 `model_name`**（人话），退回 `model_alias`。
+             *
+             * ⚠️ 取反了会怎样（2026-10-30 用例当场抓到）：`model_alias` 在实测数据里
+             * 常常**就是模型 id 本身**（`GLM-5.2` / `kimi-k3`），而 `model_name` 才是
+             * 展示形态（`Kimi K3` / `DeepSeek V4.1`）⇒ 用 alias 当 name 会让新进目录的
+             * 模型显示裸 id（与 `listModels` 的「name 要人话」口径相悖）。
+             */
+            const display = m['model_name'] ?? m['model_alias'];
+            out.set(id, {
+                contextWindow: w.contextWindow,
+                ...(typeof display === 'string' && display.length > 0 ? { name: display } : {}),
+            });
+        }
+    }
+    catch {
+        return out;
+    }
+    return out;
+}
+/**
+ * 从三个远端端点拉取模型列表并合并去重：
  * 1. opengw gateway/config → result.models（benefit 模型）
  * 2. snap-access /v1/model/builtin → builtinModels（常规模型）
+ * 3. snap-access AgentCenter → 动态上下文窗口（best-effort，见
+ *    {@link fetchAgentCenterWindows}；**不参与**完整性判据）
  * 失败或空凭据时返回空数组（不阻断）。
  *
  * 同时把 gateway/config 下发的 benefit 模型 id 集合写入独立缓存
@@ -342,6 +620,11 @@ nowMs = Date.now()) {
     // 2. snap-access /v1/model/builtin — 常规模型（GLM-5.2、openpangu、glm-5.2-sft-harmony 等）
     //    Agent-Type: PromptCenter + X-Language: zh-cn（不参与签名）。
     //    替代旧 statistics/plugin（已不再返回 model_metrics）。
+    //
+    //    ⚠️ builtin 通道的图片能力 id 收集在下面的循环里（`builtinImageIds`），
+    //    与 AgentCenter 通道取**并集**后统一灌入（见合并处注释）——
+    //    各自单独灌会让后灌的覆盖先灌的。
+    const builtinImageIds = [];
     const snapText = await fetchSignedGet(fetcher, SNAP_MODEL_BUILTIN_URL, ak, sk, st, {
         'Content-Type': 'application/json',
         'Agent-Type': 'PromptCenter',
@@ -353,14 +636,90 @@ nowMs = Date.now()) {
     if (outcome !== undefined)
         outcome.builtinOk = snapArr !== undefined;
     if (snapArr !== undefined) {
+        // ⚠️ `supports_images` 必须在本循环里**单独**读，不能指望 `RemoteModel`：
+        //    `parseModelInfo` 会把 `-VL-` / `-VL` 结尾的模型**整条丢掉**（它们不进
+        //    对话目录），而能收图的恰恰就是这批模型 ⇒ 走 `models` 数组根本看不到它们。
         for (const item of snapArr) {
             if (typeof item === 'object' && item !== null) {
-                const mi = parseModelInfo(item, seen, nowMs);
+                const entry = item;
+                if (entry['supports_images'] === true) {
+                    const rawId = entry['model_id'];
+                    if (typeof rawId === 'string' && rawId.length > 0)
+                        builtinImageIds.push(rawId);
+                }
+                const mi = parseModelInfo(entry, seen, nowMs);
                 if (mi)
                     models.push(mi);
             }
         }
+        // ⚠️ 只在**本来源取到**时才灌入：请求失败（snapArr 为 undefined）时不动
+        //   已灌入的集合 —— 一次抖动就把「刚能收图」的模型变不能，比保持原样更糟。
+        //   （实际灌入统一在下方 builtin ∪ AgentCenter 合并处；此处保留注释防止
+        //   有人把 `setCodeartsImageModels` 挪回循环里。）
     }
+    /**
+     * 3. snap-access AgentCenter — **动态上下文窗口**（2026-10-29 接入）。
+     *
+     * ⚠️⚠️ **刻意不进完整性判据**（`isRemoteCatalogComplete` 仍只看
+     * `gatewayOk && builtinOk`）：窗口缺失的后果只是「分母退化到静态表」，
+     * 而静态表本就是现状；若把它算进完整性，AgentCenter 一抖动就会让
+     * 整份**目录**被拒之门外（不能永久缓存）—— 因果完全不成比例。
+     * 失败静默（fetchSignedGet 内已 catch），无日志面。
+     *
+     * 合并规则：
+     * - 目录已有该 id → **补** `contextWindow`（目录端点不下发，不存在冲突，
+     *   无需「远端优先」判据）；
+     * - AgentCenter 有、目录没有的 id → **只作窗口源**（`windowOnly: true`），
+     *   **不进目录**（2026-10-30 审计 P1-2 修：AgentCenter 不下发倍率 ⇒ 进目录
+     *   就是裸名 ⇒ `priceFactorFromName` 恒 `Infinity` ⇒ 聚合里永远排最后；
+     *   详见 `RemoteModel.windowOnly` 的注释）。
+     */
+    const agentCenterWindows = await fetchAgentCenterWindows(fetcher, ak, sk, st);
+    if (agentCenterWindows.size > 0) {
+        for (const model of models) {
+            const w = agentCenterWindows.get(model.id);
+            if (w === undefined)
+                continue;
+            model.contextWindow = w.contextWindow;
+        }
+        for (const [id, w] of agentCenterWindows) {
+            if (seen.has(id))
+                continue;
+            // ⚠️ VL 过滤与目录层同口径（**大小写不敏感**）：`src/llm-adapter.ts` 的
+            //    `catalogEntries` 用 `/-VL-/i` 与 `/-VL$/i`，而旧实现这里是
+            //    **大小写敏感**（`includes('-VL-')`）⇒ 小写 `-vl` 的 id 会被这里收下、
+            //    再被目录层滤掉 ⇒ 落进 `remoteModels` 与磁盘缓存却**永不可见**
+            //    （2026-10-30 审计 P3-1）。
+            if (/-VL-/i.test(id) || /-VL$/i.test(id))
+                continue;
+            // ⚠️ **窗口源，不是目录条目**（见 `RemoteModel.windowOnly` 的注释）。
+            //    `name` 仍取 `model_alias`（供诊断/展示用），但它**不会**进目录
+            //    ⇒ 不会触发「倍率缺失 ⇒ Infinity」。
+            models.push({
+                id,
+                name: w.name ?? id,
+                contextWindow: w.contextWindow,
+                windowOnly: true,
+            });
+            seen.add(id);
+        }
+    }
+    else {
+        // ⚠️ **失败要留痕**（2026-10-30 审计 P3 D8）：静默 ⇒ 「窗口长期退化」与
+        //    「上游把窗口改小了」同形且零日志。脱敏：不含任何凭据。
+        console.warn('[codearts] AgentCenter 动态窗口不可用，窗口分母将退化到静态兜底表（目录本身不受影响）');
+    }
+    /**
+     * 图片能力灌入：**builtin ∪ AgentCenter 并集**（2026-10-31 审计修 kimi-k3 盲区）。
+     *
+     * builtin 通道已在上面的循环里收好 `imageIds`；AgentCenter 通道在
+     * {@link fetchAgentCenterWindows} 里顺路收进了暂存（`kimi-k3` 只在那个端点
+     * 出现）。两个通道**取并集**后一次灌入 —— 若各自单独灌，后灌的会覆盖先灌的
+     * （`setCodeartsImageModels` 原为整体覆盖；现空集不清空，但非空集仍覆盖）。
+     * ⚠️ AgentCenter 失败时 `takeAgentCenterImageIds()` 返回空数组 —— 空集不清空
+     * 的守卫保证它不会冲掉 builtin 收到的集合。
+     */
+    setCodeartsImageModels([...builtinImageIds, ...takeAgentCenterImageIds()]);
     /**
      * 持久化 benefit 集合：chat 请求签名时据此决定是否带 `maas_type`。
      *
