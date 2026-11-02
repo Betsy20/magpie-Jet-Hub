@@ -414,7 +414,11 @@ console.log('startNewAccount 对空 loginUrl 的分辨：')
   ok(got.reused === true, 'reused:true + 空 loginUrl → 当成功出口（不是抛错）')
   ok(got.accountId === 'astudio-abc', '账号 id 照常传出')
   ok(got.loginUrl === '', 'loginUrl 就是空的（这条路本来没有授权页）')
-  ok(got.incognitoOpened === false, '没有授权页时不会说 opened')
+  // 2026-11-02 改：reused 也说 opened。**纯防御** —— 当前 magpie 版本下 `opened`
+  // 取真取假渲染完全相同（`internal/gui/api.go` 的 `openError` 对空 URL 直接
+  // `return ""`；`app.js:12106`/`:12210` 都 `&& signing.url` 短路）。真正让用户
+  // 看到正确提示的是 instructions 分叉，不是这个字段。
+  ok(got.incognitoOpened === true, '没有授权页时也说 opened（纯防御，当前版本不参与渲染）')
 }
 {
   // 有账号 id 但既没 URL 也没 reused → 仍是失败
@@ -641,8 +645,8 @@ console.log('\n超级麦吉的 mode 分派：')
 {
   const { MAGICREW_CREATE_MODES } = make(fakeContainer({ create: {} }))
   ok(
-    Array.isArray(MAGICREW_CREATE_MODES) && MAGICREW_CREATE_MODES.join(',') === 'local-browser,browser',
-    `mode 顺序是 local-browser → browser（实际 ${JSON.stringify(MAGICREW_CREATE_MODES)}）`,
+    Array.isArray(MAGICREW_CREATE_MODES) && MAGICREW_CREATE_MODES.join(',') === 'browser,local-browser',
+    `mode 顺序是 browser → local-browser（实际 ${JSON.stringify(MAGICREW_CREATE_MODES)}）`,
   )
 
   // ① 别家只调一次、且 payload 里**不带** mode 字段
@@ -664,6 +668,7 @@ console.log('\n超级麦吉的 mode 分派：')
 
   // ② 超级麦吉：第一条腿成功就不再试第二条
   {
+    // browser（第一条腿）成功 ⇒ 立刻收口，不再去导入本机会话。
     const seen = []
     const c = {
       async rpc(method, payload) {
@@ -676,22 +681,23 @@ console.log('\n超级麦吉的 mode 分派：')
     }
     const { startNewAccountSmart } = make(c)
     const r = await startNewAccountSmart(c, 'magicrew', () => {})
-    ok(seen.length === 1, `local-browser 成了就不再开窗（实际调了 ${seen.length} 次）`)
-    ok(seen[0].payload.mode === 'local-browser', `第一次试的是 local-browser（实际 ${seen[0].payload.mode}）`)
-    ok(r.reused === true, 'local-browser 的空 loginUrl 按 reused 收口（不是报失败）')
+    ok(seen.length === 1, `browser 成了就不再导入本机会话（实际调了 ${seen.length} 次）`)
+    ok(seen[0].payload.mode === 'browser', `第一次试的是 browser（实际 ${seen[0].payload.mode}）`)
+    ok(r.reused === false, 'browser 的空 loginUrl 是「等用户登录」，不是 reused')
+    ok(r.incognitoOpened === true, 'browser 那条按「本体自己开窗」返回（incognitoOpened）')
   }
 
-  // ③ 第一条腿失败 → 退 browser，并带上 browser 这个 mode
+  // ③ 第一条腿（browser）失败 → 退第二条腿 local-browser，并按 browser 记第一次失败
   {
     const seen = []
     const c = {
       async rpc(method, payload) {
         seen.push({ method, payload })
         if (method === 'account.create') {
-          if (payload.mode === 'local-browser') {
-            throw new Error('未在本机浏览器里找到超级麦吉的登录态')
+          if (payload.mode === 'browser') {
+            throw new Error('浏览器起不来')
           }
-          return { accountId: 'mr-2', loginUrl: '' }
+          return { accountId: 'mr-2', loginUrl: '', reused: true }
         }
         throw new Error('没预期的 rpc: ' + method)
       },
@@ -700,14 +706,15 @@ console.log('\n超级麦吉的 mode 分派：')
     const r = await startNewAccountSmart(c, 'magicrew', () => {})
     ok(seen.length === 2, `两条腿都试了（实际 ${seen.length} 次）`)
     ok(
-      seen.map((s) => s.payload.mode).join(',') === 'local-browser,browser',
-      `试的顺序是 local-browser → browser（实际 ${seen.map((s) => s.payload.mode).join(',')}）`,
+      seen.map((s) => s.payload.mode).join(',') === 'browser,local-browser',
+      `试的顺序是 browser → local-browser（实际 ${seen.map((s) => s.payload.mode).join(',')}）`,
     )
-    ok(r.incognitoOpened === true, 'browser 那条按「本体自己开窗」返回（incognitoOpened）')
-    ok(r.reused === false, 'browser 那条**不能**报成 reused（那会把还没填凭据的卡报成已添加）')
+    ok(r.reused === true, 'local-browser 那条按 reused 收口（凭据在 create 返回前就写好了）')
+    ok(r.incognitoOpened === true, 'reused 也说 opened（纯防御，当前版本不参与渲染）')
   }
 
-  // ④ 两条腿都失败 → 抛**第二条**的错误（local-browser 的失败是预期内的，报它定位不到问题）
+  // ④ 两条腿都失败 → 抛**第一条**（browser）的错误：那才是用户点「新建」想走的路，
+//    local-browser 的失败（本机没有登录态）多是预期内的，报它定位不到问题。
   {
     const c = {
       async rpc(method, payload) {
@@ -724,14 +731,21 @@ console.log('\n超级麦吉的 mode 分派：')
     } catch (e) {
       err = String(e?.message ?? e)
     }
-    ok(err === '窗口起不来', `两条腿都失败时报的是第二条腿的错误（实际 ${err}）`)
+    ok(
+      err.startsWith('窗口起不来') && err.includes('另 1 条方式'),
+      `两条腿都失败时报的是第一条腿（browser）的错误、并带上另一条腿（实际 ${err}）`,
+    )
   }
 
   // ⑤ 空 loginUrl 的三种含义必须分得开（这条是 5.2 节 M1 的 magicrew 版）
   {
     // local-browser：空 URL = 成功（凭据在 create 返回前就写好了）
+    // 第一条腿（browser）必须先失败，否则永远走不到 local-browser。
     const c1 = {
-      async rpc() { return { accountId: 'mr-3', loginUrl: '' } },
+      async rpc(method, payload) {
+        if (method === 'account.create' && payload.mode === 'browser') throw new Error('浏览器起不来')
+        return { accountId: 'mr-3', loginUrl: '', reused: true }
+      },
     }
     const r1 = await make(c1).startNewAccountSmart(c1, 'magicrew', () => {})
     ok(r1.reused === true && r1.loginUrl === '', 'local-browser 的空 URL 是成功（reused）')
