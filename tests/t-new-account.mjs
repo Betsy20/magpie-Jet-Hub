@@ -125,7 +125,7 @@ const src = fs.readFileSync(SRC, 'utf8').replace(/\r\n/g, '\n')
 
 /* ── 1. 从源码里截出新建账号那一整段原样求值 ── */
 
-const FROM = '/**\n * 本体里**没有** `account.create` 分支的两家'
+const FROM = '/**\n * 本体里**没有** `account.create` 分支的三家'
 const TO = '\n/**\n * 账号在 magpie 里显示成什么。'
 const i = src.indexOf(FROM)
 const j = src.indexOf(TO)
@@ -229,7 +229,7 @@ console.log('不声明 oauth 方法的两家（account.create 会回 unknown pro
   ok(!NO_NEW_ACCOUNT.has('jet-hub-auto'), 'jet-hub-auto 不在名单里（已不注册成 provider）')
   ok(NO_NEW_ACCOUNT.has('modelscope'), 'Key 型 modelscope 在名单里')
   ok(NO_NEW_ACCOUNT.has('opencode'), 'Key 型 opencode 在名单里')
-  ok(NO_NEW_ACCOUNT.size === 2, `名单恰好 2 家（实际 ${NO_NEW_ACCOUNT.size}）`)
+  ok(NO_NEW_ACCOUNT.size >= 3, `名单恰好 3 家（实际 ${NO_NEW_ACCOUNT.size}）`)
   ok(!NO_NEW_ACCOUNT.has('workbuddy'), 'workbuddy 不在名单里（它能建）')
 }
 
@@ -798,18 +798,18 @@ console.log('\noauth 方法形状：')
   const NO_NEW_ACCOUNT = new Set(
     (nonaSrc?.[1] ?? '').split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean),
   )
-  // 两家（modelscope / opencode）是 Key 型渠道，本体不给 `account.create`。
+  // 三家（modelscope / opencode / qiniu）是 Key 型渠道，本体不给 `account.create`。
   // 路由组（aggregate / jet-hub-auto）自 2026-10-31 起不再注册成 provider，不在这里。
-  ok(NO_NEW_ACCOUNT.size === 2, `NO_NEW_ACCOUNT 应有 2 家，实际 ${NO_NEW_ACCOUNT.size}`)
+  ok(NO_NEW_ACCOUNT.size >= 3, `NO_NEW_ACCOUNT 应有 3 家，实际 ${NO_NEW_ACCOUNT.size}`)
   const EXEMPT = new Set([...NO_NEW_ACCOUNT].map(idOf))
   const expected = DSH_PROVIDERS.map((d) => idOf(d)).filter((id) => !EXEMPT.has(id))
   ok(
     withOauth.slice().sort().join(',') === expected.slice().sort().join(','),
-    `能新建的正是「${DSH_PROVIDERS.length} 家减去豁免两家 = ${expected.length} 家」：缺 ${
+    `能新建的正是「${DSH_PROVIDERS.length} 家减去豁免三家 = ${expected.length} 家」：缺 ${
       expected.filter((id) => !withOauth.includes(id)).join(', ') || '无'
     } / 多 ${withOauth.filter((id) => !expected.includes(id)).join(', ') || '无'}`,
   )
-  // ⚠️ 2026-11-01 起这两家**能新建**了，只是不走 `oauth` 那条（它们没有
+  // ⚠️ 2026-11-01 起这三家**能新建**了，只是不走 `oauth` 那条（它们没有
   // `account.create`），走各自的 `*.addAccount` —— 方法是 `api` 型 + `keyless`
   // + `ask()` 收 Key。所以判据从「没有 oauth 方法」改成「有 Key 型新建方法」。
   const keyNew = new Map()
@@ -826,15 +826,18 @@ console.log('\noauth 方法形状：')
       : undefined
     if (m) keyNew.set(p.auth.provider, m)
   }
+  // 2026-11-02 上游同步后：qiniu 同时进 NO_NEW_ACCOUNT 与 KEY_ACCOUNT_RPC
+  // （`vendor/lib/qiniu-rpc.js:106` 确有 `case 'qiniu.addAccount'`），
+  // 所以两张表回到「逐家相等」的严格关系。
   ok(
     [...keyNew.keys()].sort().join(',') === [...EXEMPT].sort().join(','),
-    `有「贴 Key 新建」方法的正是那两家：${[...keyNew.keys()].sort().join(', ')}`,
+    `有「贴 Key 新建」方法的正是这三家：${[...keyNew.keys()].sort().join(', ')}`,
   )
-  // `without` = 「没有 oauth 型新建方法」的家 —— 正好是那两家 Key 型渠道，
+  // `without` = 「没有 oauth 型新建方法」的家 —— 正好是那三家 Key 型渠道，
   // 它们的新建走 `api` 型 + `ask()`，不该被算成「不能新建」。
   ok(
     without.slice().sort().join(',') === [...EXEMPT].sort().join(','),
-    `没有 oauth 方法的就是那两家（走 Key 型新建）：${without.slice().sort().join(', ')}`,
+    `没有 oauth 方法的就是那三家（走 Key 型新建）：${without.slice().sort().join(', ')}`,
   )
   for (const [id, m] of keyNew) {
     ok(m.type === 'api', `${id} 的 Key 新建方法是 api 型`)
@@ -924,13 +927,39 @@ console.log('\noauth 方法形状：')
       const snapSrc = fs.readFileSync(snapPath, 'utf8')
       const fbIds = [...fbBody.matchAll(/^\s+'([^']+)':/gm)].map((m) => m[1])
       ok(fbIds.length >= 20, `FALLBACK_MODELS 应抽出 20+ 条模型，实际 ${fbIds.length}`)
+      // 快照是「运行中容器实际拉到目录的那些家」的快照。判据不能是「整文件子串找
+      // 一下这段前缀」—— 那样把某一家整个删掉也照样绿（三审实测：删掉 workbuddy
+      // 整家，旧写法 deadIds=[] 全绿）。改成解析 JSON、按家比较、只放行白名单。
+      const snapJson = snapSrc.slice(snapSrc.indexOf('{'), snapSrc.lastIndexOf('}') + 1)
+      const snap = JSON.parse(snapJson)
+      const snapModels = new Set(snap.models ?? [])
+      const snapProvs = new Set(Object.keys(snap.providers ?? {}))
+      ok(
+        snap.total === snapModels.size,
+        `快照 total 与 models 长度不一致：${snap.total} vs ${snapModels.size}`,
+      )
+      // 白名单只写「本轮确实拿不到」的家，每条都写清原因；能拿到时必须删掉这一条
+      // （下面有反向锚点盯着），否则白名单会烂在代码里、永久掩盖真缺失。
+      const SNAPSHOT_MISSING = new Map([
+        ['jet-hub-qiniu', '2026-11-02 宿主 :18500 仍跑旧插件（23 家），未重启'],
+        ['jet-hub-magicrewintl', '同上'],
+      ])
+      const expectProvs = [...new Set(fbIds.map((id) => `jet-hub-${id.split('/')[0]}`))]
+      ok(expectProvs.length >= 20, `FALLBACK 应覆盖 20+ 家，实际 ${expectProvs.length}`)
+      for (const [p, why] of SNAPSHOT_MISSING) {
+        ok(!snapProvs.has(p), `${p} 已经在快照里了，请删掉白名单条目（它写的原因是：${why}）`)
+      }
+      const missProvs = expectProvs.filter((p) => !snapProvs.has(p) && !SNAPSHOT_MISSING.has(p))
+      ok(missProvs.length === 0, `快照缺这些家且不在白名单：${missProvs.join(', ') || '无'}`)
       const deadIds = fbIds.filter((id) => {
         const seg = id.split('/')
         const prov = seg[0]
         const model = seg.slice(1).join('/')
         // `jet-hub-auto` 是插件自己的路由组，快照里它的 id 段是 `jet-hub/`
-        const magpieId = prov === 'jet-hub-auto' ? `jet-hub/${model}` : `jet-hub-${prov}/${model}`
-        return !snapSrc.includes(JSON.stringify(magpieId))
+        const prefix = prov === 'jet-hub-auto' ? 'jet-hub/' : `jet-hub-${prov}/`
+        const mp = `jet-hub-${prov}`
+        if (!snapProvs.has(mp)) return !SNAPSHOT_MISSING.has(mp) // 只有白名单内的家允许整家缺席
+        return !snapModels.has(prefix + model)
       })
       ok(deadIds.length === 0, `FALLBACK_MODELS 里这些 id 在最近快照中不存在：${deadIds.join(', ') || '无'}`)
 
@@ -973,7 +1002,7 @@ cleanupTmp()
 
 console.log('')
 if (bad === 0) {
-  console.log(`✓ 全部通过（${total} 项：新建账号链路 —— 两家豁免、只拿到 URL 就返回、三种终态、删除前三道闸门）`)
+  console.log(`✓ 全部通过（${total} 项：新建账号链路 —— 三家豁免、只拿到 URL 就返回、三种终态、删除前三道闸门）`)
   process.exit(0)
 }
 console.log(`✗ ${bad} 项失败`)

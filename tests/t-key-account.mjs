@@ -73,6 +73,8 @@ const FAKE_KEY = {
   // modelscope：^ms-[A-Za-z0-9_-]{16,}$
   modelscope: 'ms-' + 'A'.repeat(20),
   // opencode：^[A-Za-z0-9_.-]{20,}$ —— 刻意**不以 ms- 开头**，调错 RPC 会当场报错
+  // qiniu：^sk-[A-Za-z0-9_-]{16,}$（vendor/lib/qiniu-rpc.js 的 KEY_PATTERN）
+  qiniu: 'sk-' + 'Q'.repeat(24),
   opencode: 'B'.repeat(24),
 }
 
@@ -82,16 +84,20 @@ console.log('KEY_ACCOUNT_RPC：')
   const m = src.match(/const KEY_ACCOUNT_RPC = new Map\(\[([\s\S]*?)\]\)/)
   ok(m !== null, '能从 src/plugin.mjs 里解析出 KEY_ACCOUNT_RPC')
   const pairs = [...(m?.[1] ?? '').matchAll(/\[\s*'([^']+)'\s*,\s*'([^']+)'\s*\]/g)].map((x) => [x[1], x[2]])
-  ok(pairs.length === 2, `应恰好 2 家（实际 ${pairs.length}）`)
+  ok(pairs.length === 3, `应恰好 3 家（实际 ${pairs.length}）`)
   const map = new Map(pairs)
   ok(map.get('modelscope') === 'modelscope.addAccount', `modelscope → ${map.get('modelscope')}`)
   ok(map.get('opencode') === 'opencode.addAccount', `opencode → ${map.get('opencode')}`)
+  ok(map.get('qiniu') === 'qiniu.addAccount', `qiniu → ${map.get('qiniu')}`)
   // 与 NO_NEW_ACCOUNT 必须一致：不能走 account.create 的正是走 addAccount 的
   const nona = src.match(/const NO_NEW_ACCOUNT = new Set\(\[([^\]]*)\]\)/)
   const nonaSet = new Set((nona?.[1] ?? '').split(',').map((x) => x.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean))
+  // 两张表必须**完全一致**：走不了 account.create 的，正是走 *.addAccount 的。
+  // 2026-11-02 上游同步后 qiniu 同时进两张表（`vendor/lib/qiniu-rpc.js:106` 确有
+  // `case 'qiniu.addAccount'`，实测返回 `{accountId, existed}`）。
   ok(
     [...map.keys()].sort().join(',') === [...nonaSet].sort().join(','),
-    `KEY_ACCOUNT_RPC 与 NO_NEW_ACCOUNT 是同一批：${[...map.keys()].sort().join(',')} / ${[...nonaSet].sort().join(',')}`,
+    `KEY_ACCOUNT_RPC 与 NO_NEW_ACCOUNT 逐家一致：${[...map.keys()].sort().join(',')} vs ${[...nonaSet].sort().join(',')}`,
   )
 }
 
@@ -178,7 +184,7 @@ try {
     ok(record?.metadata?.apiKey === undefined, `${provider}: 合并后 metadata.apiKey 是 undefined`)
     ok(record?.metadata?.dshAccountId === accountId, `${provider}: 合并后 metadata.dshAccountId 仍在本家账号 id`)
   }
-  ok(seen.sort().join(',') === 'jet-hub-modelscope,jet-hub-opencode', `有「贴 Key 新建」方法的正是那两家（实际 ${seen.sort().join(',')}）`)
+  ok(seen.sort().join(',') === 'jet-hub-modelscope,jet-hub-opencode,jet-hub-qiniu', `有「贴 Key 新建」方法的正是那三家（实际 ${seen.sort().join(',')}）`)
 } finally {
   fs.rmSync(TMP_HOME, { recursive: true, force: true })
 }

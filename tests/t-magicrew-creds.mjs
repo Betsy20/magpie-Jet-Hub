@@ -316,6 +316,29 @@ console.log('\n11. 行为级：放弃等待的诊断行要带 IndexedDB 报错')
   ok(line.includes('没有 magic-global 这个库'), '诊断行带上了具体报错原因')
 }
 
+// ── 11b. 源码级：回收函数用到的 5 个内置符号必须真 import（防「函数在、import 漏」 ──
+console.log('\n11b. 临时 profile 回收的内置符号必须真 import')
+{
+  // ⚠️ 这条是 2026-11-02 上游同步踩出来的事故换来的：補丁搬回了
+  // collectStaleLoginProfiles，但漏抄 node:fs / node:os / node:path 三行 import，
+  // 于是 tmpdir() 在 try 里抛 ReferenceError 被 catch 吞掉 —— 函数恒返回 0，
+  // 不崩、不打日志、静默失效。第 11 节用 new Function 注入符号求值，测不出来。
+  const need = ['readdirSync', 'rmSync', 'statSync', 'tmpdir', 'join']
+  const imported = new Set()
+  // ⚠️ 先剥行注释：注释里写一句  就能骗过下面的正则。
+  const importOnly = loginSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  for (const m of importOnly.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]node:[^'"]+['"]/g)) {
+    for (const n of m[1].split(',')) {
+      const name = n.trim().split(/\s+as\s+/).pop().trim()
+      if (name.length > 0) imported.add(name)
+    }
+  }
+  const miss = need.filter((n) => !imported.has(n))
+  ok(miss.length === 0, `回收函数用到的内置符号都已 import（缺：${miss.join(', ') || '无'}）`)
+  // 反向：不许用全局兜底（Node 里 tmpdir/readdirSync 都不是全局）
+  ok(!/\{\s*\}\s*=\s*globalThis/.test(loginSrc), '不靠 globalThis 兜底')
+}
+
 // ── 12. 端到端：真实浏览器目录能读到（有则验，无则跳过） ───────────────────
 console.log('\n12. 端到端：真实 Edge 目录（有则验，无则跳过）')
 {

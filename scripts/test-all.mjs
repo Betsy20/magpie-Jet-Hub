@@ -33,7 +33,7 @@ const cfgEnv = {
   JET_HUB_MODELS_CACHE: path.join(cfgSandbox, 'jet-hub-models.json'),
 }
 
-const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-deps.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-cred-alive.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-auth-sync.mjs', 't-import-backup.mjs', 't-backup-keep.mjs', 't-login-reclaim.mjs', 't-console-backup.mjs', 't-new-account.mjs', 't-key-account.mjs', 't-magicrew-creds.mjs', 't-snapshot-segment.mjs', 't-model-efforts.mjs', 't-model-prices.mjs', 't-rpc-cover.mjs']
+const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-deps.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-cred-alive.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-auth-sync.mjs', 't-import-backup.mjs', 't-backup-keep.mjs', 't-login-reclaim.mjs', 't-console-backup.mjs', 't-new-account.mjs', 't-key-account.mjs', 't-magicrew-creds.mjs', 't-magicrew-modes.mjs', 't-snapshot-segment.mjs', 't-model-efforts.mjs', 't-model-prices.mjs', 't-rpc-cover.mjs']
 const ENV = [
   { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
   // 直连层回归：真起容器跑一次 chat（流式 + 非流式）。取代了原来「内嵌网关端口」
@@ -75,8 +75,16 @@ const rows = []
 for (const c of cases) {
   const file = path.join(TESTS, c.file)
   if (!fs.existsSync(file)) {
-    rows.push(['-', c.label, '文件不存在'])
-    skip++
+    // ⚠️ UNIT 里登记的文件必须真在仓库里：曾经因为漏 `git add` 一个新测试，
+    // 提交后检出时它不存在，而这里只记「跳过」—— 于是那条回归测试静默失效，
+    // 任何变异都不会红（2026-11-02 三审实测）。ENV 类允许缺失（要外部服务）。
+    if (UNIT.includes(c.file)) {
+      rows.push(['✗', c.label, '文件不存在（UNIT 里登记的文件必须已提交）'])
+      fail++
+    } else {
+      rows.push(['-', c.label, '文件不存在'])
+      skip++
+    }
     continue
   }
   const pre = PRECONDITION(c)

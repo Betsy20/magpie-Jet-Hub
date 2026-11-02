@@ -238,7 +238,9 @@ if (typeof toMagpieCheckin === 'function') {
   console.log(`  声明了 checkin 的：${want.size} 家；未声明：${mod.PLUGINS.length - want.size} 家`)
 
   // 反向固定几个代表：文档与答复里点过名的，别让判据整体漂掉
-  const unsupported = ['jet-hub-cline', 'jet-hub-workbuddy', 'jet-hub-magicrew', 'jet-hub-raccoon', 'jet-hub-modelscope', 'jet-hub-opencode', 'jet-hub-officeace', 'jet-hub-accio', 'jet-hub-gemini']
+  // 2026-11-02 上游同步：magicrew 系新增了 claimMagicrewLoginGift / claimMagicrewOnboardingTasks，
+  // 在 provider-credits 表里已带 claim ⇒ 从「不该声明」名单移除。
+  const unsupported = ['jet-hub-cline', 'jet-hub-workbuddy', 'jet-hub-raccoon', 'jet-hub-modelscope', 'jet-hub-opencode', 'jet-hub-officeace', 'jet-hub-accio', 'jet-hub-gemini']
   for (const id of unsupported) {
     const [, fn] = mod.PLUGINS.find(([i]) => i === id)
     const plugin = await fn({}, iso.options())

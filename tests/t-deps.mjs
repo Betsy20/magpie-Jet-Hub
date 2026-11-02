@@ -289,11 +289,40 @@ function scan(file) {
 }
 
 const importedBy = new Map() // 包名 → 引用它的文件（相对路径，报错时好定位）
+const relOf = (f) => path.relative(ROOT, f).replace(/\\/g, '/')
+const record = (n, f) => {
+  if (!importedBy.has(n)) importedBy.set(n, [])
+  importedBy.get(n).push(relOf(f))
+}
 for (const f of files) {
-  for (const n of scan(f)) {
-    if (!importedBy.has(n)) importedBy.set(n, [])
-    importedBy.get(n).push(path.relative(ROOT, f).replace(/\\/g, '/'))
+  for (const n of scan(f)) record(n, f)
+  // 变量形式的动态 import：同文件里 `const X = '<包名>'` 能解析出来的，等价于字面量。
+  // 上游 `vendor/lib/opencode-bun-tls.js` 刻意这么写（`tsc` 会为字面量做模块解析，把
+  // 「运行期可缺席」变成编译期强依赖），所以不禁止 —— 但必须算进 importedBy，
+  // 否则断言 ① 看不见它，换机照样 `ERR_MODULE_NOT_FOUND`。
+  for (const pkg of varImportsOf(f)) record(pkg, f)
+}
+
+/**
+ * 把 `import(X)` 里的变量 X 解析成同文件里 `const X = '<包名>'` 的字面量。
+ *
+ * 只认最简单的形态（同一文件、字面量赋值），解析不出来就返回空 —— 那种情况交给
+ * 断言 ⑥ 报「变量形式的动态 import」，而不是在这里静默放过。
+ */
+function varImportsOf(file) {
+  const text = readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
+  if (!/import\s*\(\s*[A-Za-z_$]/.test(text)) return []
+  const masked = maskCode(text)
+  const re = /(?<![\w$.])import\s*\(\s*([A-Za-z_$][\w$]*)\s*\)/g
+  const out = []
+  let m
+  while ((m = re.exec(masked))) {
+    const lit = new RegExp(`(?:const|let|var)\\s+${m[1]}\\s*=\\s*['"\`]([^'"\`]+)['"\`]`).exec(text)
+    if (lit === null) continue
+    const pkg = bareName(lit[1])
+    if (pkg !== null && !out.includes(pkg)) out.push(pkg)
   }
+  return out
 }
 
 // ── 断言 ①：每个被 import 的包都声明了 ────────────────────────────────────────
@@ -582,6 +611,9 @@ for (const f of files) {
       continue
     }
     if (PATH_ARG.test(rawArg)) continue // 装的是本地文件，不是包
+    // 变量但同文件里能解析到字面量 ⇒ 等价于字面量（断言 ① 已把它算进 importedBy）。
+    if (/^[A-Za-z_$][\w$]*$/.test(rawArg)
+      && new RegExp(`(?:const|let|var)\\s+${rawArg}\\s*=\\s*['"\`]`).test(text)) continue
     dynamicVar.push(`${at}  ← import(${rawArg.split('\n')[0].slice(0, 60)})`)
   }
 }
