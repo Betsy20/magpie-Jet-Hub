@@ -74,23 +74,23 @@ function harness(script) {
   return { calls, logs, startNewAccount }
 }
 
-const MODES = ['local-browser', 'browser']
+const MODES = ['browser', 'local-browser']
 
 /* ── 3. 断言 ── */
 
-// 3a. 国内站：第一条腿成功 ⇒ 只调一次，mode 是 local-browser
+// 3a. 国内站：第一条腿成功 ⇒ 只调一次，mode 是 browser
 {
   const h = harness([{ accountId: 'a', loginUrl: '' }])
   const smartFn = smart(h.startNewAccount, MODES)
   const got = await smartFn({}, 'magicrew', () => {})
   ok(h.calls.length === 1, `magicrew 第一条腿成功时只调一次（实际 ${h.calls.length}）`)
-  ok(h.calls[0]?.mode === 'local-browser', `magicrew 首个 mode 是 local-browser（实际 ${h.calls[0]?.mode}）`)
+  ok(h.calls[0]?.mode === 'browser', `magicrew 首个 mode 是 browser（实际 ${h.calls[0]?.mode}）`)
   ok(got?.accountId === 'a', 'magicrew 返回第一条腿的结果')
 }
 
 // 3b. ✅ 核心：国际站必须也走多 mode —— 这条就是防「只认 magicrew」的回归
 {
-  const h = harness([new Error('本机浏览器里没有登录态'), { accountId: 'b', incognitoOpened: true }])
+  const h = harness([new Error('account.create 超时'), { accountId: 'b', incognitoOpened: true }])
   const smartFn = smart(h.startNewAccount, MODES)
   // 变异「provider !== 'magicrew'」时这里会直接抛错 —— 必须兜住，否则测试崩栈而不是记一条红。
   let got
@@ -103,14 +103,15 @@ const MODES = ['local-browser', 'browser']
     h.calls.length === 2,
     `magicrewintl 第一条腿失败后必须退第二条腿（实际调了 ${h.calls.length} 次；若为 1 次说明 provider 判断漏了 magicrewintl）`,
   )
-  ok(h.calls[1]?.mode === 'browser', `magicrewintl 第二条腿的 mode 是 browser（实际 ${h.calls[1]?.mode}）`)
+  ok(h.calls[1]?.mode === 'local-browser', `magicrewintl 第二条腿的 mode 是 local-browser（实际 ${h.calls[1]?.mode}）`)
   ok(got?.accountId === 'b', 'magicrewintl 返回第二条腿的结果')
 }
 
-// 3c. 国际站两条腿都失败 ⇒ 抛**第二条腿**的错误（用户真正会撞上的那条）
+// 3c. 国际站两条腿都失败 ⇒ 抛**第一条腿**的错误（2026-11-02 改：第一条是 browser，
+// 那才是用户点「新建」时想走的路；local-browser 的「本机没有登录态」是预期内的）
 {
-  const first = new Error('本机浏览器里没有登录态')
-  const second = new Error('窗口起不来')
+  const first = new Error('account.create 被拒（池写失败）')
+  const second = new Error('本机浏览器里没有登录态')
   const h = harness([first, second])
   const smartFn = smart(h.startNewAccount, MODES)
   let err
@@ -119,7 +120,12 @@ const MODES = ['local-browser', 'browser']
   } catch (e) {
     err = e
   }
-  ok(err === second, `magicrewintl 两条腿都挂时报第二条腿的错误（实际 ${err?.message}）`)
+  // 2026-11-02：报第一条腿的错误主体，但把后面几条腿的原因也捎上（审查建议 S1）。
+  ok(
+    String(err?.message ?? '').startsWith(String(first.message))
+      && String(err?.message ?? '').includes('local-browser'),
+    `magicrewintl 两条腿都挂时报第一条腿的错误、并带上另一条腿（实际 ${err?.message}）`,
+  )
   ok(h.calls.length === 2, `magicrewintl 两条腿都试过（实际 ${h.calls.length} 次）`)
 }
 
@@ -182,6 +188,33 @@ ok(
   /provider !== 'magicrew' && provider !== 'magicrewintl'/.test(src),
   '源码里 startNewAccountSmart 的 provider 判断同时含 magicrew 与 magicrewintl',
 )
+
+/* ── 5. 常量真值：本文件是「注入自己的 MODES」求值，所以抓不到常量被改回旧顺序
+   （2026-11-02 审查 S3 指出）。这里直接对源码文本断言一次，把常量的值钉住。 ── */
+
+// ⚠️ 必须先剥注释：审查实测在变异常量上方加一行
+// `// 例：const MAGICREW_CREATE_MODES = ['browser', 'local-browser']` 就能让
+// 这条断言假绿（`src` 里第一处匹配落在注释上）。
+const srcNoComment = src
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^\s*\/\/.*$/gm, '')
+// 断言**恰好一处**：只剥注释的话，一段模板字符串里写一行同样的声明仍能骗过
+// （三审实测 `const _decoy = \`\nconst MAGICREW_CREATE_MODES = [...]\n\`` 时该节全绿）。
+const modesHits = [...srcNoComment.matchAll(/^const MAGICREW_CREATE_MODES = \[([^\]]*)\]/gm)]
+ok(modesHits.length === 1, `源码里 MAGICREW_CREATE_MODES 的声明恰好一处（实际 ${modesHits.length} 处）`)
+const modesDecl = modesHits[0] ?? null
+ok(modesDecl !== null, '源码里有 MAGICREW_CREATE_MODES 的声明')
+if (modesDecl !== null) {
+  const modes = modesDecl[1]
+    .split(',')
+    .map((x) => x.trim().replace(/^['"]|['"]$/g, ''))
+    .filter((x) => x.length > 0)
+  ok(modes[0] === 'browser', `常量的第一条腿是 browser（实际 ${modes[0]}）`)
+  ok(
+    modes.length === 2 && modes[1] === 'local-browser',
+    `常量的第二条腿是 local-browser（实际 ${modes.slice(1).join('、') || '无'}）`,
+  )
+}
 
 console.log(
   failed === 0

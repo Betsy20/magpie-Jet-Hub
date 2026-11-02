@@ -156,6 +156,10 @@ jet-hub-codearts           → 第一个账号
 | 在浏览器里新建一个账号 | 让本体真的建一个新号：调 `account.create` 拿登录页，你去浏览器登录，完成后这一行自动变成已签入 |
 | 新建一个账号（粘贴 API Key） | 只有 Key 型的三家（`jet-hub-modelscope` / `jet-hub-opencode` / `jet-hub-qiniu`）有这条：贴一把 Key，插件调本家的 `*.addAccount` 直接建号 |
 
+超级麦吉两站（`jet-hub-magicrew` / `jet-hub-magicrewintl`）的「在浏览器里新建一个账号」会先真开一个**一次性独立 profile 的可见窗口**让你登**新号**（不是 `--incognito`：`vendor/lib/chromium-session.js` 只传 `--user-data-dir`），退回「导入本机浏览器里已有的登录态」只在 `account.create` 这个 RPC 本身没给出可用结果时发生：账号池写不进去 / RPC 超时 / 容器异常 / 返回体里 `accountId` 是空串。**本机没有浏览器不会触发它** —— `browser` 那条腿是「先返回、后开窗」，开窗失败只会变成 `login.poll` 的终态错误显示在卡片上，不会退回导入。这是刻意的：用户点的是「新建」，拿回一个本机旧号（可能还是别人的卡）比看到一句「窗口起不来」更糟。这个顺序是 2026-11-02 定的：反过来的话，只要本机浏览器登着超级麦吉，点「新建」就永远只是把那个旧号导进来，新号根本建不出来。
+
+> 「导入本机会话」那条腿拿到凭据后没有授权页可等，插件返回 `opened: true` + `url: ''`。这只是**纯防御**：当前 magpie 版本下 `opened` 取真取假渲染完全相同（`internal/gui/api.go` 的 `openError` 对空 URL 直接 `return ""`，注释原话「"" when it did, or when there is no url」；`app.js:12106`/`:12210` 两处都 `&& signing.url` 短路）。真正让用户看到正确提示的是 `instructions` ——「已经读到登录态，不需要在页面上做任何操作」，而原来那句「在打开的页面里登录」会让人去找一个永远不出现的窗口。
+
 `jet-hub-modelscope` / `jet-hub-opencode` / `jet-hub-qiniu` 是 Key 型渠道，本体对它们调 `account.create` 会回 `unknown provider` —— 上游 UI 走的是各自的 `modelscope.addAccount` / `opencode.addAccount` / `qiniu.addAccount`（贴 Key 就建号，按 Key 尾段派生账号 id，同一把 Key 反复贴只会落到同一条）。插件照抄同一条路，所以这三家**能新建**，只是方法形状不同：`api` 型 + `keyless`，用 `ask()` 收 Key（`type: 'password'`），`authorize(inputs)` 里再把 Key 交给本家的 RPC。
 
 > 为什么 `keyless`：magpie 对 `api` 型方法会先弹它自己的 personal-key 输入框，而那个框的值只进 `key` 字段、**不会**传给 `authorize(inputs)`。标 `keyless` 让 magpie 跳过它，用户看到的就是插件自己的 Key 输入框。

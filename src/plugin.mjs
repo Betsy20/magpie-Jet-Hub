@@ -858,18 +858,33 @@ const KEY_ACCOUNT_RPC = new Map([
  * `'超级麦吉请用「从本机浏览器导入」或「网页登录」，不支持手机号密码登录'`
  * （`vendor/lib/jet-hub-rpc.js` 的 `case 'account.create'` 里 magicrew 兜底分支）。
  *
- * ① `local-browser` —— 读本机 Edge/Chrome 里已登录 `www.letsmagic.cn` 的登录态
- *    （leveldb，只读不碰 cookie）：毫秒级、不开窗、按 **jwt 指纹**幂等判重，
+ * 第一条腿 `browser` —— 本体登记占位条目后**自己**开一个一次性独立 profile 的
+ *    可见窗口等你登录（不是 `--incognito`：`vendor/lib/chromium-session.js` 只传
+ *    `--user-data-dir`），立刻返回 `{ accountId, loginUrl: '' }`；进度由
+ *    `login.poll` 经 `magicrewBrowserLoginInFlight` 报终态。→ 这才是「新建账号」。
+ * 第二条腿 `local-browser` —— 读本机 Edge/Chrome 里已登录 `www.letsmagic.cn` 的
+ *    登录态（leveldb，只读不碰 cookie）：毫秒级、不开窗、按 **jwt 指纹**幂等判重，
  *    同一账号反复导入只会刷新那一条、不会变出多张卡。读不到时本体回
  *    `ok: false`（不是抛错），`container.rpc()` 会把它转成一句人话错误。
- * ② `browser` —— ①读不到时退它：本体登记占位条目后**自己**开一个独立 profile
- *    的可见窗口等用户登录，立刻返回 `{ accountId, loginUrl: '' }`；
- *    进度由 `login.poll` 经 `magicrewBrowserLoginInFlight` 报终态。
+ *    → 它是「认一个已经登过的号」，不是新建。
  *
- * 先试 ① 的理由：它是零门槛那条（用户只要在浏览器里登录过就成），而 ② 要用户
- * 真的再登一次、还要等几分钟。
+ * 顺序是 `browser` 在前、`local-browser` 在后（2026-11-02 改）。理由：`local-browser`
+ * 从本机浏览器**导入已有登录态**，它不是「新建账号」而是「认一个已经登过的号」——
+ * 放在第一位会让用户在 magpie 里点「新建」时永远只捞到本机那个老号（还可能凭空
+ * 多一张别人的卡），新号根本建不出来。`browser` 才是真开一个窗口让用户登新号。
+ *
+ * `local-browser` 的兜底面比看上去窄得多（2026-11-02 审查实证）：`browser` 是
+ * 「先返回、后开窗」—— 它把真正的 `loginViaBrowser()` 塞进一个**不 await** 的
+ * 后台 IIFE，自己立刻 `return { ok: true, value: { accountId, loginUrl: '' } }`。
+ * 所以本机没有浏览器时 `account.create` **照样返回 ok**，`BrowserDeploymentError`
+ * 只在后台被收成 `login.poll` 的终态错误。⇒ `local-browser` 真正可达的条件只有
+ * 「`account.create` 这个 RPC 本身没给出可用结果」：账号池写不进去 / RPC 超时 /
+ * 容器异常 / 返回体里 `accountId` 是空串（`startNewAccount` 会当场抛）。
+ *
+ * 为什么不把它做成「开窗失败再退回导入」的真兜底：导入认回的是一个旧号（还可能是
+ * 别人的卡），用户点的是「新建」，拿回旧号比看到一句「开窗失败」更糟。
  */
-const MAGICREW_CREATE_MODES = ['local-browser', 'browser']
+const MAGICREW_CREATE_MODES = ['browser', 'local-browser']
 
 /** 轮询 `login.poll` 的间隔（本体登录流程最短也要一两秒，2 秒够用且不吵）。 */
 const LOGIN_POLL_MS = 2_000
@@ -1001,7 +1016,14 @@ async function startNewAccount(container, provider, log, mode) {
   if (loginUrl === '') {
     if (v?.reused === true || mode === 'local-browser') {
       log?.(`[${provider}] 已导入本机会话 ${accountId}（无需授权页）`)
-      return { accountId, loginUrl: '', reused: true, incognitoOpened: false }
+      // `incognitoOpened: true` 不是说我们开了窗：这条路没有授权页，凭据已落在
+      // 本机（本机浏览器，或 AStudio 桌面客户端的 astron-session.json）。
+      // 它的作用是**纯防御** —— 当前 magpie 版本下它与 false
+      // 渲染完全相同（`internal/gui/api.go` 的 `openError` 对空 URL 直接
+      // `return ""`，注释原话「"" when it did, or when there is no url」；
+      // `app.js` 的 `:12106`/`:12210` 两处都 `&& signing.url` 短路）。真正让用户
+      // 看到正确提示的是 `authorize()` 里按 `reused` 分叉的 instructions。
+      return { accountId, loginUrl: '', reused: true, incognitoOpened: true }
     }
     if (mode === 'browser') {
       log?.(`[${provider}] 新建账号 ${accountId}，本体自己开窗等登录`)
@@ -1020,30 +1042,43 @@ async function startNewAccount(container, provider, log, mode) {
  * 起一个登录流程，按 provider 决定要不要按顺序试多种 `mode`。
  *
  * 除超级麦吉两站外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
- * 超级麦吉两站两条腿都失败时，**报第二条腿的错误**：`local-browser` 的失败是
- * 「本机浏览器里没有登录态」这种预期内的话，用户真正会撞上的失败是 `browser`
- * 那条（窗口起不来 / 授权被拒），报它才定位得到问题。
+ * 超级麦吉两站两条腿都失败时，**报第一条腿（`browser`）的错误**，并把其余腿的
+ * 原因附在括号里 —— 用户点的是「新建」，先看到那条腿为什么不行才定位得到问题。
+ *
+ * ⚠️ 这里的「失败」只指 `startNewAccount` 抛出来的**`account.create` RPC 错误**
+ * （超时 / 账号池写失败 / 返回体里 `accountId` 缺失或为空）。**不包括**「窗口起不来」「授权
+ * 被拒」：那两条发生在 vendor 的后台任务里（`mode: 'browser'` 是「先返回、后开窗」），
+ * 只会变成 `login.poll` 的终态，根本不在本函数的 errors 数组里。
  */
 async function startNewAccountSmart(container, provider, log) {
   if (provider !== 'magicrew' && provider !== 'magicrewintl') return startNewAccount(container, provider, log)
 
-  let firstError
+  const errors = []
   for (const mode of MAGICREW_CREATE_MODES) {
     try {
       return await startNewAccount(container, provider, log, mode)
     } catch (error) {
-      if (firstError === undefined) {
-        firstError = error
-        log?.(`[${provider}] ${mode} 没成（${error?.message ?? error}），退下一个 mode`)
-      } else {
-        throw error
-      }
+      errors.push({ mode, error })
+      log?.(`[${provider}] ${mode} 没成（${error?.message ?? error}），退下一个 mode`)
     }
   }
+  // 报**第一条**腿（browser）的错误：那才是用户点「新建」想走的路（真开窗登新号）。
+  // 这里的「失败」只指 `account.create` 这个 RPC 自己没给出可用结果（超时 /
+  // 账号池写失败 / 返回体里 `accountId` 是空串）；「窗口起不来」「授权被拒」发生在
+  // vendor 的后台任务里（`mode: 'browser'` 是「先返回、后开窗」），只会变成
+  // `login.poll` 的终态，根本不会进这个数组。`local-browser` 的失败多是
+  // 「本机浏览器里没有登录态」这种预期内的话，报它反而误导。
+  // 但把后面几条腿的原因也捎上 —— 否则用户只看到一半真相（2026-11-02 审查建议）。
+  const [first, ...rest] = errors
   // 兜底：`MAGICREW_CREATE_MODES` 若被改成空数组，循环一次都不进，
-  // `firstError` 会是 `undefined` —— 那样 `throw undefined` 会丢成
+  // `first` 会是 `undefined` —— 那样 `throw undefined` 会丢成
   // 「Uncaught undefined」，用户在 magpie 里只看到一句空白失败。
-  throw firstError ?? new Error(`${provider}：没有任何可用的新建方式`)
+  if (first === undefined) throw new Error(`${provider}：没有任何可用的新建方式`)
+  const restNote = rest.length === 0
+    ? ''
+    : `（另 ${rest.length} 条方式也不行：${rest.map((r) => `${r.mode} → ${r.error?.message ?? r.error}`).join('；')}）`
+  if (restNote === '') throw first.error ?? new Error(`${first.mode}：没有可用的新建方式`)
+  throw new Error(`${first.error?.message ?? first.error}${restNote}`)
 }
 
 /**
@@ -2089,9 +2124,19 @@ export function makePlugin(dshProvider) {
                 return {
                   url: loginUrl,
                   // magpie 会在 spinner 卡片里显示这句话
-                  instructions:
-                    `在打开的页面里登录要新建的 ${NAMES[dshProvider] ?? dshProvider} 账号。`
-                    + '完成后这一行会自动变成已签入，不需要回来点什么。',
+                  // 导入那条腿没有授权页可等，说「在打开的页面里登录」会让人去找一个
+                  // 永远不出现的窗口（2026-11-02 实测用户报「无法启动浏览器」）。
+                  // ⚠️ `reused` 有两个来源，不能说成同一句话：超级麦吉走本机浏览器
+                  // 的登录态；AStudio 走桌面客户端落盘的 `astron-session.json`
+                  // （`astudio.importLocalSession`）。
+                  instructions: reused
+                    ? (dshProvider === 'astudio'
+                      ? `已经从 ${NAMES[dshProvider] ?? dshProvider} 桌面客户端的登录态回填了这个账号；`
+                        + '不需要在页面上做任何操作。'
+                      : `已经从本机浏览器读到 ${NAMES[dshProvider] ?? dshProvider} 的登录态，`
+                        + '正在回填这个账号；不需要在页面上做任何操作。')
+                    : `在打开的页面里登录要新建的 ${NAMES[dshProvider] ?? dshProvider} 账号。`
+                      + '完成后这一行会自动变成已签入，不需要回来点什么。',
                   opened: incognitoOpened,
                   /**
                    * 阻塞到用户授权完成。
