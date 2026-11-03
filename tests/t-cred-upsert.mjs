@@ -31,7 +31,17 @@ import { createRequire } from 'node:module'
 // 就是内容对、语法坏（孤儿续行 / 重复 key），本体整份拒绝，比改不动更糟。
 // createRequire 的锚点必须是**文件**路径（传目录会 MODULE_NOT_FOUND）；
 // 用 package.json 当锚点，解析起点就是那个 node_modules。
-const YAML = createRequire(join(homedir(), '.dsh', 'profiles', 'desktop', 'package.json'))('yaml')
+// 优先从**本仓库**解析（devDependencies 里有 yaml，CI 跑 npm install 后一定有）；
+// 开发者本机没在仓库里装 devDependencies 时，退回 DSH 桌面版自带的那个 —— 两处都是
+// yaml v2，`uniqueKeys` 语义相同。此前只认后者，导致 CI 上 MODULE_NOT_FOUND。
+const requireHere = createRequire(import.meta.url)
+const YAML = (() => {
+  try {
+    return requireHere('yaml')
+  } catch {
+    return createRequire(join(homedir(), '.dsh', 'profiles', 'desktop', 'package.json'))('yaml')
+  }
+})()
 const yamlErrors = (text) =>
   YAML.parseDocument(text, { prettyErrors: true, uniqueKeys: true }).errors.map((e) => e.message)
 

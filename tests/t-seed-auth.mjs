@@ -3,13 +3,31 @@
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { PROVIDER_IDS } from '../src/plugin.mjs'
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const script = path.join(ROOT, 'scripts', 'seed-auth.mjs')
 
-const r = spawnSync(process.execPath, [script, '--dry-run'], { encoding: 'utf8', timeout: 60_000 })
+// 不能依赖真实账号池：CI 上没有 ~/.dsh/jet-hub/state.json，而脚本读不到就直接 exit 1。
+// 自己造一份最小池，覆盖「有账号（含已停用）」与「一家都没有」两条路径；
+// statePath 作为位置参数传进去（seed-auth.mjs 就是用 argv 里那个 .json 覆盖默认路径）。
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seed-auth-'))
+const statePath = path.join(tmpDir, 'state.json')
+fs.writeFileSync(
+  statePath,
+  JSON.stringify({
+    accounts: [
+      { id: 'trae-00000001', provider: 'trae', nickname: '示例一', enabled: true },
+      { id: 'trae-00000002', provider: 'trae', nickname: '示例二', enabled: false },
+      { id: 'workbuddy-00000003', provider: 'workbuddy', nickname: '示例三', enabled: true },
+    ],
+  }),
+  'utf8',
+)
+
+const r = spawnSync(process.execPath, [script, '--dry-run', statePath], { encoding: 'utf8', timeout: 60_000 })
 const out = (r.stdout || '') + (r.stderr || '')
 if (r.status !== 0) { console.log('✗ --dry-run 失败:\n' + out); process.exit(1) }
 
@@ -29,14 +47,16 @@ for (const gone of ['jet-hub-aggregate', 'jet-hub ']) {
 const authPath = path.join(process.env.USERPROFILE || process.env.HOME || '', '.config', 'magpie', 'plugin-auth.json')
 if (fs.existsSync(authPath)) {
   const before = fs.statSync(authPath).mtimeMs
-  spawnSync(process.execPath, [script, '--dry-run'], { encoding: 'utf8', timeout: 60_000 })
+  spawnSync(process.execPath, [script, '--dry-run', statePath], { encoding: 'utf8', timeout: 60_000 })
   const after = fs.statSync(authPath).mtimeMs
   if (before !== after) problems.push('--dry-run 竟然改了 plugin-auth.json')
 }
+
+fs.rmSync(tmpDir, { recursive: true, force: true })
 
 if (problems.length) {
   console.log('✗ ' + problems.join('；'))
   process.exit(1)
 }
-console.log('✓ seed-auth 逻辑正确（dry-run 不改文件、23 个 id 齐全、无路由组占位）')
+console.log('✓ seed-auth 逻辑正确（dry-run 不改文件、25 个 id 齐全、无路由组占位）')
 process.exit(0)
