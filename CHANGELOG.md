@@ -1,0 +1,137 @@
+# 变更记录
+
+本仓库还没有打 tag、也没有发布到 npm，所以下面按**日期**分段，而不是按版本号。
+每次合并进 `main` 的改动都应在这里补一条：读者据此判断「要不要升级」，
+而不是去翻提交记录猜哪条影响自己。
+
+格式：`类型(范围): 一句话说清「改了什么」与「为什么」`。
+类型用 `feat` / `fix` / `refactor` / `docs` / `test` / `chore`。
+
+---
+
+## 1.0.0（未发布）
+
+- `chore(ci)`: 补上 `.github/workflows/ci.yml` —— 此前仓库**完全没有 CI**，
+  28 个离线单测只能靠人手动跑，PR 合进来之前没有任何自动门槛。
+  现在 push 与 PR 都要求「离线单测全绿 + `npm pack --dry-run` 通过」。
+  只跑不带 `--all` 的那一组：`--all` 需要 magpie 在跑（3425 网关 / 3456 web / 真凭据），
+  CI 上没有这些。
+  跑 `ubuntu-latest` + `windows-latest` 两档：`tests/t-cred-upsert.mjs` 的 ⑮ 组靠
+  「chmod 0444 让 rename 抛 EPERM」造慢写，而 POSIX 的 `rename(2)` 只看目录写权限、
+  覆盖只读文件照样成功，那一组在 Linux 上会自己跳过并打印理由。它测的
+  `renameInto()` 退避是 Windows 上真实发生的路径，所以 windows 那一档不能省。
+- `fix(providers)`: 插件卡片补 `magpie.icon`。magpie 的 `ownIcon()`
+  （`internal/plugin/market.go`）只认 `https://` 与 `data:image/` 开头的字符串，
+  写成 `page/icon.svg` 这样的路径会被判成空串 —— 此前只有 `magpie.page.icon`
+  （内嵌页面的图标）与 provider 的 `auth.icon`，两个都不是卡片图标，于是卡片那一行
+  **回落显示了第一家 provider（accio）的图标**（内嵌 web UI 的兜底是
+  `l?.icon || l?.npm?.icon || e.icon || subs[0]?.icon || ag?.icon`）。
+  现在挂的是与 `page/icon.svg` 逐字节相同的 751 字节 SVG，以 data URI 内联。
+- `fix(providers)`: **8 家**显示名补中文括注，让中文也能搜到 ——
+  旧表里纯英文的是 7 家（`AStudio` / `Cline` / `Codely` / `Gemini Code Assist` /
+  `OfficeAce` / `OpenCode` / `Qoder`），加上纯中文没有 ASCII 的 `超级麦吉`，
+  这一轮统一成 `AStudio (讯飞)` / `Cline (开源)` / `Codely (Unity 团结引擎)` /
+  `Gemini Code Assist (谷歌)` / `超级麦吉 (MagiCrew)` / `OfficeAce (果办)` /
+  `OpenCode (开源)` / `Qoder (国际版)`。`src/plugin.mjs` 与
+  `scripts/snapshot-models.mjs` 两张表同步，测试做双向对账。
+  旧描述写 OfficeAce 是「华为云」，改成「果办」时**保留了归属**：
+  `vendor/lib/officeace-adapter.js` 指向 `officeace.cn-southwest-2.huaweicloud-agentarts.com`，
+  `vendor/lib/officeace-auth.js` 的 `CLAW_BASE` 与 STS 也都是 `myhuaweicloud.com`，
+  登录文案写「请启动 OfficeAce 并登录华为云账号」⇒ 描述取 `果办 OfficeAce（华为云）`。
+  「果办」这个中文名在我们的自有文档里没出现过（只在参考仓库 magpie-plugin-scaffold 的文档里
+  见到），但上游 `vendor/lib` 自己就在用 —— `officeace-auth.js` / `login.js` /
+  `provider-registry.js` 多处把 OfficeAce 官方客户端称作「果办」。两者不互斥，都留着。
+- `chore(package)`: `keywords` 补 `opencode` / `auth` / `provider` ——
+  magpie 市场搜索走的是 npm `<query> opencode`，缺这个关键词就搜不到。
+- `chore(package)`: 补 `magpie.name`（`Jet Hub 聚合路由`）与 `files` 里的 `CHANGELOG.md`，
+  免得发出去的包里没有这份记录。
+- `docs`: 标题与目录里的「23 个供应商」改回 **25 家**（HEAD 停在 23，比实际少两家），
+  供应商列表同步 `Codely (Unity 团结引擎)` 与 `超级麦吉 (MagiCrew)` 两个新显示名；
+  `docs/testing.md` 里 `t-plugin.mjs` 的工厂条数与用例表一并同步。
+- `fix(gateway)`: 不支持的路径从 **404 改成 501**（`code: unsupported_path` → `not_implemented`）。
+  magpie 见 404 只会「搁置这个模型」，于是它换个同样不存在的端点继续试；
+  501 是原样透出，不会被误判成模型坏了。新增 `tests/t-error-shape.mjs`
+  把「status / code / message 三者齐全」钉成断言。
+- `chore(ci)`: 新增 `tests/t-error-shape.mjs` 并挂进 `scripts/test-all.mjs`，离线用例 27 → **28 条**。
+
+### 参考 `magpie-plugin-scaffold` 后**没有采纳**的（写在这里，免得下次被当成遗漏）
+
+- `publish:npm` / `release.yml` / `registry-entry.json`：本插件是经 GitHub 仓库
+  `magpie plugin add <目录>` 直接装的，**不发 npm、也不上 magpie 社区 registry**。
+  补上这三样只会多一条没人走的发布链，而且会让人以为「发了 npm 才算发布」。
+- `tests/` 改用 `*.test.*` 命名：我们用自己的 `scripts/test-all.mjs` 统一跑 28 条
+  （它自己处理隔离目录、跳过条件、重试），CI 已把它挂成门禁。
+  为对齐命名去重命名 31 个测试文件，收益只是让外部检查工具少报一条。
+- 参考仓库的 `score.mjs`（100 分评分卡）**不适用于本仓库**，别看它的分数：
+  它的身份门要求「`registry-entry` 的 package 与 npm 包名一致」「PROVIDER / BASE 不是模板占位」，
+  B 组更是直接数 `tests/*.test.*` —— 这三条都假定你是从模板 `create` 出来的新插件。
+  我们是已有 28 条自建用例、走 GitHub 目录安装的成熟插件，跑它必然报
+  「这是模板原样，不是你的插件」并封顶 60 分，那是**口径不适用**，不是缺陷。
+  真正通用的是同目录的 `check.mjs`（11 类合规规则），我们按它收口。
+  以上对参考仓库行为的描述来自 <https://github.com/MYCF711/magpie-plugin-scaffold>
+  （v0.3.7）的 `scripts/score.mjs` / `scripts/check.mjs` 源码，属他项目实现细节、会随其改版而变，
+  照抄口径前请以该仓库当前版本为准。
+- `privacy-scan.mjs` 那类脱敏扫描：实测对我们仓库跑出 **23 处命中，没有一处真凭据** ——
+  21 处在上游 `vendor/lib`（`C:\Users\<user>\...` 这类示例路径、5 处形如 11 位手机号的
+  示例号码、`ssoSessionId=${ssoSessionId}` 模板串），另外 2 处是
+  `tests/t-import-backup.mjs` 的邮箱占位符与本文件自己举的这个例子。
+  直接移植会引入 23 条噪音，需要另配白名单才有意义 —— 留给真要公开仓库时再做。
+- **`errorResponse` 补显式 `code`**：`check.mjs` 报的这条是**静态文本匹配的误报** ——
+  `vendor/lib/openai-gateway/stream.js` 的 `failureToOpenAiError()` 内部已经兜底
+  `code: typeof value?.code === "string" ? value.code : "upstream_error"`，实测
+  `errorResponse(new Error("boom"))` 一定带 `code`。而且那三处 `errorResponse(error)`
+  **不能**改成传 code：传了就会覆盖掉上游 `LlmError` 里真实的原因码
+  （限流 / 余额不足 / 模型不存在），把它们全压成同一个自选值。
+
+## 2026-11-02
+
+- `fix(accounts)`: 超级麦吉（国内 / 国际两站）在 magpie 里点「新建」改为**先真开浏览器**。
+  `MAGICREW_CREATE_MODES` 原来是 `['local-browser','browser']`，而 `local-browser` 是
+  「读本机已有登录态并导入」而不是新建 —— 本机浏览器登着超级麦吉时，点「新建」永远只导入老号；
+  它返回的 `loginUrl` 还是空串，GUI 既不开窗也没链接。顺序调成 `['browser','local-browser']`。
+  PR #14。
+- `feat(vendor)`: 同步 gitee 上游到 **0.2.1-rc.2**，新增 `qiniu`（七牛云）与
+  `magicrewintl`（MagiCrew 国际版），provider 23 → **25 家**。
+  新增依赖 `wreq-js`（上游刻意用变量做动态 `import`，依赖守卫要能认出这种写法）。
+- `test`: 补超级麦吉两站的多 mode 回归、贴 Key 三张表的对账、模型快照的**家级**白名单
+  （此前是「整段文本前缀」匹配，把某一家整个删掉也照样绿）。
+
+## 2026-11-01
+
+- `fix(accounts)`: 凭据已经丢了的账号不再能签进来 —— 此前凭据文件被清掉后，
+  账号池里仍留着条目，签入成功但一调用就 401。
+- `feat(auth)`: 启动时自动把 magpie 的账号记录与本体的账号池对齐，修「本体里删了账号，
+  magpie 那边还显示已登录」。
+- `feat(usage)`: 发放日不同的积分包归成一类（`groupName`），余额只留两位小数；
+  `aside: true` 的窗口按 magpie 的规矩不再塞 `amount` / `limit`（塞了就是假占比）。
+- `feat(pricing)`: 给每个模型挂目录价（`src/model-prices.mjs`，464 条），
+  修「用量页费用列全是 —」。根因是 magpie 的 `pricedNames()` 不剥 `provider/` 前缀，
+  所以 `entry.cost` 必须挂在**带前缀**的 id 上。
+- `fix(checkin)`: 只给上游真的支持签到的渠道声明签到；「这家没有签到功能」报 `ineligible`，
+  不再标成失败。
+- `feat(providers)`: `modelscope` / `opencode` 支持直接贴 API Key 新建账号。
+
+## 2026-10-31
+
+- `fix(deps)`: 补回 `jose` 与 `undici` —— 这两项此前只写在 `vendor/package.json` 里，
+  而 magpie 的路径式安装**只 stat 目录、不跑 npm install**，于是从 GitHub 装、
+  或路径装但没手动装依赖时，容器启动即 `Cannot find package 'jose'`，**控制台根本不存在**。
+  同时加 `tests/t-deps.mjs` 依赖守卫（扫 Node 侧源码的 import，与 `vendor` 的声明对账）。
+- `refactor(console)`: 「模型」标签删掉（模型开关交给 magpie 的 Providers 编辑器）；
+  「用量」标签删掉（magpie 的 Usage 页读同一份 `usage.jsonl` 且更强）；
+  徽章偏好搬进设置并修枚举（原来存的 `always` / `never` 与代码读的 `auto` / `subscription` / `credits` 对不上）。
+- `feat(providers)`: 23 家换成官方标识，显示名对齐上游 `displayName`，
+  模型缓存改为惰性求值。
+- `feat(console)`: 控制台导入备份支持**加壳**的那一种
+  （PBKDF2-SHA256 310000 轮 + AES-256-GCM），CLI 报错按原因分类。
+- `fix(backup)`: 导入备份不再顺手替换模型黑名单，要还原得显式 `--keep-disabled`。
+- `feat(plugin)`: 多账号与请求级钉号（`single: false` + `ask()` + 用 `AsyncLocalStorage`
+  把选中的账号钉到这一次请求上）、去掉「Jet Hub · 」前缀、路由组收敛、凭据加固、
+  超级麦吉临时 profile 回收（加单轮上限与删除复核）。
+- `fix(models)`: 补上推理档位，修「推理强度改不动」；两条采集腿合并时不让能力声明粘滞。
+
+## 2026-10-30
+
+- 初始提交：把 `dsh-providers-hub`（`deepseek-harness-codearts`）的构建产物装进 `vendor/`，
+  用内嵌 cordis 容器直调 `ctx.llm`，24 个 provider 各注册成独立的 magpie provider，
+  凭据直接共用 DSH 的 `.credentials.yaml`，不依赖 DSH 进程。

@@ -15,7 +15,7 @@
 
 - [架构](#架构)
 - [安装](#安装)
-- [23 个供应商，不是一个](#23-个供应商不是一个)
+- [25 个供应商，不是一个](#25-个供应商不是一个)
 - [账号](#账号)
 - [凭据：不需要再登一次](#凭据不需要再登一次)
 - [从 dsh-providers-hub 的备份导入](#从-dsh-providers-hub-的备份导入)
@@ -87,7 +87,7 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 
 装完可以用 `npm ls --depth=0` 对一眼 —— 根 `package.json` 的 `dependencies` 必须覆盖 `vendor/` 里本体 import 的全部第三方包（`jose`、`undici` 这两个漏过，换机一加载就 `ERR_MODULE_NOT_FOUND`，表现为「控制台打不开」）。`tests/t-deps.mjs` 会扫 Node 侧全部源码的 import 守着这条。
 
-## 23 个供应商，不是一个
+## 25 个供应商，不是一个
 
 本体里有 27 个 provider，其中 **2 个是路由组**（`aggregate` 聚合路由、`jet-hub-auto` 自动选号）。路由组没有自己的账号池和模型目录，注册成 magpie 供应商只会得到一张永远空着的卡，所以**本插件只接那 25 家真渠道**。
 
@@ -99,8 +99,8 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 | `jet-hub-workbuddy` | WorkBuddy (国际版) |
 | `jet-hub-minimax` | MiniMax Code (中国版) |
 | `jet-hub-accio` | Accio (阿里) |
-| `jet-hub-codely` | Codely (Unity) |
-| `jet-hub-magicrew` | 超级麦吉 |
+| `jet-hub-codely` | Codely (Unity 团结引擎) |
+| `jet-hub-magicrew` | 超级麦吉 (MagiCrew) |
 | `jet-hub-magicrewintl` | MagiCrew (国际版) |
 | `jet-hub-qiniu` | Qiniu (七牛云) |
 | …共 25 家 | |

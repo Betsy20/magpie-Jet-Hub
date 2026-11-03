@@ -35,7 +35,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-checkin.mjs` | 一键领积分 |
 | `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 25 家图标（`data:image`、≤1MB、互不相同） |
 | `t-attachments.mjs` | 附件服务（内容寻址、去重、上限） |
-| `t-plugin.mjs` | 23 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
+| `t-plugin.mjs` | 25 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
 | `t-models-nowait.mjs` | `models()` 不阻塞（计时判 > 5 秒即失败，进程额外撑 45 秒） |
 | `t-seed-auth.mjs` | 账号摊平进 `plugin-auth.json`（占位键、不碰别人的键、回读校验） |
 | `t-auth-sync.mjs` | 启动时自动对齐 `plugin-auth.json`：摊平规则、只清本插件旧记录、别人的 oauth 登录态一条不删、幂等不重写、文件不存在能创建 |
@@ -44,11 +44,14 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-login-reclaim.mjs` | 放弃授权时回收占位账号（四字段判据：昵称等于 id 或白名单、无到期时间、不可 refreshable、10 分钟内创建；外加 `login.poll` 二次确认） |
 | `t-console-backup.mjs` | 控制台解壳：与 CLI / 前端导出侧三方契约常量对账、口令不裁剪、非 JSON 不被说成口令错 |
 | `t-new-account.mjs` | 「在 magpie 里新建账号」链路（三家豁免、只拿 URL 就返回、三种终态） |
+| `t-key-account.mjs` | Key 型渠道（modelscope / opencode）的「贴 Key 新建」：一条 `api` + `keyless` 方法、`ask()` 收 Key、`authorize(inputs)` 里调 `*.addAccount` |
 | `t-magicrew-creds.mjs` | 超级麦吉凭据读取（在 IndexedDB 不在 localStorage；末节读真实 Edge，读到就验） |
+| `t-magicrew-modes.mjs` | 超级麦吉两站的「新建」按 provider 决定试哪几条腿、顺序是 `browser` 在前、两条腿都失败时抛首条并附其余原因；断言常量真实值（先剥注释，防「注释里写一行同样文本」骗绿） |
 | `t-snapshot-segment.mjs` | 快照脚本的分段归一（网关返回的 id 两种形态混着来） |
 | `t-model-efforts.mjs` | 推理档位：`variants` 键列表、私有档位名翻规范名、能力字段不粘滞 |
 | `t-model-prices.mjs` | 用量费用的目录价：价格表格式、`cost` 形状、**表里没有就不发**、真挂到 `provider.models()` 上 |
 | `t-rpc-cover.mjs` | 控制台接了本体哪些 RPC、哪些明确交给 magpie 或弃用 |
+| `t-error-shape.mjs` | 错误出口三件套：不支持的路径回 **501**（不是 404，否则 magpie 只搁置模型、换个同样坏的端点重试）、`errorResponse` 抛错也带 code、上游 404/503 原样透传、`jsonResponse` 形状 |
 
 **ENV（要真环境，`--all` 才跑）**
 

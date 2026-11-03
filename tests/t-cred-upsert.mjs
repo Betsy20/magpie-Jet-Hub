@@ -433,7 +433,14 @@ ok(afterBare.includes("BARE_SCALAR: 'new-plain-value'"), '⑧ 裸标量被写成
 // 单条全局 writeChain 会让无关文件被慢文件拖住（2026-10-31 审查实测 1ms → 359ms）。
 // 这里把慢文件 chmod 0444，让它的 rename 真的 EPERM 并按 10/20/40… ms 退避
 // （实测 Windows 上 chmod 只读确实让 renameSync 抛 EPERM），同时写另一个文件。
-{
+//
+// 为什么要平台门：制造「慢」的手段是 Windows 专属的。POSIX 的 rename(2) 只看
+// **目录**写权限，覆盖 0444 文件照样成功 ⇒ 不退避 ⇒ 下面的 slowMs≈0 必红。
+// 所以非 Windows 直接跳过这一组（CI 的 windows 那一档会把同一段逻辑真跑一遍），
+// 并打印跳过理由 —— 静默跳过等于没人知道它没跑。
+if (process.platform !== 'win32') {
+  console.log('· ⑮ 跳过（chmod 只读让 rename 抛 EPERM 是 Windows 专属行为；POSIX 下 rename 只看目录权限）')
+} else {
   const d15 = mkdtempSync(join(tmpdir(), 'cred-slow-'))
   const slow = join(d15, 'slow.yaml')
   const fast = join(d15, 'fast.yaml')

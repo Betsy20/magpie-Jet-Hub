@@ -1,0 +1,52 @@
+name: ci
+
+# PR 的门槛：离线单测全绿 + 打包面可预演。
+# 这里不提交、不发布、也不写默认分支 —— 发布是另一套动作。
+#
+# 为什么只跑 `test-all.mjs`（不带 --all）：
+#   `--all` 那几条要 magpie 在跑（3425 网关、3456 web、真凭据），CI 上没有这些，
+#   它们会以「跳过」收场；`test-all.mjs` 不带 --all 时只跑 28 个 node 单测，
+#   全部 `process.execPath`，不碰网络也不碰用户的 ~/.config/magpie。
+#
+# 为什么 ubuntu 之外还要 windows：
+#   `tests/t-cred-upsert.mjs` 的 ⑮ 组用「chmod 0444 让 rename 抛 EPERM」制造慢写，
+#   而 POSIX 的 rename(2) 只看目录写权限、覆盖只读文件照样成功 —— 这一段在 Linux 上
+#   会自己跳过（打印理由）。它测的 `renameInto()` 退避是 Windows 上真实发生的路径，
+#   所以 windows 那一档必须留着，否则这条断言从此无人验证。
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # 一档挂了不要连坐另一档：两个平台的结论都要看得到。
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 装依赖
+        run: npm install --no-audit --no-fund
+
+      # 单测自己在临时目录里造配置（test-all.mjs 的 cfgSandbox），
+      # 不会写到 runner 的 ~/.config/magpie。
+      - name: 离线单测
+        run: node scripts/test-all.mjs
+
+      # files 白名单写错的后果是发布出去少文件（vendor/ 漏了插件就装不上），
+      # --dry-run 能提前把它变成一次可见的失败。
+      - name: 打包面预演
+        run: npm pack --dry-run
