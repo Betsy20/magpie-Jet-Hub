@@ -20,6 +20,24 @@
   「chmod 0444 让 rename 抛 EPERM」造慢写，而 POSIX 的 `rename(2)` 只看目录写权限、
   覆盖只读文件照样成功，那一组在 Linux 上会自己跳过并打印理由。它测的
   `renameInto()` 退避是 Windows 上真实发生的路径，所以 windows 那一档不能省。
+- `test(ci)`: CI 首跑暴露两个测试**从来没在干净环境跑过**（本机有那些文件，所以
+  一直是绿的），以及三处「断言在 CI 上根本不执行」的假绿 —— 两档修完都是
+  28 通过 / 0 失败 / 0 跳过。
+  - `tests/t-cred-upsert.mjs` 的 `yaml` 改成优先从本仓库解析（`devDependencies`
+    新增 `yaml`），本机没装 devDependencies 才退回 `~/.dsh/profiles/desktop` 那个；
+    `catch` 收窄成只吞 `MODULE_NOT_FOUND`，包装坏了（dist 语法不兼容、目录残缺）
+    必须原样抛出 —— 裸 `catch` 会把它改写成「去 `~/.dsh` 找桌面版的」，而那个
+    路径在 CI 上并不存在，报错会指向一个误导性的 requireStack。
+  - 同文件 ⑲ 节原来只读真实 `~/.dsh/.credentials.yaml` 与本体对账，干净环境
+    必然走 `catch` 跳过 —— 补一份内联的 12 种落盘形态样本（单行 plain / 单引号 /
+    双引号转义 / 双引号行尾反斜杠续接 / 块标量 `|` / plain 多行 / 中文 /
+    长 base64 / 空值 / 双引号空串 / 含冒号 / 含井号），用 `yaml` 官方解析与
+    `parseRefs` 逐条对比，任何环境都跑。
+  - `tests/t-seed-auth.mjs` 的「`--dry-run` 不写盘」原来按 `USERPROFILE`/`HOME`
+    推算目标、又要求文件已存在，在干净环境从未执行；改用 `JET_HUB_AUTH_PATH`
+    引到临时目录，预置一份「别人的键」，内容与 mtime 双条件都比。
+  - 同文件临时目录清理挪进 `finally`：原来 `process.exit(1)` 在 `rmSync` 之前，
+    spawn 一失败就留下一个 `seed-auth-*` 目录。
 - `fix(providers)`: 插件卡片补 `magpie.icon`。magpie 的 `ownIcon()`
   （`internal/plugin/market.go`）只认 `https://` 与 `data:image/` 开头的字符串，
   写成 `page/icon.svg` 这样的路径会被判成空串 —— 此前只有 `magpie.page.icon`
