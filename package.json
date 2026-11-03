@@ -66,7 +66,6 @@
     "note": "vendor/ 是上游源码 commit 6fa74723d42ff605d1de349589c21a1ac4eb7ba2 的构建产物（npm install 触发 tsc + copy-assets + client/build），比 npm 包 2.9.261029 多 36 个 magicrew 文件、少 README.md / cordis.patch.yml；gemini-oauth.* 两个常量拆成两段拼接（值相等）。详见 docs/vendor.md"
   },
   "magpie": {
-    "name": "Jet Hub 聚合路由",
     "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkpldCBIdWIiPgogIDxyZWN0IHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgcng9IjciIGZpbGw9IiM1YjNkZjUiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIzLjIiIGZpbGw9IiNmZmYiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjcuNCIgcj0iMi4yIiBmaWxsPSIjYzliY2ZmIi8+CiAgPGNpcmNsZSBjeD0iMjQuNiIgY3k9IjExLjciIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjI0LjYiIGN5PSIyMC4zIiByPSIyLjIiIGZpbGw9IiNjOWJjZmYiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjI0LjYiIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjcuNCIgY3k9IjIwLjMiIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjcuNCIgY3k9IjExLjciIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxnIHN0cm9rZT0iI2M5YmNmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgb3BhY2l0eT0iMC44NSI+CiAgICA8cGF0aCBkPSJNMTYgMTAuNnYyLjRNMTguOCAxMi4ybDEuOS0xLjFNMTguOCAxOS44bDEuOSAxLjFNMTYgMjEuNHYyLjRNMTMuMiAxOS44bC0xLjkgMS4xTTEzLjIgMTIuMmwtMS45LTEuMSIvPgogIDwvZz4KPC9zdmc+Cg==",
     "maxConcurrency": 8,
     "page": {

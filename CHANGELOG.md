@@ -61,8 +61,9 @@
   `provider-registry.js` 多处把 OfficeAce 官方客户端称作「果办」。两者不互斥，都留着。
 - `chore(package)`: `keywords` 补 `opencode` / `auth` / `provider` ——
   magpie 市场搜索走的是 npm `<query> opencode`，缺这个关键词就搜不到。
-- `chore(package)`: 补 `magpie.name`（`Jet Hub 聚合路由`）与 `files` 里的 `CHANGELOG.md`，
-  免得发出去的包里没有这份记录。
+- `chore(package)`: `files` 补 `CHANGELOG.md`，免得发出去的包里没有这份记录。
+  （参考脚手架建议补 `magpie.name` 显示名，但你要求卡片继续显示 `magpie-jet-hub`，
+  所以没加 —— 代价是 scaffold 的 `check.mjs` 会多报一条「显示名未设置」。）
 - `docs`: 标题与目录里的「23 个供应商」改回 **25 家**（HEAD 停在 23，比实际少两家），
   供应商列表同步 `Codely (Unity 团结引擎)` 与 `超级麦吉 (MagiCrew)` 两个新显示名；
   `docs/testing.md` 里 `t-plugin.mjs` 的工厂条数与用例表一并同步。
