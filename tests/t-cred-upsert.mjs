@@ -31,7 +31,23 @@ import { createRequire } from 'node:module'
 // 就是内容对、语法坏（孤儿续行 / 重复 key），本体整份拒绝，比改不动更糟。
 // createRequire 的锚点必须是**文件**路径（传目录会 MODULE_NOT_FOUND）；
 // 用 package.json 当锚点，解析起点就是那个 node_modules。
-const YAML = createRequire(join(homedir(), '.dsh', 'profiles', 'desktop', 'package.json'))('yaml')
+// 优先从**本仓库**解析（devDependencies 里有 yaml，CI 跑 npm install 后一定有）；
+// 开发者本机没在仓库里装 devDependencies 时，退回 DSH 桌面版自带的那个 —— 两处都是
+// yaml v2，`uniqueKeys` 语义相同。此前只认后者，导致 CI 上 MODULE_NOT_FOUND。
+const requireHere = createRequire(import.meta.url)
+const YAML = (() => {
+  try {
+    return requireHere('yaml')
+  } catch (e) {
+    // 只吞「本仓库根本没装 yaml」这一种。yaml 装坏了（dist 语法不兼容 Node 22、
+    // 包目录残缺）必须原样抛出去 —— 裸 catch 会把它改写成「去 ~/.dsh 找桌面版的」，
+    // 而那个路径在 CI 上并不存在，报错会指向一个误导性的 requireStack（PR #15
+    // 首跑的 `MODULE_NOT_FOUND … ~/.dsh/profiles/desktop/package.json` 就是这么来的）。
+    if (e?.code !== 'MODULE_NOT_FOUND') throw e
+    console.warn('· 本仓库没装 yaml（devDependencies），退回 DSH 桌面版自带的那个')
+    return createRequire(join(homedir(), '.dsh', 'profiles', 'desktop', 'package.json'))('yaml')
+  }
+})()
 const yamlErrors = (text) =>
   YAML.parseDocument(text, { prettyErrors: true, uniqueKeys: true }).errors.map((e) => e.message)
 
@@ -433,7 +449,14 @@ ok(afterBare.includes("BARE_SCALAR: 'new-plain-value'"), '⑧ 裸标量被写成
 // 单条全局 writeChain 会让无关文件被慢文件拖住（2026-10-31 审查实测 1ms → 359ms）。
 // 这里把慢文件 chmod 0444，让它的 rename 真的 EPERM 并按 10/20/40… ms 退避
 // （实测 Windows 上 chmod 只读确实让 renameSync 抛 EPERM），同时写另一个文件。
-{
+//
+// 为什么要平台门：制造「慢」的手段是 Windows 专属的。POSIX 的 rename(2) 只看
+// **目录**写权限，覆盖 0444 文件照样成功 ⇒ 不退避 ⇒ 下面的 slowMs≈0 必红。
+// 所以非 Windows 直接跳过这一组（CI 的 windows 那一档会把同一段逻辑真跑一遍），
+// 并打印跳过理由 —— 静默跳过等于没人知道它没跑。
+if (process.platform !== 'win32') {
+  console.log('· ⑮ 跳过（chmod 只读让 rename 抛 EPERM 是 Windows 专属行为；POSIX 下 rename 只看目录权限）')
+} else {
   const d15 = mkdtempSync(join(tmpdir(), 'cred-slow-'))
   const slow = join(d15, 'slow.yaml')
   const fast = join(d15, 'fast.yaml')
@@ -563,7 +586,40 @@ for (const [label, top, topKey] of [['数字尾 x1', 'x1', 'x1'], ['中划线 x-
   const t2 = `version: 1\nrefs:\n  K: ${DQ}xy${BS}\n    z${DQ}\nrecords:\n  k: 1\n`
   ok(parseRefs(t2).get('K') === 'xyz', `⑲ 双引号行尾反斜杠续接不插空格（实际 ${JSON.stringify(parseRefs(t2).get('K'))}）`)
 
-  // 最关键：真实文件的形态 —— 62 条逐条与本体一致（读不到文件就跳过）
+  // 最关键的一条：**不依赖本机文件的形态覆盖**。上面那段读真实凭据文件，在 CI 上
+  // 必然走 catch（干净 runner 没有 ~/.dsh/.credentials.yaml）—— 也就是「与本体解析
+  // 一致」这个最该防回归的断言，过去只在开发者机器上有效。这里内联一份覆盖本体
+  // 所有落盘形态的样本，任何环境都跑。
+  //
+  // 唯一没收录的是 `>` 折叠标量：`blockScalarBody` 对 `|` 与 `>` 一视同仁地保留换行，
+  // 而 YAML 规范要把行间换行折成空格（`F: >` + `line1` + `line2` 本体读
+  // `"line1 line2\n"`、我们读 `"line1\nline2\n"`）。本体自己只写 `|`/`|+` 与单引号，
+  // 从不写 `>`，要改就得动与 `|` 共用的折叠路径，风险大于收益 —— 记在这里，
+  // 真遇到手写 `>` 的凭据文件再单独处理。
+  const SHAPES = {
+    '单行 plain': `refs:\n  A_PLAIN: abc123\n`,
+    '单引号': `refs:\n  B_QUOTE: 'it''s fine'\n`,
+    '双引号带转义': `refs:\n  C_DQ: "line1\\nline2"\n`,
+    '双引号行尾反斜杠续接': `refs:\n  D_BS: "xy\\\n    z"\n`,
+    '块标量 |': `refs:\n  E_LIT: |\n    line1\n    line2\n`,
+    'plain 多行续接': `refs:\n  G_MULTI: line1\n    line2\n`,
+    '中文值': `refs:\n  H_CN: 登录态已过期\n`,
+    '长 base64': `refs:\n  I_B64: ${'QUJD'.repeat(80)}\n`,
+    '空值': `refs:\n  J_EMPTY:\n`,
+    '双引号空串': `refs:\n  K_EMPTY2: ""\n`,
+    '值含冒号': `refs:\n  L_COLON: "a: b"\n`,
+    '值含井号': `refs:\n  M_HASH: 'a # b'\n`,
+  }
+  for (const [shape, fixture] of Object.entries(SHAPES)) {
+    const truth = YAML.parseDocument(fixture).toJS()?.refs ?? {}
+    const mine = parseRefs(fixture)
+    const diff = Object.entries(truth)
+      .filter(([k, v]) => mine.get(k) !== (v === null || v === undefined ? '' : String(v)))
+      .map(([k, v]) => `${k}: 本体 ${JSON.stringify(String(v))} / 我们 ${JSON.stringify(mine.get(k))}`)
+    ok(diff.length === 0, `⑲ 内联样本与本体解析一致（${shape}）${diff.length ? `：${diff.join('；')}` : ''}`)
+  }
+
+  // 再叠一层：真实文件的形态 —— 62 条逐条与本体一致（读不到文件就跳过）
   try {
     const real = join(homedir(), '.dsh', '.credentials.yaml')
     const realText = readFileSync(real, 'utf8')
@@ -572,7 +628,7 @@ for (const [label, top, topKey] of [['数字尾 x1', 'x1', 'x1'], ['中划线 x-
     const badKeys = Object.entries(truth).filter(([k, v]) => pr.get(k) !== String(v)).map(([k]) => k)
     ok(badKeys.length === 0, `⑲ 真实凭据文件逐条与本体一致${badKeys.length ? `（不一致 ${badKeys.length} 条：${JSON.stringify(badKeys.slice(0, 3))}）` : ''}`)
   } catch {
-    console.log('  – 跳过：读不到真实凭据文件')
+    console.log('  – 跳过：读不到真实凭据文件（CI 常态；上面的内联样本已覆盖形态）')
   }
 }
 

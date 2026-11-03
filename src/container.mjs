@@ -849,8 +849,10 @@ export class JetHubContainer {
       }
     }
 
-    return jsonResponse(404, {
-      error: { message: `magpie-jet-hub: 不支持的路径 ${pathname}`, type: 'invalid_request_error', code: 'unsupported_path' },
+    // 端点不存在要用 501，不能给 404：magpie 见 404 只会「搁置这个模型」，
+    // 于是它换个同样不存在的端点继续试；501 原样透出，不会被误判成模型坏了。
+    return jsonResponse(501, {
+      error: { message: `magpie-jet-hub: 不支持的路径 ${pathname}`, type: 'invalid_request_error', code: 'not_implemented' },
     })
   }
 }

@@ -954,10 +954,9 @@ console.log('\noauth 方法形状：')
       )
       // 白名单只写「本轮确实拿不到」的家，每条都写清原因；能拿到时必须删掉这一条
       // （下面有反向锚点盯着），否则白名单会烂在代码里、永久掩盖真缺失。
-      const SNAPSHOT_MISSING = new Map([
-        ['jet-hub-qiniu', '2026-11-02 宿主 :18500 仍跑旧插件（23 家），未重启'],
-        ['jet-hub-magicrewintl', '同上'],
-      ])
+      // 2026-11-03：宿主重启后快照重跑，25 家已齐全，白名单清空
+      // （留着任何一条都等于永久掩盖真缺失，下面那条反向锚点就是防这个）。
+      const SNAPSHOT_MISSING = new Map()
       const expectProvs = [...new Set(fbIds.map((id) => `jet-hub-${id.split('/')[0]}`))]
       ok(expectProvs.length >= 20, `FALLBACK 应覆盖 20+ 家，实际 ${expectProvs.length}`)
       for (const [p, why] of SNAPSHOT_MISSING) {

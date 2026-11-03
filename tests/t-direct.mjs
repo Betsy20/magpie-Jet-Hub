@@ -155,9 +155,17 @@ try {
     ok('图片落盘到了附件目录', objects.some((f) => f.endsWith('.json')) && objects.some((f) => f.endsWith('.png')), objects.join(', ') || '(空)')
   }
 
-  // 4) 错误路径：不支持的方法要回 404 而不是挂住
+  // 4) 错误路径：不支持的方法要回 501 而不是挂住
+  //    为什么不是 404：magpie 见 404 只会「搁置这个模型」，然后换个同样不存在的
+  //    端点继续试；501 是原样透出。依据 magpie-plugin-scaffold 的 ERROR-CODES §2。
   const badRes = await container.forward('/v1/embeddings', { body: '{}' })
-  ok('未知路径回 404', badRes.status === 404, `HTTP ${badRes.status}`)
+  const badBody = await badRes.json().catch(() => null)
+  ok('未知路径回 501（不是 404）', badRes.status === 501, `HTTP ${badRes.status}`)
+  ok(
+    '未知路径的 code 是 not_implemented',
+    badBody?.error?.code === 'not_implemented',
+    `code=${String(badBody?.error?.code ?? '(无)')}`
+  )
 
   // 5) 错误路径：坏 JSON 要回 400，且说清是 JSON 的问题
   const badJson = await container.forward('/v1/chat/completions', { body: '{oops' })
