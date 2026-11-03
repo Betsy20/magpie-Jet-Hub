@@ -110,10 +110,26 @@ try {
     ok(`静态资源 ${f}`, r.status === 200, `HTTP ${r.status}`)
   }
 
-  // 3) CORS 预检（sandbox iframe 的 opaque origin 必需）
+  // 3) CORS 预检。2026-11-03 起不再回 `*`：只对控制台自己那一个 Origin 回显，
+  //    没带 Origin 的预检（同源 GET 就属于这种）回 204 且不挂 ACAO。
+  const consoleOrigin = consoleUrl.replace(/\/$/, '')
   const opt = await fetch(`${consoleUrl}api/jet-hub`, { method: 'OPTIONS' })
   ok('OPTIONS 预检 204', opt.status === 204, `HTTP ${opt.status}`)
-  ok('回 ACAO *', opt.headers.get('access-control-allow-origin') === '*')
+  ok(
+    '无 Origin 的预检不挂 ACAO（不是通配）',
+    opt.headers.get('access-control-allow-origin') === null,
+    String(opt.headers.get('access-control-allow-origin')),
+  )
+  const ownOpt = await fetch(`${consoleUrl}api/jet-hub`, {
+    method: 'OPTIONS',
+    headers: { origin: consoleOrigin },
+  })
+  ok('带自己 Origin 的预检 204', ownOpt.status === 204, `HTTP ${ownOpt.status}`)
+  ok(
+    '预检回显控制台自己 Origin',
+    ownOpt.headers.get('access-control-allow-origin') === consoleOrigin,
+    String(ownOpt.headers.get('access-control-allow-origin')),
+  )
 
   // 4) RPC 转发：account.list
   const rpcCall = async (method, payload = {}) => {

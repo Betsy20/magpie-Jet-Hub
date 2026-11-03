@@ -5,9 +5,12 @@ node_modules/
 /.cache/
 
 # 一次性探针与草稿：这类文件在根目录和 tests/ 里被反复起名（`.tmp-*.mjs`、
-# `.tmp-all.txt`、`_p-*.mjs`、`_probe-*.mjs`），**没有任何脚本会写它们**，
-# 但 `git add -A` 会把它们一起提交进去（2026-10-28 实测：`.tmp-all.txt`
-# 没被忽略）。所以按形状忽略，而不是靠人记得删。
+# `.tmp-all.txt`、`_p-*.mjs`、`_probe-*.mjs`、`.poc-*.mjs`、`.mut-*.mjs`），
+# **没有任何脚本会写它们**，但 `git add -A` 会把它们一起提交进去
+# （2026-10-28 实测：`.tmp-all.txt` 没被忽略；2026-11-04 又实测 `.poc-sfs.mjs`
+# 与 `.mut-cors2.mjs` 同样漏网）。所以按形状忽略，而不是靠人记得删。
 .tmp-*
+.poc-*
+.mut-*
 _p-*.mjs
 _probe-*.mjs
