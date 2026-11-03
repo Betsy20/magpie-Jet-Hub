@@ -2,14 +2,19 @@
 // 同时把 console/ 下的管理界面当静态站点发出去。
 //
 // 为什么要单独起一个 HTTP 服务，而不是把界面塞进 magpie 的插件页：
-//   magpie 给插件页的 CSP 是 `connect-src 'none'`，页面里 fetch 一个字节都发不出去
-//   （见 internal/gui/pagebridge.js）。所以 magpie 侧栏页只能放一个 iframe 指向这里，
-//   真正的管理界面由本服务提供 —— 它自己的响应头里没有那条 CSP，fetch 同源即可。
+//   magpie 给插件页的 CSP 是 `connect-src 'none'` + `frame-src 'none'`，
+//   页面里 fetch 一个字节都发不出去、也嵌不进框架（见 internal/gui/pluginpages.js）。
+//   所以 magpie 侧栏页只**显示地址**，用户在浏览器里顶层打开本服务提供的管理界面 ——
+//   它自己的响应头里没有那条 CSP，fetch 同源即可。
 //
 // 三个必须踩准的点（都真跑过）：
-//  1. iframe 带 sandbox="allow-scripts" 且没有 allow-same-origin ⇒ 文档是 opaque origin，
-//     对 http://127.0.0.1:<port> 也算跨域 ⇒ **必须回 Access-Control-Allow-Origin: *`，
-//     并应答 OPTIONS 预检，否则界面上每个请求都 CORS 失败。
+//  1. **只回显本机回环、控制台端口区间内的 Origin，绝不回 `*`**（2026-11-03 修）。
+//     早先这里是 `Access-Control-Allow-Origin: *`，理由是「magpie 用 sandbox iframe
+//     嵌控制台，文档是 opaque origin，跨域必须通配」——但 `page/index.html` 早已
+//     不再嵌 iframe，只把地址显示给用户去浏览器里**顶层打开**，那个理由已经不成立。
+//     留着 `*` 的后果是：**任意网页**都能跨域读 `/api/jet-hub`，一键导出全部渠道
+//     的凭据（PoC 实测 evil.example / null / attacker.test 三种源都拿到 200 + `*`）。
+//     同源请求（控制台自己）不带 Origin，压根不需要这条头。
 //  2. 端口必须动态找：magpie 可能同时开多个插件宿主（桌面版 + web 版各一个 bun 进程），
 //     固定端口必撞。
 //  3. 转发必须保留原始 header 与 body：本体的 handler 自己判 Content-Type /
@@ -32,8 +37,44 @@ const MIME = {
   '.ico': 'image/x-icon',
 }
 
-function applyCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+/**
+ * Origin 是否本机回环 + 本服务实际可能监听的端口区间。
+ * 区间必须跟着 `from`/`tries` 走，不能写死 18500–18559 ——
+ * 测试与 `run-console.mjs` 会显式换端口，写死会把自己也挡在门外。
+ */
+function ownOrigin(origin, lo, hi) {
+  const o = String(origin ?? '').trim().toLowerCase()
+  if (!o) return false
+  const m = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})$/.exec(o)
+  if (!m) return false
+  const port = Number(m[2])
+  return port >= lo && port <= hi
+}
+
+/** Host 头必须是回环地址：挡 DNS rebinding（攻击者域名解析到 127.0.0.1）。 */
+function loopbackHost(hostHeader) {
+  const h = String(hostHeader ?? '').trim().toLowerCase()
+  return /^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/.test(h)
+}
+
+/**
+ * 跨站判定：Origin 不在白名单，或浏览器自报 `Sec-Fetch-Site: cross-site`。
+ * 后者挡的是「读不到响应但会执行副作用」的那一类（`<form>` 提交、
+ * `fetch(mode:'no-cors')`），CORS 头对它们不起作用。
+ */
+function crossSite(req, lo, hi) {
+  const origin = req.headers.origin
+  if (origin && !ownOrigin(origin, lo, hi)) return true
+  return String(req.headers['sec-fetch-site'] ?? '').toLowerCase() === 'cross-site'
+}
+
+function applyCors(res, req, lo, hi) {
+  const origin = req.headers.origin
+  if (origin && ownOrigin(origin, lo, hi)) {
+    // 回显具体来源，不再通配：只有控制台自己能跨域读。
+    res.setHeader('Access-Control-Allow-Origin', String(origin))
+    res.setHeader('Vary', 'Origin')
+  }
   res.setHeader('Access-Control-Allow-Headers', 'content-type')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
   res.setHeader('Access-Control-Max-Age', '600')
@@ -64,10 +105,24 @@ async function toWebRequest(req, host) {
  * @param {number} [opts.tries] 最多向上试几个端口
  */
 export async function startHubServer({ seam, log = () => {}, meta = () => ({}), host = '127.0.0.1', from = 18500, tries = 60 }) {
+  // 允许的 Origin 端口区间 = 本次实际会尝试的端口，不写死（测试/脚本会换端口）。
+  const portLo = from
+  const portHi = from + Math.max(0, tries - 1)
   const server = createServer((req, res) => {
     void (async () => {
       try {
-        applyCors(res)
+        // 先挡两类不该被受理的请求，再挂 CORS 头：
+        //  · Host 不是回环 → DNS rebinding（攻击者域解析到 127.0.0.1 后绕过 Origin 白名单）；
+        //  · 来源跨站 → 任意网页读凭据 / CSRF。
+        if (!loopbackHost(req.headers.host)) {
+          res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end('forbidden host')
+          return
+        }
+        if (crossSite(req, portLo, portHi)) {
+          res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end('forbidden origin')
+          return
+        }
+        applyCors(res, req, portLo, portHi)
         if (req.method === 'OPTIONS') {
           res.writeHead(204).end()
           return

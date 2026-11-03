@@ -11,6 +11,27 @@
 
 ## 1.0.0（未发布）
 
+- `fix(security)`: 控制台服务 `src/hub-server.mjs` 收掉**通配 CORS**。此前每个响应都带
+  `Access-Control-Allow-Origin: *`，等于把 `/api/jet-hub`（含各渠道 access_key_id /
+  access_key_secret / refresh_token）开放给**任意网页**跨域读取；`/api/jet-hub`
+  还接 POST，等于同时是一个 CSRF 入口。初版写 `*` 的理由是「magpie 用 sandbox iframe
+  嵌控制台，opaque origin 必须通配」，但 `page/index.html` 早就改成只显示地址、
+  由用户在浏览器顶层打开，那条理由已经失效（`page/page.js` 里 `conUrlBox` 只读展示，无 iframe）。
+  现在：
+  - `Access-Control-Allow-Origin` **只回显白名单来源** —— 协议 `http/https` +
+    主机 `127.0.0.1` / `localhost` / `[::1]` + 端口落在本次 `startHubServer({from, tries})`
+    实际可能监听的区间内（跟着参数走，不写死 18500–18559，否则测试换端口会把自己挡在门外）。
+    同源请求不带 `Origin`，本来就不需要这条头。
+  - 非白名单 `Origin` 与 `Sec-Fetch-Site: cross-site` 直接 **403**：前者挡「读得到响应」的
+    跨站读，后者挡 `<form>` 提交 / `fetch(mode:'no-cors')` 这类**读不到响应但会执行副作用**的请求
+    —— CORS 头对它们完全不起作用，只能靠服务端拒。
+  - `Host` 头必须是回环地址，否则 **403**：挡 DNS rebinding（攻击者域名解析到 127.0.0.1
+    绕过 Origin 白名单）。
+  实测（临时 PoC，已删）：`evil.example` / `null`（sandbox iframe）/ 伪造 `Host` /
+  跨站 POST / 跨站预检 全部 403 且拿不到任何头；同源 GET/OPTIONS/POST 行为不变。
+  回归闸 `tests/t-hub-cors.mjs`（21 条断言，已登记进 `scripts/test-all.mjs`，CI 自动跑）：
+  把上面三处修复回退后它有 12 条变红，确认这道闸不是摆设。
+  同时改了文件头那段「为什么单独起服务」的说明 —— 它还在描述已经废弃的 iframe 方案。
 - `chore(ci)`: 补上 `.github/workflows/ci.yml` —— 此前仓库**完全没有 CI**，
   28 个离线单测只能靠人手动跑，PR 合进来之前没有任何自动门槛。
   现在 push 与 PR 都要求「离线单测全绿 + `npm pack --dry-run` 通过」。
