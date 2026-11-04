@@ -118,7 +118,7 @@ function candidates() {
  * 本插件实际注册成 magpie provider 的那些 id。
  *
  * ⚠️ 宿主 `/__meta` 给的是**本体全部** provider 的模型目录（含 `aggregate` /
- * `jet-hub-auto` 两个路由组），但插件只注册其中 25 家真渠道。快照必须跟着插件走，
+ * `jet-hub-auto` 两个路由组），但插件只注册其中 28 家真渠道。快照必须跟着插件走，
  * 否则页面上会列出 `jet-hub-aggregate/…` 这种复制出去 404 的 id。
  * 白名单直接取 `src/plugin.mjs` 的 `DSH_PROVIDERS`（不抄一份），`idOf` 也复用它的
  * —— 那边改了这里自动跟着变。
@@ -156,6 +156,7 @@ const NAMES = {
   'jet-hub-astudio':       ['AStudio (讯飞)', '讯飞 AStudio'],
   'jet-hub-autoclaw':      ['AutoClaw (智谱)', '智谱 AutoClaw'],
   'jet-hub-autoclawintl':  ['AutoClaw (国际版)', '智谱 AutoClaw 国际版'],
+  'jet-hub-baizhi':        ['百智云 (Baizhi)', '百智云（本 fork 独有）'],
   'jet-hub-buddy':         ['CodeBuddy (腾讯)', '腾讯 CodeBuddy'],
   'jet-hub-cline':         ['Cline (开源)', '开源 AI 编程助手 Cline'],
   'jet-hub-codearts':      ['CodeArts (华为云)', '华为云 CodeArts（STS 临时凭据）'],
@@ -168,6 +169,8 @@ const NAMES = {
   'jet-hub-minimax':       ['MiniMax Code (中国版)', 'MiniMax Code 国内站'],
   'jet-hub-minimaxintl':   ['MiniMax Code (国际版)', 'MiniMax Code 国际版'],
   'jet-hub-modelscope':    ['ModelScope (魔搭)', '魔搭社区'],
+  'jet-hub-monkeycode':    ['MonkeyCode', 'MonkeyCode 国内站'],
+  'jet-hub-monkeycodeintl': ['MonkeyCode (国际站)', 'MonkeyCode 国际站（与国内站账号体系隔离）'],
   'jet-hub-officeace':     ['OfficeAce (果办)', '果办 OfficeAce（华为云）'],
   'jet-hub-opencode':      ['OpenCode (开源)', '开源 AI 编程助手 OpenCode'],
   'jet-hub-qiniu':         ['Qiniu (七牛云)', '七牛云（本 fork 独有）'],

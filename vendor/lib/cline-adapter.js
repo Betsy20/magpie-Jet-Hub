@@ -35,7 +35,7 @@ import { isClineExpired, clineHeaders } from './cline.js';
 import { clineDisplayName, hasClineRemoteModels, loadClineModels, } from './cline-models.js';
 import { CLINE, CLINE_CHAT_PATH, CLINE_DEFAULT_REASONING_EFFORT, CLINE_REASONING_EFFORTS, } from './cline-product.js';
 import { projectRequestImage } from './image-budget.js';
-import { applyModelsDevCatalog, makeClineModelsDevLoader } from './cline-models-dev.js';
+import { applyModelsDevCatalog, makeClineModelsDevLoader, stripClineSnapshotSuffix } from './cline-models-dev.js';
 import { parseClineRouting } from './cline-routing.js';
 import { recordClineRequest } from './cline-request-log.js';
 import { registerAdapterIdempotent, } from './llm-register-compat.js';
@@ -312,9 +312,42 @@ export class ClineAdapter extends LlmAdapter {
      * ⚠️ **方向仍是保守**：未知**不放行**图片（见 `stream()` 的门禁），
      * 只是不再谎报「不支持」。
      */
+    /**
+     * 快照后缀模型（`-1017`）在目录里的**基底条目**；无后缀或基底不存在返回 undefined。
+     *
+     * ⚠️ 只用于「本条目能力字段缺席」时回退，见 `toCatalogEntry` / `inputModalitiesFor`。
+     */
+    baseCatalogEntryFor(id) {
+        const baseId = stripClineSnapshotSuffix(id);
+        if (baseId === id)
+            return undefined;
+        const source = this.remoteModels ?? this.fallbackCatalog();
+        const primary = this.catalogIndexFor(source).get(baseId);
+        if (primary !== undefined)
+            return primary;
+        // ⚠️ 远端目录已取到、但基底只存在于**静态兜底表**时也要回退（与 qoder 的
+        // 「远端 ∪ 静态表」同口径）；否则这类后缀模型仍会被读成「能力未知」。
+        const fallback = this.fallbackCatalog();
+        if (fallback === source)
+            return undefined;
+        return this.catalogIndexFor(fallback).get(baseId);
+    }
     inputModalitiesFor(model) {
         const source = this.remoteModels ?? this.fallbackCatalog();
-        const entry = this.catalogIndexFor(source).get(model);
+        const index = this.catalogIndexFor(source);
+        let entry = index.get(model);
+        /**
+         * ⚠️ **带日期/快照后缀的模型要回退到基底条目**（2026-11-03 issue #18）：
+         * 上游常发 `qwen2.5-coder-7b-instruct-1017`，而 models.dev 只登记基底 id。
+         * 精确匹配失败会让 `supportsImage` 变成「未知」⇒ 宿主放行图片，发到不支持
+         * 图的服务端；`contextWindow` 也会一起丢。
+         *
+         * ⚠️ 只在「后缀模型自己的条目没有明确结论」时回退：本地兜底表/网关若对
+         * 这个快照给了显式值，那才是权威（策展数据优先于社区目录）。
+         */
+        if (entry?.supportsImage === undefined) {
+            entry = this.baseCatalogEntryFor(model) ?? entry;
+        }
         // ⚠️ 必须判 `=== undefined`（**字段缺席**）而不是 `!== true`：
         // 后者把「明确 false」与「没这条记录」压成同一结果，正是本条要修的形态。
         if (entry?.supportsImage === undefined)
@@ -561,6 +594,18 @@ export class ClineAdapter extends LlmAdapter {
      */
     toCatalogEntry(model) {
         const maxTokens = clampClineMaxTokens(model.maxTokens);
+        /**
+         * issue #18：带快照后缀的模型（`...-1017`）在目录里可能没有自己的能力字段。
+         * 此时回退到**基底条目**（同一份 catalogIndex，O(1)），否则
+         * `supportsImage` 会被读成「未知」⇒ 宿主放行图片，`contextWindow` 也会丢。
+         *
+         * ⚠️ 只在字段**缺席**时回退；显式的 true/false 是权威（本地/策展优先）。
+         */
+        const base = model.supportsImage === undefined || model.contextWindow === undefined
+            ? this.baseCatalogEntryFor(model.id)
+            : undefined;
+        const supportsImage = model.supportsImage ?? base?.supportsImage;
+        const contextWindow = model.contextWindow ?? base?.contextWindow;
         return {
             id: model.id,
             // 免费标记拼进 `name`（**不是** `description`）：composer 的模型切换菜单
@@ -574,10 +619,10 @@ export class ClineAdapter extends LlmAdapter {
             // ⚠️⚠️ 三态（issue IKKZUG）：`supportsImage` **缺席** = 未知 ⇒ 必须
             // **省略** `inputModalities` 字段（宿主契约 `absent means unknown`），
             // 报 `['text']` 会让 DSH 把图片静默投影成占位文本。
-            ...(model.supportsImage === undefined
+            ...(supportsImage === undefined
                 ? {}
-                : { inputModalities: model.supportsImage ? ['text', 'image'] : ['text'] }),
-            ...model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {},
+                : { inputModalities: supportsImage ? ['text', 'image'] : ['text'] }),
+            ...contextWindow !== undefined ? { contextWindow } : {},
             ...maxTokens !== undefined ? { maxTokens } : {},
             isFree: model.isFree,
             reasoning: {

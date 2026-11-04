@@ -31,6 +31,8 @@
  * 用户已确认接受这一处破例。
  */
 import type { Dispatcher } from 'undici';
+import { type Socket } from 'node:net';
+import { type PeerCertificate, type TLSSocket } from 'node:tls';
 import type { NormalizedProxy } from './opencode.js';
 /**
  * 走**指定代理**发请求（本 provider 的唯一出口方法）。
@@ -107,6 +109,66 @@ export declare function closeAllProxyDispatchers(): Promise<void>;
  */
 export declare function buildSocks5Handshake(proxy: Pick<NormalizedProxy, 'url'>): Uint8Array;
 /**
+ * SOCKS5 Dispatcher：把自定义 connector 交给 undici 的 `Agent`。
+ *
+ * 隧道 socket 交给 undici 后，它会继续在上面做 TLS 握手与 HTTP/1.x 收发。
+ *
+ * ## ⚠️⚠️ 端口**不能**写成 `Number(opts.port ?? 443)`（真实缺陷，2026-10-08 实测）
+ *
+ * undici 传给 connector 的 `opts.port` 在**默认端口**时是**空字符串 `""`**，
+ * 而不是 `undefined`（实测 undici 8.11.2，`opts` 全部键为
+ * `host,hostname,protocol,port,servername,localAddress`）：
+ *
+ * | 目标 URL | `opts.port` | `Number(opts.port ?? 443)` |
+ * |---|---|---|
+ * | `https://opencode.ai/zen/...`（默认 443） | `""` | **0** ← 坏 |
+ * | `https://example.com:8443/` | `"8443"` | 8443 ✓ |
+ *
+ * `??` 只兜 `null`/`undefined`，**兜不住空字符串**，于是 `Number("") === 0`，
+ * SOCKS5 的 CONNECT 帧把端口写成 `0x0000` ⇒ 上游按端口 0 连接必然失败：
+ *
+ *     中介实测：CONNECT → "opencode.ai:0" → 失败（应答码 0x5）
+ *     显式端口实测：CONNECT → "example.com:8443" → 通过
+ *
+ * 影响面**正好命中生产主路径** —— `OPENCODE.baseUrl` 是
+ * `https://opencode.ai/zen`（默认 443），故「SOCKS5 代理」这个功能
+ * 在修复前是**恒不可用**的（HTTP 代理不受影响，它不走这条 connector）。
+ * 三代 Node（22.19 / 24.21 / 26.10）一致复现，与版本无关。
+ *
+ * ⇒ 判据必须同时覆盖「空串」与「非法值」，回退到按协议推出的默认端口。
+ */
+export interface SocksConnectDeps {
+    tunnel?: (proxy: NormalizedProxy, host: string, port: number) => Promise<Socket>;
+    wrapTls?: (options: {
+        socket: Socket;
+        servername?: string;
+        checkServerIdentity?: (hostname: string, cert: PeerCertificate) => Error | undefined;
+    }) => TLSSocket;
+}
+interface SocksConnectOptions {
+    hostname?: string;
+    host?: string;
+    port?: number | string;
+    protocol?: string;
+    /** undici 可能带上 SNI override（内置 connector 也读它）。 */
+    servername?: string;
+}
+/**
+ * 构造 undici 的 `connect` 钩子：SOCKS5 握手后按目标协议**再做 TLS**。
+ *
+ * ## ⚠️⚠️ 为什么必须自己包 TLS（真实缺陷，Gitee/GitHub issue #19）
+ *
+ * undici 的 `connect` 选项**整体替换**内置 connector —— 内置 connector 在
+ * `protocol === 'https:'` 时会自己 `tls.connect`，而自定义钩子返回的 socket
+ * 会被当作**已就绪**直接写 HTTP。只返回裸 TCP 隧道 ⇒ TLS ClientHello 被当成
+ * HTTP 明文发给上游 ⇒ `https://opencode.ai/...` 经 SOCKS5 必然失败
+ * （HTTP 代理不走这条 connector，所以只有 SOCKS5 用户中招）。
+ *
+ * ⇒ 握手成功后：https/wss 目标用 `tls.connect({ socket, servername })` 包一层，
+ * 等 `secureConnect` 再交给 undici；`servername` 只对域名设置（IP 不发 SNI）。
+ */
+export declare function createSocksConnect(proxy: NormalizedProxy, deps?: SocksConnectDeps): (opts: SocksConnectOptions, callback: (error: Error | null, socket?: Socket) => void) => void;
+/**
  * 从 undici 传来的 `opts` 里解析出**真正的目标端口**。
  *
  * 三层兜底（缺一不可，每一层都有实测依据）：
@@ -121,4 +183,5 @@ export declare function resolveConnectPort(opts: {
     port?: number | string;
     protocol?: string;
 }): number;
+export {};
 //# sourceMappingURL=opencode-proxy.d.ts.map

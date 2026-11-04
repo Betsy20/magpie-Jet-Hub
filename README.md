@@ -2,10 +2,10 @@
 
 [![repo](https://img.shields.io/badge/github-Betsy20/magpie--Jet--Hub-blue)](https://github.com/Betsy20/magpie-Jet-Hub)
 
-把 **deepseek-harness-codearts 插件本体**装进 magpie。装上之后，magpie 的供应商列表里会多出 25 家 AI 编码渠道，用的是你在 DSH 里已经登录好的那批账号 —— 不需要重新登录，也不需要复制凭据。
+把 **deepseek-harness-codearts 插件本体**装进 magpie。装上之后，magpie 的供应商列表里会多出 28 家 AI 编码渠道，用的是你在 DSH 里已经登录好的那批账号 —— 不需要重新登录，也不需要复制凭据。
 
 > **上游插件**：[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)（MIT）。
-> 它给 DSH 提供 25 家供应商的登录、多账号池、静默续期、积分领取。
+> 它给 DSH 提供 28 家供应商的登录、多账号池、静默续期、积分领取。
 > 本仓库**不是它的分支、也不修改它的行为** —— 只把它的发布产物装进 [`vendor/`](vendor/)，
 > 外面加一层 magpie 适配。供应商适配、登录流程、续期算法本身的问题去上游提；
 > 装不进 magpie、卡片显示不对、控制台没反应，才是本仓库的。
@@ -15,7 +15,7 @@
 
 - [架构](#架构)
 - [安装](#安装)
-- [25 个供应商，不是一个](#25-个供应商不是一个)
+- [28 个供应商，不是一个](#28-个供应商不是一个)
 - [账号](#账号)
 - [凭据：不需要再登一次](#凭据不需要再登一次)
 - [从 dsh-providers-hub 的备份导入](#从-dsh-providers-hub-的备份导入)
@@ -31,12 +31,12 @@
 
 ## 架构
 
-magpie 的一个插件包可以注册多个供应商：宿主取模块导出的**每一个函数**当插件工厂，本包的 `index.mjs` 正好导出 25 个 `JetHub*Plugin`。
+magpie 的一个插件包可以注册多个供应商：宿主取模块导出的**每一个函数**当插件工厂，本包的 `index.mjs` 正好导出 28 个 `JetHub*Plugin`。
 
 ```
 magpie 网关（默认 3425，JET_HUB_USER_GATEWAY 可覆盖）
   ├─ jet-hub-codearts   ┐
-  ├─ jet-hub-workbuddy  │ 25 个 provider id
+  ├─ jet-hub-workbuddy  │ 28 个 provider id
   ├─ jet-hub-qoder      ├─ 全部共用同一个容器实例
   └─ …                  ┘
        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
@@ -47,7 +47,7 @@ magpie 网关（默认 3425，JET_HUB_USER_GATEWAY 可覆盖）
 两个要点：
 
 - **没有内嵌 HTTP 网关**。本体自己会开一个 OpenAI 兼容网关，但那层只是 `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以 `container.forward()` 进程内就完成整件事 —— 不占端口、不需要 apiKey。
-- **容器必须模块级共享**。25 个工厂各自 new 一个容器会拉起 25 份账号池和模型目录，冷启动直接炸。
+- **容器必须模块级共享**。28 个工厂各自 new 一个容器会拉起 28 份账号池和模型目录，冷启动直接炸。
 
 ## 安装
 
@@ -87,9 +87,9 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 
 装完可以用 `npm ls --depth=0` 对一眼 —— 根 `package.json` 的 `dependencies` 必须覆盖 `vendor/` 里本体 import 的全部第三方包（`jose`、`undici` 这两个漏过，换机一加载就 `ERR_MODULE_NOT_FOUND`，表现为「控制台打不开」）。`tests/t-deps.mjs` 会扫 Node 侧全部源码的 import 守着这条。
 
-## 25 个供应商，不是一个
+## 28 个供应商，不是一个
 
-本体里有 27 个 provider，其中 **2 个是路由组**（`aggregate` 聚合路由、`jet-hub-auto` 自动选号）。路由组没有自己的账号池和模型目录，注册成 magpie 供应商只会得到一张永远空着的卡，所以**本插件只接那 25 家真渠道**。
+本体里有 30 个 provider，其中 **2 个是路由组**（`aggregate` 聚合路由、`jet-hub-auto` 自动选号）。路由组没有自己的账号池和模型目录，注册成 magpie 供应商只会得到一张永远空着的卡，所以**本插件只接那 28 家真渠道**。
 
 完整名单以 `src/plugin.mjs` 的 `DSH_PROVIDERS` 为准（下表只列几行示例）。
 
@@ -103,7 +103,7 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 | `jet-hub-magicrew` | 超级麦吉 (MagiCrew) |
 | `jet-hub-magicrewintl` | MagiCrew (国际版) |
 | `jet-hub-qiniu` | Qiniu (七牛云) |
-| …共 25 家 | |
+| …共 28 家 | |
 
 模型 id 是 `<provider>/<model>`：
 
@@ -247,9 +247,12 @@ magpie 的「观测 / 用量」里有一列**费用**。默认它对本插件的
 
 单位是 **USD / 1M tokens**，与 magpie 内部的 `catalog.Price` 同口径。价格表在
 `src/model-prices.mjs`，由 `node scripts/gen-model-prices.mjs` 从 magpie 缓存的
-models.dev 目录（`~/.cache/magpie/models.json`）按**模型尾名**匹配生成：本插件的快照
-里有 745 个模型、657 个唯一尾名，其中 464 个能在目录里找到价；剩下的多是各渠道自造的
-私有名（`@preset/cline-*`、`DeepSeek-V4-Pro-Official` 之类），公开目录里没有。
+models.dev 目录（`~/.cache/magpie/models.json`）按**模型尾名**匹配生成（尾名 = 去掉
+`jet-hub-xxx/` 首段后的剩余部分，`@preset/…` 这类多级路径会原样保留）：本插件的快照
+里有 885 个模型、724 个唯一尾名，价表 464 条里有 461 条对得上；表是 2026-11-01 那版
+目录算出来的（本轮换 vendor 后没重跑，`node scripts/gen-model-prices.mjs` 可刷新）；
+剩下的多是各渠道自造的私有名（`@preset/cline-*`、`DeepSeek-V4-Pro-Official` 之类），
+公开目录里没有。
 
 尾名匹配会**撞上别家同名型号** —— 同一个名字目录里常有多家在卖、价差 2–10 倍。所以
 取价有三条规则：`auto` / `standard` / `professional` / `ultimate` 这类**路由名和档位名直接跳过**
@@ -272,7 +275,7 @@ models.dev 目录（`~/.cache/magpie/models.json`）按**模型尾名**匹配生
 
 本体冷启动要建容器、拉凭据链、预热目录，**20–30 秒**（预热过的实例通常 1–2 秒），而 magpie 给 `provider.models` 的超时只有 **20 秒**。所以在 `models()` 里 `await` 必然超时。
 
-`models()` 因此分三档：内存缓存命中 → 立刻返回并后台刷新；磁盘缓存命中 → 立刻返回真实目录；都没有 → 返回静态兜底表（25 家各一条），启动甩到后台。`authorize()` 与 `usage()` 由用户点击触发、允许长时间，走真等。
+`models()` 因此分三档：内存缓存命中 → 立刻返回并后台刷新；磁盘缓存命中 → 立刻返回真实目录；都没有 → 返回静态兜底表（28 家各一条），启动甩到后台。`authorize()` 与 `usage()` 由用户点击触发、允许长时间，走真等。
 
 ## 侧栏页与控制台
 
@@ -342,16 +345,16 @@ node scripts/test-all.mjs --all  # 连环境的一起跑（要 magpie 网关 342
 ## 目录结构
 
 ```
-index.mjs              只导出 25 个插件工厂（宿主遍历全部导出）
+index.mjs              只导出 28 个插件工厂（宿主遍历全部导出）
 src/
-  plugin.mjs           25 个工厂、auth 契约（methods / loader / usage / checkin）
+  plugin.mjs           28 个工厂、auth 契约（methods / loader / usage / checkin）
   container.mjs        内嵌 cordis 容器、直连转发、选号钉住、死号过滤
   llm-bridge.mjs       进程内直连本体 ctx.llm
   credentials.mjs      ~/.dsh/.credentials.yaml ⇄ 容器 credentials 服务
   connection.mjs       给容器补一个 connection 服务（DSH 里由宿主提供）
   hub-server.mjs       控制台 HTTP 服务
   attachments.mjs      图片附件服务
-  icons.mjs            25 家内联矢量图标
+  icons.mjs            28 家内联矢量图标
   site-icons.mjs       四家从官网取的位图（base64）
   magicrew-icon.mjs    \ 两家单独存放的位图，体积大、与上面分开
   zcode-icon.mjs       /
@@ -366,5 +369,5 @@ docs/                  截图、vendor.md、testing.md
 ## 上游与致谢
 
 - 上游插件：[`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)（MIT，`Copyright (c) 2026 Jet`）—— 本仓库 `vendor/` 是它的构建产物，`vendor/LICENSE` 随目录一起分发。
-- 25 家渠道的登录 / 续期 / 选号逻辑全部来自上游，本仓库只做 magpie 适配层。
+- 28 家渠道的登录 / 续期 / 选号逻辑全部来自上游，本仓库只做 magpie 适配层。
 - 图标：多数来自各厂商官方标识，少数取自 [LobeHub icons](https://github.com/lobehub/lobe-icons)。

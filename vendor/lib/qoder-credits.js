@@ -892,10 +892,18 @@ function claimableCampaigns(parsed) {
 function parseClaimResult(body) {
     if (typeof body !== 'object' || body === null || Array.isArray(body))
         return {};
-    const root = body;
+    const top = body;
+    // ⚠️ 上游若把结果包一层 `data`，只看顶层会把「BLOCKED」读成「无结论」⇒
+    // 旧逻辑会落到 claimed+0（假成功）。顶层没有 status 时下钻一层。
+    const root = readString(top, 'status') === undefined
+        && typeof top.data === 'object' && top.data !== null && !Array.isArray(top.data)
+        ? top.data
+        : top;
+    const failureCode = readString(root, 'failureCode') ?? readString(root, 'failure_code');
     return {
         ...readString(root, 'status') !== undefined ? { status: readString(root, 'status') } : {},
         ...typeof root.replayed === 'boolean' ? { replayed: root.replayed } : {},
+        ...failureCode !== undefined ? { failureCode: failureCode.trim() } : {},
         ...benefitAmount(root) !== undefined ? { amount: benefitAmount(root) } : {},
     };
 }
@@ -934,12 +942,24 @@ export async function claimQoderCampaign(credential, product, campaignId, fetche
         return { kind: 'failed', code: response.status, message: describeNonJson(response.status, text) };
     }
     const result = parseClaimResult(body);
+    /**
+     * ⚠️ failureCode 必须**先于** replayed/status 判：设备锁响应可能同时带
+     * `replayed`，先判 replayed 会把设备锁原因吞掉。大小写/尾空格做归一。
+     */
+    const failureCode = result.failureCode?.trim().toUpperCase();
+    if (failureCode === 'SAME_PERSON_ALREADY_CLAIMED') {
+        return {
+            kind: 'already-claimed',
+            message: '同一设备今日已由其它 Qoder 账号领取（上游设备锁），换设备或明日再试',
+        };
+    }
     // `replayed:true` = 本次活动此前已领（服务端回放上次结果）。
     if (result.replayed === true) {
         return { kind: 'already-claimed', message: '今天已领取' };
     }
-    if (result.status !== undefined && result.status !== 'CLAIMED') {
-        return { kind: 'failed', code: -1, message: `领取未成功（status=${result.status}）` };
+    if (result.status !== 'CLAIMED') {
+        const suffix = failureCode === undefined ? '' : `，failureCode=${result.failureCode}`;
+        return { kind: 'failed', code: -1, message: `领取未成功（status=${result.status ?? '未返回'}）${suffix}` };
     }
     return { kind: 'claimed', credit: result.amount ?? 0, streakDays: 0, isStreakDay: false };
 }
@@ -1010,12 +1030,22 @@ export async function claimQoderDailyCheckin(credential, product, fetcher = fetc
     }
     let total = 0;
     let firstError;
+    /**
+     * ⚠️ already-claimed 的**具体原因**也要往上透传（2026-11-03 审计 P1）：
+     * 设备锁（SAME_PERSON_ALREADY_CLAIMED）与「本账号今天领过」是两件事，
+     * 旧汇总只收集 failed 的 message，设备锁文案会在这一层被换成通用
+     * 「今天已领取」⇒ 用户以为本账号领过了，而实际是设备被别的账号占用。
+     */
+    let firstAlreadyClaimed;
     for (const target of targets) {
         const outcome = await claimQoderCampaign(credential, product, target.campaignId, fetcher);
         if (outcome.kind === 'claimed')
             total += outcome.credit;
         else if (outcome.kind === 'failed' && firstError === undefined)
             firstError = outcome.message;
+        else if (outcome.kind === 'already-claimed' && firstAlreadyClaimed === undefined) {
+            firstAlreadyClaimed = outcome.message;
+        }
     }
     // ⚠️ 三条返回都带 `stale`：刷新前领到的是**昨天那条**的补领 —— 它是一次
     // 真实动作（该如实报「领取成功」），但**不证明今天已被处理**，记账方必须
@@ -1024,6 +1054,6 @@ export async function claimQoderDailyCheckin(credential, product, fetcher = fetc
         return { kind: 'claimed', credit: total, streakDays: 0, isStreakDay: false, ...stale };
     if (firstError !== undefined)
         return { kind: 'failed', code: -1, message: firstError };
-    return { kind: 'already-claimed', message: '今天已领取', ...stale };
+    return { kind: 'already-claimed', message: firstAlreadyClaimed ?? '今天已领取', ...stale };
 }
 //# sourceMappingURL=qoder-credits.js.map

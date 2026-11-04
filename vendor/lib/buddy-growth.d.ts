@@ -10,20 +10,77 @@ export declare const GROWTH_TASK_ACCEPT_PATH = "/activity/growth/tasks/accept";
 export declare const GROWTH_TRAVEL_STATUS_PATH = "/activity/growth/buddy/travel/status";
 /** 旅行领奖端点。 */
 export declare const GROWTH_TRAVEL_CLAIM_PATH = "/activity/growth/buddy/travel/claim";
-/** 首个 Buddy 解锁端点（一次性动作，默认不执行）。 */
+/** Buddy 采纳协议端点（幂等；`buddy/first` 的前置，缺它实测 400 adoption agreement）。 */
+export declare const GROWTH_BUDDY_AGREEMENT_PATH = "/activity/growth/buddy/agreement";
+/** 首个 Buddy 解锁端点（一次性 +300，纯收益，进默认流）。 */
 export declare const GROWTH_FIRST_BUDDY_PATH = "/activity/growth/buddy/first";
-/** 盲盒端点（消耗 energy，默认不执行）。 */
+/** 盲盒端点（消耗 energy —— 花资源而非领积分，保持 runExotic 门控）。 */
 export declare const GROWTH_BLIND_BOX_PATH = "/v2/activity/growth/buddy/open";
-/** 抽奖端点（消耗 lottery 次数，默认不执行）。 */
-export declare const GROWTH_LOTTERY_PATH = "/v2/activity/growth/lottery/draw";
+/**
+ * 抽奖端点。⚠ **无 `/v2` 前缀**（2026-09-12 成长中心 bundle 逆向 + 页面实测口径）——
+ * 本文件曾按设计稿猜过 `/v2/activity/growth/lottery/draw`，与 Go 面板实测路径相悖，
+ * 以实测为准（同族 redeem/makeup/heatmap 均无 v2 前缀）。
+ */
+export declare const GROWTH_LOTTERY_DRAW_PATH = "/activity/growth/lottery/draw";
+/** 抽奖次数查询端点（data.chances）。 */
+export declare const GROWTH_LOTTERY_SUMMARY_PATH = "/activity/growth/lottery/summary";
+/** 连登状态端点（data.streak.days / data.makeup_cards / data.redemption_status）。 */
+export declare const GROWTH_STREAK_PATH = "/activity/growth/streak";
+/** 连登档位兑换端点（发 credit/energy/补签卡/抽奖次数）。 */
+export declare const GROWTH_REDEEM_PATH = "/activity/growth/redeem";
+/** 连登热图端点（补签窗口判定：本月漏签 = score 0）。 */
+export declare const GROWTH_HEATMAP_PATH = "/activity/growth/heatmap";
+/** 补签卡使用端点（body {target_date}）。 */
+export declare const GROWTH_MAKEUP_USE_PATH = "/activity/growth/makeup-cards/use";
+/** 新手礼包状态端点（webBase 域；⚠ 无 /v2 前缀，带 /v2 实测 404）。 */
+export declare const GIFT_STATUS_PATH = "/billing/meter/check-gift-claimed";
+/** 新手礼包领取端点（webBase 域）。 */
+export declare const GIFT_CLAIM_PATH = "/billing/meter/claim-gift";
+/**
+ * 小程序口径专属的成长任务：默认（web 口径）列表不出现，list/accept/claim 都走
+ * mp 头。新任务出现时在此登记（同步加入 {@link AUTOMATABLE_TASK_CODES} 与
+ * {@link GROWTH_TASK_COMPLETION}）。
+ */
+export declare const MP_TASK_CODES: ReadonlySet<string>;
+/** 该任务是否小程序口径专属（决定回读/接受/领奖的头与列表口径）。 */
+export declare function isMpTaskCode(code: string): boolean;
 /**
  * 可自动接取的任务白名单（task_code）。
  *
  * 只接取**纯使用即可达成**、且奖励为普通 credit/energy 的任务。限定款
  * （`reward_buddy:true`、需下载桌面端/升级主题解锁的盲盒 Buddy）**不**进默认白名单，
  * 避免误触发一次性解锁动作。判据与 WorkDaddy `AUTOMATABLE_TASK_CODES` 对齐。
+ *
+ * 2026-11-01 增补（workbuddy2api 面板 2026-10-29 实测任务列表）：
+ * - `WorkBuddy_Valorant` + `expert_use_*` 四项：「体验专家」类活动，判据同
+ *   `Expert_lighthouse`，专家 id 绑定任务 jump_url（见 {@link FIXED_EXPERT_TASKS}）。
+ * - `Sequential_Tasks_1..7`：小程序口径专属族（{@link MP_TASK_CODES}）。
  */
 export declare const AUTOMATABLE_TASK_CODES: Set<string>;
+/**
+ * 「体验「X」专家」类活动的固定参数（task_code → 专家）。
+ *
+ * 专家 id 全部取自任务自身的 jump_url（PC 的 deeplink `experts?expertId=ex_…`、
+ * 小程序的 `expert-center/detail?id=ex_…`），与专家市场真实条目一一对应。
+ * ⚠ **name 是专家的「昵称」、title 是任务标题里的「职业名」**（卖得好/斗音音/
+ * 播旺旺是昵称）——判据事件里 `name` 取昵称、`expertTitle` 取职业名，两者都参与
+ * 服务端校验，**不能互换**。version 以市场条目为准（见运行时 enrich），表内是
+ * 搜不到市场条目时的静态兜底值。
+ */
+export declare const FIXED_EXPERT_TASKS: Readonly<Record<string, MarketExpert>>;
+/**
+ * mp（小程序）对话事件的真人节奏间隔（毫秒）。
+ *
+ * 上游对 Sequential_Tasks_3「5 次有效对话」有**反作弊校验**：数秒级连发的事件会先
+ * 被计入进度（回读 5/5、accept_status 甚至短暂转 completed），随后被判定无效整体
+ * 回滚（进度回落、claim 400 `task not completed`）——2026-09-26 实测 2s 连发 4 条
+ * 全灭，45s 间隔逐条上报全存活且 claim +300c+5e 成功。每条上报前等待本间隔 +
+ * 0~{@link MP_CHAT_JITTER_MAX_MS} 抖动；**首条也等**（上一轮残留进度被回滚后
+ * 立即重报同样无效）。
+ */
+export declare const MP_CHAT_EVENT_GAP_MS = 45000;
+/** mp 对话事件的随机抖动上限（毫秒），叠加在 {@link MP_CHAT_EVENT_GAP_MS} 上。 */
+export declare const MP_CHAT_JITTER_MAX_MS = 10000;
 /**
  * 一条判据事件。`eventCode` 之后的键名由服务端判据定义，随任务族变化，
  * 故取 `Record<string, unknown>` 而非穷举。
@@ -45,6 +102,8 @@ export interface GrowthTaskItem {
     accept_status?: string;
     /** 等级族的 `status`（仅 `available` 可做）。 */
     status?: string;
+    /** 小程序族的每日解锁锁（true = 尚未解锁，accept 不落账）。 */
+    locked?: boolean;
     progress?: {
         current?: number;
         target?: number;
@@ -120,7 +179,15 @@ export interface ClaimResult {
 /** 完成动作的映射项。 */
 export interface GrowthTaskSpec {
     /** 动作类型。 */
-    kind: 'canvas' | 'chat' | 'canvasThenChat' | 'webClick' | 'appearance' | 'skillFresh';
+    kind: 'canvas' | 'chat' | 'canvasThenChat' | 'webClick' | 'appearance' | 'skillFresh'
+    /** 绑定固定专家的「体验专家」活动（召唤链 + 真实对话 + LOCAL actual_use）。 */
+     | 'fixedExpert'
+    /** 小程序口径：对话判据事件（Sequential_Tasks_1/3/6，45s 节奏）。 */
+     | 'mpChat'
+    /** 小程序口径：mp 指纹 expert_actual_use（Sequential_Tasks_2，市场 id 前置）。 */
+     | 'mpExpert'
+    /** 小程序口径：预置判据事件（Sequential_Tasks_4/5/7，primary+fallback）。 */
+     | 'mpEvent';
     /** 展示名。 */
     label: string;
 }
@@ -132,6 +199,15 @@ export interface GrowthCompletionOptions {
      * 而 `NaN > 0` 为 false，若不显式区分会静默变成不限时，恰是本预算要防的情况。
      */
     budgetMs?: number;
+    /**
+     * ⚠ **仅供单测注入**（压缩 mp 反作弊节奏，生产代码不要传）：
+     * mp 对话事件间隔（缺省 {@link MP_CHAT_EVENT_GAP_MS} = 45s）。
+     */
+    mpChatGapMs?: number;
+    /** ⚠ 仅供单测注入：mp 间隔随机抖动上限（缺省 10s；传 0 去抖动）。 */
+    mpJitterMaxMs?: number;
+    /** ⚠ 仅供单测注入：mp 写动作间隔（缺省 2s）。 */
+    mpActionGapMs?: number;
 }
 /** {@link runGrowthTaskCompletions} 的单项结果。 */
 export interface GrowthTaskResult {
@@ -210,9 +286,9 @@ export interface EventSequenceOptions {
  * ## ⚠️ 两条旁路的可达性（成本登记）
  * - `chatRealSession`：**活路径** —— `skill_1` / `Expert_lighthouse` /
  *   通用真实会话，经「一键领取积分」触发（`runGrowthTaskCompletions` 内）。
- * - `keepStreakActive`（保连胜）：⚠️ **零生产调用方**（2026-10-16 全仓 grep 确认，
- *   `jet-hub-rpc` / `provider-credits` 只 import `collectBuddyGrowth`）。
- *   本次给它补三头 + 加守卫是**为将来接入时形态不漂移**，不代表它当前在线上跑。
+ * - `keepStreakActive`（保连胜）：**2026-11-01 起有生产调用方** ——
+ *   `claimStreakExtras` 第 6 步（随 `collectBuddyGrowth` 每轮保活跃）。
+ *   2026-10-16 曾长期零调用，当时的补三头 + 守卫是为接入时形态不漂移。
  *
  * @param conversationId 逐请求生成的 32 位无横线 uuid
  */
@@ -259,15 +335,59 @@ export declare function claimAllGrowth(credential: BuddyCredential, product: Bud
  * （见 `src/openai-gateway/tencent-fingerprint.ts`），否则会静默变成一个
  * 未改写的入口 —— 而那种失败的表象是「整轮 400/11128」，极难归因。
  */
+/**
+ * 连登档位兑换结果行（并入账号结果的合成任务行，UI 按普通任务行渲染）。
+ */
+export interface StreakExtraRow {
+    /** 展示码（如 `(连登兑换:7d)`），带括号与真实 task_code 区分。 */
+    taskCode: string;
+    ok: boolean;
+    message: string;
+}
+/** {@link claimStreakExtras} 的汇总。 */
+export interface StreakExtrasReport {
+    ok: boolean;
+    /** 净新增积分（兑换 + 礼包 + 首Buddy；抽奖奖品不计积分）。 */
+    credit: number;
+    /** 有真实到账的领取动作数（兑换/礼包/首Buddy），供 claimedCount 汇总。 */
+    claimedCount: number;
+    /** 抽奖次数。 */
+    drewCount: number;
+    /** 补签张数。 */
+    makeupUsed: number;
+    notes: string[];
+    rows: StreakExtraRow[];
+    /** 任一响应报「凭据已失效」⇒ 下游按僵尸账号处置。 */
+    expired: boolean;
+}
+/**
+ * 连登链 + 一次性奖励的自动领取（幂等，全部「有则领、无则跳过」）：
+ *
+ *   1. 补签保连登：heatmap 找本月漏签日 → 有补签卡则从最近一天往回补
+ *      （连续天数一断就要重攒 7 天，直接影响兑换资格）；
+ *   2. 兑换已解锁档位（7d/14d/28d → credit/energy/补签卡/抽奖次数）；
+ *   3. 按 chances 抽完抽奖（次数只能从兑换获得，抽完即止，不预支不透支）；
+ *   4. 首 Buddy 领养（agreement 前置 → first，+300 一次性纯收益）；
+ *   5. 新手礼包（billing 域：先查状态，待领才领）；
+ *   6. 保连胜：发一条真实短对话维持 streak_days（签到积分倍数基数）。
+ *
+ * 每步独立 catch，单步失败不中断后续（对齐「单号失败不中断整体」口径）。
+ * **刻意不含盲盒** —— 它消耗能量（把任务挣来的资源花掉），不是领积分。
+ */
+export declare function claimStreakExtras(credential: BuddyCredential, product: BuddyProduct, fetcher?: typeof fetch, deadlineAt?: number): Promise<StreakExtrasReport>;
 export declare function keepStreakActive(credential: BuddyCredential, product: BuddyProduct, fetcher?: typeof fetch): Promise<{
     ok: boolean;
     message: string;
 }>;
-/** 查询当前连胜天数与今日是否已活跃。端点基址随 `product.endpoint`。 */
+/**
+ * 查询连登状态。端点为 **`/activity/growth/streak`（无 /v2 前缀）**，响应形状
+ * `data.streak.days`（实测口径 —— 本函数早先按猜的 `/v2/...` + `data.days` 写，
+ * 零调用方掩盖了它打不到东西的事实；2026-11-01 按 Go 面板实测口径校正）。
+ */
 export declare function fetchStreakStatus(credential: BuddyCredential, product: BuddyProduct, fetcher?: typeof fetch): Promise<{
     ok: boolean;
     days: number;
-    activeToday: boolean;
+    makeupCards: number;
 }>;
 /**
  * 建一次画布会话（`create_canvas` 的前置动作，副作用最小档）。
@@ -321,6 +441,11 @@ export declare function fetchMarketExpertList(credential: BuddyCredential, produ
  * `product.endpoint`，也不存在 `/v2/.../reward/claim` 这个路径——打它恒 400
  * `task not completed`）。响应体 `{ code:0, data:{ already_claimed, credit, energy } }`。
  * 重复领取返回 `already_claimed:true`（幂等终态，不报错）。
+ *
+ * ⚠ 小程序口径任务（Sequential_*）的 claim 必须带 `X-Client-Platform: miniprogram`
+ * （缺头实测 `task not found`）；mp 头打该路径 400 时降级 web 头重试一次 —— 降级
+ * 只认「非业务信封」与 msg=`task not found`（口径不认）两类；`task not completed`
+ * 这类业务判定不降级（请求已被正确受理，重发浪费）。
  */
 export declare function claimGrowthTaskReward(credential: BuddyCredential, product: BuddyProduct, fetcher: typeof fetch | undefined, taskCode: string): Promise<ClaimResult>;
 /**

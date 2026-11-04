@@ -44,7 +44,7 @@ export async function dedupeMinimaxAccount(deps, args) {
         return { outcome: 'skipped-no-identity' };
     let existingId = '';
     try {
-        existingId = await deps.pool.findAccountIdByIdentityField(args.providerId, 'user_id', identity);
+        existingId = await deps.pool.findAccountIdByIdentityField(args.providerId, 'user_id', identity, args.newAccountId);
     }
     catch (error) {
         // ⚠️ 读不到池 ≠ 没有重复 ⇒ 绝不做任何破坏性动作（删号/清凭据都是不可逆的）。

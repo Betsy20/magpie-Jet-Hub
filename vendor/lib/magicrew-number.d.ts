@@ -35,6 +35,16 @@
 /** 十进制数字字面量（可带小数与正负号）。 */
 export declare const DECIMAL_LITERAL_RE: RegExp;
 /**
+ * 把上游下发的「数字」解释成 number（**允许负数**，余额专用）。
+ *
+ * ⚠️ **与 `magicrewDecimalOf` 的分工，别混用**（2026-11-01 二审）：下面那个拒绝负数，
+ * 是因为「任务积分 / 模型单价」为负会让展示与倍率算错；而**账户余额**可以是负的 ——
+ * 上游实测过 `total_points: -31`（欠费），把它当非法会让整条余额变成 `undefined`
+ * （面板报「查询失败」、锁定态选号判 `none`，与「凭据失效」同形）。
+ * ⇒ 余额口径用本函数，其余一律用 `magicrewDecimalOf`。
+ */
+export declare function magicrewSignedDecimalOf(raw: unknown): number | undefined;
+/**
  * 把上游数值字段读成数字；**读不到返回 `undefined`**（不是 0 —— 0 是合法值，
  * 例如「免费模型」的价格就是 0）。
  *

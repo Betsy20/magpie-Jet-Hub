@@ -101,10 +101,27 @@ export declare const BUDDY_BALANCE_TIER: Readonly<{
 export type BuddyBalanceTier = (typeof BUDDY_BALANCE_TIER)[keyof typeof BUDDY_BALANCE_TIER];
 /** 两类余额的拆分结果。 */
 export interface BuddyCreditSplit {
-    /** 15 天内到期的积分合计（本计费周期口径）。 */
+    /** 15 天内到期、**且尚未作废**的积分合计（本计费周期口径）。 */
     expiring: number;
     /** 其余积分合计（≥ 15 天后到期，或到期时间未知）。 */
     permanent: number;
+    /**
+     * **已经作废**的额度（`deductionEndTime <= now` 但 `active` 仍为 true）。
+     *
+     * ⚠️⚠️ **必须从 `expiring` 里摘出来**（2026-11-02 修，PR #168 对抗审计 B1）：
+     * TRAE / Qoder 的 `active` 是**硬编码 true**（`trae-credits.ts` 从不反映是否过期），
+     * 所以这类包一定会出现。旧行为把它算进 `expiring` ⇒
+     * ① `buddyBalanceTier` 判 `expiring` = **可用**（锁定永久积分下也照发）；
+     * ② `sharedPackageExpiry` 把它的过去时刻当最早 ⇒ 聚合**排第一**、先被烧；
+     * ③ 请求必然失败（那些积分扣不到）。
+     *
+     * 摘出来之后：只剩作废额度的账号 ⇒ `expiring=0 permanent=0` ⇒ 档位 `none`（不可用），
+     * 这正是「钱已经没了」的正确表示。
+     *
+     * 只在 `> 0` 时出现在返回值里（与前端 `splitCreditsByExpiry` 同款，避免给每个
+     * 调用方加一个恒 0 的键）。
+     */
+    expired?: number;
 }
 /** 参与分档的账号（两个字段缺失表示查询失败）。 */
 export interface BuddyAccountBalance {
@@ -139,13 +156,33 @@ export declare function splitBuddyCreditsByExpiry(balance: CreditBalance | null 
 export interface BuddyTierOptions {
     /** 是否允许消耗永久积分。默认 `true`（解锁）。 */
     allowPermanent?: boolean;
-    /** 当前时刻（毫秒），测试注入用。 */
+    /**
+     * ⚠️ **当前实现不读它**（2026-11-01 四审登记）。保留只为调用形态稳定。
+     *
+     * 档位**只**取决于入参里**已经分好桶**的 `expiringBalance` / `permanentBalance` ——
+     * 分桶发生在 {@link splitBuddyCreditsByExpiry}（那里才读 `now` / `windowMs`）。
+     * 后果：测试里传 `windowMs: 1` 想让窗口「失效」是**空转**（实测 4 处全改后 20/20 仍绿）。
+     * 要钉窗口边界，请改喂**不同到期时刻的原始包**，不要指望这个参数。
+     */
     now?: number;
-    /** 窗口覆盖（测试用）。 */
+    /** ⚠️ 同上：**当前实现不读它**（保留但无效果，别用它做窗口边界用例）。 */
     windowMs?: number;
 }
 /**
  * 判定单个账号的档位。
+ *
+ * ⚠️⚠️ **入参必须是「已分桶」的形状，不是 `CreditBalance`**（2026-11-01 三审实测踩到）：
+ * 两个字段都是**可选**的 ⇒ TypeScript 对**任意对象**都放行（`CreditBalance` 也兼容）⇒
+ * 传错时**编译零报错**，而 `positiveOrZero(undefined)` 归 0 ⇒ **恒返回 `none`**。
+ * 症状极像真缺陷：「锁定永久积分后整池不可用」，与「所有号真的只剩永久」**同形**，
+ * 且日志零字 —— 三审的探针就这样误报过一次（连「今天到期的 200 分」都被判成 none）。
+ *
+ * 正确形状只能由 `splitBuddyCreditsByExpiry(...)` 的 `{expiring, permanent}` 映射而来
+ * （见 `src/buddy-balance-selector.ts` 的 `classify()` 与下面的 `rankBuddyAccountsByBalance`）。
+ *
+ * ⚠️ 刻意**不**把两个字段改成必填：`buddyBalanceTier({})` 返回 `none` 是既有用例
+ * 明确要求的**防御语义**（`tests/unit/buddy-balance-rank.spec.ts` 有一条专门钉它），
+ * 改成必填会连带推翻它 —— 故只登记、不改签名。
  *
  * ⚠️ **`expiring > 0` 优先于 `permanent > 0`**：快到期不用就作废，永久积分短期
  * 内还在。故只要还有 15 天内到期的余额就一定先用它。

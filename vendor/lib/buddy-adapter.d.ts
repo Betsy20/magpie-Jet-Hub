@@ -129,6 +129,63 @@ export interface BuddyAdapterOptions {
  * 分开，避免为了验证一个数字而去 mock 整个账号池。
  */
 export declare function policyBlockResetAtMs(nowMs: number): number;
+/**
+ * 把被安全策略拦截的账号在**该模型**上冷却一段时间。
+ *
+ * ## 为什么必须标记（真实缺陷，2026-09-28）
+ *
+ * !15 / !16 之后「有可用账号就一定能用上」已经成立，但**每轮都要重撞坏账号**：
+ * 候选顺序是用户在 Jet Hub 拖拽定的（`getAvailableAccount` 不再按重置时间重排），
+ * 被拦账号若排在前面，每次请求都要先把那几个坏账号各发一遍才轮到可用账号 ——
+ * 白烧额度、白等往返，且每轮都一样。实测那个池是「前 4 个被 11140 拦、后 3 个可用」，
+ * 于是每次请求固定多发 4 次失败。
+ *
+ * ## 为什么复用 `modelRateLimits`
+ *
+ * 它是账号池里**唯一**的「账号 × 模型暂时不可用」载体（`ProviderAccountEntry`
+ * 只有 `模型id → 重置时间戳` 这一个映射，没有 reason / 级别字段），复用它的收益：
+ * ① `getAvailableAccount` 的过滤天然生效（`account-pool.ts`）；
+ * ② UI 已有徽章与「重测 / 重置」两条人工解禁路径（`account-probe.ts`）。
+ * 代价是徽章文案显示为「限额重置」而非「安全策略拦截」—— 已知取舍，见常量注释。
+ *
+ * **只标该模型**，与 qoder 额度那条（`qoder-adapter.ts` 的 `switchAccountOnQuota`）
+ * 同口径：实测只证明「同一模型下按账号生效」，没有跨模型证据，标全部模型会误伤
+ * 本可用的组合。
+ *
+ * ⚠️ 标记失败**只记日志、不上抛**（与 `src/expiry-sync.ts` 的回写惯例一致）：
+ * 本次请求的准确错误才是主线，写不进索引不该把它顶替成未知故障。
+ */
+/**
+ * **账号级封禁**的判据（Gitee issue IKS2MV）。
+ *
+ * ## ⚠️⚠️ 为什么不能复用 `isContentRejection`（2026-11-01 对抗审计实测打穿）
+ *
+ * `isContentRejection` 是「**换号 + 30 分钟冷却**」的判据，它有**三条腿**
+ * （`"code":11140` / `/request illegal/i` / `/安全审核|safety review/i`）。
+ * 那三条腿对「只是换一个号重试」是无害的 —— 冷却会自己过期。
+ * 但把它们接到**永不自动过期、且按账号排除选号**的封禁标记上，后果完全不同：
+ *
+ * | 真实报文 | 账号级封禁 | 旧判据 | 本判据 |
+ * |---|---|---|---|
+ * | `{"code":11140,"msg":"request illegal"}` | 是 | 是 | **是** |
+ * | `{"code":11128,"msg":"内容未通过安全审核"}` | 否（内容级） | 否（已登记） | 否 |
+ * | `{"code":11115,"msg":"…safety review"}` | 否 | **误判** | 否 |
+ * | `<html>…conversation id missing · 内容未通过安全审核</html>` | 否 | **误判** | 否 |
+ * | `{"code":10085,"msg":"request illegal"}`（计费面） | 否 | **误判** | 否 |
+ *
+ * 实测（对抗审计 B 的 `zzatk3.spec.ts`）：后三族会让 `policyMark=1` ⇒
+ * **一次内容级拦截就把好账号永久踢出可用池**，面板还写「需重新登录」。
+ * 这正是「守卫有牙 ≠ 取值域正确」：既有 `★ 反向护栏` 用例只锁了
+ * 「11128 不要被当成 11140」，对别的码 / HTML 裸子串 / 文案漂移全部无感。
+ *
+ * ## 判据
+ *
+ * ① 业务码 `11140`（issue 的实际报文；`(?!\d)` 防止 `111401` 这类前缀误匹配）；
+ * ② 或上游那句账号级文案（`账号存在异常行为` / `已被限制使用` / `account restricted`）——
+ *    给「码不在但语义明确」的部署留一条腿。**内容级措辞不在其中**
+ *    （`安全审核` / `safety review` / `unapproved channel` 都不匹配）。
+ */
+export declare function isAccountLevelPolicyBlock(body: string): boolean;
 /** buddy (腾讯 CodeBuddy 系) 模型适配器。使用 Bearer access_token 鉴权。 */
 export declare class BuddyAdapter extends LlmAdapter {
     private readonly options;

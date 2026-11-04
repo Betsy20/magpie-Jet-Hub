@@ -48,6 +48,10 @@ import type { ModelscopeCredential } from './modelscope.js';
 import { AUTOCLAW } from './autoclaw-product.js';
 import type { AutoclawCredential } from './autoclaw.js';
 import type { AccioCredential } from './accio.js';
+import { type MonkeycodeProduct } from './monkeycode-product.js';
+import type { MonkeycodeCredential } from './monkeycode.js';
+import { type BaizhiProduct } from './baizhi-product.js';
+import type { BaizhiCredential } from './baizhi.js';
 import { ASTUDIO } from './astudio-product.js';
 import type { AstudioCredential } from './astudio.js';
 import type { OfficeAceCredential } from './officeace-auth.js';
@@ -478,6 +482,68 @@ cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
  * （与 buddy / trae / modelscope 同款理由）。
  */
 export declare function autoclawExpiry(credential: AutoclawCredential, product: typeof AUTOCLAW, 
+/** 共享读数入口（见 {@link buddyExpiry} 的同名参数）。 */
+cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
+/**
+ * MonkeyCode（国内站 `monkeycode` / 国际站 `monkeycodeintl`，**共用**本原语，
+ * 只换 product）—— 2026-11-02 审查 B🟡-9 补齐。
+ *
+ * ## 判据（如实判「现在还有没有可烧的额度」，不编造任何时刻）
+ *
+ * `GET <platformBaseUrl>/api/v1/users/wallet` + `/api/v1/users/subscription`
+ * （**cookie 认证**）⇒ `buildMonkeycodeBalance` 给两个包：
+ *
+ * - 「积分余额」（unit `credit`，`remaining = balance / 1000`）—— 可以是**负数**；
+ * - 「每日额度」（unit `token`，`remaining = daily_token_balance`）。
+ *
+ * 两个包的 `remaining` 都实测会如实归零/为负（额度用尽那次：`daily 0`、
+ * `balance -8191` 千分之一积分）⇒ 直接复用 `sharedPackageExpiry` 的
+ * 「有 `active && remaining > 0` 的包 ⇒ `NEVER`；一个都没有 ⇒ `UNUSABLE`」。
+ *
+ * ## ⚠️ 与 `aggregate-expiry.ts` 里其它家最不同的一点：**缺会话直接放行**
+ *
+ * 余额接口只认网页登录态，而推理只要 `oma_` + `signing_secret` ⇒ 手填 Key 的
+ * 账号**读不到余额但能发消息**。缺会话时若折算成 `UNUSABLE`，这些账号会被
+ * **静默踢出聚合轮换**（把「不知道」当「不可用」）⇒ 这里按 `NEVER` 保守放行。
+ * 代价与 modelscope / autoclaw **同型**：额度烧光后仍会被选中并失败一次。
+ *
+ * ## ⚠️ 为什么必须走 `cachedBalance`
+ *
+ * 聚合每轮折算会对同一账号反复提问；没有共享读数就会白发大量重复请求
+ * （与 buddy / trae / modelscope / autoclaw 同款理由）。
+ */
+export declare function monkeycodeExpiry(credential: MonkeycodeCredential, product?: MonkeycodeProduct, 
+/** 共享读数入口（见 {@link buddyExpiry} 的同名参数）。 */
+cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
+/**
+ * 百智云（`baizhi`）—— 2026-11-02 审查 B🟡-9 补齐。
+ *
+ * ## 判据
+ *
+ * `GET https://baizhi.cloud/api/v1/user/wallet/balance`（**cookie 认证**）⇒
+ * `buildBaizhiBalance` 给三个**额度**包：每日积分 / 充值积分（`remaining =
+ * *_cents / 100`）+ 冻结积分（`active: false`）。
+ *
+ * ⚠️ 2026-11-02 三审 F🟡-8：此处原写「四个包」，把「本月消耗」也算成了包。
+ * 用量不是额度，已改走 `CreditBalance.usage`（不参与折算）。
+ *
+ * 实测（2026-11-02，真实账号）：`可用 235.05`、`每日 98.21`、`充值 136.84`
+ * ⇒ 有 `remaining > 0` 的包 ⇒ `NEVER`（长期，排最后、不剔除）；
+ * 全部烧光 ⇒ 一个可烧的包都没有 ⇒ `UNUSABLE`（剔除）。
+ *
+ * ## ⚠️ 缺会话直接放行
+ *
+ * 与 {@link monkeycodeExpiry} 同理：余额接口只认控制台 cookie，而推理只要
+ * `sk-`（`x-api-key`）⇒ 手填 Key 的账号读不到积分但照常能发消息。
+ * ⇒ 缺 `session_cookie` 时返回 `NEVER`，绝不判 `UNUSABLE`。
+ *
+ * ## ⚠️ 已知且刻意接受的代价
+ *
+ * 积分烧光时**不会被提前剔出轮换** —— 报文里没有任何「额度何时重置」字段
+ * （`daily_temporary_credit_claimed` 只是个布尔）⇒ 耗尽后仍会被选中并失败一次。
+ * 与 modelscope / autoclaw **同型**，且**不许**用「猜一个 UTC+8 零点」消除它。
+ */
+export declare function baizhiExpiry(credential: BaizhiCredential, product?: BaizhiProduct, 
 /** 共享读数入口（见 {@link buddyExpiry} 的同名参数）。 */
 cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
 /**

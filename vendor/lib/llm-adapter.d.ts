@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials';
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
-import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm';
+import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm';
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import { AccountPool } from './account-pool.js';
 import { type RemoteModel } from './models.js';
@@ -699,6 +699,21 @@ export declare function proxyResignRefusalFailure(body: string): {
 /** 兼容 OpenAI 格式的 CodeArts 模型适配器，使用华为请求签名。 */
 export declare class CodeArtsAdapter extends LlmAdapter {
     private readonly options;
+    /**
+     * 声明宿主级重试策略（issue #21）。
+     *
+     * CodeArts 的失败面里 `TRANSPORT` / `TIMEOUT` / `EMPTY_RESPONSE` / `SERVER`
+     * 都是**瞬态**（网关抖动、长上下文偶发空响应），交给宿主按指数退避重试，
+     * 而不是把一次抖动直接抛给用户（长任务被迫手动重跑）。
+     *
+     * ⚠️ **必须显式保留 `RATE_LIMIT`**：不声明策略时宿主 fallback 的默认集合
+     * 含它（TPM/并发 429 是瞬态，退避后大概率可过）；一旦声明就**替换**默认集，
+     * 漏掉它会让 429 从「重试 5 次」变成「立即失败」——这是无意的收窄。
+     *
+     * ⚠️ 不动 `AUTH` / `QUOTA` / `INVALID_REQUEST`：这些重试只会白烧账号。
+     * ⚠️ 只对自己这一路 provider 生效；未注册的 provider 返回 undefined。
+     */
+    providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined;
     private readonly fetchImpl;
     private readonly chatId;
     private readonly sessionId;

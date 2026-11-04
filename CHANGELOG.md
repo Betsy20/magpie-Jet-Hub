@@ -11,12 +11,47 @@
 
 ## 1.0.0（未发布）
 
-- `docs` / `test`: 全仓仍写「23 家」的**现状描述**统一改成实际家数 **25** —— README 四处
+- `feat(vendor)`: 同步上游到 `fddb875`（自上次 pin `6fa74723` 起 **110 个提交**、263 个文件）。
+  `vendor/lib` 1058 → **1130** 文件，`docs/vendor.md` 的 pin / 文件数 / 逐字节一致数（1124）一并更新。
+  本地补丁从 **5 类降到 4 类** —— `lib/jet-hub-rpc.js` 的 `product.id` 判空守卫**退役**：
+  上游 `1b03f33` 自己改成 `(product as { id?: string } | undefined)?.id === ASTUDIO.id`（两处），
+  语义等价，那一行不再是本仓库独有的差异。
+
+- `feat(providers)`: 接入上游新增的三家渠道 —— `baizhi`（百智云）、`monkeycode`（MonkeyCode）、
+  `monkeycodeintl`（MonkeyCode 国际站），家数 **25 → 28**。同步点：`src/plugin.mjs` 的
+  `DSH_PROVIDERS` / `NAMES` / `FALLBACK_MODELS`、`index.mjs` 的 3 个具名工厂、`src/icons.mjs`
+  （两家自绘 + `intl()` 套国际站环）、`scripts/snapshot-models.mjs` 的 `NAMES`，以及家数锚点
+  （`tests/t-plugin.mjs` 的 `EXPECTED_PROVIDER_COUNT`、`tests/t-new-account.mjs` 的两处 `=== 28`）。
+  MonkeyCode 两站的网关 `GET /v1/models` 恒 405，目录只能来自上游内置常量
+  （`monkeycode-basic/deepseek-flash`）；百智云取 `BAIZHI_KNOWN_CAPABILITIES` 首条 `deepseek-v4-flash`。
+
+- `test(rpc)`: `tests/t-rpc-cover.mjs` 适配本体的新写法 —— import 改成支持**多名导入**
+  （`import { parseBaizhiCredential, handleBaizhiRpc, baizhiSlotNamesOf }` 这种，旧正则只认单名）、
+  扫前缀时补上**单方法改道**（`method === 'baizhi.startSession'`）、`prefixCases` 改成按 handler
+  聚合前缀（`handleMonkeycodeRpc` 同时服务两站）、裸名 `case` 按每个前缀各展开一份。
+  结果：`本体实际可调度方法总数 91（主 switch 67 + 前缀改道 23 + 单方法改道 1）`，控制台接 59 个
+  （下面 `feat(console)` 补完 6 个后再到 65）。
+
+- `feat(console)`: 控制台补上新三家的 Key 型入口 —— `KEY_CHANNELS`（建号）与 `REKEY_CHANNELS`
+  （换 Key）各加三条，`submitRekey` 的按家分支跟着从两路补成五路（qiniu / baizhi /
+  monkeycode / monkeycodeintl / modelscope）。控制台可调度方法数 **59 → 65**。
+  仍缺的 3 个（`baizhi.startSession`、`monkeycode.setSession`、`monkeycodeintl.setSession`）是
+  「给已有账号补 session cookie」的高级入口，控制台历来只做建号 / 换 Key 两类，本轮不做。
+
+- `chore(snapshot)`: `page/models.js` 重跑（885 个模型 / 26 家）。magpie 不热重载插件，
+  宿主里跑的还是旧插件，所以用 `JET_HUB_META_PORT` 指定临时容器端口取数（脚本自带这个逃生口）。
+  ⚠️ `magicrew` / `magicrewintl` 这轮**拿不到目录**：两家凭据已失效（目录接口返 405），
+  而新 vendor 的 `model.list` 改为直接抛错、不再回退静态表（旧 vendor 会回退 27 条）。
+  `tests/t-new-account.mjs` 的 `SNAPSHOT_MISSING` 白名单因此加了两条，凭据恢复后重跑快照即会
+  自动出现，届时那条反向锚点会红、提醒删掉白名单。
+
+- `docs` / `test`: 全仓仍写「23 家」的**现状描述**统一改成实际家数 **25**（这一轮只修到 25；
+  随后同步上游又把家数升到 28，见上面 `feat(providers)` 那条）—— README 四处
   （架构段、容器必须共享的理由、目录结构两行）、`index.mjs` 与 `scripts/import-backup.mjs`
   的注释，以及 `tests/` 里 `t-model-prices` / `t-plugin` / `t-snapshot-segment` /
   `t-new-account` 的注释；其中 `tests/t-new-account.mjs` 的两条 `>= 23` 阈值一并收紧成
   `=== 25`（两处 `NAMES` 表实测都是 25 键；原来写 `>=` 挡不住表里多出过期键）。
-  `tests/t-plugin.mjs` 的具名导出护栏另补一个**绝对家数锚点** `EXPECTED_PROVIDER_COUNT = 25`：
+  `tests/t-plugin.mjs` 的具名导出护栏另补一个**绝对家数锚点** `EXPECTED_PROVIDER_COUNT`（当时 25，本轮升到 28）：
   原来那两条检查都是**相对**的（正向只问「`PROVIDER_IDS` 里每个 id 都有对应导出」，反向只问
   「没有对不上 provider 的孤儿导出」），两边同时删掉一家（`DSH_PROVIDERS` 去掉 `'zcode'`、
   `index.mjs` 删掉对应那行 export）依然全绿，这条护栏就查不出来；加减 provider 必须同步改它。

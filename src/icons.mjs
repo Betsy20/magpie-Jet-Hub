@@ -113,9 +113,30 @@ const OFFICEACE = mark(
 )
 
 /**
+ * 百智云（`baizhi`，2026-11-04 上游新增）：没有公开的矢量标识，LobeHub 也没收录，
+ * 按品牌蓝 + 云朵轮廓自绘，云里放它的名字数字「100」。
+ */
+const BAIZHI = mark(
+  '#1d4ed8',
+  '<path d="M20.5 38a8 8 0 0 1 1.1-15.9A11 11 0 0 1 43 24.2a7.5 7.5 0 0 1-.6 14.8z" fill="none" stroke="#fff" stroke-width="3.2" stroke-linejoin="round"/>' +
+    '<text x="32" y="34.5" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="9.5" font-weight="700" fill="#fff">100</text>',
+)
+
+/**
+ * MonkeyCode（2026-11-04 上游新增）：同样没有公开标识，按「代码」语义自绘
+ * （深底 + 绿色尖括号与白色斜杠）。国际站复用同一张图 + `intl()` 的虚线地球环，
+ * 与 `magicrewintl` / `autoclawintl` 同一手法（同品牌两站不能撞图）。
+ */
+const MONKEYCODE = mark(
+  '#111827',
+  '<path d="M25 22l-9 10 9 10" fill="none" stroke="#4ade80" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path d="M39 22l9 10-9 10" fill="none" stroke="#4ade80" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<path d="M34.5 20l-5 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".85"/>',
+)
+
+/**
  * WorkBuddy 官方彩色图标（LobeHub 图标库的 `workbuddy-color.svg`，和 magpie 供应商
  * 列表里那张 WorkBuddy PNG 同图：圆角渐变底 + 黄色小球）。
- *
  * 图形自带底与渐变，所以不再套 `badge()`；宽高固定成 24，不用 `1em`（`<img>` 里
  * 会按正文字号缩放）。
  */
@@ -183,6 +204,9 @@ const PROVIDER_SVG = {
   minimax: badge(MINIMAX),
   minimaxintl: intl(badge(MINIMAX)),
   modelscope: badge(MODELSCOPE),
+  baizhi: BAIZHI,
+  monkeycode: MONKEYCODE,
+  monkeycodeintl: intl(MONKEYCODE),
   // OfficeAce 也在华为云，但它有自己的标识，别和 CodeArts 撞图
   officeace: OFFICEACE,
   opencode: dark(OPENCODE),

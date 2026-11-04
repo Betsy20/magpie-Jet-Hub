@@ -1388,14 +1388,77 @@ export function policyBlockResetAtMs(nowMs) {
  * ⚠️ 标记失败**只记日志、不上抛**（与 `src/expiry-sync.ts` 的回写惯例一致）：
  * 本次请求的准确错误才是主线，写不进索引不该把它顶替成未知故障。
  */
-async function markPolicyBlockedAccount(pool, productId, accountId, modelId) {
+/**
+ * **账号级封禁**的判据（Gitee issue IKS2MV）。
+ *
+ * ## ⚠️⚠️ 为什么不能复用 `isContentRejection`（2026-11-01 对抗审计实测打穿）
+ *
+ * `isContentRejection` 是「**换号 + 30 分钟冷却**」的判据，它有**三条腿**
+ * （`"code":11140` / `/request illegal/i` / `/安全审核|safety review/i`）。
+ * 那三条腿对「只是换一个号重试」是无害的 —— 冷却会自己过期。
+ * 但把它们接到**永不自动过期、且按账号排除选号**的封禁标记上，后果完全不同：
+ *
+ * | 真实报文 | 账号级封禁 | 旧判据 | 本判据 |
+ * |---|---|---|---|
+ * | `{"code":11140,"msg":"request illegal"}` | 是 | 是 | **是** |
+ * | `{"code":11128,"msg":"内容未通过安全审核"}` | 否（内容级） | 否（已登记） | 否 |
+ * | `{"code":11115,"msg":"…safety review"}` | 否 | **误判** | 否 |
+ * | `<html>…conversation id missing · 内容未通过安全审核</html>` | 否 | **误判** | 否 |
+ * | `{"code":10085,"msg":"request illegal"}`（计费面） | 否 | **误判** | 否 |
+ *
+ * 实测（对抗审计 B 的 `zzatk3.spec.ts`）：后三族会让 `policyMark=1` ⇒
+ * **一次内容级拦截就把好账号永久踢出可用池**，面板还写「需重新登录」。
+ * 这正是「守卫有牙 ≠ 取值域正确」：既有 `★ 反向护栏` 用例只锁了
+ * 「11128 不要被当成 11140」，对别的码 / HTML 裸子串 / 文案漂移全部无感。
+ *
+ * ## 判据
+ *
+ * ① 业务码 `11140`（issue 的实际报文；`(?!\d)` 防止 `111401` 这类前缀误匹配）；
+ * ② 或上游那句账号级文案（`账号存在异常行为` / `已被限制使用` / `account restricted`）——
+ *    给「码不在但语义明确」的部署留一条腿。**内容级措辞不在其中**
+ *    （`安全审核` / `safety review` / `unapproved channel` 都不匹配）。
+ */
+export function isAccountLevelPolicyBlock(body) {
+    if (body.length === 0)
+        return false;
+    if (/"code"\s*:\s*"?11140(?!\d)/.test(body))
+        return true;
+    return /账号存在异常行为|已被限制使用|account\s+(?:has\s+been\s+)?restricted/i.test(body);
+}
+/**
+ * 记「安全策略拦截」的账。
+ *
+ * 两笔账**刻意分开**：
+ * 1. 30 分钟**逐模型冷却** —— 解决「本轮别反复重撞」。issue 作者明确要求保留，
+ *    且它是既有的、已被 100+ 用例锁住的行为，**判据不动**（仍用 `isContentRejection`
+ *    的三条腿）。
+ * 2. **账号级封禁** —— 只有真·账号级报文才写（见 {@link isAccountLevelPolicyBlock}）。
+ *    它不自动过期、按账号排除选号、面板红条展示，只能靠「实测通过 / 手动重置」清除。
+ */
+async function markPolicyBlockedAccount(pool, productId, accountId, modelId, 
+/**
+ * 上游报文原文：既用来判「是不是账号级封禁」，也（截断后）给面板当红字。
+ * 缺省 ⇒ 不写账号级标记（只写冷却），与「无法判定」的保守方向一致。
+ */
+body) {
     if (pool === undefined || accountId.length === 0 || modelId.length === 0)
         return;
     try {
+        // ① 30 分钟逐模型冷却：解决「本轮别反复重撞」（issue 作者明确要求保留这段）。
         await pool.updateModelRateLimit(accountId, modelId, policyBlockResetAtMs(Date.now()));
     }
     catch (error) {
         console.warn(`[${productId}] 安全策略拦截的冷却标记写入失败（不影响本次请求）:`, error);
+    }
+    // ② 账号级封禁：**只认账号级报文**。内容级 / HTML / 共用措辞一律不写
+    //    （2026-11-01 对抗审计：那些族只该有 30 分钟冷却，写进永久标记会永久废号）。
+    if (body === undefined || !isAccountLevelPolicyBlock(body))
+        return;
+    try {
+        await pool.markAccountPolicyBlocked(accountId, errorDetail(body).slice(0, 200));
+    }
+    catch (error) {
+        console.warn(`[${productId}] 封禁状态写入失败（不影响本次请求）:`, error);
     }
 }
 /** 从错误体提取可读 detail 文本。 */
@@ -2699,7 +2762,7 @@ export class BuddyAdapter extends LlmAdapter {
                 // 同时把这个账号在该模型上冷却 —— 否则它下次仍排第一，每轮都要重撞一遍。
                 console.warn(`[${this.product.id}] 账号 ${currentAccountId || '(current)'} 被安全策略拦截`
                     + `（HTTP ${response.status}，code 11140），继续换号：${errorDetail(rejectedBody).slice(0, 200)}`);
-                await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model);
+                await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model, rejectedBody);
             }
             // ⚠️ 真实缺陷（2026-09-26，用户报障「账号池里明明有 3~4 个账号没被限流，
             // 却报『未配置凭据，请先登录』」）。早期实现在这里刷新一次就 `return`：
@@ -2830,7 +2893,7 @@ export class BuddyAdapter extends LlmAdapter {
                         rejectionStatus = response.status;
                         rejectionBody = rotatedBody;
                         // 刚换到就是这个账号被拦：同样要冷却，否则下一轮它还是第一候选。
-                        await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model);
+                        await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model, rotatedBody);
                     }
                     // ⚠️ 渠道校验拒绝（403 形态）同样继续换号、且**刻意不写冷却**
                     //（写 30 分钟账号级冷却在任何解释下都过重，理由见
@@ -2957,7 +3020,7 @@ export class BuddyAdapter extends LlmAdapter {
             if (response.status === 400 && isContentRejection(errorText)) {
                 console.warn(`[${this.product.id}] 账号 ${currentAccountId || '(current)'} 被安全策略拦截`
                     + `（HTTP 400，code 11140），换号重试`);
-                await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model);
+                await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model, errorText);
                 if (this.options.accountPool !== undefined) {
                     const triedPolicy = new Set();
                     if (currentAccountId)
@@ -3033,7 +3096,7 @@ export class BuddyAdapter extends LlmAdapter {
                                 + `（HTTP ${response.status}，code 11140），继续换号：`
                                 + `${errorDetail(errorText).slice(0, 200)}`);
                             // 刚换到就被拦：同样要冷却，否则下一轮它还是第一候选。
-                            await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model);
+                            await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model, errorText);
                             continue;
                         }
                         // ⚠️⚠️ 换号途中撞到 **401/403**（凭据真失效）**必须继续换号**：
@@ -3331,7 +3394,7 @@ export class BuddyAdapter extends LlmAdapter {
                         // ⚠️ 这里**不能**用上面的 `updateModelRateLimit` 记账分支 —— 那个写的是
                         // 服务端给的限流重置时刻；11140 报文里**没有**时间，`parseRateLimitError`
                         // 会返回 `null`，走它的兜底等于把「策略拦截」冒充成「限流」。
-                        await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model);
+                        await markPolicyBlockedAccount(this.options.accountPool, this.product.id, currentAccountId, options.model, errorText);
                         continue;
                     }
                     // ⚠️⚠️⚠️ **③ 必须排在 ② 之前**（2026-10-18 独立审计实测的真缺陷，本轮修）。
@@ -3747,7 +3810,7 @@ export class BuddyAdapter extends LlmAdapter {
                         // 按定下的口径：**标记 + 如实报错**，本轮不重发（流内重发需要
                         // 「尚未产出内容」的判据 + 外层循环，是 trae 3823133 那种结构改造）。
                         // 账号标了冷却，下一轮选号就会绕开它，不再反复重撞。
-                        await markPolicyBlockedAccount(this.options.accountPool, this.product.id, policyBlockedAccountId, options.model);
+                        await markPolicyBlockedAccount(this.options.accountPool, this.product.id, policyBlockedAccountId, options.model, payload);
                         throw contentRejectionError(this.product.id, 200, payload, false);
                     }
                     // ⚠️⚠️ **流内的「渠道校验」拒绝**（HTTP 200 + SSE 内嵌 11128

@@ -1,7 +1,7 @@
 // cordis 容器宿主：把 deepseek-harness-codearts 插件本体（npm 包
 // `deepseek-harness-codearts` / 仓库 dsh-providers-hub）原样装进一个 cordis 容器。
 //
-// 为什么这样做：本体自带 25 个 provider、账号池、静默续期、积分选号、模型目录、
+// 为什么这样做：本体自带 28 个 provider、账号池、静默续期、积分选号、模型目录、
 // Jet Hub 的登录流程 —— 这些全部原样复用，一行都不重写。
 //
 // ⚠️ **不开 HTTP 网关**（本次改动）：本体的 OpenAI 兼容网关

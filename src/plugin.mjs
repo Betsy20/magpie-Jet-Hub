@@ -10,7 +10,7 @@
  *
  * magpie 宿主 `servers(mod)` 会取模块导出的**每一个函数**，`auths()` 再按
  * `hooks.auth.provider` 建映射 —— 所以一个插件包导出 N 个插件工厂，就能注册
- * N 个 provider id。本文件对本体里**除两个路由组之外**的 25 个 provider 各生成一个工厂。
+ * N 个 provider id。本文件对本体里**除两个路由组之外**的 28 个 provider 各生成一个工厂。
  *
  * ## 架构
  *
@@ -19,7 +19,7 @@
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
- *   └─ …（25 个）                     ┘
+ *   └─ …（28 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
  *             └─ 直连本体 llm：ctx.llm.stream()（src/llm-bridge.mjs）
  *                  └─ 各 provider 的真实上游
@@ -29,8 +29,8 @@
  * `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以
  * `container.forward()` 在进程内就完成了整件事 —— 不占端口、不需要 apiKey。
  *
- * ⚠️ 容器**必须模块级共享**：25 个插件工厂各自 new 一个容器的话，会拉起 25 个
- * cordis（25 份账号池 + 25 份模型目录），冷启动直接炸。
+ * ⚠️ 容器**必须模块级共享**：28 个插件工厂各自 new 一个容器的话，会拉起 28 个
+ * cordis（28 份账号池 + 28 份模型目录），冷启动直接炸。
  *
  * ## 凭据从哪来
  *
@@ -110,6 +110,7 @@ export const DSH_PROVIDERS = [
   'astudio',
   'autoclaw',
   'autoclawintl',
+  'baizhi',
   'buddy',
   'cline',
   'codearts',
@@ -122,6 +123,8 @@ export const DSH_PROVIDERS = [
   'minimax',
   'minimaxintl',
   'modelscope',
+  'monkeycode',
+  'monkeycodeintl',
   'officeace',
   'opencode',
   'qiniu',
@@ -142,6 +145,7 @@ const NAMES = {
   astudio: 'AStudio (讯飞)',
   autoclaw: 'AutoClaw (智谱)',
   autoclawintl: 'AutoClaw (国际版)',
+  baizhi: '百智云 (Baizhi)',
   buddy: 'CodeBuddy (腾讯)',
   cline: 'Cline (开源)',
   codearts: 'CodeArts (华为云)',
@@ -155,6 +159,9 @@ const NAMES = {
   minimax: 'MiniMax Code (中国版)',
   minimaxintl: 'MiniMax Code (国际版)',
   modelscope: 'ModelScope (魔搭)',
+  monkeycode: 'MonkeyCode',
+  // 上游 `displayName` 就叫 `MonkeyCode国际站`；这里统一成「英文名 + 括注中文性质」的写法。
+  monkeycodeintl: 'MonkeyCode (国际站)',
   // 上游 `displayName` 只有英文；括注补的是中文名/性质，让搜中文的人也找得到。
   officeace: 'OfficeAce (果办)',
   opencode: 'OpenCode (开源)',
@@ -218,6 +225,12 @@ const FALLBACK_MODELS = {
   'magicrew/deepseek-v4.1-flash': { name: 'Magicrew · DeepSeek V4.1 Flash' },
   'magicrewintl/deepseek-v4.1-flash': { name: 'MagiCrew 国际 · DeepSeek V4.1 Flash' },
   'qiniu/qwen3-max': { name: 'Qiniu · Qwen3 Max' },
+  // 2026-11-04 上游新增三家。百智云目录走远端（45 条）+ 内置兜底；MonkeyCode
+  // 两站的网关 `GET /v1/models` 恒 405，目录**只能是**内置常量，故这里的 id
+  // 与 `src/monkeycode-product.ts` 的 `MONKEYCODE_GATEWAY_MODELS` 同形。
+  'baizhi/deepseek-v4-flash': { name: '百智云 · DeepSeek V4 Flash' },
+  'monkeycode/monkeycode-basic/deepseek-flash': { name: 'MonkeyCode · DeepSeek Flash (basic)' },
+  'monkeycodeintl/monkeycode-basic/deepseek-flash': { name: 'MonkeyCode 国际 · DeepSeek Flash (basic)' },
 }
 
 /** DSH 家目录（凭据所在处）。可用插件 options 的 `home` 覆盖。 */
@@ -443,7 +456,7 @@ function modelEntry(id, def, meta, price) {
 
 // ---- 共享容器与模型缓存 -------------------------------------------------------
 
-/** 模块级单例：25 个 provider 共用同一个容器。 */
+/** 模块级单例：28 个 provider 共用同一个容器。 */
 let shared = null
 
 /**
@@ -493,7 +506,7 @@ function containerFor(options, log) {
 }
 
 /**
- * 把 25 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
+ * 把 28 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
  *
  * 给 `syncAuthQuietly()` 用：它要的是「全量账号」，而 `account.list` 必须按
  * provider 逐家问。失败一律当「这家没有账号」——未登录的渠道本来就该失败，
@@ -797,7 +810,7 @@ function creditsTable() {
  *
  * 为什么要在插件侧也判一次：magpie 的签到开关**只看插件有没有声明 `auth.checkin`**
  * （宿主 `host.js` 的 `checkin: typeof a.auth.checkin === "function"`，Go 侧
- * `Provider.Checkin` 再决定 Settings 里显不显示）。给 25 家都声明，就等于给
+ * `Provider.Checkin` 再决定 Settings 里显不显示）。给 28 家都声明，就等于给
  * 「后端根本没有签到接口」的 9 家也画了一个开关 —— 用户点了只能看到失败，
  * 而那是**能力缺失**，不是故障（2026-11-01 用户报「部分供应商签到失败」的根因）。
  *
@@ -1389,8 +1402,9 @@ function toMagpieCheckin(row) {
 function humanizeUsageError(error) {
   const text = String(error ?? '')
   // JSC（Bun）风格的同类报错：上游 `collectCreditBalances` 在「凭据解析不出来」时
-  // 会去读 `product.id`，而那条路上的 `product` 恒为 undefined（已打本地补丁，
-  // 但旧产物与宿主缓存里的旧文案仍可能带这个形状）。
+  // 会去读 `product.id`，而那条路上的 `product` 恒为 undefined。上游 `1b03f33` 已改成
+  // `product?.id`（本仓库原先那道补丁因此退役），这里保留兜底是为了旧产物与宿主缓存里
+  // 的旧文案仍可能带这个形状。
   // ⚠️ 两种引擎形状都要兜：`package.json` 的 engines 是 node（V8），而 magpie 侧
   //    跑的是 Bun（JavaScriptCore）。只兜 JSC 等于在 node 宿主上什么都没做。
   //    V8 的形状**不带对象名**（只有 `(reading 'id')`），所以措辞只能是「可能」。
@@ -2484,5 +2498,5 @@ export function makePlugin(dshProvider) {
   }
 }
 
-/** 全部 25 个工厂（`index.mjs` 逐个具名导出）。 */
+/** 全部 28 个工厂（`index.mjs` 逐个具名导出）。 */
 export const PLUGINS = DSH_PROVIDERS.map((p) => [idOf(p), makePlugin(p)])

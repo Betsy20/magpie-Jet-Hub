@@ -133,6 +133,7 @@ export function splitBuddyCreditsByExpiry(balance, now = Date.now(), windowMs = 
         return undefined;
     let expiring = 0;
     let permanent = 0;
+    let expired = 0;
     for (const pkg of balance.packages) {
         /**
          * ⚠️ **必须挡 `null`/`undefined` 元素**（2026-10-21 对抗性审计发现，P2）。
@@ -274,15 +275,37 @@ export function splitBuddyCreditsByExpiry(balance, now = Date.now(), windowMs = 
         // ⚠️ 用 `endMs`（已归一）而不是原始 `endTime` —— 后者可能是**数字字符串**，
         //    而 `"1760432000000" - now` 会走 JS 的字符串减数字转换（恰好也能算对），
         //    但那是隐式依赖、且与上面的 `known` 判据不同源。显式用 `endMs` 消除歧义。
+        /**
+         * ⚠️ **已作废 ⇒ 单独一桶**（2026-11-02，对抗审计 B1）：
+         * `endMs <= now` 的额度**扣不到**，不能再算「临期可用」——
+         * 否则它会同时骗过 `buddyBalanceTier`（判可用）与聚合排序（排第一先烧）。
+         */
+        if (endMs <= now) {
+            expired += remaining;
+            continue;
+        }
         if (endMs - now < windowMs)
             expiring += remaining;
         else
             permanent += remaining;
     }
-    return { expiring, permanent };
+    return { expiring, permanent, ...expired > 0 ? { expired } : {} };
 }
 /**
  * 判定单个账号的档位。
+ *
+ * ⚠️⚠️ **入参必须是「已分桶」的形状，不是 `CreditBalance`**（2026-11-01 三审实测踩到）：
+ * 两个字段都是**可选**的 ⇒ TypeScript 对**任意对象**都放行（`CreditBalance` 也兼容）⇒
+ * 传错时**编译零报错**，而 `positiveOrZero(undefined)` 归 0 ⇒ **恒返回 `none`**。
+ * 症状极像真缺陷：「锁定永久积分后整池不可用」，与「所有号真的只剩永久」**同形**，
+ * 且日志零字 —— 三审的探针就这样误报过一次（连「今天到期的 200 分」都被判成 none）。
+ *
+ * 正确形状只能由 `splitBuddyCreditsByExpiry(...)` 的 `{expiring, permanent}` 映射而来
+ * （见 `src/buddy-balance-selector.ts` 的 `classify()` 与下面的 `rankBuddyAccountsByBalance`）。
+ *
+ * ⚠️ 刻意**不**把两个字段改成必填：`buddyBalanceTier({})` 返回 `none` 是既有用例
+ * 明确要求的**防御语义**（`tests/unit/buddy-balance-rank.spec.ts` 有一条专门钉它），
+ * 改成必填会连带推翻它 —— 故只登记、不改签名。
  *
  * ⚠️ **`expiring > 0` 优先于 `permanent > 0`**：快到期不用就作废，永久积分短期
  * 内还在。故只要还有 15 天内到期的余额就一定先用它。
