@@ -1330,6 +1330,65 @@ for (const [label, top, topKey] of [['数字尾 x1', 'x1', 'x1'], ['中划线 x-
   }
 }
 
+
+// ── ㉚ 缓存必须按「文件戳」失效（桌面版与 magpie 是两个进程共用同一份凭据文件）──
+// 2026-11-03 环境级审计实测的真缺陷：`_load()` 原来只在 `_refs === undefined` 时读一次盘，
+// 之后永不失效 ⇒ 别的进程续期出的新 token、用户手改的 ref、`import-backup` 写进来的
+// 新账号，运行中的这个进程一律看不见，非得重启。而这里存的是 access_token /
+// refresh_token 这类一次性凭据，用旧值就是上游 401。
+// 断言口径：改文件 → 值/新增键/describe/listRefs 全部立刻可见；删文件 → 保留旧缓存
+// 不抛错（删文件不等于「旧值失效」）；A 实例写入 → B 实例立刻可见。
+{
+  const d = mkdtempSync(join(tmpdir(), 'cred-stamp-'))
+  const f = join(d, '.credentials.yaml')
+  const W = (s) => writeFileSync(f, s, 'utf8')
+  const val = async (p, ref) => (await p.resolve(ref))?.value
+
+  W("version: 1\nrefs:\n  A: 'one'\n")
+  const p = new FileCredentialProvider(fakeCtx, { file: f })
+  ok((await val(p, 'A')) === 'one', '㉚ 首读拿到文件里的值')
+  ok((await val(p, 'C')) === undefined, '㉚ 首读时 C 还不存在（缓存已填满）')
+
+  // 外部进程改文件：桌面版续期 / import-backup 写新 ref / 用户手改，全都长这样。
+  // 等一下让 mtime 跨过一格（NTFS/ext4 实测粒度 ≈0.3–0.5ms，15ms 足够）。
+  // 注意这条改写**同时**改了字节数，秒级粒度的文件系统上还能靠 size 兜底；
+  // 只靠 mtime 的是下面那条「等长改写」。
+  await new Promise((r) => setTimeout(r, 15))
+  W("version: 1\nrefs:\n  A: 'one-CHANGED'\n  C: 'three'\n")
+  ok((await val(p, 'A')) === 'one-CHANGED', '㉚ 外部改值后立刻可见（不许停在旧值）')
+  ok((await val(p, 'C')) === 'three', '㉚ 外部新增的 ref 立刻可见')
+  ok(JSON.stringify(p.listRefs()) === '["A","C"]', '㉚ listRefs 跟着刷新')
+  ok((await p.describe('C')).configured === true, '㉚ describe 跟着刷新')
+
+  // 等长改写：上一份与这一份**逐字节等长**，只改值里的一个字符 ⇒ size 判据看不出差别，
+  // 必须靠 mtime。这是整套里唯一治得住「戳只比 size」的用例 ——
+  // 一审把 `stampOf` 改成只返回 `String(st.size)`，其余全绿，就是缺了它。
+  // ⚠️ 「等长」是**靠常量手写对齐**的：动上面那两行的值字面量时，必须同时保证字节数
+  // 不变，否则这条会静默退化成 size 测试（二审建议改成 `BASE.slice(...)` 构造 + 长度
+  // 断言，本轮未做）。
+  await new Promise((r) => setTimeout(r, 15))
+  W("version: 1\nrefs:\n  A: 'one-CHANGER'\n  C: 'three'\n")
+  ok((await val(p, 'A')) === 'one-CHANGER', '㉚ 等长改写也立刻可见（戳不能只看 size）')
+
+  // 两个实例共享同一个文件（= 桌面版与 magpie 两个进程的进程内类比）
+  const p2 = new FileCredentialProvider(fakeCtx, { file: f })
+  ok((await val(p2, 'A')) === 'one-CHANGER', '㉚ 第二个实例读到同一份内容')
+  await p.set('E', 'five')
+  ok((await val(p2, 'E')) === 'five', '㉚ A 实例写入后 B 实例立刻可见（改动前这里恒 undefined）')
+  await p.unset('A')
+  ok((await val(p2, 'A')) === undefined, '㉚ A 实例删掉后 B 实例也立刻看不到')
+
+  // 文件被删：没有依据说旧值失效 ⇒ 保留缓存，不能让运行中的请求瞬间全 500
+  rmSync(f)
+  ok((await val(p2, 'E')) === 'five', '㉚ 文件被删时保留旧缓存，不抛错也不清空')
+  // 文件重新出现且内容不同 ⇒ 必须能读到新内容
+  await new Promise((r) => setTimeout(r, 15))
+  W("version: 1\nrefs:\n  A: 'back-later'\n")
+  ok((await val(p2, 'A')) === 'back-later', '㉚ 文件重新出现后读到的是新内容')
+
+  rmSync(d, { recursive: true, force: true })
+}
+
 console.log(bad === 0 ? `\n✓ 全部通过（${total} 项：credentials.set 能新增 ref —— 新建账号写全新 ref 不再被打断）`
   : `\n✗ ${bad} 项失败（共 ${total} 项）`)
 process.exit(bad === 0 ? 0 : 1)
