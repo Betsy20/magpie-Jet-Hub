@@ -76,7 +76,7 @@ for (const p of ['workbuddy', 'magicrew', 'officeace', 'zcode', 'trae', 'modelsc
 
 console.log('\n[4] 两组判据确实不重叠 —— 这正是需要并集的原因')
 {
-  // 用真实的 23 家里随便挑一家构造：带前缀的形态与本体名形态，各自只被一种判据命中。
+  // 用真实的 25 家里随便挑一家构造：带前缀的形态与本体名形态，各自只被一种判据命中。
   const REGISTERED = new Set(DSH_PROVIDERS.map(idOf))
   const sample = DSH_PROVIDERS[0]
   const withPrefix = idOf(sample)

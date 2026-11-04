@@ -900,8 +900,8 @@ console.log('\noauth 方法形状：')
     //    那种只会在运行时 404。
     const extra = DP.filter((k) => !vendorSet.has(k))
     ok(extra.length === 0, `插件里这些 provider 在 vendor 里不存在：${extra.join(', ') || '无'}`)
-    // ③ `NAMES` 必须覆盖全部 23 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
-    //    （`jet-hub-auto` 就漏过：25 项 `DSH_PROVIDERS` 对 24 键 `NAMES`）。
+    // ③ `NAMES` 必须覆盖全部 25 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
+    //    （当年 `DSH_PROVIDERS` 还含路由组时漏过一次：25 项对 24 键 `NAMES`）。
     //    这里对账的是「键齐全且有非空文案」，不校验文案内容。
     //    `NAMES` 和 `NO_NEW_ACCOUNT` 一样没从 `src/plugin.mjs` 导出（`index.mjs` 的
     //    导出契约只允许 25 个工厂），所以同样从源码文本里解析。
@@ -998,8 +998,8 @@ console.log('\noauth 方法形状：')
         const body = snapNamesSrc.slice(from, to)
         for (const m of body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)) snapNames.set(m[1], m[2])
       }
-      ok(pluginNames.size >= 23, `src/plugin.mjs 的 NAMES 应抽出 23 家，实际 ${pluginNames.size}`)
-      ok(snapNames.size >= 23, `scripts/snapshot-models.mjs 的 NAMES 应抽出 23 家，实际 ${snapNames.size}`)
+      ok(pluginNames.size === 25, `src/plugin.mjs 的 NAMES 应正好 25 家，实际 ${pluginNames.size}`)
+      ok(snapNames.size === 25, `scripts/snapshot-models.mjs 的 NAMES 应正好 25 家，实际 ${snapNames.size}`)
       const nameDrift = []
       for (const [dsh, want] of pluginNames) {
         const magpieId = dsh === 'jet-hub-auto' ? 'jet-hub' : `jet-hub-${dsh}`

@@ -11,6 +11,16 @@
 
 ## 1.0.0（未发布）
 
+- `docs` / `test`: 全仓仍写「23 家」的**现状描述**统一改成实际家数 **25** —— README 四处
+  （架构段、容器必须共享的理由、目录结构两行）、`index.mjs` 与 `scripts/import-backup.mjs`
+  的注释，以及 `tests/` 里 `t-model-prices` / `t-plugin` / `t-snapshot-segment` /
+  `t-new-account` 的注释；其中 `tests/t-new-account.mjs` 的两条 `>= 23` 阈值一并收紧成
+  `=== 25`（两处 `NAMES` 表实测都是 25 键；原来写 `>=` 挡不住表里多出过期键）。
+  `tests/t-plugin.mjs` 的具名导出护栏另补一个**绝对家数锚点** `EXPECTED_PROVIDER_COUNT = 25`：
+  原来那两条检查都是**相对**的（正向只问「`PROVIDER_IDS` 里每个 id 都有对应导出」，反向只问
+  「没有对不上 provider 的孤儿导出」），两边同时删掉一家（`DSH_PROVIDERS` 去掉 `'zcode'`、
+  `index.mjs` 删掉对应那行 export）依然全绿，这条护栏就查不出来；加减 provider 必须同步改它。
+
 - `fix(credentials)`: 凭据缓存改成**按文件戳失效**。`FileCredentialProvider._load()` 原来只在
   第一次读盘、之后永不刷新 —— 桌面版 DSH 与 magpie 插件是**两个进程**共用同一份
   `.credentials.yaml`，任一方续期 token，另一方的缓存就停在旧值；用户手改文件、

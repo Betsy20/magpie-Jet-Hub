@@ -19,7 +19,7 @@ import { PLUGINS, PROVIDER_IDS } from './src/plugin.mjs'
 
 const byId = new Map(PLUGINS)
 
-/** 少一个 id 就是导出契约漏了 —— 加载即抛，别让它静默变成 23 个 provider。 */
+/** 少一个 id 就是导出契约漏了 —— 加载即抛，别让它静默少一个 provider。 */
 for (const id of PROVIDER_IDS) {
   if (typeof byId.get(id) !== 'function') throw new Error(`magpie-jet-hub: 缺少 provider 工厂 ${id}`)
 }

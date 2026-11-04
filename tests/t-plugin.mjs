@@ -5,7 +5,7 @@ import { DSH_PROVIDERS, outputLimit } from '../src/plugin.mjs'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-// ⚠️ 本文件调 23 个工厂会**真起容器**（`warmUp()` 后台跑），所以必须隔离：
+// ⚠️ 本文件调 25 个工厂会**真起容器**（`warmUp()` 后台跑），所以必须隔离：
 // 不隔离的话 `resolveHome(undefined)` 会退回 `homedir()`，把本体的 `DSH_HOME`
 // 直指用户真实凭据目录 —— 实测跑一次本文件，`~/.dsh/.credentials.yaml` 与
 // `jet-hub/state.json` 两个文件的哈希都变了（4 个 cline 账号的 access_token
@@ -18,8 +18,8 @@ const iso = isolate()
 
 // 能力链路断言（下面的「必须带 limit.context」）要有判别力：上下文窗口只能来自
 // 「上游全量目录 + 能力元数据」这条腿，写死的兜底条目里没有它。隔离 home 里一开
-// 始没有缓存，不种的话 `pickModels` 会退回 `fallbackFor()`，那 23 家就全是 0 ——
-// 断言红了只说明没数据，不说明链路断了。这里种一份最小目录（23 家各一个模型，
+// 始没有缓存，不种的话 `pickModels` 会退回 `fallbackFor()`，那 25 家就全是 0 ——
+// 断言红了只说明没数据，不说明链路断了。这里种一份最小目录（25 家各一个模型，
 // meta 给真实窗口），让断言真的在验 meta → limit.context 这一段。
 {
   const dir = join(iso.root, '.config', 'magpie')
@@ -82,7 +82,7 @@ for (const [name, fn] of fns) {
       // ⚠️ 逐家不判死：codely 上游只声明模态、不声明 context（实测），那家全 0
       // 是上游事实。所以只把「一家都没有」当失败 —— 那才是能力链路整体断了。
       const withContext = rows.filter((m) => (m?.limit?.context ?? 0) > 0).length
-      // 隔离环境里 23 家的种子都写了 meta.context，所以只要有一家的模型没带上
+      // 隔离环境里 25 家的种子都写了 meta.context，所以只要有一家的模型没带上
       // limit.context 就是 absorbMeta → modelEntry 这条链路断了。别退化成「全部缺
       // 才算红」—— 只坏一家（往往正是用户最常用那家）时那条判据不成立，等于假绿。
       if (rows.length > 0 && withContext !== rows.length) noContext.push(name)
@@ -163,6 +163,20 @@ for (const [key, want] of [
     const tail = id.replace(/^jet-hub-/, '')
     return `JetHub${tail.charAt(0).toUpperCase()}${tail.slice(1)}Plugin`
   }
+  /**
+   * ⚠️ 家数锚点：上面两个方向都是**相对**检查 —— 正向只问「PROVIDER_IDS 里每个 id 都有
+   * 对应导出」，反向只问「没有对不上任何 provider 的孤儿导出」。所以两边同时删掉一家
+   * （`src/plugin.mjs` 的 `DSH_PROVIDERS` 去掉 `'zcode'` + `index.mjs` 删掉那行 export），
+   * 两条检查都依然全绿，provider 就这么静默少一个 —— 2026-11-03 的环境级审计实测复现过。
+   * 下面这个常量是**绝对**判据：加减 provider 必须显式改它，改的那一刻至少得想一下
+   * 到底是在加家还是掉家。
+   */
+  const EXPECTED_PROVIDER_COUNT = 25
+  if (PROVIDER_IDS.length !== EXPECTED_PROVIDER_COUNT) {
+    problems.push(
+      `provider 家数应为 ${EXPECTED_PROVIDER_COUNT}，实际 ${PROVIDER_IDS.length}（加减 provider 时必须同步这个常量）`,
+    )
+  }
   let checked = 0
   for (const id of PROVIDER_IDS) {
     const wanted = exportNameOf(id)
@@ -180,7 +194,7 @@ for (const [key, want] of [
     if (typeof v !== 'function') continue
     if (!names.has(k)) problems.push(`index.mjs 多出无法对应 provider 的导出 ${k}`)
   }
-  console.log(`具名导出护栏: 校验 ${checked} 个 provider`)
+  console.log(`具名导出护栏: 校验 ${checked} 个 provider（期望 ${EXPECTED_PROVIDER_COUNT}）`)
 }
 
 console.log(`--- ${described.length} 个 provider ---`)
