@@ -52,6 +52,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-model-prices.mjs` | 用量费用的目录价：价格表格式、`cost` 形状、**表里没有就不发**、真挂到 `provider.models()` 上 |
 | `t-rpc-cover.mjs` | 控制台接了本体哪些 RPC、哪些明确交给 magpie 或弃用 |
 | `t-error-shape.mjs` | 错误出口三件套：不支持的路径回 **501**（不是 404，否则 magpie 只搁置模型、换个同样坏的端点重试）、`errorResponse` 抛错也带 code、上游 404/503 原样透传、`jsonResponse` 形状 |
+| `t-hub-cors.mjs` | 控制台跨站防线：只认实际绑定的那一个端口、只认 `http`、`Host` 必须回环（挡 DNS rebinding）、跨站 Origin 与 `null`、跨站导航 403、写操作连 `same-site` 也拒、多值 `Sec-Fetch-Site` 绕不过；同源不误伤，被拦的请求不进 handler |
 
 **ENV（要真环境，`--all` 才跑）**
 

@@ -11,6 +11,53 @@
 
 ## 1.0.0（未发布）
 
+- `fix(security)`: 控制台服务 `src/hub-server.mjs` 收掉**通配 CORS**。此前每个响应都带
+  `Access-Control-Allow-Origin: *`，等于把 `/api/jet-hub`（含各渠道 access_key_id /
+  access_key_secret / refresh_token）开放给**任意网页**跨域读取；`/api/jet-hub`
+  还接 POST，等于同时是一个 CSRF 入口。初版写 `*` 的理由是「magpie 用 sandbox iframe
+  嵌控制台，opaque origin 必须通配」，但 `page/index.html` 早就改成只显示地址、
+  由用户在浏览器顶层打开，那条理由已经失效（`page/page.js` 里 `conUrlBox` 只读展示，无 iframe）。
+  现在：
+  - `Access-Control-Allow-Origin` **只回显控制台自己那一个来源** —— 协议 `http`
+    （本服务不跑 TLS，`https` 来源不可能是自己）+ 主机 `127.0.0.1` / `localhost` /
+    `[::1]`（允许 FQDN 尾随点 `localhost.`）+ **本次真正绑定的端口**。
+    不按 `startHubServer({from, tries})` 的探测区间放行：容器调它时只传 `from: 18500`
+    不传 `tries`，区间会变成 18500–18559 —— 那 60 个端口里任何一个本机页面都能读走凭据。
+    同源 GET 浏览器不带 `Origin`；同源 POST 会带，带的就是控制台自己。
+  - 非白名单 `Origin` 与 `Sec-Fetch-Site: cross-site` 直接 **403**：前者挡「读得到响应」的
+    跨站读，后者挡 `<form>` 提交 / `fetch(mode:'no-cors')` 这类**读不到响应但会执行副作用**的请求
+    —— CORS 头对它们完全不起作用，只能靠服务端拒。
+  - **写操作**（POST/PUT/PATCH/DELETE）再收紧到 `Sec-Fetch-Site: same-site`：
+    它的 site 不含端口，本机 `127.0.0.1:3000` 的页面与 `127.0.0.1:18500` 是 same-site，
+    不收紧就能用 `<form enctype="text/plain">` 拼 JSON body 打写接口。读请求不收紧：
+    能救的只有 `same-site` 导航（本机另一个端口的页面里点链接打开控制台），
+    跨站导航本来就被上面那条 `cross-site` 挡住。
+  - `Sec-Fetch-Site` 按**逗号拆开逐个判**，不做整体严格比较：同一个头来多行时 Node 会拼成
+    `"a, b"`，于是 `Sec-Fetch-Site: same-site` + `Sec-Fetch-Site: cross-site` 拼成
+    `"same-site, cross-site"`，整体比较两个分支都不命中就被漏过去了（实测过，是真绕过）。
+  - `Host` 头必须是回环地址，否则 **403**：挡 DNS rebinding（攻击者域名解析到 127.0.0.1
+    绕过 Origin 白名单）。
+  实测（临时 PoC，已删）：`evil.example` / `null`（sandbox iframe）/ 伪造 `Host` /
+  跨站 POST / 跨站预检 全部 403 且不带任何 CORS 头；同源 GET/POST 功能不变；
+  `OPTIONS` 仍回 204，但不再挂 `*`（只对白名单 Origin 回显）。
+  **副作用（用户可见）**：跨站**顶层导航**也会 403 —— 从聊天软件/文档里点
+  `http://127.0.0.1:18500/` 这个链接，会看到一屏 `forbidden origin`。
+  处置：把地址复制到地址栏直接打开（那种导航是 `Sec-Fetch-Site: none`，会放行），
+  或走侧栏页上的「复制地址」按钮（`page/index.html`）。本机另一个端口的页面里点同一个链接是 `same-site`
+  导航，放行。
+  已知边界：`Sec-Fetch-Site` 是挡「读不到响应但有副作用」这类请求的唯一手段，
+  它 Safari 16.4 / Firefox 90 / Chrome 76 起才有；更老的浏览器上跨站 `<form>` 仍能打写接口。
+  影响面是本机用户的浏览器版本，不是网络可达面，故未再加 `Referer` 之类更脆的判据。
+  回归闸 `tests/t-hub-cors.mjs`（47 条断言，已登记进 `scripts/test-all.mjs`，CI 自动跑）：
+  逐处回退十道防线（通配回显 / `crossSite` / `loopbackHost` / 端口精确 / 协议 `https` 多认 /
+  多值 `Sec-Fetch-Site` / 写操作 same-site / `Origin` 尾随点 / `Host` 尾随点 / 绑定端口写回）
+  分别红 6 / 20 / 2 / 4 / 2 / 4 / 5 / 2 / 2 / 15 条 —— 十处没有一处是摆设。
+  （数字对测试强度敏感：把「该放行的正向用例至少 N 次」那个下限调高，尾随点与端口两格
+  会各多红一条，因为放行数掉到下限以下。所以这串数只在 `ALLOWED_THROUGH = 7` 时成立。）
+  其中「绑定端口写回」是二轮安全审查揪出来的缺口：线上 18500 被占是常态，白名单若停在
+  `from` 就是 fail-open（别人占着的那个端口的页面能读凭据），控制台自己反而进不去；
+  而测试里的起始端口永远空闲，不专门造「被占」场景这条就永远抓不到。
+  同时改了文件头那段「为什么单独起服务」的说明 —— 它还在描述已经废弃的 iframe 方案。
 - `chore(ci)`: 补上 `.github/workflows/ci.yml` —— 此前仓库**完全没有 CI**，
   28 个离线单测只能靠人手动跑，PR 合进来之前没有任何自动门槛。
   现在 push 与 PR 都要求「离线单测全绿 + `npm pack --dry-run` 通过」。
