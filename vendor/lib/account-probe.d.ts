@@ -66,6 +66,13 @@ export interface ProbePool {
      * **新**时刻写回，否则存储停在旧值、UI 不再显示限流。
      */
     updateModelRateLimit(accountId: string, modelId: string, resetAtMs: number): Promise<void>;
+    /**
+     * 清除账号级**封禁**标记（Gitee issue IKS2MV）。
+     *
+     * 与限流标记是**两笔账**：封禁只能靠「实测通过 / 人工重置 / 重新登录」清除，
+     * 不随时间过期。可选 —— 单测的替身池可能不实现它（缺了就跳过，不影响探测结论）。
+     */
+    clearAccountPolicyBlocked?(accountId: string): Promise<boolean>;
 }
 /** 探测依赖注入点（测试可覆盖）。 */
 export interface ProbeDeps {
@@ -153,8 +160,15 @@ export declare function testAccount(pool: ProbePool, accountId: string, modelId:
  * 重置单个账号：不测试，直接清除该账号的全部限流标记。
  * @returns 清除的标记条数与涉及的账号数（此处恒为 0 或 1）。
  */
+/**
+ * 重置单个账号的限流标记。
+ *
+ * ⚠️ 同时清掉**账号级封禁标记**（Gitee issue IKS2MV）：这是「重置」按钮的语义
+ * ——「我确认这个账号现在是好的，把它的坏状态全清掉」。只清限流而留下封禁，
+ * 会让用户点了重置、面板仍红、选号仍排除它（按钮看起来失灵）。
+ */
 export declare function resetAccount(pool: ProbePool, accountId: string): Promise<RpcResetResponse>;
-/** 重置某 provider 下全部账号（含已停用账号）的限流标记。 */
+/** 重置某 provider 下全部账号（含已停用账号）的限流标记与封禁标记。 */
 export declare function resetAllAccounts(pool: ProbePool, provider: string): Promise<RpcResetResponse>;
 export {};
 //# sourceMappingURL=account-probe.d.ts.map

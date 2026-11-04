@@ -567,6 +567,26 @@ const KEY_CHANNELS = {
     hint: '七牛云 AI 的 API Key。同一把 Key 重复添加会复用同一条账号。',
     where: 'https://portal.qiniu.com/ai-inference/api-key',
   },
+  // 2026-11-04 同步上游新增的三家。都是「静态 Key」渠道：上游没有任何 refresh 端点，
+  // 建号时 `refreshable` 写 `false`（`jet-hub-store.js` 的例外表），所以卡片上不会
+  // 显示「自动续期」—— 这是事实，不是缺陷。
+  baizhi: {
+    method: 'baizhi.addAccount',
+    hint: '百智云的 API Key。同一把 Key 重复添加会复用同一条账号。',
+    where: 'https://ai-models.app.baizhi.cloud/console/keys',
+  },
+  monkeycode: {
+    method: 'monkeycode.addAccount',
+    hint: 'MonkeyCode（国内站 monkeycode-ai.com）的 API Key。同一把 Key 重复添加会复用同一条账号。',
+    where: 'https://monkeycode-ai.com',
+  },
+  monkeycodeintl: {
+    // ⚠️ 两站**账号体系隔离**：同一把 Key 在 `.com` 与 `.net` 上是两条不同的账号，
+    // 所以控制台把它们当两家独立渠道列出，不做任何合并。
+    method: 'monkeycodeintl.addAccount',
+    hint: 'MonkeyCode 国际站（monkeycode-ai.net）的 API Key，与国内站账号体系隔离 —— 同一把 Key 在两边是两条账号。',
+    where: 'https://monkeycode-ai.net',
+  },
 }
 
 /** 弹 Key 输入框（替代 startLogin 的授权流程）。 */
@@ -640,6 +660,22 @@ const REKEY_CHANNELS = {
       '昵称与停用状态都继承旧的。填同一把 Key 则只刷新凭据，账号不变。',
     where: 'https://portal.qiniu.com/ai-inference/api-key',
   },
+  // 2026-11-04 同步上游新增的三家，语义与上面两家一致（Key 派生 id、先建后删、回 `renamed`）。
+  baizhi: {
+    method: 'baizhi.setApiKey',
+    hint: '换成另一把 Key 会**换一条账号**：本体先建新号再删旧号。填同一把 Key 则只刷新凭据。',
+    where: 'https://ai-models.app.baizhi.cloud/console/keys',
+  },
+  monkeycode: {
+    method: 'monkeycode.setApiKey',
+    hint: '换成另一把 Key 会**换一条账号**：本体先建新号再删旧号。填同一把 Key 则只刷新凭据。',
+    where: 'https://monkeycode-ai.com',
+  },
+  monkeycodeintl: {
+    method: 'monkeycodeintl.setApiKey',
+    hint: '换成另一把 Key 会**换一条账号**：本体先建新号再删旧号。填同一把 Key 则只刷新凭据。',
+    where: 'https://monkeycode-ai.net',
+  },
 }
 
 function openRekeyModal(accountId, provider) {
@@ -678,7 +714,13 @@ async function submitRekey(btn) {
       // 所以这里按家分支写两句字面量，而不是按 REKEY_CHANNELS 表取方法名。
       const v = provider === 'qiniu'
         ? await rpc('qiniu.setApiKey', { accountId, apiKey })
-        : await rpc('modelscope.setApiKey', { accountId, apiKey })
+        : provider === 'baizhi'
+          ? await rpc('baizhi.setApiKey', { accountId, apiKey })
+          : provider === 'monkeycode'
+            ? await rpc('monkeycode.setApiKey', { accountId, apiKey })
+            : provider === 'monkeycodeintl'
+              ? await rpc('monkeycodeintl.setApiKey', { accountId, apiKey })
+              : await rpc('modelscope.setApiKey', { accountId, apiKey })
       if (v?.renamed === true) {
         say('#rkMsg', `已换成另一把 Key：账号从 ${accountId} 变成 ${v.accountId}（旧号已删）`, 'ok')
       } else {

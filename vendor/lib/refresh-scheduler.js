@@ -49,6 +49,8 @@ export class MultiAccountRefreshScheduler {
     options;
     /** 当前定时器；`undefined` 表示未武装。 */
     timer;
+    /** 首轮延迟定时器（`initialDelayMs > 0` 时存在）。 */
+    startupTimer;
     /**
      * 一轮是否正在跑。
      *
@@ -81,11 +83,35 @@ export class MultiAccountRefreshScheduler {
         // 不拦住进程退出（与仓库既有的 `refreshTimer.unref?.()` 一致）。
         const unrefable = this.timer;
         unrefable.unref?.();
-        this.options.info?.('[jet-hub] 多账号续期调度器已武装（每 30 分钟一轮）');
-        await this.onTick({ initial: true });
+        this.options.info?.(`[jet-hub] 多账号续期调度器已武装（每 ${Math.max(1, Math.round(this.options.intervalMs / 60_000))} 分钟一轮）`);
+        // ⚠️ `Math.max(0, NaN)` 仍是 NaN（setTimeout(NaN) 会立即跑，与默认同义但
+        // 语义含糊）；显式只接受有限数，其余按 0。
+        const requested = this.options.initialDelayMs;
+        const initialDelayMs = typeof requested === 'number' && Number.isFinite(requested)
+            ? Math.max(0, requested)
+            : 0;
+        if (initialDelayMs === 0) {
+            await this.onTick({ initial: true });
+            return;
+        }
+        /**
+         * ⚠️ 只延迟**首轮**，周期定时器已经武装 —— 否则「延迟期间账号入库」的
+         * `notifyAccountAdded()` 会看到未武装而再起一个定时器（与上面同一条竞态）。
+         */
+        this.startupTimer = setTimeout(() => {
+            this.startupTimer = undefined;
+            void this.onTick({ initial: true });
+        }, initialDelayMs);
+        const unrefableStartup = this.startupTimer;
+        unrefableStartup.unref?.();
+        this.options.info?.(`[jet-hub] 首轮续期延后 ${initialDelayMs}ms（等宿主启动完成）`);
     }
     /** 停表。可再次 `start()` 重新武装。 */
     stop() {
+        if (this.startupTimer !== undefined) {
+            clearTimeout(this.startupTimer);
+            this.startupTimer = undefined;
+        }
         if (this.timer !== undefined) {
             clearInterval(this.timer);
             this.timer = undefined;

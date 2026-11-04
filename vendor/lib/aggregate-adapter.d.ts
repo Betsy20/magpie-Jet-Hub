@@ -1277,6 +1277,13 @@ export declare class AggregateAdapter extends LlmAdapter {
      * @param modelKey - 虚拟模型 id（含 `auto`），仅用于记忆化。
      * @param candidates - 该虚拟模型的候选表（`auto` 传全池候选）。
      */
+    /**
+     * 只读缓存里的窗口判决；未命中或已过期返回 `undefined`（不触发解析）。
+     *
+     * 供 `listModels` 带出 `contextWindow` 用（issue #36）：目录列表要快，
+     * 不能为了窗口去逐候选打上游。
+     */
+    private cachedContextWindowOf;
     private contextWindowFor;
     /**
      * 按候选序**逐个尝试**，成功即返回；全部失败则抛最后一个错误。

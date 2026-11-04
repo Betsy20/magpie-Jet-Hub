@@ -171,6 +171,18 @@ export declare function asProxyText(value: unknown): string;
  * @returns 空串 → `直连`；否则脱敏后的 label（保留 scheme/user/host/port）。
  */
 export declare function proxyLogText(value: unknown): string;
+/**
+ * 该账号是否**被上游策略封禁**（账号级，Gitee issue IKS2MV）。
+ *
+ * ⚠️ 判据与 `modelRateLimits` **刻意不同**：
+ * - 限流是**逐模型**的（`candidateAccounts` 按目标模型比对 `modelRateLimits[modelId]`）；
+ * - 封禁是**整个账号**的（11140 的实测语义：同一账号在 2 个模型上 200、在 4 个模型上
+ *   403/11140 —— 拦截按账号生效）。故这里**不看任何模型**，只要标记存在就排除。
+ *
+ * ⚠️ 值域走 `isValidResetAtMs`：备份文件可编辑，脏值（`'x'` / `1e308`）若被当成
+ * 真值会让账号**永久不可选**（比逐模型脏值更狠）。
+ */
+export declare function isPolicyBlockedAccount(entry: Pick<ProviderAccountEntry, 'policyBlockedAtMs'>): boolean;
 export declare class AccountPool {
     private readonly ctx;
     /** 持久化后端；两个后端都不可用时是仅内存实现。 */
@@ -907,6 +919,14 @@ export declare class AccountPool {
      */
     setPermanentLocked(provider: string, locked: boolean): Promise<void>;
     /**
+     * 直接读一次权威文档（不触碰内存表、不做迁移）。
+     *
+     * 存在的唯一理由是 `setPermanentLocked` 的写前合并；读失败返回空表 ——
+     * 合并语义下「读不到 = 没有别人的键可保留」，比抛错让按钮失败更合适
+     * （真正的落盘保护在 `FileLockStore`：损坏时回落 `.bak`）。
+     */
+    private reloadLocksFromDisk;
+    /**
      * 落盘锁定表：先写**权威**（独立文档），再同步**镜像**（state.json）。
      *
      * ⚠️ 顺序与容错都是有意的：
@@ -1123,9 +1143,14 @@ export declare class AccountPool {
      * @param provider - provider id（如 `zcode`）。
      * @param field - 凭据里用作身份判据的字段名（如 `user_id`）。
      * @param identity - 要比对的值（空串直接返回 `''`，调用方据空串放弃去重）。
+     * @param excludeAccountId - 可选：跳过这个账号 id。
+     *   ⚠️ **登录后判重的调用点必须传本次新建的占位 id**：新条目的凭据在查重
+     *   **之前**就已写入，不排除它会「自己匹配自己」，而本方法只返回**第一个**
+     *   匹配 ⇒ 判重是否成立取决于条目顺序（一次拖动排序就静默失效，2026-11-03
+     *   对抗审计实测：新条目被重排到前面后两条同账号卡片都保持启用）。
      * @returns 匹配到的账号 id；无匹配返回空串。
      */
-    findAccountIdByIdentityField(provider: string, field: string, identity: string): Promise<string>;
+    findAccountIdByIdentityField(provider: string, field: string, identity: string, excludeAccountId?: string): Promise<string>;
     /** 按 id 查找账号条目（含已停用账号）。 */
     findAccount(id: string): ProviderAccountEntry | undefined;
     /** 列出某 provider 的全部账号（含已停用），供「重测所有 / 重置所有」使用。 */
@@ -1173,6 +1198,34 @@ export declare class AccountPool {
      * @returns 实际清除的标记数。
      */
     clearModelRateLimits(accountId: string, modelIds?: readonly string[]): Promise<number>;
+    /**
+     * 记账：该账号**被上游策略封禁**（Gitee issue IKS2MV）。
+     *
+     * 与 {@link updateModelRateLimit} 的**分工**（别合并）：
+     * - 限流 = 单个模型、会自己好、有明确重置时刻 ⇒ 写 `modelRateLimits` 那本账；
+     * - 封禁 = 整个账号、只能重新登录 / 人工解封、上游**不给时刻** ⇒ 写本方法。
+     *
+     * 调用点在 `buddy-adapter.ts` 的 `markPolicyBlockedAccount`（6 处 11140 命中）。
+     * 那里**同时**保留 30 分钟逐模型冷却 —— 那个解决「本轮别反复重撞」，
+     * 与「状态展示 / 账号级排除」是两件事（issue 作者明确要求不要动冷却）。
+     *
+     * ⚠️ `policyBlockedAtMs` 取**首次**观测时刻（幂等）：用户排查时最需要知道
+     * 「什么时候开始被封的」，反复写入会把那一刻冲掉。
+     */
+    markAccountPolicyBlocked(accountId: string, message?: string): Promise<void>;
+    /**
+     * 清除封号标记。
+     *
+     * 三个调用点（与 `ProviderAccountEntry.policyBlockedAtMs` 的注释一一对应）：
+     * 实测成功（`account.retest` 的「全部标记模型都通过」判据）、
+     * 用户手动重置（`account.reset` / `account.resetAll`）、账号删除（随条目一起没了）。
+     *
+     * ⚠️ **不含 `account.test`**：它只测一个模型（且优先挑最老的那个限流键），
+     * 判据强度不足以证明「账号没被封」（2026-11-01 对抗审计实测会洗白）。
+     *
+     * @returns 是否真的清掉了一条标记（没有标记时 `false`，调用方可据此决定要不要写日志）。
+     */
+    clearAccountPolicyBlocked(accountId: string): Promise<boolean>;
     /**
      * 获取指定 provider + 模型的下一个可用账号。
      *

@@ -308,6 +308,12 @@ export declare class ClineAdapter extends LlmAdapter {
      * ⚠️ **方向仍是保守**：未知**不放行**图片（见 `stream()` 的门禁），
      * 只是不再谎报「不支持」。
      */
+    /**
+     * 快照后缀模型（`-1017`）在目录里的**基底条目**；无后缀或基底不存在返回 undefined。
+     *
+     * ⚠️ 只用于「本条目能力字段缺席」时回退，见 `toCatalogEntry` / `inputModalitiesFor`。
+     */
+    private baseCatalogEntryFor;
     private inputModalitiesFor;
     /**
      * 目录健康快照（issue IKKZUG 第 5 点：可观测性）。

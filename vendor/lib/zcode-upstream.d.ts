@@ -115,11 +115,29 @@ export declare const ZCODE_MARKETING_ACTION_URL = "https://zcode.z.ai/api/v1/mar
  *   推理路径的既有实测结论（含 `3012` 的消融矩阵）都是在 3.14.3 上取到的，
  *   无证据地整体抬版本会把这些结论一起作废。
  *
- * ⚠ **下限未二分**：营销侧只测了 `3.14.3` 空 / `3.16.3` 有；领取侧测了
- *   `3.14.3` 失败 / `3.16.2` 成功。取 `3.16.3` 是该区间内的保守上界，
- *   **不声称它是最低下限**。
+ * ⚠ **下限逐期漂移，不是固定值**（2026-11-03 实测，用户报障「怎么领不到了」）：
+ *   同一账号、同一套头，**只改** `X-ZCode-App-Version`，间隔 3 秒避 429：
+ *
+ *   | `X-ZCode-App-Version` | `GET /marketing/touch` 的 `data.deliveries` |
+ *   |---|---|
+ *   | `3.14.3` / `3.15.0` / `3.16.0` / **`3.16.3`** / `3.17.0` | **`[]`（空）** |
+ *   | **`3.17.1`** | `[{… plan_id:"zcode-v3-start-plan-1103", grant_units:300000000 …}]` ★ |
+ *
+ *   ⇒ 1024 那期（2026-10-23）在 `3.16.3` 能拿到；1103 这期（ZCODE GLOBAL BUILD）
+ *   把门槛抬到了 `3.17.1` —— 服务端是**按活动**下发门控的，定值必然腐坏。
+ *   **下期若再抬，这里要重新二分**（别当成一次性结论）。
  */
-export declare const ZCODE_VERSION_GATED_MIN_APP_VERSION = "3.16.3";
+export declare const ZCODE_VERSION_GATED_MIN_APP_VERSION = "3.17.1";
+/**
+ * **推理路径**的版本下限（与营销/领取的逐期门控**分开**）。
+ *
+ * ⚠️ 为什么不能共用：`buildZcodeHeaders` 的默认值同时服务推理请求
+ * （`zcode-transport.ts` 的 `buildChannelRequest`），而推理路径的 405
+ * `unusual activity` 结论是在 **3.16.3** 上验收的（2026-10-25 真机）。
+ * 营销/领取的门控逐期漂移（1103 期已到 3.17.1），无证据地把推理头一起抬
+ * 会把那条验收作废。
+ */
+export declare const ZCODE_INFERENCE_MIN_APP_VERSION = "3.16.3";
 /**
  * 该宿主该发的平台三件套（三值同源，见上方注释）。
  *
@@ -444,7 +462,7 @@ export declare function compareZcodeAppVersion(a: string, b: string): number;
  * 登录（凭据里写着 3.17.x），就用它自己的版本号，而不是把它降级成 3.16.3。
  * 依据与「为什么不能改凭据本身」见 {@link ZCODE_VERSION_GATED_MIN_APP_VERSION}。
  */
-export declare function zcodeVersionGatedAppVersion(credential: Pick<ZcodeCredential, 'app_version'>): string;
+export declare function zcodeVersionGatedAppVersion(credential: Pick<ZcodeCredential, 'app_version'>, minAppVersion?: string): string;
 /**
  * **不受门控**的请求（query / body 里的 `app_version`）该用的版本。
  *

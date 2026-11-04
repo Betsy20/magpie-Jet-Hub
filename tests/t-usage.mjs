@@ -627,7 +627,7 @@ if (live()) {
   ok(human('别的错误原样透出') === '别的错误原样透出', '不认识的错误不许改写')
 
   // 行为级锁：真 import vendor，构造「凭据解析不出来」的账号，看它回什么。
-  // 只锁文案是没用的 —— 删掉 vendor 里的 `product !== undefined &&`
+  // 只锁文案是没用的 —— 把 vendor 里的 `product?.id` 改回 `product.id`
   // 文案层照样绿，而真实行为会退化成一句 TypeError。实测：删守卫后这里变红。
   {
     const { collectCreditBalances } = await import('../vendor/lib/jet-hub-rpc.js')

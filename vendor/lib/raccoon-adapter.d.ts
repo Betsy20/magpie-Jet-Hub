@@ -128,6 +128,33 @@ export interface RaccoonRemoteModel {
     maxTokens: number;
     supportsImage: boolean;
 }
+/**
+ * 上游网关对 `max_tokens` 的**硬校验上限**（issue IKS1L5）。
+ *
+ * 实测报错原文：`max_tokens must be 1..65536`（`litellm.BadRequestError`,
+ * `type: invalid_request_error`），且该 model group **没有配 fallback**
+ * ⇒ 一旦命中就是**整轮对话直接失败**，没有任何重试机会。
+ *
+ * ⚠️ 为什么必须夹**两处**（只夹一处会漏）：
+ * 1. **声明值**（`toCatalogEntry` 的 `maxTokens` → DSH 的 `defaultMaxTokens`）：
+ *    DSH 每轮都会把这个声明值**回传**进请求，所以只夹请求体的话，第二轮及以后
+ *    照样会带上 100000；
+ * 2. **请求体**（`buildBody` 的 `max_tokens`）：它来自 `titlePlan.maxTokens`，
+ *    非标题请求时是**原样透传调用方**的值（用户/网关都可以塞 999999）。
+ *
+ * 与 cline（`CLINE_MAX_OUTPUT_TOKENS`）/ trae（`clampTraeMaxTokens`）/
+ * codearts（`CODEARTS_MAX_OUTPUT_TOKENS = 65_536`）同款 —— raccoon 是**唯一
+ * 没有夹子的一家**，这就是那个漏网。
+ */
+export declare const RACCOON_MAX_OUTPUT_TOKENS = 65536;
+/**
+ * 把 `max_tokens` 收敛进上游硬校验上限。
+ *
+ * ⚠️ 非法值（0 / 负数 / 非整数 / `NaN`）仍按 `undefined` 处理（**不下发**该字段），
+ * 不能用 `Math.min` 把它们变成「合法的小数字」——那会把「调用方没要求上限」
+ * 静默改写成「上限 0」。
+ */
+export declare function clampRaccoonMaxTokens(value: unknown): number | undefined;
 /** {@link RaccoonAdapter} 的构造选项。 */
 export interface RaccoonAdapterOptions {
     /** 单凭据回退 ref（无账号池时）。 */

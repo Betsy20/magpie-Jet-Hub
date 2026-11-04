@@ -58,6 +58,18 @@ export interface RefreshSchedulerOptions {
      * —— 这正是 issue IKJOZB 的修法要点（武装与池内容解耦）。
      */
     isPoolEmpty: () => Promise<boolean>;
+    /**
+     * 首轮延迟（毫秒，默认 0 = 立即跑）。
+     *
+     * ⚠️ 为什么需要（issue #20）：宿主启动时插件与其它插件并发初始化，**立即**
+     * 对全部账号发续期请求会和启动路径抢网络/凭据存储；冷启动日志里常见
+     * 一串 `fetch failed`，随后 30 分钟后才重试。给一个短延迟（生产 15s）
+     * 让启动先完成，再跑首轮。
+     *
+     * ⚠️ 默认必须是 0：既有行为（issue !IKIRTT「重启后立刻修正过期」）依赖
+     * 首轮立即跑；只有生产接线显式传非 0。
+     */
+    initialDelayMs?: number;
     /** 日志出口；缺省时静默（单测友好）。 */
     warn?: (message: string) => void;
     info?: (message: string) => void;
@@ -71,6 +83,8 @@ export declare class MultiAccountRefreshScheduler {
     private readonly options;
     /** 当前定时器；`undefined` 表示未武装。 */
     private timer;
+    /** 首轮延迟定时器（`initialDelayMs > 0` 时存在）。 */
+    private startupTimer;
     /**
      * 一轮是否正在跑。
      *

@@ -94,6 +94,22 @@ export interface ClineModelsDevEntry {
     /** 是否接受图片输入（`modalities.input` 含 `image`）。 */
     supportsImage: boolean;
 }
+/** 剥掉末尾的快照后缀（形如 -1017 / -20241022）；无后缀时原样返回。 */
+export declare function stripClineSnapshotSuffix(id: string): string;
+/**
+ * 在 models.dev 目录里查一个模型：**先精确、再剥快照后缀查基底**。
+ *
+ * ## 为什么必须有
+ *
+ * 上游常给模型加日期快照后缀（`qwen2.5-coder-7b-instruct-1017`），而
+ * models.dev 只登记基底 id。精确匹配失败后：
+ * - `contextWindow` / `name` / **`supportsImage`** 全部丢失；
+ * - `supportsImage` 变成「未知」，宿主据此**放行图片**，发到不支持图的服务端。
+ *
+ * 返回的条目沿用基底能力，但 `id` 是请求的那个、`name` 带上后缀（避免两个
+ * 不同快照在 UI 上同名）。
+ */
+export declare function findClineModelsDevEntry(id: string, dev: ReadonlyMap<string, ClineModelsDevEntry>): ClineModelsDevEntry | undefined;
 /**
  * 解析 models.dev 目录，得到 `模型 id → 条目`。
  *

@@ -5,13 +5,24 @@ import { type AutoclawProduct } from './autoclaw-product.js';
 import { type AutoclawCredential } from './autoclaw.js';
 export declare const AUTOCLAW_SEND_CODE_PATH = "/userapi/v1/agent-send-code";
 export declare const AUTOCLAW_LOGIN_PATH = "/userapi/v1/agent-login";
-/** Z.ai 授权页（国际版）。 */
-export declare const AUTOCLAW_ZAI_AUTH_URL = "https://chat.z.ai/auth";
+/** Z.ai **授权端点**（国际版）。⚠️ 不是 `https://chat.z.ai/auth` —— 那是登录页前端路由，见上方实测。 */
+export declare const AUTOCLAW_ZAI_AUTH_URL = "https://chat.z.ai/api/oauth/authorize";
 /**
- * Z.ai OAuth 的固定 `client_id`。
+ * Z.ai OAuth 的 `client_id` —— **只用于降级路径**，正常路径由服务端下发。
  *
- * ⚠️ 实测依据：两次独立授权 URL 的 `client_id` 逐字节相同 ⇒ 它是**构建期常量**，
- * 不是服务端下发（`oauth-url` 端点需要登录态，首次登录拿不到）。
+ * ## ⚠️⚠️ 只用这个值自己拼**不成立**（2026-11-02 第三轮真机证伪）
+ *
+ * 它来自一次真实授权 URL（两次采样逐字节相同）。但真机复现时，用同一个 `client_id`
+ * + 已注册端口 + 自造 `state` 打 `/api/oauth/authorize`，服务端回
+ * `{"detail":"Redirect URI not registered for this client"}` —— 端口与路径都已经被
+ * 上一轮修对了，仍被拒。
+ *
+ * 客户端实现里**没有**这个常量：它走 `POST /userapi/overseasv1/zai-oauth-url`
+ * 拿 `{oauth_url, state}`。⇒ 真正成立的是「服务端按 `navigate_uri` 现注册一组」，
+ * 而不是「某个固定的 (client_id, redirect_uri) 组合」。
+ *
+ * ⇒ 生产路径见 `fetchAutoclawZaiAuthUrl`；这里保留常量只为「服务端不可达时仍能渲染出
+ * 可点的链接」这一降级分支，且页面会显式告知用户可能失败。
  */
 export declare const AUTOCLAW_ZAI_CLIENT_ID = "client_EnD0QI8bLRFT8cciLp389Q";
 /** OAuth 换 token 端点（`overseasv1` 命名空间，仅国际站有）。 */
@@ -23,14 +34,102 @@ export declare const AUTOCLAW_OAUTH_CALLBACK_PATH = "/auth/callback-zai";
 /** OAuth 回调端口候选（与客户端 `OAUTH_CALLBACK_PORTS` 逐字相同）。 */
 export declare const AUTOCLAW_OAUTH_CALLBACK_PORTS: readonly number[];
 /**
+ * 生成 Z.ai OAuth 的 `state`。
+ *
+ * 形态对齐官方：`aosi.<base64url(JSON)>`。官方那个 JWT 里 `dh = SHA256(deviceId)`
+ * **已破解**、`nh` **未解**，但服务端不硬校验内容（见上方实测表）⇒ 我们只放
+ * 一个能自证「这是本轮流程」的随机串，不做任何防伪。
+ *
+ * ⚠️ **它必须非空**：`/api/oauth/authorize` 缺 `state` 直接回 **422**（实测），
+ * 这正是 2026-11-02 那次「点完按钮、登录成功、回调永不发生」的根因。
+ */
+export declare function autoclawZaiState(now?: number): string;
+/**
+ * 按顺序尝试监听**注册过的回调端口**（{@link AUTOCLAW_OAUTH_CALLBACK_PORTS}）。
+ *
+ * ## ⚠️⚠️ 为什么不能 `listen(0)` 随机端口（2026-11-02 真机，第二处报障）
+ *
+ * Z.ai 的 `/api/oauth/authorize` 对**已登录**用户会校验 `redirect_uri` 白名单，
+ * 未注册的端口直接回一段 JSON：
+ *
+ * ```
+ * {"detail":"Redirect URI not registered for this client"}
+ * ```
+ *
+ * 实测端点是随机端口 `60768`。而 `AUTOCLAW_OAUTH_CALLBACK_PORTS` 正是官方客户端
+ * 注册的那几个 —— 它在本次接线之前是**零消费**常量（审查员登记过「与 `listen(0)`
+ * 冲突，若服务端做端口白名单会直接死在授权页」，现在被真机证实）。
+ *
+ * ⚠️ 未登录时**看不出**这个问题：那时 `/api/oauth/authorize` 一律 307 到登录页，
+ * 不做白名单校验 ⇒ 「curl 探针 307」**不能**当成「端口没问题」的证据。
+ *
+ * ## 回退策略
+ *
+ * 4 个端口全被占用 ⇒ 回退 `listen(0)`。此时 OAuth 一定登不上（未注册），但本地页
+ * 仍能打开 —— 用户至少能看到授权页并拿到一条可诊断的失败，而不是「窗口都起不来」。
+ * 回调里对这种情况已经会返回「授权失败」的可见文案。
+ *
+ * @param server - 只需 `listen` / `once` / `removeListener`（单测因此可以注入替身）。
+ * @param candidates - 候选端口，按顺序尝试。
+ */
+export declare function listenOnCallbackPorts(server: AutoclawCallbackListenable, candidates?: readonly number[]): Promise<void>;
+/** `listenOnCallbackPorts` 需要的最小 server 面（结构类型，便于单测注入替身）。 */
+export interface AutoclawCallbackListenable {
+    listen: (port: number, host: string) => unknown;
+    once: (event: 'listening' | 'error', listener: () => void) => unknown;
+    removeListener: (event: 'listening' | 'error', listener: () => void) => unknown;
+}
+/**
  * 构造 Z.ai 授权 URL。
  *
- * ⚠️ `state` **不由本函数生成** —— 它留空，由官方授权页在跳转时填充，
- *    回调时原样带回（见上方「关于 state.nh」）。这避免了逆向 `nh`。
- *
- * @param redirectUri - 回调地址（`http://localhost:<port>/auth/callback-zai`）。
+ * @param redirectUri - 回调地址（`http://127.0.0.1:<port>/auth/callback-zai`）。
+ * @param state - **必填**（见 {@link autoclawZaiState}）。回调时原样带回，用于认领本轮流程。
  */
-export declare function buildAutoclawZaiAuthUrl(redirectUri: string): string;
+export declare function buildAutoclawZaiAuthUrl(redirectUri: string, state: string): string;
+/**
+ * 由**服务端签发**授权 URL 的端点（`overseasv1`，仅国际站）。
+ *
+ * ## 为什么必须走它，而不是自己拼（2026-11-02 第三轮真机报障）
+ *
+ * 自己拼的 URL 在真机上被 Z.ai 拒绝：
+ * `{"detail":"Redirect URI not registered for this client"}`。
+ * 客户端实现（`dist/main.cjs`）里根本没有 `client_id` 常量 —— 它的顺序是：
+ *
+ * ```js
+ * // 1) 起 loopback，拿到 navigate_uri
+ * // 2) 向服务端要授权地址
+ * const t = await this.post('/userapi/overseasv1/zai-oauth-url', { navigate_uri });
+ * const oauthUrl = a.data.oauth_url, state = a.data.state;   // ← 服务端签发
+ * // 3) 打开 oauthUrl；回调拿 code+state；4) POST zai-oauth-login
+ * ```
+ *
+ * ⇒ **`(client_id, redirect_uri, state)` 是服务端按 `navigate_uri` 现注册的一组**。
+ * 我们照抄过一次真实 URL 里的 `client_id`，但那一组的 `state` 已随上一轮流程失效
+ * ⇒ 服务端找不到「这个 redirect_uri 属于哪个 state」，于是报成「redirect_uri 未注册」。
+ * 这个报错文案极具误导性 —— 它让人以为是端口/路径问题（实际都改对了）。
+ *
+ * @param navigateUri - 回调地址，必须与 `zai-oauth-login` 的 `navigate_uri` 逐字节相同。
+ */
+export declare const AUTOCLAW_ZAI_AUTH_URL_PATH = "/userapi/overseasv1/zai-oauth-url";
+/** 服务端签发的授权参数。 */
+export interface AutoclawZaiAuthorization {
+    /** 直接可以打开的授权页地址（已含 `client_id` / `redirect_uri` / `state`）。 */
+    authUrl: string;
+    /** 服务端签发的 `state`，回调时原样带回，比对用。 */
+    state: string;
+}
+/**
+ * 向服务端申请一次授权：返回**授权页地址**与配套的 `state`。
+ *
+ * 失败时**不抛**（返回 `{ ok: false, error }`）—— 调用方（登录页）要把原因显示出来。
+ */
+export declare function fetchAutoclawZaiAuthUrl(navigateUri: string, options?: LoginAutoclawWithCodeOptions): Promise<{
+    ok: true;
+    value: AutoclawZaiAuthorization;
+} | {
+    ok: false;
+    error: string;
+}>;
 /**
  * 用授权码换 token（国际版 Z.ai OAuth）。
  *

@@ -2,7 +2,7 @@
   "name": "magpie-jet-hub",
   "version": "1.0.0",
   "type": "module",
-  "description": "把 deepseek-harness-codearts 插件本体（25 个 provider 的路由中枢）原样装进 magpie：内嵌 cordis 容器运行本体，复用其账号池、静默续期、积分选号与本地 OpenAI 兼容网关，凭据直接共用 DSH 的 .credentials.yaml，不依赖 DSH 进程",
+  "description": "把 deepseek-harness-codearts 插件本体（28 个 provider 的路由中枢）原样装进 magpie：内嵌 cordis 容器运行本体，复用其账号池、静默续期、积分选号与本地 OpenAI 兼容网关，凭据直接共用 DSH 的 .credentials.yaml，不依赖 DSH 进程",
   "main": "./index.mjs",
   "exports": {
     ".": "./index.mjs"
@@ -62,8 +62,8 @@
       "dsh-providers-hub",
       "dsh-codearts-auth"
     ],
-    "version": "2.9.261029",
-    "note": "vendor/ 是上游源码 commit 6fa74723d42ff605d1de349589c21a1ac4eb7ba2 的构建产物（npm install 触发 tsc + copy-assets + client/build），比 npm 包 2.9.261029 多 36 个 magicrew 文件、少 README.md / cordis.patch.yml；gemini-oauth.* 两个常量拆成两段拼接（值相等）。详见 docs/vendor.md"
+    "version": "2.14.261103",
+    "note": "vendor/ 是上游源码 commit fddb8751f82b7ece80b398f514c974705b656fe4 的构建产物（npm install 触发 tsc + copy-assets + client/build + sync-bootstrap-lib）。npm 最新 2.14.261103 仍落后：lib 1126 个文件 vs vendor 1130，缺 cap-pow.* 4 个，83 个文件内容不同（含本仓 6 个补丁文件）；vendor 不含 README.md / cordis.patch.yml；gemini-oauth.* 两个常量拆成两段拼接（值相等）。详见 docs/vendor.md"
   },
   "magpie": {
     "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkpldCBIdWIiPgogIDxyZWN0IHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgcng9IjciIGZpbGw9IiM1YjNkZjUiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIzLjIiIGZpbGw9IiNmZmYiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjcuNCIgcj0iMi4yIiBmaWxsPSIjYzliY2ZmIi8+CiAgPGNpcmNsZSBjeD0iMjQuNiIgY3k9IjExLjciIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjI0LjYiIGN5PSIyMC4zIiByPSIyLjIiIGZpbGw9IiNjOWJjZmYiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjI0LjYiIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjcuNCIgY3k9IjIwLjMiIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjcuNCIgY3k9IjExLjciIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxnIHN0cm9rZT0iI2M5YmNmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgb3BhY2l0eT0iMC44NSI+CiAgICA8cGF0aCBkPSJNMTYgMTAuNnYyLjRNMTguOCAxMi4ybDEuOS0xLjFNMTguOCAxOS44bDEuOSAxLjFNMTYgMjEuNHYyLjRNMTMuMiAxOS44bC0xLjkgMS4xTTEzLjIgMTIuMmwtMS45LTEuMSIvPgogIDwvZz4KPC9zdmc+Cg==",

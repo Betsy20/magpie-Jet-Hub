@@ -301,7 +301,16 @@ export function createModelCatalog(deps, config) {
      * 当前该展示的全量目录。未调用过时回落到 `syncCatalog()`。
      */
     let cached;
-    /** 把 `CatalogEntry` 摊成 `LlmModelInfo` 的公共字段（三态在这里落实）。 */
+    /**
+     * 把 `CatalogEntry` 摊成 `LlmModelInfo` 的公共字段（三态在这里落实）。
+     *
+     * ⚠️ `contextWindow` **不在宿主 `LlmModelInfo` 契约里**（窗口在
+     * `LlmResolvedModelInfo.context`，需逐模型 `resolveModel`）。这里作为
+     * **附加字段**带出，供直接消费适配器返回值的调用方使用。
+     * ⚠️⚠️ 它**到不了网关**：宿主 `LlmRuntime.listModels()` 会按白名单重建对象；
+     * 网关的 `/v1/models` 走 `collectGatewayModelDetails` 的 `resolveModelInfo`
+     * （见 `openai-gateway/models.ts`），不要以为本字段能修 issue #36。
+     */
     function toModelInfo(entry) {
         const info = { provider: providerId, id: entry.id, name: entry.name };
         // ⚠️ 三态：只有 `!== undefined` 才写入 —— 写 `['text']` 会明确声明不支持图片。
@@ -309,6 +318,8 @@ export function createModelCatalog(deps, config) {
             info.inputModalities = entry.inputModalities;
         if (entry.description !== undefined)
             info.description = entry.description;
+        if (entry.contextWindow !== undefined)
+            info.contextWindow = entry.contextWindow;
         return info;
     }
     return {

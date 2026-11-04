@@ -48,7 +48,7 @@ export type MinimaxDedupOutcome =
  | 'error';
 export interface MinimaxDedupDeps {
     pool: {
-        findAccountIdByIdentityField(provider: string, field: string, identity: string): Promise<string>;
+        findAccountIdByIdentityField(provider: string, field: string, identity: string, excludeAccountId?: string): Promise<string>;
         /** 含已停用账号的按 id 查询（`AccountPool.findAccount` 是**同步**的）。 */
         findAccount?(id: string): ProviderAccountEntry | undefined;
         updateAccount(id: string, patch: Partial<Pick<ProviderAccountEntry, 'nickname' | 'enabled' | 'expiresAt' | 'refreshable'>>): Promise<void>;

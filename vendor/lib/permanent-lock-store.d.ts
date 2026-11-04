@@ -44,6 +44,13 @@ export type PermanentLockRead = {
 } | {
     exists: true;
     locks: PermanentLockMap;
+    /**
+     * **主文件与 .bak 都读不出来**（不是「文件里确实没锁」）。
+     *
+     * ⚠️ 写侧必须据此**以内存为基线**：把这份空表当成事实会连同 `.bak`
+     *    一起覆盖掉，用户其余几家的锁定就永久消失了（对抗审计 B3 实测）。
+     */
+    degraded?: boolean;
 };
 /**
  * 独立文档的读写接口（同步读、异步写，与 `JetHubStore` 同款约定）。

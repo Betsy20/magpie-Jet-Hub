@@ -119,9 +119,19 @@ ok(handleStart >= 0, `找到 handleMethod()（第 ${handleStart + 1} 行）`)
 
 // 改道分支形如： if (method.startsWith('opencode.')) { ... handleOpencodeRpc(...) }
 const prefixes = []
+// 单方法改道：`if (method === 'baizhi.startSession') { … }`（2026-11-04 上游新增）。
+// ⚠️ 它不是 `startsWith('<prefix>.')`，所以下面的前缀循环扫不到 —— 漏了就会让
+// 「方法总数」少一个，而控制台那边即使接了也对不上账。
+const singleMethods = []
 // 边界：只在 handleMethod 函数体里扫，即 [handleStart, switchLine)。
 for (let i = handleStart; i < switchLine; i++) {
-  const m = rpcLines[i]?.match(/method\.startsWith\('([A-Za-z]+)\.'\)/)
+  const line = rpcLines[i] ?? ''
+  const one = line.match(/method\s*===\s*'([A-Za-z]+)\.([A-Za-z]+)'/)
+  if (one) {
+    singleMethods.push({ method: `${one[1]}.${one[2]}`, line: i + 1 })
+    continue
+  }
+  const m = line.match(/method\.startsWith\('([A-Za-z]+)\.'\)/)
   if (!m) continue
   // 在随后几行里找它调用的处理器名
   let handler = null
@@ -135,42 +145,93 @@ ok(prefixes.length > 0, `handleMethod() 里识别到 ${prefixes.length} 个前�
 for (const p of prefixes) console.log(`     ${p.prefix}.* → ${p.handler}（第 ${p.line} 行）`)
 
 // 处理器名 → 源文件：从 jet-hub-rpc.js 的 import 语句里解析，别猜文件名。
+// ⚠️ 必须支持**多名导入**（2026-11-04 上游同步踩到）：`baizhi-rpc.js` 那句是
+// `import { parseBaizhiCredential, handleBaizhiRpc, baizhiSlotNamesOf } from './baizhi-rpc.js'`，
+// 旧的正则只认 `{ handleXxxRpc }` 单个名字 ⇒ 解析不到 ⇒ 误报「处理器找不到源文件」。
 const importMap = {}
 for (const l of rpcLines) {
-  const m = l.match(/^import\s*\{\s*(handle\w*Rpc)\s*\}\s*from\s*'\.\/(.+?\.js)'/)
-  if (m) importMap[m[1]] = m[2]
+  const m = l.match(/^import\s*\{([^}]*)\}\s*from\s*'\.\/(.+?\.js)'/)
+  if (!m) continue
+  for (const raw of m[1].split(',')) {
+    const name = raw.trim().split(/\s+as\s+/)[0].trim()
+    if (/^handle\w*Rpc$/.test(name)) importMap[name] = m[2]
+  }
 }
 ok(Object.keys(importMap).length > 0, `解析到 ${Object.keys(importMap).length} 个处理器 import`)
 
-const prefixCases = []
+// 同一个处理器可能被多个前缀共用（`handleMonkeycodeRpc` 同时服务 `monkeycode.` 与
+// `monkeycodeintl.`，靠第 5 个 product 参数区分），所以先把「handler → 前缀列表」
+// 聚起来，再决定每个 case 该展开成哪些方法名。
 for (const p of prefixes) {
-  const file = importMap[p.handler]
+  if (p.handler === null) ok(false, `前缀 ${p.prefix}.* 的改道分支后面没找到 await handleXxxRpc(...)`)
+}
+
+const handlerPrefixes = new Map()
+for (const p of prefixes) {
+  if (p.handler === null) continue
+  const list = handlerPrefixes.get(p.handler) ?? []
+  list.push(p.prefix)
+  handlerPrefixes.set(p.handler, list)
+}
+
+const prefixCases = []
+for (const [handler, prefixList] of handlerPrefixes) {
+  const file = importMap[handler]
   if (!file) {
-    ok(false, `前缀 ${p.prefix}.* 的处理器 ${p.handler} 找不到源文件（import 里没有）`)
+    ok(false, `前缀 ${prefixList.join('/')}.* 的处理器 ${handler} 找不到源文件（import 里没有）`)
     continue
   }
   const src = linesOf(path.join(ROOT, 'vendor', 'lib', file))
-  const found = []
+  const qualified = []
+  const bare = []
   for (const l of src) {
-    const m = l.match(/^\s*case '([A-Za-z]+\.[A-Za-z]+)'\s*:/)
-    if (m && m[1].startsWith(`${p.prefix}.`)) found.push(m[1])
+    const full = l.match(/^\s*case '([A-Za-z]+\.[A-Za-z]+)'\s*:/)
+    if (full) {
+      qualified.push(full[1])
+      continue
+    }
+    const plain = l.match(/^\s*case '([A-Za-z]+)'\s*:/)
+    if (plain) bare.push(plain[1])
   }
-  ok(found.length > 0, `${file} 里认出 ${found.length} 个 ${p.prefix}.* 方法`)
+  const found = []
+  for (const name of qualified) {
+    if (prefixList.some((prefix) => name.startsWith(`${prefix}.`))) found.push(name)
+  }
+  // 裸名 case（`case 'addAccount':`）：方法全名由**调用处**的前缀拼出来，所以按该
+  // handler 的每个前缀各展开一份 —— 两站共用同一函数时就是这个写法（2026-11-04 上游）。
+  for (const name of bare) {
+    for (const prefix of prefixList) found.push(`${prefix}.${name}`)
+  }
+  const unique = [...new Set(found)]
+  ok(unique.length > 0, `${file} 里认出 ${unique.length} 个 ${prefixList.join('/')}.* 方法`)
   // 前缀和文件名不一定同名（minimaxintl → minimax-rpc.js），这里把实际文件名打出来
-  console.log(`     ${p.prefix}.* → vendor/lib/${file}（${found.length} 个：${found.join(', ')}）`)
-  for (const f of found) prefixCases.push(f)
+  console.log(`     ${prefixList.join('/')}.* → vendor/lib/${file}（${unique.length} 个：${unique.join(', ')}）`)
+  for (const f of unique) prefixCases.push(f)
 }
 console.log(`  B) 前缀改道方法数: ${prefixCases.length}`)
 
+const singleCaseMethods = singleMethods.map((s) => s.method)
+
 // 前缀改道的方法不该同时出现在主 switch 里（否则重复计数/语义冲突）
-const overlap = prefixCases.filter((m) => mainCases.some((c) => c.method === m))
+const overlap = [...prefixCases, ...singleCaseMethods].filter((m) => mainCases.some((c) => c.method === m))
 ok(overlap.length === 0, `前缀改道与主 switch 无重叠${overlap.length ? '：' + overlap.join(', ') : ''}`)
 
 // ---- 3) 全量方法集合 ----------------------------------------------------------
-const methods = [...new Set([...mainCases.map((c) => c.method), ...prefixCases])].sort()
+const methods = [...new Set([...mainCases.map((c) => c.method), ...prefixCases, ...singleCaseMethods])].sort()
 const mainMethodSet = new Set(mainCases.map((c) => c.method))
-console.log(`\n  本体实际可调度方法总数: ${methods.length}（主 switch ${mainMethodSet.size} + 前缀改道 ${prefixCases.length}）`)
+console.log(`\n  本体实际可调度方法总数: ${methods.length}（主 switch ${mainMethodSet.size} + 前缀改道 ${prefixCases.length} + 单方法改道 ${singleCaseMethods.length}）`)
+if (singleCaseMethods.length > 0) console.log(`  单方法改道: ${singleCaseMethods.join(', ')}`)
 console.log(`  其中共享实现体的标签: ${fallThrough.length ? fallThrough.join(', ') : '无'}`)
+// 总数锚点：上面三条解析链任何一条「少认几个」时，下面的相对判据（并发、覆盖、无重叠）
+// 可能依然全绿 —— 实测把单方法改道整段退回是 90 个仍绿、删掉一个裸名 case 是 89 个仍绿。
+// 所以这里钉死总数；上游加减方法时必须同步这个常量（它同时是「解析没退化成空」的兜底）。
+const EXPECTED_RPC_METHOD_COUNT = 91
+ok(methods.length === EXPECTED_RPC_METHOD_COUNT,
+  `本体可调度方法总数应为 ${EXPECTED_RPC_METHOD_COUNT}，实际 ${methods.length}（上游加减方法时必须同步这个常量）`)
+// baizhi.startSession 不走 `startsWith` 前缀，是单独一条 `if (method === '…')`；
+// 它一旦被改名或删掉，前缀扫描认不出来、总数也只少 1，只有这里点名才抓得住。
+ok(singleCaseMethods.includes('baizhi.startSession'),
+  `单方法改道里必须有 baizhi.startSession，实际：${singleCaseMethods.join(', ') || '无'}`)
 ok(fallThrough.includes('credits.permanentLock'),
   'credits.permanentLock 与 loomy.permanentLock 是同一实现的两个 label（fall-through）')
 
@@ -440,8 +501,8 @@ const handedOffStillWired = [...HANDED_OFF.keys()].filter((m) => used.includes(m
 ok(handedOffStillWired.length === 0,
   `交给 magpie / 主动弃用的 ${HANDED_OFF.size} 个方法控制台确实都没接`
   + (handedOffStillWired.length ? `；又接回去了：${handedOffStillWired.join(', ')}` : ''))
-// 未接项只可能来自前缀改道（规则 A 通过时这一条自动成立，留着当交叉校验）
-ok(unusedPrefix.every((m) => prefixCases.includes(m)),
+// 未接项只可能来自前缀改道或单方法改道（规则 A 通过时这一条自动成立，留着当交叉校验）
+ok(unusedPrefix.every((m) => prefixCases.includes(m) || singleCaseMethods.includes(m)),
   `未接项全部属于前缀改道（${unusedPrefix.length} 个）`)
 if (unusedPrefix.length) {
   // 按 provider 分组报，比一长串更好读，也顺便暴露「哪家整体没入口」
@@ -731,6 +792,30 @@ if (!PROBE) {
     console.log(`  有副作用、按设计跳过（${callable.skipped.length}）: ${callable.skipped.map((m) => `${m}[${SIDE_EFFECTS.get(m)}]`).join(', ') || '无'}`)
     console.log(`  探活耗时 ${Date.now() - t0} ms`)
   }
+}
+
+// ---- 6) 换 Key 分支与 REKEY_CHANNELS 必须一一对应 ------------------------------
+// `submitRekey` 是「三元链 + 末尾 else 兜底」的写法：将来往 `REKEY_CHANNELS` 加第六家
+// 而忘了加分支，请求会静默打到兜底那家（`modelscope.setApiKey`）—— 用户换 Key 换到
+// 别的账号上，还会以为成功了。这里直接对账「通道表的键」与「函数体里的 setApiKey 字面量」。
+//
+// 注意别把这条改成「用 CH[key].method 查表」：改成查表会与第 5 节「rpc 调用点必须
+// 字面量方法名」那条重复报红（实测红 2 条，比现在更严），但这条对账会解析不到任何
+// 字面量而退化成空比对 —— 两条一起看才是完整信号。
+{
+  const src = read(CONSOLE_JS)
+  const block = src.match(/const REKEY_CHANNELS = \{([\s\S]*?)\n\}/)
+  ok(!!block, '能找到 console.js 的 REKEY_CHANNELS 定义')
+  // 键名放宽到 `[a-z][a-z0-9]*`：将来加 `qwen3` / `gpt5` 这类带数字的 Key 型 provider 时，
+  // 两侧必须同时被解析出来，否则会一起静默漏检（正是这条要防的那类缺陷）。
+  const channelKeys = block ? [...block[1].matchAll(/^ {2}([a-z][a-z0-9]*): \{/gm)].map((m) => m[1]) : []
+  const fn = src.match(/async function submitRekey\([\s\S]*?\n\}/)
+  ok(!!fn, '能找到 console.js 的 submitRekey 函数')
+  const branchKeys = fn ? [...new Set([...fn[0].matchAll(/rpc\('([a-z][a-z0-9]*)\.setApiKey'/g)].map((m) => m[1]))] : []
+  const a = [...channelKeys].sort().join(', ')
+  const b = [...branchKeys].sort().join(', ')
+  ok(channelKeys.length > 0 && a === b,
+    `REKEY_CHANNELS 的键（${a || '空'}）与 submitRekey 的 setApiKey 分支（${b || '空'}）必须一一对应`)
 }
 
 console.log(failed === 0 ? `\n✓ RPC 口径一致：本体 ${methods.length} 个方法，控制台接 ${used.length} 个` : `\n✗ ${failed} 条失败`)

@@ -87,6 +87,51 @@ export function toGatewayModelIds(groups, effortViews) {
     }));
 }
 /**
+ * 逐个模型解析档位与窗口（一次 `resolveModelInfo` 同时取两者）。
+ *
+ * 容错口径与旧实现一致：单个模型解析失败只让它没有附加字段，不影响整份目录；
+ * 宿主没提供 `resolveModelInfo` 时返回两张空表。
+ */
+export async function collectGatewayModelDetails(llm, groups, onError) {
+    const effortViews = new Map();
+    const contextWindows = new Map();
+    const resolve = llm?.resolveModelInfo;
+    if (typeof resolve !== 'function')
+        return { effortViews, contextWindows };
+    await Promise.all(groups.flatMap(({ provider, models }) => models.map(async (model) => {
+        const key = toOpenAiModelId(provider, model.id);
+        try {
+            const info = await resolve.call(llm, provider, model.id);
+            const view = effortView(info?.reasoning?.efforts, info?.reasoning?.defaultEffort);
+            if (view !== undefined)
+                effortViews.set(key, view);
+            const window = info?.context?.contextWindow;
+            if (typeof window === 'number' && Number.isInteger(window) && window > 0) {
+                contextWindows.set(key, window);
+            }
+        }
+        catch (error) {
+            onError?.(provider, new Error(`${model.id} 的附加信息解析失败（该模型不带档位/窗口，目录本身照常返回）：`
+                + `${error instanceof Error ? error.message : String(error)}`));
+        }
+    })));
+    return { effortViews, contextWindows };
+}
+/** 把解析到的窗口合并进目录项（未解析到的不写，不猜）。 */
+export function applyGatewayContextWindows(groups, contextWindows) {
+    if (contextWindows.size === 0)
+        return [...groups];
+    return groups.map(({ provider, models }) => ({
+        provider,
+        models: models.map((model) => {
+            const window = contextWindows.get(toOpenAiModelId(provider, model.id));
+            return window === undefined
+                ? model
+                : { ...model, contextWindow: model.contextWindow ?? window };
+        }),
+    }));
+}
+/**
  * 逐个模型解析**档位视图**（key = `provider/model`）。
  *
  * ## 为什么要单独解析
@@ -104,25 +149,9 @@ export function toGatewayModelIds(groups, effortViews) {
  * 逐模型 catch：单个模型解析失败只是**它**没有档位字段，不影响整个目录。
  */
 export async function collectGatewayEffortViews(llm, groups, onError) {
-    const views = new Map();
-    const resolve = llm?.resolveModelInfo;
-    // 宿主不提供该能力时**静默返回空表**：档位是附加信息，拿不到就不发字段，
-    // 不能让整份目录跟着失败。
-    if (typeof resolve !== 'function')
-        return views;
-    await Promise.all(groups.flatMap(({ provider, models }) => models.map(async (model) => {
-        try {
-            const info = await resolve.call(llm, provider, model.id);
-            const view = effortView(info?.reasoning?.efforts, info?.reasoning?.defaultEffort);
-            if (view !== undefined)
-                views.set(toOpenAiModelId(provider, model.id), view);
-        }
-        catch (error) {
-            onError?.(provider, new Error(`${model.id} 的档位解析失败（该模型不带档位字段，目录本身照常返回）：`
-                + `${error instanceof Error ? error.message : String(error)}`));
-        }
-    })));
-    return views;
+    // 与窗口解析共用同一次逐模型 `resolveModelInfo`（见 GatewayModelDetails）。
+    const { effortViews } = await collectGatewayModelDetails(llm, groups, onError);
+    return effortViews;
 }
 /** 将 DSH 的 provider 分组目录转换为 OpenAI models 响应中的 data 项。 */
 export function toOpenAiModels(groups, effortViews) {
