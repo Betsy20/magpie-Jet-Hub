@@ -9,11 +9,27 @@
 //  3. 写入路径必须落回 .credentials.yaml —— 否则 refresh 出的新 token 只活在内存里，
 //     下次启动就退回旧 token，refresh_token 被消耗后彻底登不上。
 import { Service } from '@deepseek-ai/cordis'
-import { readFileSync, writeFileSync, copyFileSync, existsSync, renameSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, copyFileSync, existsSync, renameSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
 export const CRED_BASENAME = '.credentials.yaml'
+
+/**
+ * 凭据文件的「版本戳」：mtime（含毫秒）+ 字节数。
+ *
+ * 只用来判断「盘上那份还是不是我缓存的那份」，不承载任何业务语义。
+ * 取不到（文件不存在 / 没权限）返回 undefined —— 调用方据此**保留**缓存，
+ * 而不是把已读到的值当成失效。
+ */
+function stampOf(file) {
+  try {
+    const st = statSync(file)
+    return `${st.mtimeMs}:${st.size}`
+  } catch {
+    return undefined
+  }
+}
 
 // 同一进程内 set() 的并发序号（临时文件名用）
 let writeSeq = 0
@@ -876,12 +892,30 @@ export class FileCredentialProvider extends Service {
     this.file = base
     this._refs = undefined
     this._raw = undefined
+    this._stamp = undefined
   }
 
+  /**
+   * 读盘，按「文件戳」（mtime + size）失效缓存。
+   *
+   * ⚠️ 不能只填一次（2026-11-03 环境级审计实测的真缺陷，改动前在这条上翻过车）：
+   * 这份 `.credentials.yaml` 不止本进程写 —— 桌面版 DSH 与 magpie 插件是**两个进程**
+   * 共用同一个文件，任一方续期 token，另一方的缓存就成了旧值；用户手改文件、
+   * 跑 `scripts/import-backup.mjs` 同理。只填一次的表现是「新 token 永远读不到」，
+   * 非得重启才行 —— 而这里存的是 access_token / refresh_token 这类**一次性**凭据，
+   * 用旧值就是上游 401，且旧 refresh_token 可能已被另一个进程消耗掉、彻底作废。
+   * 改动前实测：外部改文件后再 resolve 仍返回旧值，新加的键返回 undefined。
+   *
+   * 每次 `statSync` 是微秒级，换掉整份文件的读+解析，划算。
+   * 戳取不到（文件被删/没权限）时保留旧缓存：删文件不该让运行中的请求瞬间全 500；
+   * 真正的读盘失败仍由下面的 `readFileSync` 抛出，错误语义不变。
+   */
   _load() {
-    if (this._refs !== undefined) return
+    const stamp = stampOf(this.file)
+    if (this._refs !== undefined && (stamp === undefined || stamp === this._stamp)) return
     this._raw = readFileSync(this.file, 'utf8')
     this._refs = parseRefs(this._raw)
+    this._stamp = stamp
   }
 
   async resolve(ref) {
@@ -928,9 +962,19 @@ export class FileCredentialProvider extends Service {
       // tmp 名字带自增序号：同一进程里两个并发 set（两家 provider 同时续期）不会撞同一个临时文件
       const tmp = `${this.file}.tmp-${process.pid}-${(writeSeq += 1)}`
       writeFileSync(tmp, next, 'utf8')
+      // ⚠️ 戳必须在替换**之前**从 `tmp` 上取（2026-11-03 一审实跑揪出来的真缺陷）：
+      // 若放在 `await renameInto` 之后取，中间隔着 `parseRefs(next)`（100KB ≈ 100µs），
+      // 另一进程恰好在这段窗口里写了文件，`_stamp` 记的就是**对方那份**的戳、
+      // `_refs` 却是我方内容 ⇒ 下次 `_load()` 判「戳没变」直接返回，外部那次写入
+      // 被永久顶掉，直到对方再写一次或重启。实测 500 次 set、486 个有效样本里
+      // 88 次（18%）落进该状态，构造出来后连续 5 次 `resolve` 全返回旧值。
+      // `renameSync` 搬的是同一个文件记录、不改 mtime/size，所以 tmp 的戳就是
+      // 替换后目标文件的戳；取戳早于替换 ⇒ 那个窗口不再存在。
+      const tmpStamp = stampOf(tmp)
       await renameInto(tmp, this.file) // 原子替换：崩溃不会留下半个文件
       this._refs = parseRefs(next)
       this._raw = next
+      this._stamp = tmpStamp
     })
     this.notifyUpdated?.(ref)
   }
@@ -946,9 +990,9 @@ export class FileCredentialProvider extends Service {
   async unset(ref) {
     const name = String(ref)
     // ⚠️ 判存在性必须读**文件**，不能用 `this._refs`（2026-10-30 实测真缺陷）。
-    // `_refs` 是进程内缓存、只在第一次 `_load()` 时填；而每个 provider 容器各有
-    // 一个 FileCredentialProvider 实例，A 实例写入的新 ref 对 B 实例的缓存不可见，
-    // 用户手改文件同理。缓存过期时这里会误判「ref 不存在」直接 return，
+    // `_refs` 只是进程内缓存：即便它现在会按文件戳失效（见 `_load`），拿到的也是
+    // 「读之前那一刻」的快照；而每个 provider 容器各一个 FileCredentialProvider
+    // 实例，A 实例写入的新 ref 对 B 实例的缓存不可见，用户手改文件、另一个进程写入同理。缓存过期时这里会误判「ref 不存在」直接 return，
     // 而调用方（`account-pool.js` 的 `removeAccount`、officeace/magicrew 的
     // 「判重命中后回收临时 ref」）指望 unset 清掉值 —— 漏掉就是永不清除的孤儿凭据。
     // 实测：文件里补一条 B 后调 unset('B')，缓存里没有 B ⇒ B 原样留在文件里。
@@ -964,9 +1008,12 @@ export class FileCredentialProvider extends Service {
       try { if (existsSync(this.file)) copyFileSync(this.file, `${this.file}.bak`) } catch { /* best effort */ }
       const tmp = `${this.file}.tmp-${process.pid}-${(writeSeq += 1)}`
       writeFileSync(tmp, next, 'utf8')
+      // 戳在替换前从 tmp 取 —— 理由见 `set()` 里那段注释（同一个竞态）。
+      const tmpStamp = stampOf(tmp)
       await renameInto(tmp, this.file)
       this._refs = parseRefs(next)
       this._raw = next
+      this._stamp = tmpStamp
     })
     this.notifyUpdated?.(ref)
   }

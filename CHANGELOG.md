@@ -11,6 +11,24 @@
 
 ## 1.0.0（未发布）
 
+- `fix(credentials)`: 凭据缓存改成**按文件戳失效**。`FileCredentialProvider._load()` 原来只在
+  第一次读盘、之后永不刷新 —— 桌面版 DSH 与 magpie 插件是**两个进程**共用同一份
+  `.credentials.yaml`，任一方续期 token，另一方的缓存就停在旧值；用户手改文件、
+  跑 `scripts/import-backup.mjs` 写进来的新 ref 同样看不见，非得重启才行。而这里存的是
+  access_token / refresh_token 这类**一次性**凭据，用旧值就是上游 401，旧 refresh_token
+  被前一个进程消耗后更是彻底作废。现在每次读之前比对 `mtime + size`，变了才重读
+  （一次 `statSync`，微秒级，换掉整份文件的读+解析）；文件被删时**保留**旧缓存不抛错
+  —— 删文件不等于「旧值失效」，不该让运行中的请求瞬间全 500，真正的读盘失败仍由
+  `readFileSync` 抛出，错误语义不变。`tests/t-cred-upsert.mjs` 新增 ㉚ 组 **12** 条断言
+  （外部改值 / 外部新增 ref / `describe` / `listRefs` / 跨实例可见 / 删文件保留缓存 /
+  文件重现后读新内容 / 等长改写），把缓存判据改回旧写法这 **9** 条立刻红；戳只比
+  `size` 不比 `mtime` 时**只有**「等长改写」那条红（加它之前那一版 582 项全绿 ——
+  也就是说缺了它就完全测不出来）。写路径（`set` / `unset`）
+  同步缓存时，戳必须在 `renameInto` **之前**从临时文件上取 —— 放在替换之后取，
+  会把「另一个进程那份新文件的戳」配到「本进程的旧内容」上，下次判「戳没变」
+  就永久返回旧值（一审实测：500 次并发 `set` 有 18% 落进该状态，构造出来后
+  连续 5 次 `resolve` 全返回旧值）。
+
 - `fix(security)`: 控制台服务 `src/hub-server.mjs` 收掉**通配 CORS**。此前每个响应都带
   `Access-Control-Allow-Origin: *`，等于把 `/api/jet-hub`（含各渠道 access_key_id /
   access_key_secret / refresh_token）开放给**任意网页**跨域读取；`/api/jet-hub`
