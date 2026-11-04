@@ -711,7 +711,7 @@ async function submitRekey(btn) {
   try {
     await busy(btn, async () => {
       // 方法名写字面量（tests/t-rpc-cover.mjs 按字面量数覆盖率，用变量拼会数不到）——
-      // 所以这里按家分支写两句字面量，而不是按 REKEY_CHANNELS 表取方法名。
+      // 所以这里逐家各写一行字面量，而不是按 REKEY_CHANNELS 表取方法名。
       const v = provider === 'qiniu'
         ? await rpc('qiniu.setApiKey', { accountId, apiKey })
         : provider === 'baizhi'

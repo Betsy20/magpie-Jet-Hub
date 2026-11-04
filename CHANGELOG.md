@@ -33,7 +33,8 @@
   （下面 `feat(console)` 补完 6 个后再到 65）。
 
 - `feat(console)`: 控制台补上新三家的 Key 型入口 —— `KEY_CHANNELS`（建号）与 `REKEY_CHANNELS`
-  （换 Key）各加三条，`submitRekey` 的按家分支跟着补成四路。控制台可调度方法数 **59 → 65**。
+  （换 Key）各加三条，`submitRekey` 的按家分支跟着从两路补成五路（qiniu / baizhi /
+  monkeycode / monkeycodeintl / modelscope）。控制台可调度方法数 **59 → 65**。
   仍缺的 3 个（`baizhi.startSession`、`monkeycode.setSession`、`monkeycodeintl.setSession`）是
   「给已有账号补 session cookie」的高级入口，控制台历来只做建号 / 换 Key 两类，本轮不做。
 

@@ -10,21 +10,33 @@
 //   - 只解析主 `switch (method)` → 65 —— **仍然偏低**：还有一类方法根本不走主
 //     switch，而是在它之前被 `handleMethod()` 按前缀改道接管（见下）。
 //
-// 所以本测试有两个来源，都从源码解析、不硬编码任何方法数：
+// 所以本测试有**三个**来源，都从源码解析。解析链本身不硬编码方法名（遍历源码按
+// 结构提取），但有几处是**有意**写死的，各自的自守强度不一样：
+//   - 第 3 节的总数常量 `EXPECTED_RPC_METHOD_COUNT` —— 涨落都会报红；
+//   - 三处点名断言：`baizhi.startSession`、`credits.permanentLock`、`loomy.permanentLock`；
+//   - DELEGATED + DROPPED 的具名交接表 —— 有两条反向锚点自守（`:495` 必须全存在、
+//     `:514` 必须全未接）；
+//   - `METHOD_SHAPE` 与 `SIDE_EFFECTS`（9 条会真的写盘 / 发上游请求的方法清单）；
+//   - 「前缀改道的 9 家」前缀数组 —— 这条**没有**反向锚点：它只能抓「列了不存在的前缀」
+//     或前缀拼错，抓不到「真前缀漏列」（实测删到 5 项、或只删 `'baizhi.'` 仍然全绿）。
+//     上游新增第 10 家前缀改道时，必须手动把它补进这个数组。
 //   A) 主 `switch (method)` 块里的 `case '<x>.<y>'` 标签；
 //   B) `handleMethod()` 里每个 `method.startsWith('<prefix>.')` → 对应的
-//      `handle*Rpc` 处理器所在文件里的 `case '<prefix>.<名字>'`。
-// 二者并集就是「本体实际可调度的方法」全集。
+//      `handle*Rpc` 处理器所在文件里的 `case '<prefix>.<名字>'`
+//      （处理器里也可能写裸名 `case '<名字>'`，按它服务的每个前缀各展开一份）；
+//   C) `handleMethod()` 里的**单方法改道** `if (method === '<x>.<y>')` —— 既不走主
+//      switch、也不带前缀，B 扫不到（当前唯一一个：`baizhi.startSession`）。
+// 三者并集才是「本体实际可调度的方法」全集；第 3 节另有总数锚点，上游加减方法时要同步。
 //
-// ⚠️ 量 B 时**不能**只读 jet-hub-rpc.js：那 5 个分支只写 `method.startsWith('opencode.')`，
+// ⚠️ 量 B 时**不能**只读 jet-hub-rpc.js：这些分支只写 `method.startsWith('opencode.')`，
 // 方法名在各自的 handler 文件里。而且前缀和文件名**不是**一一对应 —— `minimaxintl.`
 // 的 handler 也在 `minimax-rpc.js` 里，**`vendor/lib/minimaxintl-rpc.js` 根本不存在**。
 // 实测（2026-10-28，项目经理独立复算时踩到）：按前缀推文件名会算出「全集 76、
 // 控制台接 74」—— 推出来的文件读不到，minimaxintl 的 setProxy/testProxy 直接消失。
 //
-// ⇒ **别从前缀推文件名，按 import 映射找**。这里从 jet-hub-rpc.js:184 那句
+// ⇒ **别从前缀推文件名，按 import 映射找**。这里从 jet-hub-rpc.js:198 那句
 //    `import { handleMinimaxIntlRpc } from './minimax-rpc.js'` 反查真实文件名，
-//    再把改道分支（:2945 `if (method.startsWith('minimaxintl.'))`、:2946 调
+//    再把改道分支（:3430 `if (method.startsWith('minimaxintl.'))`、:3431 调
 //    `handleMinimaxIntlRpc`）和处理器对上。
 //
 // 另加一条**可调用性**断言：对每个方法真发一次空 payload，断言回包不含
@@ -101,7 +113,7 @@ ok(switchLine >= 0, `找到主 switch (method)（第 ${switchLine + 1} 行）`)
 
 const mainCases = []
 for (let i = switchLine + 1; i < rpcLines.length; i++) {
-  const m = rpcLines[i].match(/^(\s*)case '([A-Za-z]+\.[A-Za-z]+)'\s*:/)
+  const m = rpcLines[i].match(/^(\s*)case '([A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_-]*)'\s*:/)
   if (m) mainCases.push({ line: i + 1, method: m[2], hasBody: rpcLines[i].slice(m[0].length).trim() !== '' })
   if (/^\s{8,}default\s*:/.test(rpcLines[i])) break
 }
@@ -126,12 +138,12 @@ const singleMethods = []
 // 边界：只在 handleMethod 函数体里扫，即 [handleStart, switchLine)。
 for (let i = handleStart; i < switchLine; i++) {
   const line = rpcLines[i] ?? ''
-  const one = line.match(/method\s*===\s*'([A-Za-z]+)\.([A-Za-z]+)'/)
+  const one = line.match(/method\s*===\s*'([A-Za-z][A-Za-z0-9_-]*)\.([A-Za-z][A-Za-z0-9_-]*)'/)
   if (one) {
     singleMethods.push({ method: `${one[1]}.${one[2]}`, line: i + 1 })
     continue
   }
-  const m = line.match(/method\.startsWith\('([A-Za-z]+)\.'\)/)
+  const m = line.match(/method\.startsWith\('([A-Za-z][A-Za-z0-9_-]*)\.'\)/)
   if (!m) continue
   // 在随后几行里找它调用的处理器名
   let handler = null
@@ -185,12 +197,12 @@ for (const [handler, prefixList] of handlerPrefixes) {
   const qualified = []
   const bare = []
   for (const l of src) {
-    const full = l.match(/^\s*case '([A-Za-z]+\.[A-Za-z]+)'\s*:/)
+    const full = l.match(/^\s*case '([A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_-]*)'\s*:/)
     if (full) {
       qualified.push(full[1])
       continue
     }
-    const plain = l.match(/^\s*case '([A-Za-z]+)'\s*:/)
+    const plain = l.match(/^\s*case '([A-Za-z][A-Za-z0-9_-]*)'\s*:/)
     if (plain) bare.push(plain[1])
   }
   const found = []
@@ -241,7 +253,7 @@ ok(fallThrough.includes('credits.permanentLock'),
 // 本测试**不**对整份源码做 `includes("'<方法名>'")`（那是旧版做法，等于碰运气：
 // 名字一旦进了变量就数不到，而当时能数对只是因为名字恰好以字面量出现在旁边的
 // const 里 —— 巧合，不是判据）。现在逐个解析 `console.js` 里 `rpc(<实参>, …)` 的实参：
-//   - 实参是字面量          → 就是方法名（当前 73 处）
+//   - 实参是字面量          → 就是方法名（实测 57 处；这个数随控制台迭代变，别当契约）
 //   - 实参是标识符          → 回溯同文件的 const/let 绑定里的字面量（如 lockMethod）
 //   - 实参是 `<obj>.<field>` → 回溯对象字面量的该字段（如 KEY_CHANNELS[p].method）
 //   - 实参是**转发函数的形参** → 找该函数的全部调用点，取同位置的字面量实参
@@ -254,7 +266,15 @@ ok(fallThrough.includes('credits.permanentLock'),
 // 反向也收紧：`console.js` 里出现某方法名字面量但**没进任何 rpc() 调用点**（只用于
 // 比较、日志、i18n 文案）不算「已接」—— 这也是旧版整文件 grep 的漏洞之一。
 const consoleLines = linesOf(CONSOLE_JS)
-const METHOD_SHAPE = /^[A-Za-z][A-Za-z]*\.[A-Za-z][A-Za-z]*$/
+// ⚠️ `-` / `_` 放开是为了认 kebab_case 的方法名（如 `foo-bar.baz`）—— 今天 9 个前缀
+// 都是纯字母数字，但上游随时可能引入带连字符的 provider 名，收窄回去等于给以后的自己
+// 埋一个「新家接了却不计入」的静默漏计。代价：handler 文件里 kebab-case 的
+// **非 RPC 枚举 case**（如 `case 'already-claimed':`）也会被算成一个方法。
+// 今天 8 个 handler 文件里没有这种写法（真实例 claimed / already-claimed / inactive
+// / failed 都在 `jet-hub-rpc.js` 的 `computeClaimSummary()` 里、即 `:525`
+// `switch (outcome.kind)` 那组，不带点、不受影响）；将来若出现，
+// 总数锚点会报红 —— 那时该 case 应当在解析处显式排除，而不是把总数改大。
+const METHOD_SHAPE = /^[A-Za-z][A-Za-z0-9_-]*\.[A-Za-z][A-Za-z0-9_-]*$/
 const literalsIn = (line) => [...line.matchAll(/'([^'\\\n]{3,80})'|"([^"\\\n]{3,80})"/g)]
   .map((m) => m[1] ?? m[2])
   .filter((s) => METHOD_SHAPE.test(s))
@@ -516,15 +536,18 @@ if (unusedPrefix.length) {
 }
 
 // 反向锚点：Loomy 的永久锁定**不是**未接项。控制台经变量 `lockMethod` 调
-// `loomy.permanentLock`（console.js:563 的 const，三个调用点共用）；实例实测
+// `loomy.permanentLock`（console/console.js:1145 的 const，三个调用点共用）；实例实测
 // 回 `{provider:'loomy',locked:true}`（200）。它一旦被算成未接，说明调用从
 // 字面量常量变成了拼装/间接形式 —— 那正是上面第 4 节开头禁止的写法。
 ok(!unused.includes('loomy.permanentLock'),
   'loomy.permanentLock 已由控制台接通（经 lockMethod 变量，不是未接项）')
 
-// 前缀改道那 5 家：控制台要么接了几个、要么明确还缺几个 —— 但不能**整个忽略**
+// 前缀改道的 9 家：控制台要么接了几个、要么明确还缺几个 —— 但不能**整个忽略**
 // （一家都没有任何处置 = 这家在控制台里完全不存在）。
-for (const p of ['opencode.', 'gemini.', 'qoder.', 'minimaxintl.', 'modelscope.']) {
+for (const p of [
+  'opencode.', 'gemini.', 'qoder.', 'minimaxintl.', 'modelscope.',
+  'qiniu.', 'monkeycode.', 'monkeycodeintl.', 'baizhi.',
+]) {
   const missed = unused.filter((m) => m.startsWith(p))
   ok(missed.length > 0 || used.some((m) => m.startsWith(p)),
     `控制台对 ${p}* 有处置（接了 ${used.filter((m) => m.startsWith(p)).length} / 缺 ${missed.length}）`)
@@ -806,12 +829,12 @@ if (!PROBE) {
   const src = read(CONSOLE_JS)
   const block = src.match(/const REKEY_CHANNELS = \{([\s\S]*?)\n\}/)
   ok(!!block, '能找到 console.js 的 REKEY_CHANNELS 定义')
-  // 键名放宽到 `[a-z][a-z0-9]*`：将来加 `qwen3` / `gpt5` 这类带数字的 Key 型 provider 时，
-  // 两侧必须同时被解析出来，否则会一起静默漏检（正是这条要防的那类缺陷）。
-  const channelKeys = block ? [...block[1].matchAll(/^ {2}([a-z][a-z0-9]*): \{/gm)].map((m) => m[1]) : []
+  // 键名放宽到 `[a-z][a-z0-9_-]*`：`qwen3` / `gpt5` 这类带数字的、以及带连字符的
+  // Key 型 provider 名都要被两侧同时解析出来，否则会一起静默漏检（正是这条要防的缺陷）。
+  const channelKeys = block ? [...block[1].matchAll(/^ {2}([a-z][a-z0-9_-]*): \{/gm)].map((m) => m[1]) : []
   const fn = src.match(/async function submitRekey\([\s\S]*?\n\}/)
   ok(!!fn, '能找到 console.js 的 submitRekey 函数')
-  const branchKeys = fn ? [...new Set([...fn[0].matchAll(/rpc\('([a-z][a-z0-9]*)\.setApiKey'/g)].map((m) => m[1]))] : []
+  const branchKeys = fn ? [...new Set([...fn[0].matchAll(/rpc\('([a-z][a-z0-9_-]*)\.setApiKey'/g)].map((m) => m[1]))] : []
   const a = [...channelKeys].sort().join(', ')
   const b = [...branchKeys].sort().join(', ')
   ok(channelKeys.length > 0 && a === b,

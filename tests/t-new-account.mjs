@@ -968,7 +968,10 @@ console.log('\noauth 方法形状：')
       const expectProvs = [...new Set(fbIds.map((id) => `jet-hub-${id.split('/')[0]}`))]
       ok(expectProvs.length >= 20, `FALLBACK 应覆盖 20+ 家，实际 ${expectProvs.length}`)
       for (const [p, why] of SNAPSHOT_MISSING) {
-        ok(!snapProvs.has(p), `${p} 已经在快照里了，请删掉白名单条目（它写的原因是：${why}）`)
+        ok(
+          !snapProvs.has(p),
+          `${p} 应该仍然缺席（白名单原因：${why}）—— 若它已出现在快照里，就要删掉白名单这一条`,
+        )
       }
       const missProvs = expectProvs.filter((p) => !snapProvs.has(p) && !SNAPSHOT_MISSING.has(p))
       ok(missProvs.length === 0, `快照缺这些家且不在白名单：${missProvs.join(', ') || '无'}`)
