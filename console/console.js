@@ -58,6 +58,10 @@ function say(el, text, kind = '') {
   el = typeof el === 'string' ? $(el) : el
   if (!el) return
   el.textContent = text
+  // ⚠️ 这里会把元素原有的类**一起冲掉**（15 个调用目标里只有 `#gwCards`
+  // 带布局类 `.cards`）。错误态下它变成普通块级文案反而是对的 —— 一行读完。
+  // 但**成功**时 `loadGatewayCards()` 必须把 `className` 还原成 `cards`，
+  // 否则卡片网格再也回不来。
   el.className = `msg ${kind}`
 }
 
@@ -177,6 +181,9 @@ async function loadGatewayCards() {
           ['监听', `${g?.address?.host ?? '—'}:${g?.address?.port ?? '—'}`],
           ['最近错误', g?.lastError ?? '无'],
         ]
+    // 上一次失败时 `say()` 会往这里挂 `msg err`（红字），成功后必须清回去 ——
+    // 否则重试成功后卡片内容仍继承错误色，而且 `.msg` 的 12px 会压掉卡片自己的字号。
+    $('#gwCards').className = 'cards'
     $('#gwCards').innerHTML = rows
       .map(([k, v]) => `<div class="cardc"><span>${esc(k)}</span><b class="mono">${esc(v)}</b></div>`)
       .join('')
@@ -219,65 +226,214 @@ async function loadAutoCheckin(host) {
 
 let ACC = []
 
+/**
+ * 每个账号的积分读数，键是 accountId。
+ *
+ * 本体 `credits.balances` 一次返回**整家渠道所有账号**的余额（不是逐账号问），
+ * 所以这里按 provider 拉一次、摊到每张卡上。三个坑：
+ *  ① 有些渠道直接抛 `unsupported provider`（本机没登录过）—— 那不是错，是「没得查」；
+ *  ② 有些渠道**逐账号兜错**，单账号失败时把异常塞进该条的 `error` 字段，
+ *     其余账号照常返回（实测 workbuddy 20 个账号里只有几个是坏的）；
+ *  ③ 三个额度字段的语义**别弄反**（下面 `loadBalances` 的注释有详述）：
+ *     `total` 是可用合计，`expiringTotal` 才是「临期」，`expiredTotal` 是「已失效」。
+ *
+ * @type {Map<string, {total:number, long:number, temp:number, expired:number, error?:string}>}
+ */
+let BAL = new Map()
+
+/**
+ * 拉一家渠道下**所有账号**的积分余额，摊成 `accountId → 读数`。
+ *
+ * ⚠️ 三个坑（都踩过）：
+ *
+ * 1. **返回值是 `{ accounts: [...] }`**，不是裸数组。handler 在
+ *    `jet-hub-rpc.js:7336-7338` 把 `collectCreditBalances()` 的 `results`
+ *    （那个函数 `:1007` 确实 `return results`，是**收集器**）包成
+ *    `{ ok: true, value: { accounts: values, windowDays? } }`。
+ *    ⚠️ 按裸数组取会让循环体 0 次执行 ⇒ 每张卡都显示「—」，
+ *    而且**零测试覆盖**（29 个测试全绿也发现不了）。
+ * 2. **`expiredTotal` 不是「临期」**：它是「**已经失效、不可用**」的额度
+ *    （见 `credits.d.ts:331-336`），UI 该单独提示「另有 N 已失效」。
+ *    「临期」是另一个字段 `expiringTotal` —— 「`total` 中即将到期的额度」
+ *    （`credits.d.ts:337-375`，两者方向相反、互斥）。
+ * 3. **单账号失败不能连坐**：handler 是逐账号兜错的，某家查不到时 `balance` 为
+ *    `null` 且带 `error`，这时给「查不到」而不是 0（0 会被读成「真的没积分了」）。
+ * 4. **「有 balance + 有 error」= 兼顶旧读数**，不是成功。`jet-hub-rpc.js:905-925`
+ *    明写「兼顶读数（`stale: true`）照样回传，并带上 `error` 让 UI 标注『本次查询
+ *    失败，显示的是 HH:MM 的数据』」。⇒ 只在 `balance` 缺失时消费 `error`，
+ *    等于把**过期积分当实时值**展示，而且一句提示都没有。
+ *
+ * ## 为什么不复刻上游的三档分桶（永久 / 长期 / 临期）
+ *
+ * 上游那行是 `formatPoolSplitLine(packages, …)` 按**资源包名**分组算出来的
+ * （`client/jet-hub.js:4659` 的 `splitCreditsByExpiry` + `:7021` 的 `formatPoolSplitLine`），
+ * 要读 `packages[].deductionEndTime` / `expiringRemaining` /
+ * `isExclusivePool` / `normalizeWindowDays2` 一整套，60 行逻辑。
+ * 在浏览器里复制一份必然与本体分叉（`buddy-balance-rank.js` 的注释已经为
+ * 「同一语义两侧同判」打过补丁，那是给宿主用的，不是给这个页面的）。
+ * ⇒ 这里只展示**权威聚合值**：`total`，加上游明确下发的 `expiringTotal`（临期）
+ * 与 `expiredTotal`（已失效）。没下发就不编造。
+ *
+ * ⚠️ 因此「其余 = `total` - 临期」这一档**不能叫「长期」**：它把「永久」
+ * （服务端没给 `deductionEndTime` 的那部分）也算进去了。上游三档里
+ * 永久与长期是两个独立读数（`jet-hub.js:2907-2915` 的表格、`:4727-4741` 的
+ * `formatExpirySplitLine` 三个独立 `parts.push`）。给余数贴「长期」会**低估
+ * 最安全的那部分额度** —— 对一个积分看板是实质误导。所以文案写「其余」。
+ */
+async function loadBalances(provider, prefetched) {
+  BAL = new Map()
+  try {
+    // `prefetched` 是调用方已经拿到的同一份回包 —— 别为了刷卡片再发一次 RPC
+    // （同一个按钮点一下发两个 `credits.balances`，还可能出现两次结果不一致）。
+    const v = prefetched === undefined ? await rpc('credits.balances', { provider }) : prefetched
+    for (const row of Array.isArray(v?.accounts) ? v.accounts : []) {
+      const id = String(row?.accountId ?? '')
+      if (!id) continue
+      // 兼顶旧读数：`balance` 有值 + `error` 也有值（见上面第 4 条）。
+      const stale = typeof row?.error === 'string' && row.error !== '' ? row.error : null
+      const b = row?.balance
+      if (!b || typeof b !== 'object') {
+        BAL.set(id, { total: 0, long: null, temp: null, expired: 0, error: stale ?? '余额查询失败', stale: null })
+        continue
+      }
+      const total = Number(b.total) || 0
+      // 临期：**只有上游真的下发了正数才展示**。`expiringTotal` 是可选字段，
+      // 绝大多数渠道（CodeBuddy / AStudio / MiniMax …）压根没有 —— 这时显示
+      // 「临期 0」会让人误以为「确认没有快过期的」，而事实是「不知道」。
+      const rawTemp = Number(b.expiringTotal)
+      const temp = Number.isFinite(rawTemp) && rawTemp > 0 ? Math.min(rawTemp, total) : null
+      // 已失效：不可用额度，只用于「另有 N 已失效」的提示。
+      const expired = Math.max(0, Number(b.expiredTotal) || 0)
+      BAL.set(id, {
+        total,
+        temp,
+        expired,
+        // 「其余」= 永久 + 长期（不是「长期」，见上面注释）。
+        long: temp === null ? null : Math.max(0, total - temp),
+        error: null,
+        stale,
+      })
+    }
+  } catch (e) {
+    // `unsupported provider` 是「这家没得查」，不是错误；其余也降级成「—」，
+    // 不能让整张账号列表因为积分查不到就渲染不出来。
+    const msg = String(e?.message ?? e)
+    if (!/unsupported provider/i.test(msg)) console.warn('[console] 余额查询失败：', msg)
+  }
+}
+
 async function loadAccounts() {
   const provider = $('#accProvider').value
   if (!provider) return
   say('#accMsg', '读取中…')
   try {
-    ACC = (await rpc('account.list', { provider }))?.accounts ?? []
-    renderAccounts()
+    const list = (await rpc('account.list', { provider }))?.accounts ?? []
+    // 两次 await 之间用户可能已经切走 —— 守卫必须放在给 `ACC` 赋值**之前**，
+    // 否则旧渠道的账号会盖掉新渠道的，然后按新 provider 去渲染（指纹 / 代理字段全错）。
+    if ($('#accProvider').value !== provider) return
+    ACC = list
+    // 积分与账号一起拉：两张数据都回来了才渲染，避免卡片先出「—」再跳成数字。
+    await loadBalances(provider)
+    if ($('#accProvider').value !== provider) return
+    renderAccounts(provider)
     syncProxyButtons()
-    say('#accMsg', `${ACC.length} 个账号`, 'ok')
+    // 「查不到」与「旧数据」是两件事，别混成一个数：
+    // 查不到 = 这次没有任何读数；旧数据 = 有读数但可能是上一轮的。
+    const noBal = ACC.filter((a) => !BAL.has(a.id) || BAL.get(a.id)?.error).length
+    const staleBal = ACC.filter((a) => BAL.get(a.id)?.stale).length
+    const notes = [noBal ? `${noBal} 个查不到` : '', staleBal ? `${staleBal} 个是旧数据` : '']
+      .filter(Boolean)
+      .join('、')
+    say('#accMsg', notes ? `${ACC.length} 个账号（${notes}）` : `${ACC.length} 个账号`, 'ok')
   } catch (e) {
     say('#accMsg', String(e.message ?? e), 'err')
   }
 }
 
-function renderAccounts() {
-  const provider = $('#accProvider').value
+/** 卡片左上角那枚「拖动排序」把手（纯装饰，真正的排序走 ↑ / ↓ 按钮）。 */
+const GRIP_ICON =
+  '<svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor" aria-hidden="true">' +
+  '<circle cx="3" cy="2.5" r="1.15"/><circle cx="7" cy="2.5" r="1.15"/>' +
+  '<circle cx="3" cy="7" r="1.15"/><circle cx="7" cy="7" r="1.15"/>' +
+  '<circle cx="3" cy="11.5" r="1.15"/><circle cx="7" cy="11.5" r="1.15"/></svg>'
+
+/**
+ * @param {string} [provider] 渲染哪个渠道。默认读当前下拉框 —— 但**异步调用点
+ *   必须显式传**（await 期间用户可能已经切走，用新 provider 去配旧 `ACC` / `BAL`
+ *   会闪一帧全是「—」的卡）。
+ */
+function renderAccounts(provider = $('#accProvider').value) {
   const px = PROXY_CHANNELS[provider]
   const rekey = REKEY_CHANNELS[provider]
-  const rows = ACC.map((a, i) => {
+  const cards = ACC.map((a, i) => {
     const dead = a.refreshable === false && typeof a.expiresAt === 'number' && a.expiresAt < Date.now()
-    const status = a.enabled === false ? '<span class="pill off">停用</span>' : '<span class="pill on">启用</span>'
+    const on = a.enabled !== false
     // 代理值直接从 account.list 透传的池字段读（不需要额外的读端点）。
     // 四家的字段名不同，所以由 PROXY_CHANNELS[provider].field 决定读哪个。
     const proxyVal = px && typeof a[px.field] === 'string' ? a[px.field] : ''
-    const proxyCell = !px
-      ? '<td class="muted">—</td>'
-      : `<td class="mono">${proxyVal ? esc(proxyVal) : '<span class="muted">直连</span>'}</td>`
     // opencode 指纹代次：`account.list` 透传池字段 `opencodeFingerprintGeneration`，
     // 未设过就是 0（读的是同一个 normalizeOpencodeGeneration，见 pool:2883）。
     const gen = provider === 'opencode' ? Number(a.opencodeFingerprintGeneration ?? 0) : null
-    return `<tr>
-      <td>${esc(a.nickname ?? a.id)}<div class="muted mono">${esc(a.id)}</div>${
-        gen === null ? '' : `<div class="muted">指纹代次 ${gen}</div>`
-      }</td>
-      <td>${status}${dead ? ' <span class="pill warn">死号</span>' : ''}</td>
-      <td class="mono">${esc(fmtTime(a.expiresAt))}<div class="muted">${esc(relTime(a.expiresAt))}</div></td>
-      <td>${a.refreshable === false ? '<span class="pill off">否</span>' : '<span class="pill on">是</span>'}</td>
-      <td class="mono muted">${esc(a.credentialRef ?? '—')}</td>
-      ${proxyCell}
-      <td><div class="ops">
-        <button data-act="toggle" data-id="${esc(a.id)}">${a.enabled === false ? '启用' : '停用'}</button>
-        <button data-act="refresh" data-id="${esc(a.id)}">续期</button>
-        <button data-act="test" data-id="${esc(a.id)}">测试</button>
-        <button data-act="retest" data-id="${esc(a.id)}">复测</button>
-        <button data-act="reset" data-id="${esc(a.id)}">重置</button>
-        <button data-act="comp" data-id="${esc(a.id)}">补偿</button>
-        <button data-act="onboard" data-id="${esc(a.id)}">新人奖励</button>
-        ${px ? `<button data-act="proxy" data-id="${esc(a.id)}">代理</button>` : ''}
-        ${rekey ? `<button data-act="rekey" data-id="${esc(a.id)}">换 Key</button>` : ''}
-        ${provider === 'opencode' ? `<button data-act="rotfp" data-id="${esc(a.id)}">换指纹</button>` : ''}
-        <button data-act="up" data-id="${esc(a.id)}" ${i === 0 ? 'disabled' : ''}>↑</button>
-        <button data-act="down" data-id="${esc(a.id)}" ${i === ACC.length - 1 ? 'disabled' : ''}>↓</button>
-        <button data-act="del" data-id="${esc(a.id)}">删除</button>
-      </div></td>
-    </tr>`
+    const bal = BAL.get(a.id)
+    // 积分行：`5100 其余 3700 · 临期 1400`（上游控制台同款排版）。
+    // 上游没下发 `expiringTotal` 时**只显示合计**，不编造「临期 0」；
+    // 有已失效额度时再缀一句「另有 N 已失效」（上游 `jet-hub.js:7040` 同款）。
+    // 查不到时给「—」而不是 0 —— 0 会被读成「真的没积分了」。
+    // ⚠️ 这一档叫「其余」不叫「长期」：它是 `total - 临期`，把「永久」也算进去了
+    // （见 loadBalances 上方注释）。给余数贴「长期」会低估最安全的额度。
+    // ⚠️ `bal.stale` 是「兼顶旧读数」：RPC 层要求这种行必须标注，否则用户
+    // 看到的是过期积分却毫无提示（`jet-hub-rpc.js:905-925`）。
+    const creditDd = !bal
+      ? '<dd class="muted">—</dd>'
+      : bal.error
+        ? `<dd class="muted" title="${esc(bal.error)}">查不到（${esc(bal.error.slice(0, 18))}）</dd>`
+        : `<dd${bal.stale ? ` title="${esc(bal.stale)}"` : ''}><span class="creditTotal">${bal.total}</span>${
+            bal.temp === null
+              ? ''
+              : ` <span class="creditPoolPart">其余 ${bal.long} · 临期 <span class="creditExpire">${bal.temp}</span></span>`
+          }${bal.expired > 0 ? `<span class="creditExpired">另有 ${bal.expired} 已失效</span>` : ''}${
+            bal.stale ? '<span class="creditStale">旧</span>' : ''
+          }</dd>`
+    return `<article class="accountCard">
+      <div class="accountTop">
+        <span class="dragHandle" aria-hidden="true" title="用操作行的 ↑ ↓ 调整顺序">${GRIP_ICON}</span>
+        <span class="accountOrder">${i + 1}</span>
+        <span class="accountStatus" data-tone="${dead ? 'dead' : on ? 'on' : 'off'}"></span>
+        <span class="accountName" title="${esc(a.id)}">${esc(a.nickname ?? a.id)}</span>
+        ${dead ? '<span class="accountTag" data-tone="warn">死号</span>' : ''}
+        <span class="accountTag" data-tone="${on ? 'on' : 'off'}">${on ? '已启用' : '已停用'}</span>
+      </div>
+      <dl class="accountMeta">
+        <div class="metaRow"><dt>凭据</dt><dd class="mono">${esc(a.credentialRef ?? '—')}</dd></div>
+        <div class="metaRow"><dt>账号 id</dt><dd class="mono">${esc(a.id)}</dd></div>
+        <div class="metaRow"><dt>有效期</dt><dd>${esc(fmtTime(a.expiresAt))}<span class="relTime"> ${esc(relTime(a.expiresAt))}</span></dd></div>
+        <div class="metaRow"><dt>可续期</dt><dd data-tone="${a.refreshable === false ? 'off' : 'ok'}">${a.refreshable === false ? '否' : '是'}</dd></div>
+        <div class="metaRow"><dt>出口代理</dt><dd>${!px ? '—' : proxyVal ? esc(proxyVal) : '直连'}</dd></div>
+        <div class="metaRow"><dt>积分</dt>${creditDd}</div>
+        ${gen === null ? '' : `<div class="metaRow"><dt>指纹代次</dt><dd>${gen}</dd></div>`}
+        <div class="metaRow metaRow--actions">
+          <dt>操作</dt>
+          <dd class="accountActions">
+            <button data-act="toggle" data-id="${esc(a.id)}">${on ? '停用' : '启用'}</button>
+            <button data-act="refresh" data-id="${esc(a.id)}">续期</button>
+            <button data-act="test" data-id="${esc(a.id)}">测试</button>
+            <button data-act="retest" data-id="${esc(a.id)}">复测</button>
+            <button data-act="reset" data-id="${esc(a.id)}">重置</button>
+            <button data-act="comp" data-id="${esc(a.id)}">补偿</button>
+            <button data-act="onboard" data-id="${esc(a.id)}">新人奖励</button>
+            ${px ? `<button data-act="proxy" data-id="${esc(a.id)}">代理</button>` : ''}
+            ${rekey ? `<button data-act="rekey" data-id="${esc(a.id)}">换 Key</button>` : ''}
+            ${provider === 'opencode' ? `<button data-act="rotfp" data-id="${esc(a.id)}">换指纹</button>` : ''}
+            <button data-act="up" data-id="${esc(a.id)}" ${i === 0 ? 'disabled' : ''}>↑</button>
+            <button data-act="down" data-id="${esc(a.id)}" ${i === ACC.length - 1 ? 'disabled' : ''}>↓</button>
+            <button data-act="del" data-id="${esc(a.id)}">删除</button>
+          </dd>
+        </div>
+      </dl>
+    </article>`
   })
-  $('#accTable').innerHTML = `<thead><tr><th>账号</th><th>状态</th><th>到期</th><th>可续期</th><th>凭据 ref</th><th>出口代理</th><th>操作</th></tr></thead><tbody>${
-    rows.join('') || '<tr><td colspan="7" class="muted">这个 provider 下还没有账号</td></tr>'
-  }</tbody>`
+  $('#accList').innerHTML =
+    cards.join('') || '<div class="accountEmpty">这个 provider 下还没有账号</div>'
 }
 
 async function onAccAction(e) {
@@ -1061,7 +1217,7 @@ async function startLogin(provider) {
 /* ═══════════════════ 积分 ═══════════════════ */
 
 async function creditsStatus(btn) {
-  const provider = $('#credProvider').value
+  const provider = $('#accProvider').value
   try {
     await busy(btn, async () => {
       const v = await rpc('credits.status', { provider })
@@ -1074,12 +1230,17 @@ async function creditsStatus(btn) {
 }
 
 async function creditsBalances(btn) {
-  const provider = $('#credProvider').value
+  const provider = $('#accProvider').value
   try {
     await busy(btn, async () => {
       const v = await rpc('credits.balances', { provider })
       renderGeneric($('#credOut'), v)
       say('#credMsg', '已查询余额', 'ok')
+      // 卡片上的积分是同一份数据，不刷新会出现「上面还是旧数、下面已经是新数」。
+      // 直接把这份回包喂给 `loadBalances`，别再发一次同样的 RPC。
+      if ($('#accProvider').value !== provider) return
+      await loadBalances(provider, v)
+      renderAccounts(provider)
     })
   } catch (e) {
     say('#credMsg', String(e.message ?? e), 'err')
@@ -1087,7 +1248,7 @@ async function creditsBalances(btn) {
 }
 
 async function creditsBadge(btn) {
-  const provider = $('#credProvider').value
+  const provider = $('#accProvider').value
   try {
     await busy(btn, async () => {
       const v = await rpc('usage.badge', { provider })
@@ -1100,13 +1261,18 @@ async function creditsBadge(btn) {
 }
 
 async function creditsClaim(btn) {
-  const provider = $('#credProvider').value
+  const provider = $('#accProvider').value
   try {
     await busy(btn, async () => {
       const v = await rpc('credits.claimAll', { provider })
       renderGeneric($('#credOut'), v)
       const s = v?.summary
       say('#credMsg', s ? `领取 ${s.claimed} 个，+${s.totalCredit ?? 0}；已领 ${s.alreadyClaimed ?? 0}，失败 ${s.failed ?? 0}` : '已执行领取', 'ok')
+      // 领完卡片上的数字就过期了，重拉一次（也要重拉余额，不然还停在这轮之前）。
+      // 期间切了渠道就别渲染了 —— 新渠道的 `ACC` 还没拉，会闪一帧空列表。
+      if ($('#accProvider').value !== provider) return
+      await loadBalances(provider)
+      renderAccounts(provider)
     })
   } catch (e) {
     say('#credMsg', String(e.message ?? e), 'err')
@@ -1138,7 +1304,7 @@ async function creditsSpecial(btn, which) {
 /* --- 永久积分锁定 --- */
 
 async function lockAction(btn, mode) {
-  const provider = $('#credProvider').value
+  const provider = $('#accProvider').value
   // loomy 有一个历史端点名 `loomy.permanentLock`：本体侧与 `credits.permanentLock`
   // 是**同一个 case**，只是 provider 固定为 loomy、且忽略载荷里的 provider。
   // 走哪个名字行为完全一致（实测两者回包相同），这里用老名字把本体方法覆盖补满。
@@ -1358,12 +1524,16 @@ async function doImport(btn) {
       } catch {
         throw new Error('文件不是合法 JSON')
       }
+      // ⚠️ `passEl` 必须在 `if` **外面**取：下面导入成功后还要用它清口令。
+      // 原先它声明在 `if (parsed?.format === ENCRYPTED_FORMAT)` 块内，块外引用是
+      // `ReferenceError: passEl is not defined`，被外层 catch 吞掉后把「导入完成」
+      // 覆盖成一条报错 —— 导入其实成功了，用户却以为失败。
+      const passEl = $('#bkPass')
       // 加壳的备份先解密再往下走：口令留空就直说，别让它撞到 decrypt 里变成「口令不对」。
       if (parsed?.format === ENCRYPTED_FORMAT) {
         // 口令**不裁剪**：导出侧（vendor/lib/client/jet-hub.js）与 CLI 都按原样取，
         // 这里一 trim，首尾带空格的口令（复制粘贴时最常见）就解不开，而且只报
         // 「口令不对」，用户无从判断。空口令单独拦，不走解密。
-        const passEl = $('#bkPass')
         const pass = String(passEl?.value ?? '')
         if (pass === '') throw new Error('这份备份加了壳，先在「加密备份的口令」里填口令')
         parsed = await decryptBackup(parsed, pass)
@@ -1410,13 +1580,10 @@ function orderedProviders() {
 function fillProviderSelects() {
   const list = orderedProviders()
   const opts = list.map((p) => `<option value="${esc(p.id)}">${esc(p.id)}（${p.models?.length ?? 0}）</option>`).join('')
-  for (const sel of ['#accProvider', '#credProvider']) {
-    const el = $(sel)
-    el.innerHTML = opts
-  }
+  $('#accProvider').innerHTML = opts
   if (list.length) {
     const first = list.find((p) => (p.models?.length ?? 0) > 0) ?? list[0]
-    for (const sel of ['#accProvider', '#credProvider']) $(sel).value = first.id
+    $('#accProvider').value = first.id
   }
 }
 
@@ -1427,7 +1594,6 @@ const TAB_LOADERS = {
     loadSettings()
     badgeLoad()
   },
-  credits: () => loadAutoCheckin($('#acOut2')),
 }
 
 function wireTabs() {
@@ -1464,7 +1630,7 @@ async function boot() {
     syncProxyButtons()
     loadAccounts()
   })
-  $('#accTable').addEventListener('click', onAccAction)
+  $('#accList').addEventListener('click', onAccAction)
   $('#accRetestAll').addEventListener('click', (e) => accBulk(e.currentTarget, 'account.retestAll'))
   $('#accResetAll').addEventListener('click', (e) => accBulk(e.currentTarget, 'account.resetAll'))
   $('#accAnon').addEventListener('click', (e) => addAnonymousChannel(e.currentTarget))
@@ -1554,7 +1720,6 @@ async function boot() {
   $('#credClaim').addEventListener('click', (e) => creditsClaim(e.currentTarget))
   $('#credCline').addEventListener('click', (e) => creditsSpecial(e.currentTarget, 'cline'))
   $('#credOffice').addEventListener('click', (e) => creditsSpecial(e.currentTarget, 'office'))
-  $('#credProvider').addEventListener('change', () => ($('#credOut').innerHTML = ''))
   $('#acRun').addEventListener('click', async (e) => {
     // 本体没有「立即运行」这个 RPC —— 只有 enabled 开关与 dismiss。
     // 切到 enabled 时本体自己会跑今天的；所以这里用「关→开」触发一轮。

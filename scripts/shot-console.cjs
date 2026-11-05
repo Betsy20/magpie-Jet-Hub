@@ -242,8 +242,8 @@ async function main() {
       const wantProxy = !!PROXY_CHANNELS[${JSON.stringify(provider)}]
       const barBtnHidden = document.querySelector('#accProxy').hidden
       const anonHidden = document.querySelector('#accAnon').hidden
-      const hasCol = [...document.querySelectorAll('#accTable thead th')].some(th => th.textContent === '出口代理')
-      const rowProxyBtns = document.querySelectorAll('#accTable button[data-act="proxy"]').length
+      const hasCol = [...document.querySelectorAll('#accList .accountCard .metaRow dt')].some(th => th.textContent === '出口代理')
+      const rowProxyBtns = document.querySelectorAll('#accList button[data-act="proxy"]').length
       const out = { provider: ${JSON.stringify(provider)}, wantProxy, barBtnHidden, anonHidden, hasCol, rowProxyBtns }
       if (!wantProxy) return out
       openProxyModal(${JSON.stringify(provider)})
@@ -313,16 +313,16 @@ async function main() {
       // 换指纹只有 opencode 有 —— 别让用户在走不通的路上点。
       const out = {
         provider: ${JSON.stringify(provider)},
-        rekeyBtns: document.querySelectorAll('#accTable button[data-act="rekey"]').length,
-        rotfpBtns: document.querySelectorAll('#accTable button[data-act="rotfp"]').length,
+        rekeyBtns: document.querySelectorAll('#accList button[data-act="rekey"]').length,
+        rotfpBtns: document.querySelectorAll('#accList button[data-act="rotfp"]').length,
         wantsRekey: !!REKEY_CHANNELS[${JSON.stringify(provider)}],
         accCount: before,
-        genText: [...document.querySelectorAll('#accTable tbody tr td:first-child')].map(td => td.textContent).join(' '),
+        genText: [...document.querySelectorAll('#accList dt')].map(d => d.textContent).join(" "),
       }
       if (!out.wantsRekey) return out
       const first = ACC[0]
       if (!first) { out.noAccount = true; return out }
-      openRekeyModal(first.id)
+      openRekeyModal(first.id, ${JSON.stringify(provider)})
       out.opened = document.querySelector('#rkModal').hidden === false
       out.modalProvider = document.querySelector('#rkProvider').textContent
       out.accountId = document.querySelector('#rkAccountId').value
@@ -373,7 +373,7 @@ async function main() {
     const v = await rpc('opencode.rotateFingerprint', { accountId: acc.id })
     await loadAccounts()
     const after = Number(ACC.find(a => a.id === acc.id)?.opencodeFingerprintGeneration ?? 0)
-    const shown = [...document.querySelectorAll('#accTable tbody tr td:first-child')].map(td => td.textContent).join(' ')
+    const shown = [...document.querySelectorAll('#accList dt')].map(d => d.textContent).join(" ")
     return { accountId: acc.id, before, after, gen: v?.generation, projectId: v?.projectId, shownHasGen: /指纹代次/.test(shown) }
   })()`)
   console.log('[rotateFingerprint]', JSON.stringify(fp))

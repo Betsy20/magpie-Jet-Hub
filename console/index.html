@@ -9,158 +9,170 @@
 <body>
 <div id="boot" class="boot">正在连上插件本体…</div>
 
-<div id="app" class="app" hidden>
-  <aside class="rail">
+<div id="app" class="page" hidden>
+  <header class="header">
     <div class="brand">
       <span class="dot" id="health"></span>
       <span>Jet Hub</span>
       <small>控制台</small>
     </div>
-    <nav id="nav">
-      <button data-tab="overview" class="on">概览</button>
-      <button data-tab="accounts">账号</button>
-      <button data-tab="credits">积分</button>
-      <button data-tab="settings">设置</button>
-      <button data-tab="backup">备份</button>
-    </nav>
-    <div class="rail-foot">
-      <div id="gw" class="gw"></div>
-      <div class="hint">本页由插件本体的本地服务提供，不经 magpie 网关。</div>
+    <div class="headerActions">
+      <span class="gw" id="gw"></span>
     </div>
-  </aside>
+  </header>
 
-  <main class="main">
-    <!-- ══════════ 概览 ══════════ -->
-    <section id="tab-overview" class="tab on">
-      <h1>概览</h1>
-      <div class="cards" id="cards"></div>
-      <h2>网关</h2>
-      <div class="cards" id="gwCards"></div>
-      <h2>自动签到</h2>
-      <div id="acOut"></div>
-      <h2>本体带来的 provider</h2>
-      <div id="provList" class="chips"></div>
-      <h2>接入方式</h2>
-      <div class="code" id="gwCode"></div>
-    </section>
-
-    <!-- ══════════ 账号 ══════════ -->
-    <section id="tab-accounts" class="tab">
-      <h1>账号池 <span class="sub">登录 / 续期 / 换号 / 测试 / 重置</span>
-        <button id="accAdd" class="primary right">添加账号</button>
-      </h1>
-      <div class="bar">
-        <label>provider <select id="accProvider"></select></label>
-        <button id="accReload">刷新列表</button>
-        <button id="accRetestAll">全部复测</button>
-        <button id="accResetAll" class="warn">全部重置</button>
-        <!-- 匿名通道只有 opencode 有（本体 opencode.addAnonymous）；别的 provider 下隐藏 -->
-        <button id="accAnon" hidden>加匿名通道</button>
-        <!-- 出口代理只对四家可用（gemini / qoder / minimaxintl / opencode）；别的 provider 下隐藏 -->
-        <button id="accProxy" hidden>出口代理…</button>
-        <span id="accMsg" class="msg"></span>
+  <div class="layout">
+    <aside class="rail">
+      <div class="railGroup">
+        <div class="railGroupTitle">导航</div>
+        <nav id="nav">
+          <button data-tab="overview" class="on">
+            <span class="navIcon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.6"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.6"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.6"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.6"/></svg></span>
+            <span class="navLabel"><strong>概览</strong><small>状态 / 网关</small></span>
+          </button>
+          <button data-tab="accounts">
+            <span class="navIcon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="6.5" r="2.8"/><path d="M2.5 16.5c0-2.6 2.2-4.2 5-4.2s5 1.6 5 4.2"/><path d="M13.6 4.2a2.6 2.6 0 0 1 0 5"/><path d="M14.4 12.6c1.9.5 3.1 1.8 3.1 3.9"/></svg></span>
+            <span class="navLabel"><strong>账号</strong><small>登录 / 续期 / 积分</small></span>
+          </button>
+          <button data-tab="settings">
+            <span class="navIcon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.2h5.2M11.6 6.2h5.4M3 13.8h5.4M11.8 13.8H17"/><circle cx="10" cy="6.2" r="1.7"/><circle cx="10.2" cy="13.8" r="1.7"/></svg></span>
+            <span class="navLabel"><strong>设置</strong><small>开关 / 徽章 / 验证码</small></span>
+          </button>
+          <button data-tab="backup">
+            <span class="navIcon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v9"/><path d="M6.6 8.6 10 12l3.4-3.4"/><path d="M3.5 13.6v1.9a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-1.9"/></svg></span>
+            <span class="navLabel"><strong>备份</strong><small>导出 / 导入</small></span>
+          </button>
+        </nav>
       </div>
-      <div class="tablewrap"><table id="accTable"></table></div>
-      <div class="bar">
-        <label>buddy 补偿 <input id="accCompId" placeholder="选一个 buddy 账号后自动填入" class="grow"></label>
-        <button id="accCompStatus">查补偿</button>
-        <button id="accCompClaim" class="primary">领取补偿</button>
-        <span id="accCompMsg" class="msg"></span>
-      </div>
-      <div id="accDetail"></div>
-    </section>
 
-    <!-- ══════════ 积分 ══════════ -->
-    <section id="tab-credits" class="tab">
-      <h1>积分 <span class="sub">状态 / 余额 / 领取 / 额度 / 账本</span></h1>
-      <div class="bar">
-        <label>provider <select id="credProvider"></select></label>
-        <button id="credLoad">查状态</button>
-        <button id="credBalances">查余额</button>
-        <button id="credBadge">查徽章</button>
-        <button id="credClaim" class="primary">全部领取</button>
-        <span id="credMsg" class="msg"></span>
-      </div>
-      <div id="credOut"></div>
-      <div class="row2">
-        <div>
-          <h2>每日签到 <span class="sub">本体的自动签到</span></h2>
-          <div class="bar">
-            <button id="acRun">运行一次</button>
-            <button id="acDismiss">清掉提示</button>
-            <span id="acMsg" class="msg"></span>
-          </div>
-          <div id="acOut2"></div>
-        </div>
-        <div>
-          <h2>专项额度</h2>
-          <div class="bar">
-            <button id="credCline">Cline 额度</button>
-            <button id="credOffice">OfficeAce 状态</button>
-            <button id="credClineLog">Cline 请求流水</button>
-            <span id="credMsg2" class="msg"></span>
-          </div>
-          <div id="credOut2"></div>
-
-          <h2>永久积分锁定 <span class="sub">锁住后只烧永久积分，不动临期额度</span></h2>
-          <div class="bar">
-            <button id="lockLoad">查状态</button>
-            <button id="lockOn">锁定</button>
-            <button id="lockOff">解除</button>
-            <span id="lockMsg" class="msg"></span>
-          </div>
-          <div id="lockOut"></div>
+      <div class="railGroup">
+        <div class="railGroupTitle">说明</div>
+        <div class="rail-foot">
+          <div class="hint">本页由插件本体的本地服务提供，不经 magpie 网关。</div>
         </div>
       </div>
-    </section>
+    </aside>
 
-    <!-- ══════════ 设置 ══════════ -->
-    <section id="tab-settings" class="tab">
-      <h1>设置</h1>
-      <div class="rows">
-        <div class="row"><div><b>渠道原生搜索</b><p>让上游自己做联网检索（不是 magpie 的 web_search）。</p></div><label class="sw"><input type="checkbox" id="setSearch"><i></i></label></div>
-        <div class="row"><div><b>面板入口</b><p>在 DSH 里这个面板挂在侧栏还是设置页。</p></div><select id="setPanel"><option value="sidebar">sidebar</option><option value="settings">settings</option></select></div>
-        <div class="row"><div><b>ZCode 会话负载均衡</b><p>同一账号今日负载达阈值后沉底、正在跑的会话迁移一次。关掉则回到「手动顺序首个可用」。只影响 ZCode。</p></div><label class="sw"><input type="checkbox" id="setSession"><i></i></label></div>
-        <div class="row"><div><b>MiniMax XFF</b><p>发给 MiniMax 的 X-Forwarded-For，空表示不伪造。</p></div><input id="setXff" class="grow"></div>
-      </div>
-      <div id="setMsg" class="msg"></div>
-      <h2>徽章偏好</h2>
-      <p class="hint">模型选择器旁那枚徽标折叠时只显示一个读数。这里决定先显示哪个：有订阅读数就显示订阅，否则显示积分。</p>
-      <div class="bar">
-        <select id="badgePref">
-          <option value="auto">auto（有订阅显示订阅，否则积分）</option>
-          <option value="subscription">subscription（优先订阅）</option>
-          <option value="credits">credits（只看积分，套餐判定误判时的兜底）</option>
-        </select>
-        <button id="badgeSave">保存</button>
-        <span id="badgeMsg" class="msg"></span>
-      </div>
-      <h2>验证码</h2>
-      <div class="bar">
-        <button id="capDemand">查是否需要</button>
-        <button id="capCarrier">取载体页地址</button>
-        <button id="capContribute">上报已手动完成</button>
-        <span id="capMsg" class="msg"></span>
-      </div>
-      <div id="capOut"></div>
-    </section>
+    <main class="main">
+      <!-- ══════════ 概览 ══════════ -->
+      <section id="tab-overview" class="tab on">
+        <div class="panelHead"><h1>概览</h1></div>
+        <div class="cards" id="cards"></div>
+        <h2>网关</h2>
+        <div class="cards" id="gwCards"></div>
+        <h2>每日签到 <span class="sub">本体的自动签到</span></h2>
+        <div class="bar">
+          <button id="acRun">运行一次</button>
+          <button id="acDismiss">清掉提示</button>
+          <span id="acMsg" class="msg"></span>
+        </div>
+        <div id="acOut"></div>
+        <div id="acOut2"></div>
+        <h2>专项额度</h2>
+        <div class="bar">
+          <button id="credCline">Cline 额度</button>
+          <button id="credOffice">OfficeAce 状态</button>
+          <button id="credClineLog">Cline 请求流水</button>
+          <span id="credMsg2" class="msg"></span>
+        </div>
+        <div id="credOut2"></div>
+        <h2>本体带来的 provider</h2>
+        <div id="provList" class="chips"></div>
+        <h2>接入方式</h2>
+        <div class="code" id="gwCode"></div>
+      </section>
 
-    <!-- ══════════ 备份 ══════════ -->
-    <section id="tab-backup" class="tab">
-      <h1>备份 <span class="sub">账号池 + 凭据，可导出 / 导入</span></h1>
-      <div class="cards" id="bkCards"></div>
-      <div class="bar">
-        <button id="bkExport" class="primary">导出备份（下载 JSON）</button>
-        <label class="file">选择备份文件<input type="file" id="bkFile" accept="application/json,.json"></label>
-        <input type="password" id="bkPass" aria-label="加密备份的口令" placeholder="加密备份的口令（不加壳的留空）" autocomplete="off" spellcheck="false">
-        <select id="bkMode"><option value="merge">合并（merge）</option><option value="replace">覆盖（replace）</option></select>
-        <button id="bkImport">导入</button>
-        <span id="bkMsg" class="msg"></span>
-      </div>
-      <div class="hint">覆盖（replace）只换账号池与永久锁定表：备份里的模型黑名单一律不写回，本机现有黑名单保持不变。要连黑名单一起还原，用命令行的 <code>--keep-disabled</code>。</div>
-      <div id="bkOut"></div>
-    </section>
-  </main>
+      <!-- ══════════ 账号 ══════════ -->
+      <section id="tab-accounts" class="tab">
+        <div class="panelHead">
+          <h1>账号池 <span class="sub">登录 / 续期 / 换号 / 测试 / 重置</span></h1>
+          <button id="accAdd" class="primary right">添加账号</button>
+        </div>
+        <div class="bar">
+          <label>provider <select id="accProvider"></select></label>
+          <button id="accReload">刷新列表</button>
+          <button id="accRetestAll">全部复测</button>
+          <button id="accResetAll" class="warn">全部重置</button>
+          <!-- 匿名通道只有 opencode 有（本体 opencode.addAnonymous）；别的 provider 下隐藏 -->
+          <button id="accAnon" hidden>加匿名通道</button>
+          <!-- 出口代理只对四家可用（gemini / qoder / minimaxintl / opencode）；别的 provider 下隐藏 -->
+          <button id="accProxy" hidden>出口代理…</button>
+          <span id="accMsg" class="msg"></span>
+        </div>
+        <div class="bar">
+          <button id="credLoad">查状态</button>
+          <button id="credBalances">查余额</button>
+          <button id="credBadge">查徽章</button>
+          <button id="credClaim" class="primary">全部领取</button>
+          <span class="barSep"></span>
+          <button id="lockLoad">查锁定</button>
+          <button id="lockOn">锁定永久积分</button>
+          <button id="lockOff">解除</button>
+          <span id="credMsg" class="msg"></span>
+          <span id="lockMsg" class="msg"></span>
+        </div>
+        <div id="credOut"></div>
+        <div id="lockOut"></div>
+        <div id="accList" class="accountList"></div>
+        <div class="bar">
+          <label>buddy 补偿 <input id="accCompId" placeholder="选一个 buddy 账号后自动填入" class="grow"></label>
+          <button id="accCompStatus">查补偿</button>
+          <button id="accCompClaim" class="primary">领取补偿</button>
+          <span id="accCompMsg" class="msg"></span>
+        </div>
+        <div id="accDetail"></div>
+      </section>
+
+      <!-- ══════════ 设置 ══════════ -->
+      <section id="tab-settings" class="tab">
+        <div class="panelHead"><h1>设置</h1></div>
+        <div class="rows">
+          <div class="row"><div><b>渠道原生搜索</b><p>让上游自己做联网检索（不是 magpie 的 web_search）。</p></div><label class="sw"><input type="checkbox" id="setSearch"><i></i></label></div>
+          <div class="row"><div><b>面板入口</b><p>在 DSH 里这个面板挂在侧栏还是设置页。</p></div><select id="setPanel"><option value="sidebar">sidebar</option><option value="settings">settings</option></select></div>
+          <div class="row"><div><b>ZCode 会话负载均衡</b><p>同一账号今日负载达阈值后沉底、正在跑的会话迁移一次。关掉则回到「手动顺序首个可用」。只影响 ZCode。</p></div><label class="sw"><input type="checkbox" id="setSession"><i></i></label></div>
+          <div class="row"><div><b>MiniMax XFF</b><p>发给 MiniMax 的 X-Forwarded-For，空表示不伪造。</p></div><input id="setXff" class="grow"></div>
+        </div>
+        <div id="setMsg" class="msg"></div>
+        <h2>徽章偏好</h2>
+        <p class="hint">模型选择器旁那枚徽标折叠时只显示一个读数。这里决定先显示哪个：有订阅读数就显示订阅，否则显示积分。</p>
+        <div class="bar">
+          <select id="badgePref">
+            <option value="auto">auto（有订阅显示订阅，否则积分）</option>
+            <option value="subscription">subscription（优先订阅）</option>
+            <option value="credits">credits（只看积分，套餐判定误判时的兜底）</option>
+          </select>
+          <button id="badgeSave">保存</button>
+          <span id="badgeMsg" class="msg"></span>
+        </div>
+        <h2>验证码</h2>
+        <div class="bar">
+          <button id="capDemand">查是否需要</button>
+          <button id="capCarrier">取载体页地址</button>
+          <button id="capContribute">上报已手动完成</button>
+          <span id="capMsg" class="msg"></span>
+        </div>
+        <div id="capOut"></div>
+      </section>
+
+      <!-- ══════════ 备份 ══════════ -->
+      <section id="tab-backup" class="tab">
+        <div class="panelHead">
+          <h1>备份 <span class="sub">账号池 + 凭据，可导出 / 导入</span></h1>
+        </div>
+        <div class="cards" id="bkCards"></div>
+        <div class="bar">
+          <button id="bkExport" class="primary">导出备份（下载 JSON）</button>
+          <label>选择备份文件<input type="file" id="bkFile" accept="application/json,.json"></label>
+          <input type="password" id="bkPass" aria-label="加密备份的口令" placeholder="加密备份的口令（不加壳的留空）" autocomplete="off" spellcheck="false">
+          <select id="bkMode"><option value="merge">合并（merge）</option><option value="replace">覆盖（replace）</option></select>
+          <button id="bkImport">导入</button>
+          <span id="bkMsg" class="msg"></span>
+        </div>
+        <div class="hint">覆盖（replace）只换账号池与永久锁定表：备份里的模型黑名单一律不写回，本机现有黑名单保持不变。要连黑名单一起还原，用命令行的 <code>--keep-disabled</code>。</div>
+        <div id="bkOut"></div>
+      </section>
+    </main>
+  </div>
 </div>
 
 <!-- ══════════ 登录流程 ══════════ -->

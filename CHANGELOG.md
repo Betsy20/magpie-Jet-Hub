@@ -11,6 +11,37 @@
 
 ## 1.0.0（未发布）
 
+- `feat(console)`: 控制台换成**上游同款视觉语言**。颜色、圆角、阴影、字号全部改取
+  `vendor/lib/client/jet-hub.js` 里的 `--dsw-alias-*` token（品牌 `#1677ff`、卡片 14px 圆角、
+  `0 2px 8px rgb(31 35 41/3%)` 阴影），左栏从文字导航换成 48px 高的**图标 + 名称 + 副标题**分组按钮。
+  账号标签的结构性改动最大：七列表格换成**卡片流**，每张卡把凭据 ref / 有效期 / 可续期 / 出口代理 /
+  积分收在一处，操作按钮贴在「操作」行最右（`grid-template-columns: 52px minmax(0,1fr)`），
+  容器窄于 420px 时自动落到「操作」标签下方换行。**「积分」不再是独立标签** —— 积分是账号的属性，
+  现在摊到每张账号卡上（`credits.balances` 一次拉整家渠道、按 accountId 摊开，四个坑都处理了：
+  渠道 `unsupported provider` 降级成「—」、单账号 `error` 原样展示、
+  「有 balance + 有 error」是**兼顶旧读数**（标一个「旧」badge，别把过期积分当实时值）、
+  三个额度字段别弄反 ——「临期」是 `expiringTotal`（没下发就只显示合计，不编造「临期 0」），
+  `expiredTotal` 是「已失效」另起一句「另有 N 已失效」；余数那档叫「其余」不叫「长期」，
+  因为它是 `total - 临期`、把「永久」也算进去了）；
+  原标签里的批量操作（查状态 / 查余额 / 查徽章 / 全部领取 / 永久锁定）挪到账号页第二行工具栏，
+  每日签到与专项额度挪到概览。标签数 **5 → 4**，功能与 ID 契约一个没丢。
+  > 几处**刻意偏离**上游，都是为了过 WCAG：① 正文灰 `--fg3` 从 `#8f959e` 压到 `#7c838e`
+  > （3.02:1 → 3.82:1）；② 橙色小字用 `--orange-ink`（亮 `#92400e` 对白底 7.09:1、
+  > 深 `#fbbf24` 对深底 10.63:1），标签底色写死 `rgb(180 83 9 / 12%)`；
+  > ③ `.accountTag[data-tone=warn]` 亮 `#92400e` / 深 `#fbbf24`，
+  > `[data-tone=off]` 用 `--fg2`（`--fg3` 只有 3.42:1）；④ 状态圆点 off 态用 `--fg3`
+  > （`--fg4` 只有 2.64:1，非文本 UI 要 3:1）；
+  > ⑤ 补 `color-scheme: light dark`，否则深色模式下原生 `<select>` / 滚动条还是亮的。
+
+- `fix(console)`: 修「导入备份成功却报错」。`doImport()` 里的 `const passEl = $('#bkPass')`
+  声明在 `if (parsed?.format === ENCRYPTED_FORMAT) {…}` 块内，块外引用是
+  `ReferenceError: passEl is not defined`，被外层 `catch` 吞掉后把「导入完成」覆盖成一条报错。
+
+- `test(console)`: 新增 `tests/t-console-credits.mjs`（31 条断言）。回包形状的**判据取自
+  `vendor/lib/jet-hub-rpc.js` 的 handler 源码**，不自己写 `{accounts:[…]}` 字面量 ——
+  否则测试和实现会一起错（这个坑真踩过：按裸数组取时循环体 0 次执行、每张卡显示「—」，
+  而当时 29 个测试全绿）。含「裸数组形状必须摊出 0 条」的回归锚点。
+
 - `feat(vendor)`: 同步上游到 `fddb875`（自上次 pin `6fa74723` 起 **110 个提交**、263 个文件）。
   `vendor/lib` 1058 → **1130** 文件，`docs/vendor.md` 的 pin / 文件数 / 逐字节一致数（1124）一并更新。
   本地补丁从 **5 类降到 4 类** —— `lib/jet-hub-rpc.js` 的 `product.id` 判空守卫**退役**：

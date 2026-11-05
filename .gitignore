@@ -14,3 +14,10 @@ node_modules/
 .mut-*
 _p-*.mjs
 _probe-*.mjs
+
+# 设计探索产物（2026-11-05 改控制台 UI 时产出）：三个方向页 + 截图 + 对比页。
+# 它们是给人看的草稿，不是运行时代码，`git add -A` 会把 ~1 MB 的 PNG 和
+# 55 万字节的对比页一起塞进来。要留档就单独建分支。
+/explore/
+/shots/
+/style-explorer.html
