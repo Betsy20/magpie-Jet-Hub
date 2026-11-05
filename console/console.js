@@ -419,7 +419,7 @@ function renderAccounts(provider = $('#accProvider').value) {
             <button data-act="test" data-id="${esc(a.id)}">测试</button>
             <button data-act="retest" data-id="${esc(a.id)}">复测</button>
             <button data-act="reset" data-id="${esc(a.id)}">重置</button>
-            <button data-act="comp" data-id="${esc(a.id)}">补偿</button>
+            ${provider === 'buddy' ? `<button data-act="comp" data-id="${esc(a.id)}">补偿</button>` : ''}
             <button data-act="onboard" data-id="${esc(a.id)}">新人奖励</button>
             ${px ? `<button data-act="proxy" data-id="${esc(a.id)}">代理</button>` : ''}
             ${rekey ? `<button data-act="rekey" data-id="${esc(a.id)}">换 Key</button>` : ''}
@@ -442,6 +442,9 @@ async function onAccAction(e) {
   const provider = $('#accProvider').value
   const id = btn.dataset.id
   const act = btn.dataset.act
+  // 有些动作要说一句话，但下面 `await loadAccounts()` 会把 `#accMsg` 覆写成
+  // 「N 个账号」。所以先把话存起来，等列表刷完再说（`test` / `retest` / `comp` 在用）。
+  let flash = null
   try {
     await busy(btn, async () => {
       if (act === 'toggle') {
@@ -453,22 +456,43 @@ async function onAccAction(e) {
       } else if (act === 'test') {
         const v = await rpc('account.test', { accountId: id })
         renderGeneric($('#accDetail'), v)
-        say('#accMsg', v?.ok === true ? '测试通过' : `测试失败：${v?.message ?? '见下方'}`, v?.ok === true ? 'ok' : 'err')
+        flash = { text: v?.ok === true ? '测试通过' : `测试失败：${v?.message ?? '见下方'}`, kind: v?.ok === true ? 'ok' : 'err' }
         return
       } else if (act === 'retest') {
         const v = await rpc('account.retest', { accountId: id })
         renderGeneric($('#accDetail'), v)
-        say('#accMsg', `复测 ${v?.accounts?.[0]?.tested ?? 0} 个模型，清掉 ${v?.clearedCount ?? 0} 个限流`, 'ok')
+        flash = { text: `复测 ${v?.accounts?.[0]?.tested ?? 0} 个模型，清掉 ${v?.clearedCount ?? 0} 个限流`, kind: 'ok' }
         return
       } else if (act === 'reset') {
         const v = await rpc('account.reset', { accountId: id })
         renderGeneric($('#accDetail'), v)
       } else if (act === 'comp') {
-        // buddy.compensationStatus 只认 provider === 'buddy'，且要 accountId
-        const v = await rpc('buddy.compensationStatus', { provider: 'buddy', accountId: id })
-        renderGeneric($('#accDetail'), v)
-        const box = $('#accCompId')
-        if (box) box.value = id
+        // 补偿是**一次性限时活动**（`end_time` 到期即作废），点一次按钮就把「查 + 领」走完。
+        // 别再让用户去页脚输入框里点第二次 —— 卡片上本来就带着 accountId。
+        // 和 `onboard`（新人奖励）同一个模式：先查状态，可领才领。
+        let s
+        try {
+          s = await rpc('buddy.compensationStatus', { provider: 'buddy', accountId: id })
+        } catch (e) {
+          // 活动没开 / 已过期时上游直接拒（业务码 10001）。这是可预期的结论，不是异常，
+          // 但也别吞掉 —— 原文照给用户看，他才知道为什么点不动。
+          flash = { text: String(e.message ?? e), kind: 'err' }
+          return
+        }
+        renderGeneric($('#accDetail'), s)
+        if (s?.claimed === true) {
+          flash = { text: '这个账号的补偿已经领过了', kind: 'ok' }
+          return
+        }
+        if (s?.active !== true) {
+          flash = { text: '补偿活动未开启或已过期', kind: 'err' }
+          return
+        }
+        await rpc('buddy.claimCompensation', { provider: 'buddy', accountId: id })
+        // 领完再查一次：`claimCompensation` 只回空对象，数字得从 status 拿。
+        const after = await rpc('buddy.compensationStatus', { provider: 'buddy', accountId: id })
+        renderGeneric($('#accDetail'), after)
+        flash = { text: after?.creditNum ? `补偿已领取：${after.creditNum} 积分` : '补偿已领取', kind: 'ok' }
         return
       } else if (act === 'onboard') {
         // onboarding.status / claim 都要 accountId（本体在守卫之后才解析凭据）
@@ -503,6 +527,7 @@ async function onAccAction(e) {
       }
     })
     await loadAccounts()
+    if (flash) say('#accMsg', flash.text, flash.kind)
   } catch (err) {
     say('#accMsg', String(err.message ?? err), 'err')
   }
@@ -520,28 +545,6 @@ async function accBulk(btn, method) {
     await loadAccounts()
   } catch (e) {
     say('#accMsg', String(e.message ?? e), 'err')
-  }
-}
-
-/* --- buddy 补偿（只对 provider==='buddy' 生效，且必须带 accountId） --- */
-
-async function compAction(btn, which) {
-  const accountId = ($('#accCompId').value ?? '').trim()
-  if (!accountId) {
-    say('#accCompMsg', '先填 buddy 账号 id（或在账号表里点「补偿」自动填入）', 'err')
-    return
-  }
-  try {
-    await busy(btn, async () => {
-      const v =
-        which === 'status'
-          ? await rpc('buddy.compensationStatus', { provider: 'buddy', accountId })
-          : await rpc('buddy.claimCompensation', { provider: 'buddy', accountId })
-      renderGeneric($('#accDetail'), v)
-      say('#accCompMsg', which === 'status' ? '已查询' : '已尝试领取', 'ok')
-    })
-  } catch (e) {
-    say('#accCompMsg', String(e.message ?? e), 'err')
   }
 }
 
@@ -1801,10 +1804,6 @@ async function boot() {
   $('#lockLoad').addEventListener('click', (e) => lockAction(e.currentTarget, 'load'))
   $('#lockOn').addEventListener('click', (e) => lockAction(e.currentTarget, 'on'))
   $('#lockOff').addEventListener('click', (e) => lockAction(e.currentTarget, 'off'))
-
-  // buddy 补偿
-  $('#accCompStatus').addEventListener('click', (e) => compAction(e.currentTarget, 'status'))
-  $('#accCompClaim').addEventListener('click', (e) => compAction(e.currentTarget, 'claim'))
 
   // 供应商：控制台不再提供 —— magpie 自己的「Providers」页就是那个界面
   // （启用 / 停用、拖拽排序、看模型数与账号数）。本体的 provider.setOrder 只是
