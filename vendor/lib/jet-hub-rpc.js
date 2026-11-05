@@ -7830,64 +7830,10 @@ function registerJetHubEndpoints(ctx, pool, auths, modelAdapters) {
                 // 同单条端点：目录必须在写入**之前**读（关闭方向会让 `listModels()`
                 // 过滤掉这些 id）；黑名单由 `readableCatalogIds` 在 `await` 之后自取。
                 const known = await readableCatalogIds(ctx, pool, modelAdapters, req.provider);
-                if (req.disabled) {
-                    // ⚠️⚠️ 本仓改动（2026-11-05）：关闭方向补「供应商关闭意图」。
-                    //
-                    // ## 现象：黑名单被写成「该家全量」之后再也出不来
-                    //
-                    // magpie 的 provider 弹窗（模型列表那屏）把「全部未勾选」原样传成
-                    // `modelIds`（实测 34 个全传）。于是黑名单 = 该家全量；下次打开弹窗
-                    // 时 34 个模型全都带「已在 Jet Hub 关闭」标签 ⇒ 勾选状态仍是 0 ⇒
-                    // 再点「保存」还是全传 ⇒ **死循环**。用户清空一次，保存一次又满。
-                    //
-                    // ## 为什么是语义不一致（不是「再清一次」能解决的）
-                    //
-                    // `model.setAllDisabled`（「关闭全部」）默认 `closeProvider = true`
-                    //（≡ 关闭该供应商，见它的注释：两个按钮必须给出**相同**的持久语义）。
-                    // 但本端点**从不落意图** ⇒ 同一件事两条路径两种结果：
-                    //
-                    // ```
-                    // 走 setAllDisabled   : 黑名单全满 + providerClosed=true  ⇒ 可一键打开
-                    // 走 setDisabledMany  : 黑名单全满 + providerClosed=false ⇒ 无出口
-                    // ```
-                    //
-                    // 后者下 `provider.status` 仍报 `closed: false`、选择器仍列出
-                    // 34 个「已关闭」的模型，而「打开供应商」只看意图 ⇒ **点了没用**。
-                    //
-                    // ## 判据：**写入后**黑名单是否覆盖该家全量目录
-                    //
-                    // 覆盖 ⇒ 这次操作的实际效果就是「关闭该供应商」，补设意图，于是
-                    // 「打开供应商」能一把全恢复，而配置里只多一个布尔（不是 34 条死键）。
-                    // 没覆盖（用户真的只关了一部分）⇒ 走原路径，一个字节都不变。
-                    //
-                    // ⚠️ 目录必须取 `fullCatalogIds` 的**纯净并集**：`readableCatalogIds`
-                    //    返回的 `known` 已经把黑名单里的 id 并进去了（它的注释写明那是为了
-                    //    清理历史死键），拿它判「全量覆盖」恒真 —— 那就等于「只要关一个
-                    //    模型就关掉整个供应商」。
-                    // ⚠️ 目录不完整（`complete === false`）时**不猜**：宁可少设一次意图，
-                    //    也不能拿残缺目录把供应商误关掉（与 `setAllDisabled` 的同名守卫同源）。
-                    // ⚠️ 黑名单与意图必须**同一次落盘**：`writeModelsWithProviderClosed`
-                    //    的注释记着「分两次写会留下半套状态、重启后静默复发」。
-                    const catalog = await fullCatalogIds(ctx, modelAdapters, req.provider);
-                    const disabledBefore = pool.listDisabledModels(req.provider);
-                    const after = { ...disabledBefore };
-                    for (const id of ids)
-                        after[id] = true;
-                    const coversAll = catalog.complete
-                        && catalog.ids.length > 0
-                        && catalog.ids.every((id) => after[id] === true);
-                    if (coversAll) {
-                        await pool.writeModelsWithProviderClosed(req.provider, ids, true);
-                        ctx.logger.info(`[jet-hub] ${req.provider} 的黑名单已覆盖全量目录`
-                            + `（${catalog.ids.length} 个），同时落「供应商关闭」意图`);
-                    }
-                    else {
-                        await pool.setModelsDisabled(req.provider, ids);
-                    }
-                }
-                else {
+                if (req.disabled)
+                    await pool.setModelsDisabled(req.provider, ids);
+                else
                     await pool.clearModelsDisabled(req.provider, ids);
-                }
                 ctx.logger.info(`[jet-hub] ${req.disabled ? '关闭' : '打开'} ${req.provider} 的 ${ids.length} 个模型（按分组）`);
                 // 与其它开关端点一致：必须广播，否则界面一直显示旧目录。
                 broadcastCatalogChanged(ctx);

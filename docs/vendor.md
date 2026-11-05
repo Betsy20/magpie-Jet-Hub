@@ -37,7 +37,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 与上游构建产物的差异
 
-`lib/` 共 1130 个文件，其中 **1123 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 7 个（5 类改动，三类落在 .js/.d.ts 两个文件上）：
+`lib/` 共 1130 个文件，其中 **1124 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 6 个（4 类改动，两类落在 .js/.d.ts 两个文件上）：
 
 | 差异 | 原因 |
 |---|---|
@@ -45,12 +45,11 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 | `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭据，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB |
 | `lib/magicrew-browser-login.js` 开窗前回收上次遗留的一次性 profile 目录 | 上游 `ChromiumSession.dispose()` 的删除只退避 2.1 秒，而窗口被用户关掉时没有任何回调保证走到 `dispose()`。两条路叠加的结果是 `%TEMP%` 里攒了 11 个 `magicrew-login-*` / 856 MB。现在开窗前扫一遍、只删够老的（Windows 1 小时、其它平台 6 小时）、每轮最多删 3 个（这函数同步跑在「点连接」与「窗口出现」之间，清完 856 MB 要约 7 秒，会让用户以为按钮坏了） |
 | `lib/backup.js` 与 `.d.ts` 的 `importBackup` 多一个 `keepDisabledModels` 选项 | 控制台导入备份时不让备份里的模型黑名单覆盖本机现状（用户 2026-10-31 报了「导入后 920 个模型全被关掉」）。未传该选项时行为与上游完全一致；CLI 的 `--keep-disabled` 是反向意图 |
-| `lib/jet-hub-rpc.js` 的 `model.setDisabledMany` 在「黑名单覆盖该家全量目录」时补设供应商关闭意图 | 上游两个关闭入口语义不一致：`model.setAllDisabled`（「关闭全部」）默认 `closeProvider = true`，而 `model.setDisabledMany` **从不落意图**。magpie 的 provider 弹窗把「全部未勾选」原样传成 `modelIds`（实测 34 个全传）⇒ 黑名单 = 该家全量 ⇒ 下次打开弹窗 34 个模型全带「已在 Jet Hub 关闭」⇒ 勾选仍是 0 ⇒ 再保存还是全传，**死循环**，清空一次保存一次又满。补设意图后「打开供应商」能一把全恢复，配置里只多一个布尔而不是 34 条死键。判据用 `fullCatalogIds` 的**纯净并集**（`readableCatalogIds` 的 `known` 已把黑名单并进去，拿它判恒真）；目录不完整时不猜。未覆盖全量时一个字节都不变 |
-| 没有 npm 包里的 `README.md` 与 `cordis.patch.yml`（缺失项，不计入上面的 5 个） | 那是 DSH 前端与插件补丁用的，magpie 侧用不到 |
+| 没有 npm 包里的 `README.md` 与 `cordis.patch.yml`（缺失项，不计入上面的 4 个） | 那是 DSH 前端与插件补丁用的，magpie 侧用不到 |
 
 保留时长为什么分平台：判据「只删够老的」是启发式。Windows 上还有第二道网（正被占用的文件删不掉，`rmSync` 抛 `EPERM`/`EBUSY`）；**POSIX 没有这道网** —— `unlink` 对已打开的文件是合法操作，删除会成功，于是「删了正在用的目录」反而成功，只是把那个窗口弄坏。所以 POSIX 只能靠阈值自保，取 6 小时。真正在用的目录存活上限是登录本身 4 分钟（`MAGICREW_BROWSER_LOGIN_TIMEOUT_MS = 240_000`），两个阈值相对它至少有 4 倍余量（按同文件注释的 13 分钟总寿命算：Windows 1h ≈ 4.6×、POSIX 6h ≈ 27.7×）。
 
-除这 7 个文件之外，本仓库对上游代码**没有其它改动**。
+除这 6 个文件之外，本仓库对上游代码**没有其它改动**。
 
 > **已退役的一条**：本表原有一条「`lib/jet-hub-rpc.js` 的 `product.id` 判空守卫」。
 > 2026-11-04 同步到 `fddb875` 时上游自己修了（`1b03f33 fix(jet-hub): product 恒为

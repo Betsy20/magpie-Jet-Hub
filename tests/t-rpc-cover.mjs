@@ -841,29 +841,5 @@ if (!PROBE) {
     `REKEY_CHANNELS 的键（${a || '空'}）与 submitRekey 的 setApiKey 分支（${b || '空'}）必须一一对应`)
 }
 
-// ── 第 8 节：vendor 本地补丁必须还在（docs/vendor.md 的 5 类 / 7 个文件）──
-//
-// 这几条补丁打在**上游编译产物**上（`vendor/lib/*.js`），而 `docs/vendor.md`
-// 的同步流程是「clone 上游 → npm install → 整片拷进 vendor/」——
-// 也就是说下次按文档重跑同步，补丁会被**整片覆盖**，而且都**静默**：
-//
-//   - gemini 常量恢复明文 ⇒ 推 GitHub 时 push protection 拦截（本地一切正常）
-//   - magicrew 两条读凭据路径回到只读 localStorage ⇒ 真机「登录成功却读不到」
-//   - backup 少了 `keepDisabledModels` ⇒ 导入备份把本机模型黑名单整片关掉
-//   - `jet-hub-rpc` 少了「全关即意图」⇒ magpie 弹窗保存一次写满黑名单，**死循环**
-//
-// 前三条的历史事故在各自文件里有长注释；第四条是 2026-11-05 用户报的
-// 「模型又显示已在 JetHub 关闭」。这里把「补丁还在」钉成断言，覆盖时立刻报红
-// 而不是等用户再撞一次。
-{
-  const rpc = read(RPC_JS)
-  ok(/本仓改动（2026-11-05）：关闭方向补「供应商关闭意图」/.test(rpc),
-    'vendor/lib/jet-hub-rpc.js 的「全关即意图」补丁还在（model.setDisabledMany）')
-  ok(/writeModelsWithProviderClosed\(req\.provider, ids, true\)/.test(rpc),
-    '… 且真的调了 writeModelsWithProviderClosed(provider, ids, true)')
-  ok(/const coversAll = catalog\.complete[\s\S]{0,200}?every\(\(id\) => after\[id\] === true\)/.test(rpc),
-    '… 判据用的是「写入后黑名单覆盖全量目录」（fullCatalogIds 的纯净并集）')
-}
-
 console.log(failed === 0 ? `\n✓ RPC 口径一致：本体 ${methods.length} 个方法，控制台接 ${used.length} 个` : `\n✗ ${failed} 条失败`)
 process.exit(failed === 0 ? 0 : 1)
