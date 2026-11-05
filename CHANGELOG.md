@@ -11,6 +11,20 @@
 
 ## 1.0.0（未发布）
 
+- `fix(vendor)`: **`model.setDisabledMany` 在「黑名单覆盖该家全量目录」时补设供应商关闭意图**
+  （第 5 类本地补丁）。上游两个关闭入口的语义不一致：`model.setAllDisabled`（关闭全部）默认
+  `closeProvider = true`，而 `model.setDisabledMany` **从不落意图**。magpie 的 provider 弹窗把
+  「全部未勾选」原样传成 `modelIds`（实测 34 个全传）⇒ 黑名单 = 该家全量 ⇒ 下次打开弹窗
+  34 个模型全带「已在 Jet Hub 关闭」⇒ 勾选状态仍是 0 ⇒ 再保存还是全传，**死循环**（用户
+  2026-11-05 报「模型又显示已在 JetHub 关闭」）。补设意图后「打开供应商」能一把全恢复，
+  配置里只多一个布尔而不是 34 条死键。
+  两个关键判据：① 必须用 `fullCatalogIds` 的**纯净并集** —— `readableCatalogIds` 返回的
+  `known` 已经把黑名单并进去了（那是为了清理历史死键），拿它判「全量覆盖」**恒真**，等于
+  「关一个模型就关掉整个供应商」；② 目录不完整（`complete === false`）时**不猜**。未覆盖
+  全量时一个字节都不变。
+  `tests/t-rpc-cover.mjs` 第 8 节钉了 3 条**补丁存在性断言**：这 5 类补丁打在上游编译产物上，
+  下次按 `docs/vendor.md` 重跑同步会被整片覆盖，且四条都静默（不报错、只出症状）。
+
 - `fix(console)`: **buddy 补偿改成点一次直接领取**。原来卡片上的「补偿」只查状态，真正领取
   要去页脚那一行输入框（`#accCompId`）+「查补偿」+「领取补偿」再点一次 —— 卡片本来就带着
   accountId，这一行纯属多此一举。现在点「补偿」= 先查 `buddy.compensationStatus`，可领就直接
