@@ -1,6 +1,6 @@
 # `vendor/` 的来源、许可与差异
 
-`vendor/` 是上游插件本体的一份**构建产物快照**，随本仓库分发。它不是本仓库的代码，也不在本仓库修改行为 —— 只有下面列出的 6 个文件因规避扫描器或补一个读取路径而改过写法。
+`vendor/` 是上游插件本体的一份**构建产物快照**，随本仓库分发。它不是本仓库的代码，也不在本仓库修改行为 —— 只有下面列出的 7 个文件因规避扫描器、补一个读取路径或补一处「全关即意图」而改过写法。
 
 ## 来源
 
@@ -73,7 +73,7 @@ cd /path/to/magpie-Jet-Hub/vendor/lib && find . -type f -exec sha256sum {} + | s
 diff /tmp/up2/a.txt /tmp/up2/b.txt
 ```
 
-注意：`diff` 应该**只**列出上表那 6 个文件。多出任何一个都说明快照被别的动作污染过。
+注意：`diff` 应该**只**列出上表那 7 个文件。多出任何一个都说明快照被别的动作污染过。
 
 `vendor/` 里有 564 个 `.map`（source map，约 3.87 MiB）运行时用不到，留着是为了与上游构建产物尽量逐字节一致、方便 diff 校验。要在意仓库体积可以删，不影响运行。
 
@@ -82,8 +82,8 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 `vendor/` 是随仓库分发的快照，不跟着 npm 自动走。升版本要：
 
 1. 重新 clone / 构建上游，替换 `lib/`、`locale/`、`package.json`、`LICENSE`
-2. 把上面那 **4 类**改动重新应用（gemini 常量拆分、magicrew 的 IndexedDB 读取与临时 profile 回收、`lib/backup.js` 的 `keepDisabledModels`）
-   ⚠️ 除 gemini 外的 3 类都有测试盯着（`t-backup-keep` / `t-magicrew-creds`），漏打的直接红；`gemini` 那条没有测试（值相等，只能人工核）
+2. 把上面那 **5 类**改动重新应用（gemini 常量拆分、magicrew 的 IndexedDB 读取与临时 profile 回收、`lib/backup.js` 的 `keepDisabledModels`、`lib/jet-hub-rpc.js` 的「黑名单覆盖全量即补设供应商关闭意图」）
+   ⚠️ 除 gemini 外的 4 类都有测试盯着（`t-backup-keep` / `t-magicrew-creds` / `t-rpc-cover` 第 8 节），漏打的直接红；`gemini` 那条没有测试（值相等，只能人工核）
 3. 加/减 provider 时：`src/plugin.mjs` 的 `DSH_PROVIDERS` + `NAMES` + `FALLBACK_MODELS`、`index.mjs` 的具名工厂、`src/icons.mjs`、`scripts/snapshot-models.mjs` 的 `NAMES`、`tests/t-plugin.mjs` 的 `EXPECTED_PROVIDER_COUNT`、`tests/t-new-account.mjs` 的两处 `=== N`
 4. 跑 `node scripts/test-all.mjs` 与 `node scripts/snapshot-models.mjs`（后者需要有一个加载了**新** vendor 的宿主在跑；magpie 不热重载插件，旧宿主还在时用 `JET_HUB_META_PORT=<新容器端口>` 指定）
 
