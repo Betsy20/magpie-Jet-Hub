@@ -500,6 +500,8 @@ function containerFor(options, log) {
   shared = new JetHubContainer({
     home: resolveHome(options?.home),
     entryPath: resolveEntry(options?.entryPath),
+    // 控制台侧栏/下拉框要显示 `CodeBuddy (腾讯)` 这种名字，`meta()` 里查这张表
+    providerNames: NAMES,
     log,
   })
   return shared

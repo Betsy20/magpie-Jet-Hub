@@ -102,6 +102,10 @@ export class JetHubContainer {
       return /[\\/]\.dsh$/i.test(h) ? h.replace(/[\\/]\.dsh$/i, '') + '/.dsh' : h + '/.dsh'
     })()
     this.entryPath = options.entryPath // 本体 lib/index.js 的绝对路径
+    // provider id → 卡片上显示的名字（`buddy` → `CodeBuddy (腾讯)`）。
+    // 由 `plugin.mjs` 的 `NAMES` 注入 —— 定义留在一处，`meta()` 只是拿来用。
+    // 没登记的退回原始 id：宁可显示 `foo` 也别显示空白。
+    this.providerNames = options.providerNames ?? {}
     this.log = options.log ?? (() => {})
     this.ctx = undefined
     this.ready = undefined
@@ -434,7 +438,7 @@ export class JetHubContainer {
     }
     return {
       providers: [...byProvider.entries()]
-        .map(([id, models]) => ({ id, name: id, models }))
+        .map(([id, models]) => ({ id, name: this.providerNames[id] ?? id, models }))
         .sort((a, b) => a.id.localeCompare(b.id)),
       models: source.length,
       liveModels: this.models.length,

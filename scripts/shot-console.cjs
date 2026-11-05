@@ -189,11 +189,8 @@ async function main() {
   const keyChecks = []
   for (const provider of ['modelscope', 'opencode']) {
     const r = await ev(`(async () => {
-      document.querySelector('#nav button[data-tab="accounts"]').click()
-      await new Promise(r => setTimeout(r, 300))
-      const sel = document.querySelector('#accProvider')
-      sel.value = ${JSON.stringify(provider)}
-      sel.dispatchEvent(new Event('change'))
+      // 侧栏点供应商 = 切到它的账号池（「账号」已不是标签，没有 data-tab="accounts" 可点）
+      document.querySelector('#providerList [data-provider=' + JSON.stringify(provider) + ']').click()
       await new Promise(r => setTimeout(r, 600))
       await startLogin(${JSON.stringify(provider)})
       const modal = document.querySelector('#keyModal')
@@ -233,11 +230,8 @@ async function main() {
   const pxChecks = []
   for (const provider of ['opencode', 'gemini', 'qoder', 'minimaxintl', 'buddy']) {
     const r = await ev(`(async () => {
-      document.querySelector('#nav button[data-tab="accounts"]').click()
-      await new Promise(r => setTimeout(r, 300))
-      const sel = document.querySelector('#accProvider')
-      sel.value = ${JSON.stringify(provider)}
-      sel.dispatchEvent(new Event('change'))
+      // 侧栏点供应商 = 切到它的账号池（「账号」已不是标签，没有 data-tab="accounts" 可点）
+      document.querySelector('#providerList [data-provider=' + JSON.stringify(provider) + ']').click()
       await new Promise(r => setTimeout(r, 800))
       const wantProxy = !!PROXY_CHANNELS[${JSON.stringify(provider)}]
       const barBtnHidden = document.querySelector('#accProxy').hidden
@@ -302,11 +296,8 @@ async function main() {
   const rkChecks = []
   for (const provider of ['modelscope', 'opencode']) {
     const r = await ev(`(async () => {
-      document.querySelector('#nav button[data-tab="accounts"]').click()
-      await new Promise(r => setTimeout(r, 300))
-      const sel = document.querySelector('#accProvider')
-      sel.value = ${JSON.stringify(provider)}
-      sel.dispatchEvent(new Event('change'))
+      // 侧栏点供应商 = 切到它的账号池（「账号」已不是标签，没有 data-tab="accounts" 可点）
+      document.querySelector('#providerList [data-provider=' + JSON.stringify(provider) + ']').click()
       await new Promise(r => setTimeout(r, 800))
       const before = ACC.length
       // 两个按钮的**显隐**：换 Key 只有 modelscope 有（opencode 没有 setApiKey），
@@ -361,11 +352,8 @@ async function main() {
 
   // 真跑一次换指纹：断言代次真的 +1、回包带 projectId、行里显示新代次
   const fp = await ev(`(async () => {
-    document.querySelector('#nav button[data-tab="accounts"]').click()
-    await new Promise(r => setTimeout(r, 300))
-    const sel = document.querySelector('#accProvider')
-    sel.value = 'opencode'
-    sel.dispatchEvent(new Event('change'))
+    // 侧栏点供应商 = 切到它的账号池（「账号」已不是标签，没有 data-tab="accounts" 可点）
+    document.querySelector('#providerList [data-provider=' + JSON.stringify('opencode') + ']').click()
     await new Promise(r => setTimeout(r, 800))
     const acc = ACC[0]
     if (!acc) return { noAccount: true }

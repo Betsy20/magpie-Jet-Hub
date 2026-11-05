@@ -1577,18 +1577,54 @@ function orderedProviders() {
   return [...real, ...groups]
 }
 
-function fillProviderSelects() {
-  const list = orderedProviders()
-  const opts = list.map((p) => `<option value="${esc(p.id)}">${esc(p.id)}（${p.models?.length ?? 0}）</option>`).join('')
-  $('#accProvider').innerHTML = opts
-  if (list.length) {
-    const first = list.find((p) => (p.models?.length ?? 0) > 0) ?? list[0]
-    $('#accProvider').value = first.id
-  }
+/** 给供应商配一个稳定的色相：同一家每次刷新都同色，不用维护图标表。 */
+function hueOf(id) {
+  let h = 0
+  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) % 360
+  return h
+}
+
+/**
+ * 侧栏的供应商列表。点一家 = 切到它的账号池。
+ *
+ * 图标来自 `icons.js` 的 `window.PROVIDER_ICONS`（上游 `provider-icons.js` 的
+ * 29 个 data URI）。没登记的那几家退回「首字 + 色相」，不是空白。
+ */
+function renderProviderList() {
+  $('#providerList').innerHTML = orderedProviders()
+    .map((p) => {
+      const n = p.models?.length ?? 0
+      const label = p.name || p.id
+      const src = window.PROVIDER_ICONS?.[p.id]
+      const icon = src
+        ? `<img src="${src}" alt="">`
+        : esc(label.trim().charAt(0).toUpperCase() || '?')
+      return `<button class="providerItem" data-provider="${esc(p.id)}" title="${esc(label)}（${n} 个模型）">
+        <span class="providerIcon"${src ? ' data-icon' : ` style="--hue: ${hueOf(p.id)}"`} aria-hidden="true">${icon}</span>
+        <span class="providerLabel"><strong>${esc(label)}</strong><small>${n} 个模型</small></span>
+      </button>`
+    })
+    .join('')
+}
+
+/**
+ * 切换当前供应商。
+ *
+ * `#accProvider` 是隐藏域，仍是**唯一**状态源 —— `$('#accProvider').value` 那十几个
+ * 调用点（`renderAccounts` / `syncProxyButtons` / `openProxyModal` …）一行都不用改。
+ */
+function setProvider(id, { silent = false } = {}) {
+  if (!id) return
+  const changed = $('#accProvider').value !== id
+  $('#accProvider').value = id
+  $$('#providerList .providerItem').forEach((b) => b.classList.toggle('on', b.dataset.provider === id))
+  const p = META.providers.find((x) => x.id === id)
+  $('#accProviderName').textContent = p ? p.name || p.id : id
+  syncProxyButtons()
+  if (!silent && changed) loadAccounts()
 }
 
 const TAB_LOADERS = {
-  accounts: () => loadAccounts(),
   backup: () => loadBackup(),
   settings: () => {
     loadSettings()
@@ -1597,12 +1633,21 @@ const TAB_LOADERS = {
 }
 
 function wireTabs() {
+  // 底部那三个切页按钮
   $('#nav').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-tab]')
     if (!b) return
     $$('#nav button').forEach((x) => x.classList.toggle('on', x === b))
     $$('.tab').forEach((t) => t.classList.toggle('on', t.id === `tab-${b.dataset.tab}`))
     TAB_LOADERS[b.dataset.tab]?.()
+  })
+  // 侧栏供应商：点一家就切回账号池（底部三个按钮都不高亮 —— 账号页不对应任何按钮）
+  $('#providerList').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-provider]')
+    if (!b) return
+    $$('#nav button').forEach((x) => x.classList.remove('on'))
+    $$('.tab').forEach((t) => t.classList.toggle('on', t.id === 'tab-accounts'))
+    setProvider(b.dataset.provider)
   })
 }
 
@@ -1619,17 +1664,18 @@ async function boot() {
   $('#app').hidden = false
   $('#health').className = 'dot ok'
 
-  fillProviderSelects()
+  renderProviderList()
+  // 默认选「有模型的第一家」，没有就退到第一家 —— 空 provider 打开就是一片空卡片。
+  const firstProvider = orderedProviders().find((p) => (p.models?.length ?? 0) > 0) ?? orderedProviders()[0]
+  // silent 只写状态、不发请求：真正的首次加载在 boot() 末尾统一做（那里所有监听器都挂好了）。
+  // 别在这里再调一次 loadAccounts() —— 会变成首屏两次 account.list + 两次 credits.balances。
+  if (firstProvider) setProvider(firstProvider.id, { silent: true })
   syncProxyButtons()
   renderOverview()
   wireTabs()
 
   // 账号
   $('#accReload').addEventListener('click', () => loadAccounts())
-  $('#accProvider').addEventListener('change', () => {
-    syncProxyButtons()
-    loadAccounts()
-  })
   $('#accList').addEventListener('click', onAccAction)
   $('#accRetestAll').addEventListener('click', (e) => accBulk(e.currentTarget, 'account.retestAll'))
   $('#accResetAll').addEventListener('click', (e) => accBulk(e.currentTarget, 'account.resetAll'))

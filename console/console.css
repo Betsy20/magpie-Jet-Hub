@@ -18,6 +18,9 @@
   /* 品牌 */
   --brand: #1677ff;
   --brand-deep: #0f5fce;
+  /* 品牌色**当文字**时要更深一档：`#1677ff` 对白底只有 4.10:1（13.5px 要 4.5）。
+     深色模式反过来要更亮（见下面的覆盖）。 */
+  --brand-ink: #0f5fce;
 
   /* 文字三档 + 更浅的一档（次要说明） */
   --fg: #1f2329;
@@ -82,6 +85,9 @@
 
     --shadow: 0 2px 8px rgb(0 0 0 / 24%);
     --shadow-hover: 0 5px 16px rgb(0 0 0 / 34%);
+    /* 深色下品牌色得往亮里走：`#1677ff` 对 #17181c 只有 4.32:1，
+       `#0f5fce` 更差（3.02:1）。`#6ba4ff` 是 7.13:1。 */
+    --brand-ink: #6ba4ff;
   }
 }
 
@@ -130,18 +136,26 @@ body {
 .layout { display: flex; flex: 1; overflow: hidden; }
 
 /* ── 左栏 ── */
+/* 上下两段：上面是可滚动的供应商列表，下面是固定的三个切页按钮。 */
 .rail {
   width: 228px;
   flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+  padding: 6px;
+  border-right: 1px solid var(--line);
+}
+.railScroll {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   align-content: start;
   gap: 8px;
-  padding: 6px;
   overflow-y: auto;
-  border-right: 1px solid var(--line);
+  padding-bottom: 2px;
 }
-.railGroup { display: grid; gap: 8px; }
-.railGroup + .railGroup { margin-top: 10px; }
 .railGroupTitle {
   padding: 2px 4px 0;
   font-size: 12px;
@@ -162,10 +176,14 @@ body {
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg4); flex: none; }
 .dot.ok { background: var(--green); }
 
-/* 导航项：照上游 .dim-jh-provider 的形状 */
-#nav { display: grid; gap: 8px; }
-#nav button {
+/* 供应商项：照上游 .dim-jh-provider 的形状（48px 高、14px 圆角、30px 图标） */
+.providerList { display: grid; gap: 8px; }
+.providerItem {
   all: unset;
+  /* `all: unset` 会把 box-sizing 打回 content-box（它比 `*` 的 0,0,0 优先），
+     于是 `width: 100%` 会再加上 20px padding + 2px 边框 ⇒ 每张卡右缘溢出 22px、
+     侧栏底部常驻一条 15px 横向滚动条。必须显式补回来。 */
+  box-sizing: border-box;
   width: 100%;
   min-height: 48px;
   display: grid;
@@ -180,36 +198,88 @@ body {
   cursor: pointer;
   transition: border-color .16s ease, background .16s ease, box-shadow .16s ease;
 }
-#nav button:hover { border-color: color-mix(in srgb, var(--brand) 22%, var(--line2)); box-shadow: var(--shadow-hover); }
-#nav button.on {
+.providerItem:hover { border-color: color-mix(in srgb, var(--brand) 22%, var(--line2)); box-shadow: var(--shadow-hover); }
+.providerItem.on {
   border-color: color-mix(in srgb, var(--brand) 55%, var(--line2));
   background: color-mix(in srgb, var(--brand) 6%, var(--bg));
 }
-.navIcon {
+.providerIcon {
   width: 30px;
   height: 30px;
   display: grid;
   place-items: center;
   border-radius: 9px;
-  background: var(--sunk);
-  color: var(--fg3);
+  font-size: 13px;
+  font-weight: 660;
+  /* 没有品牌图标时用首字 + 色相兜底（色相由 console.js 的 hueOf() 给，同一家每次同色） */
+  background: color-mix(in srgb, hsl(var(--hue, 220) 68% 52%) 14%, var(--bg));
+  color: hsl(var(--hue, 220) 62% 40%);
   box-shadow: 0 1px 3px rgb(31 35 41 / 7%);
 }
-#nav button.on .navIcon { background: color-mix(in srgb, var(--brand) 12%, var(--bg)); color: var(--brand); }
-.navLabel { min-width: 0; display: grid; }
-.navLabel strong {
+.providerIcon[data-icon] { background: transparent; box-shadow: none; }
+/* 白底是给「透明背景 + 深色图形」那几家（百智云是 `fill="none"` + `#1a1a1a` 的路径）——
+   深色模式下没有它就是一个看不见的黑团。不透明的 png 会把白底完全盖住，不受影响。 */
+.providerIcon img { display: block; width: 20px; height: 20px; border-radius: 4px; object-fit: contain; background: #fff; }
+.providerItem.on .providerIcon { background: color-mix(in srgb, hsl(var(--hue, 220) 68% 52%) 24%, var(--bg)); }
+.providerItem.on .providerIcon[data-icon] { background: transparent; }
+@media (prefers-color-scheme: dark) {
+  .providerIcon { color: hsl(var(--hue, 220) 70% 68%); }
+}
+.providerLabel { min-width: 0; display: grid; }
+.providerLabel strong {
   overflow: hidden;
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 680;
+  font-size: 13.5px;
+  line-height: 19px;
+  font-weight: 660;
   color: var(--fg);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#nav button.on .navLabel strong { color: var(--brand); }
-.navLabel small { font-size: 11px; line-height: 14px; font-weight: 400; color: var(--fg3); }
+.providerItem.on .providerLabel strong { color: var(--brand-ink); }
+.providerLabel small { font-size: 11px; line-height: 14px; font-weight: 400; color: var(--fg3); }
 
-.rail-foot { margin-top: auto; padding: 6px; display: flex; flex-direction: column; gap: 6px; }
+/* `all: unset` 连 UA 的焦点环一起干掉了（它比 `:focus-visible` 的 UA 规则优先）。
+   侧栏是主导航，这 26+3 个按钮必须能看见焦点 —— WCAG 2.4.7。 */
+.providerItem:focus-visible,
+#nav button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* 底部一行：概览 / 设置 / 备份（图标在上、文字在下，三个等分） */
+.railNav {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+#nav button {
+  all: unset;
+  /* 同 .providerItem：all:unset 会打回 content-box */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--fg2);
+  font-size: 11px;
+  line-height: 14px;
+  transition: background .16s ease, color .16s ease;
+}
+#nav button:hover { background: var(--sunk); color: var(--fg); }
+#nav button.on { background: color-mix(in srgb, var(--brand) 10%, var(--bg)); color: var(--brand-ink); font-weight: 600; }
+.navIcon { display: grid; place-items: center; }
+.navLabel { white-space: nowrap; }
+
+/* 账号页顶部：当前选中的是哪家（侧栏选中项的等价文字，窄屏折叠侧栏时也能看见） */
+.providerName { font-size: 13px; font-weight: 600; color: var(--fg); }
+
 .gw { font-family: var(--code); font-size: 11px; color: var(--fg2); word-break: break-all; }
 .hint { font-size: 11px; color: var(--fg3); line-height: 1.5; }
 
