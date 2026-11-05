@@ -249,7 +249,7 @@ magpie 的「观测 / 用量」里有一列**费用**。默认它对本插件的
 `src/model-prices.mjs`，由 `node scripts/gen-model-prices.mjs` 从 magpie 缓存的
 models.dev 目录（`~/.cache/magpie/models.json`）按**模型尾名**匹配生成（尾名 = 去掉
 `jet-hub-xxx/` 首段后的剩余部分，`@preset/…` 这类多级路径会原样保留）：本插件的快照
-里有 885 个模型、724 个唯一尾名，价表 464 条里有 461 条对得上；表是 2026-11-01 那版
+里有 894 个模型、731 个唯一尾名，价表 464 条里有 459 条对得上；表是 2026-11-01 那版
 目录算出来的（本轮换 vendor 后没重跑，`node scripts/gen-model-prices.mjs` 可刷新）；
 剩下的多是各渠道自造的私有名（`@preset/cline-*`、`DeepSeek-V4-Pro-Official` 之类），
 公开目录里没有。

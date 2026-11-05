@@ -69,12 +69,27 @@
   仍缺的 3 个（`baizhi.startSession`、`monkeycode.setSession`、`monkeycodeintl.setSession`）是
   「给已有账号补 session cookie」的高级入口，控制台历来只做建号 / 换 Key 两类，本轮不做。
 
-- `chore(snapshot)`: `page/models.js` 重跑（885 个模型 / 26 家）。magpie 不热重载插件，
-  宿主里跑的还是旧插件，所以用 `JET_HUB_META_PORT` 指定临时容器端口取数（脚本自带这个逃生口）。
-  ⚠️ `magicrew` / `magicrewintl` 这轮**拿不到目录**：两家凭据已失效（目录接口返 405），
-  而新 vendor 的 `model.list` 改为直接抛错、不再回退静态表（旧 vendor 会回退 27 条）。
-  `tests/t-new-account.mjs` 的 `SNAPSHOT_MISSING` 白名单因此加了两条，凭据恢复后重跑快照即会
-  自动出现，届时那条反向锚点会红、提醒删掉白名单。
+- `chore(snapshot)`: `page/models.js` 重跑（894 个模型 / 26 家，控制台地址回到 `:18500`）。
+  上一版是用 `JET_HUB_META_PORT` 指定临时容器取的数，快照于是把「数据源宿主」和「控制台地址」
+  都记成了那台临时容器的 `:18501` —— 容器早杀了，插件页「完整控制台」那张卡点进去必然
+  `ERR_CONNECTION_REFUSED`。宿主 `:18500` 现在返回的目录已经是 894 条（临时容器那版只有 885，
+  当时的宿主则是 870），直接探默认端口即可，不再需要那个逃生口。
+  ⚠️ 数据源从临时容器切回宿主后，`lobsterai` 家是**一次回退式大换血**而不是单纯加模型
+  （删 14 加 13：`glm-5.3`→`glm-5`、`kimi-k3`→`kimi-k2.5`、`qwen3.8`→`qwen3.6`……，总数 20→19）。
+  宿主的实时 `/__meta`（19 条）与本次快照逐条一致，不是快照写错；净增 +9 来自
+  cline / modelscope / opencode / qiniu / workbuddy 五家。
+  ⚠️ `magicrew` / `magicrewintl` 两家**仍然拿不到目录**（凭据失效、目录接口返 405），
+  `tests/t-new-account.mjs` 的 `SNAPSHOT_MISSING` 白名单保持两条；凭据恢复后重跑快照会自动
+  出现，届时那条反向锚点会红、提醒删掉白名单。
+  ⚠️ `detail[].disabled` 这一轮从「全 false」翻成「886 true / 8 false」、`detail[].name` 有
+  82 条从空串变成裸 id —— 那是 `~/.config/magpie/jet-hub-models.json` 里机器本地的开关状态
+  被写进了受版本控制的快照。`page/page.js` 不消费 `detail`（只读 `gateway` / `models` /
+  `providers`），所以**无用户可见影响**；将来谁要用这个字段，先想清楚它会随本机状态漂移。
+
+- `fix(providers)`: `FALLBACK_MODELS` 里 `lobsterai` 的兜底模型从 `deepseek-flash` 换成
+  `deepseek-v4-flash`。上游 2026-11-05 把 LobsterAI 目录里的 `deepseek-flash` 下架了
+  （现只剩 `deepseek-v4-flash` / `deepseek-v4-pro` 等），旧 id 在新快照里不存在，
+  `tests/t-new-account.mjs` 的「兜底 id 必须在快照里」那条会红。
 
 - `docs` / `test`: 全仓仍写「23 家」的**现状描述**统一改成实际家数 **25**（这一轮只修到 25；
   随后同步上游又把家数升到 28，见上面 `feat(providers)` 那条）—— README 四处

@@ -209,7 +209,7 @@ const FALLBACK_MODELS = {
   'trae/deepseek-v4.1-flash': { name: 'Trae · DeepSeek V4.1 Flash' },
   'autoclaw/zai_glm-5.3-flash': { name: 'AutoClaw · GLM-5.3 Flash' },
   'loomy/DeepSeek-V4.1-Flash': { name: 'Loomy · DeepSeek V4.1 Flash' },
-  'lobsterai/deepseek-flash': { name: 'LobsterAI · DeepSeek Flash' },
+  'lobsterai/deepseek-v4-flash': { name: 'LobsterAI · DeepSeek V4 Flash' },
   'officeace/deepseek-v4.1-flash': { name: 'OfficeAce · DeepSeek V4.1 Flash' },
   'astudio/xopdsv4flash0731in': { name: 'AStudio · DeepSeek V4 Flash' },
   'modelscope/deepseek-ai/DeepSeek-V4.1-Flash': { name: 'ModelScope · DeepSeek V4.1 Flash' },
