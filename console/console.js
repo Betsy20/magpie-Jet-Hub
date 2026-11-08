@@ -280,12 +280,23 @@ let BAL = new Map()
  * `formatExpirySplitLine` 三个独立 `parts.push`）。给余数贴「长期」会**低估
  * 最安全的那部分额度** —— 对一个积分看板是实质误导。所以文案写「其余」。
  */
-async function loadBalances(provider, prefetched) {
-  BAL = new Map()
+async function loadBalances(provider, prefetched, force = false) {
+  // ⚠️ 写局部 `next` 再返回，**不要**在这里直接改全局 `BAL`。
+  // 这里有一次 `await`（下面那个 `rpc`），期间用户可能已经切走：旧渠道的回包
+  // 晚到时会无条件覆盖 `BAL`，而新的 `loadAccounts` 已经拿新渠道的 `ACC`
+  // 渲染过了 —— 结果是卡片显示「—」（旧 id 查不到新账号）或旧值。
+  // 调用方必须在 `provider` 守卫**通过之后**再 `BAL = next`。
+  const next = new Map()
   try {
     // `prefetched` 是调用方已经拿到的同一份回包 —— 别为了刷卡片再发一次 RPC
     // （同一个按钮点一下发两个 `credits.balances`，还可能出现两次结果不一致）。
-    const v = prefetched === undefined ? await rpc('credits.balances', { provider }) : prefetched
+    //
+    // `force` 只在真的要发 RPC 时有意义：后端默认吃 120 秒的共享读数缓存
+    // （`vendor/lib/index.js:1092`），而 `credits.claimAll` 只清折算缓存、
+    // **刻意不清余额缓存**（`vendor/lib/jet-hub-rpc.js:3110-3111`、
+    //  buddy 补偿 `:7531-7534` 还专门写「刻意不复用 `balanceCache.clear()`」）。
+    // ⇒ 领完不传 `force: true` 的话，卡片上的积分 120 秒内还是领取前的旧数。
+    const v = prefetched === undefined ? await rpc('credits.balances', { provider, force }) : prefetched
     for (const row of Array.isArray(v?.accounts) ? v.accounts : []) {
       const id = String(row?.accountId ?? '')
       if (!id) continue
@@ -293,7 +304,7 @@ async function loadBalances(provider, prefetched) {
       const stale = typeof row?.error === 'string' && row.error !== '' ? row.error : null
       const b = row?.balance
       if (!b || typeof b !== 'object') {
-        BAL.set(id, { total: 0, long: null, temp: null, expired: 0, error: stale ?? '余额查询失败', stale: null })
+        next.set(id, { total: 0, long: null, temp: null, expired: 0, error: stale ?? '余额查询失败', stale: null })
         continue
       }
       const total = Number(b.total) || 0
@@ -304,7 +315,7 @@ async function loadBalances(provider, prefetched) {
       const temp = Number.isFinite(rawTemp) && rawTemp > 0 ? Math.min(rawTemp, total) : null
       // 已失效：不可用额度，只用于「另有 N 已失效」的提示。
       const expired = Math.max(0, Number(b.expiredTotal) || 0)
-      BAL.set(id, {
+      next.set(id, {
         total,
         temp,
         expired,
@@ -320,6 +331,8 @@ async function loadBalances(provider, prefetched) {
     const msg = String(e?.message ?? e)
     if (!/unsupported provider/i.test(msg)) console.warn('[console] 余额查询失败：', msg)
   }
+  // 失败时也要返回（可能已经有部分行摊平了，也可能空）—— 调用方统一 BAL = next。
+  return next
 }
 
 async function loadAccounts() {
@@ -332,9 +345,19 @@ async function loadAccounts() {
     // 否则旧渠道的账号会盖掉新渠道的，然后按新 provider 去渲染（指纹 / 代理字段全错）。
     if ($('#accProvider').value !== provider) return
     ACC = list
-    // 积分与账号一起拉：两张数据都回来了才渲染，避免卡片先出「—」再跳成数字。
-    await loadBalances(provider)
+    // ⚠️ 先渲染列表、**再**去查余额。`credits.balances` 要为每个账号发一次网络
+    // 请求，慢且可能挂起（`rpc()` 是裸 fetch，没有 `AbortSignal` / 超时）；旧实现
+    // 先 `await` 余额，于是余额挂起时整页停在「读取中…」，连「停用 / 删除 /
+    // 换 Key」都点不到。后端明确说两者必须独立 ——
+    // `vendor/lib/jet-hub-rpc.js:6931-6933`「混在一起会让账号列表被网络耗时拖慢，
+    // 且一次查询失败会让整份列表都取不到」。
+    // 代价是积分列先显示「—」再跳成数字，但列表本身立刻可操作。
+    renderAccounts(provider)
+    syncProxyButtons()
+    say('#accMsg', `${ACC.length} 个账号`, 'ok')
+    const nextBal = await loadBalances(provider)
     if ($('#accProvider').value !== provider) return
+    BAL = nextBal
     renderAccounts(provider)
     syncProxyButtons()
     // 「查不到」与「旧数据」是两件事，别混成一个数：
@@ -420,7 +443,7 @@ function renderAccounts(provider = $('#accProvider').value) {
             <button data-act="retest" data-id="${esc(a.id)}">复测</button>
             <button data-act="reset" data-id="${esc(a.id)}">重置</button>
             ${provider === 'buddy' ? `<button data-act="comp" data-id="${esc(a.id)}">补偿</button>` : ''}
-            <button data-act="onboard" data-id="${esc(a.id)}">新人奖励</button>
+            ${ONBOARDING_PROVIDERS.has(provider) ? `<button data-act="onboard" data-id="${esc(a.id)}">新人奖励</button>` : ''}
             ${px ? `<button data-act="proxy" data-id="${esc(a.id)}">代理</button>` : ''}
             ${rekey ? `<button data-act="rekey" data-id="${esc(a.id)}">换 Key</button>` : ''}
             ${provider === 'opencode' ? `<button data-act="rotfp" data-id="${esc(a.id)}">换指纹</button>` : ''}
@@ -495,13 +518,45 @@ async function onAccAction(e) {
         flash = { text: after?.creditNum ? `补偿已领取：${after.creditNum} 积分` : '补偿已领取', kind: 'ok' }
         return
       } else if (act === 'onboard') {
-        // onboarding.status / claim 都要 accountId（本体在守卫之后才解析凭据）
-        const s = await rpc('onboarding.status', { provider, accountId: id })
-        renderGeneric($('#accDetail'), s)
-        if (s?.claimable === true || s?.canClaim === true) {
-          const c = await rpc('onboarding.claim', { provider, accountId: id })
-          renderGeneric($('#accDetail'), c)
+        // ⚠️ 旧实现读 `claimable` / `canClaim` —— 这两个字段**任何 provider 都不
+        // 返回**（`vendor/lib/types.d.ts:1255-1266` 的 `RpcOnboardingStatusResponse`
+        // 只有 tasks / earned / total / titles / points），条件恒为 `false`，
+        // 于是 `onboarding.claim` 成了没有 UI 入口的死端点。
+        //
+        // 现在两步都调，但 **status 是 best-effort**：它只提供「任务清单 + 完成
+        // 情况」这个视图，领取本身不依赖它（`onboarding.claim` 自己会解析凭据、
+        // 执行领取）。把 status 写成硬依赖的话，一次状态查询失败（限流 / 该家
+        // 实现没覆盖 status）会让本来能成功的领取整个不执行 —— 用户点一次
+        // 「新人奖励」什么都没发生，还以为是没奖励可领。
+        //
+        // `onboarding.claim` 本身**幂等**（响应里的 `skipped` 就是「此前已完成」），
+        // 重复点不会重复发奖。
+        let status = null
+        try {
+          status = await rpc('onboarding.status', { provider, accountId: id })
+          renderGeneric($('#accDetail'), status)
+        } catch (e) {
+          // 状态查不到不影响领取 —— 但要说一声，否则用户以为任务清单是空的。
+          console.warn('[console] 新人任务状态查询失败：', String(e?.message ?? e))
         }
+        const c = await rpc('onboarding.claim', { provider, accountId: id })
+        // 用 claim 的响应渲染详情：它才是这次点击的**结果**
+        // （claimed / skipped / errors / manualRequired）；status 的任务清单
+        // 已经在上面渲染过一次，claim 失败时保留它（有 status 才有内容）。
+        if (c !== undefined && c !== null) renderGeneric($('#accDetail'), c)
+        const gained = (c?.claimed ?? []).reduce((n, x) => n + (Number(x?.points) || 0), 0)
+        const failed = c?.errors?.length ?? 0
+        const skipped = c?.skipped?.length ?? 0
+        // `manualRequired`：需要用户去网页上手动完成的任务（实测 magicrew 有），
+        // 不提示的话会被静默漏掉 —— 用户看到「领取 0 个」却不知道为什么。
+        const manual = c?.manualRequired?.length ?? 0
+        const parts = [`领取 ${c?.claimed?.length ?? 0} 个`]
+        if (gained > 0) parts.push(`+${gained}`)
+        parts.push(`已领 ${c?.earned ?? 0} / ${c?.total ?? 0}`)
+        if (skipped > 0) parts.push(`${skipped} 个此前已完成`)
+        if (manual > 0) parts.push(`${manual} 个需去网页手动完成`)
+        if (failed > 0) parts.push(`失败 ${failed} 个`)
+        flash = { text: parts.join('，'), kind: failed > 0 ? 'err' : 'ok' }
         return
       } else if (act === 'proxy') {
         openProxyModal(provider, id)
@@ -521,7 +576,13 @@ async function onAccAction(e) {
         const ids = ACC.map((x) => x.id)
         const i = ids.indexOf(id)
         const j = act === 'up' ? i - 1 : i + 1
-        if (j < 0 || j >= ids.length) return
+        // ⚠️ 必须先检查 `i`：卡片是上一轮 `ACC` 渲染的，`ACC` 已经换了一份
+        // （比如刚删掉一个账号、或切了渠道）时 `indexOf` 返回 -1，此时「下移」
+        // 的 `j === 0` 能通过原守卫，解构赋值等价于
+        // `ids[-1] = ids[0]; ids[0] = undefined`，`JSON.stringify` 后
+        // `orderedIds[0] === null`。后端（`vendor/lib/jet-hub-rpc.js:5876-5878`）
+        // 会拦下并报「orderedIds 必须是字符串数组」，但用户看到的是莫名其妙的错误。
+        if (i < 0 || j < 0 || j >= ids.length) return
         ;[ids[i], ids[j]] = [ids[j], ids[i]]
         await rpc('account.reorder', { provider, orderedIds: ids })
       }
@@ -973,6 +1034,19 @@ const PROXY_CHANNELS = {
   },
 }
 
+/**
+ * 有 onboarding（新人任务）实现的渠道。
+ *
+ * ⚠️ 必须与 `vendor/lib/provider-onboarding.js` 的实现表一一对应 —— 目前只有
+ * 四家：`loomy`（:63）、`raccoon`（:108）、`magicrew`（:176）、`magicrewintl`
+ * （:185）。其余 24 家走 `vendor/lib/jet-hub-rpc.js:6393-6394` 的
+ * `unsupported provider` 分支，渲染出来的按钮点了必报 bad-request。
+ *
+ * ⚠️ 加新供应商时**两处一起改**（实现表 + 这里），否则要么按钮缺失、
+ * 要么按钮点了报错。`tests/t-rpc-cover.mjs` 不管这个（它只对账 RPC 方法名）。
+ */
+const ONBOARDING_PROVIDERS = new Set(['loomy', 'raccoon', 'magicrew', 'magicrewintl'])
+
 function syncProxyButtons() {
   const provider = $('#accProvider').value
   const anon = $('#accAnon')
@@ -1083,6 +1157,27 @@ async function addAnonymousChannel(btn) {
   }
 }
 
+/**
+ * 只放行 http(s) 的登录地址。
+ *
+ * `#lmOpen` 是 `<a href>`，`window.open` 也吃字符串 —— `rel="noreferrer"`
+ * 不阻止 `javascript:` 协议。登录地址目前由 `account.create` 的服务端适配器
+ * 拼出来（不是用户直接输入），但一旦某个适配器把外部字符串拼进去，这里就是
+ * 一次点击型 XSS。白名单只放 http / https 两条，其余一律拒绝。
+ *
+ * @returns {string|null} 规范化后的地址；非法协议或空串返回 `null`
+ */
+function safeLoginUrl(raw) {
+  if (typeof raw !== 'string' || raw === '') return null
+  try {
+    const u = new URL(raw)
+    if (u.protocol === 'http:' || u.protocol === 'https:') return u.href
+  } catch {
+    /* 不是合法 URL：拒绝 */
+  }
+  return null
+}
+
 async function startLogin(provider) {
   // 先把上一次没关的登录弹窗收干净 —— 必须在 KEY_CHANNELS 判断之前：
   // 否则「开着 OAuth 弹窗把渠道切到 modelscope 再点添加」会两个弹窗叠着，
@@ -1099,9 +1194,41 @@ async function startLogin(provider) {
   // 不会误删刚拿到凭据的号 —— 登录成功会把 nickname 换成真昵称、refreshable 置真、
   // 补上 expiresAt，三条一起变，四条判据就不再同时成立）。
   const v = await rpc('account.create', { provider })
-  const { accountId, loginUrl } = v ?? {}
+  const { accountId } = v ?? {}
+  // ⚠️ `reused: true` + 空 `loginUrl` 是「导入本机会话」的**成功**出口
+  // （`vendor/lib/jet-hub-rpc.js:5676-5677` 的注释、`:5713` 的返回值；
+  // 上游 `client/jet-hub.js` 按 `if (res.reused)` 接受空 loginUrl 并直接
+  // `loadAccounts()`）。这条路径**没有授权页可开**，也不需要轮询 ——
+  // 账号已经 `pool.addAccount` + `pool.updateAccount` 建好了。
+  //
+  // 必须在下面给 `loginAccountId` 赋值**之前**分流：否则会落到 `!loginUrl`
+  // 的失败分支，把一次成功的导入显示成「本体没有返回 loginUrl」的错误。
+  // 可达路径：astudio 在本机已导入 AStudio 会话时返回
+  // `{ accountId, loginUrl: '', reused: true }`（`vendor/lib/jet-hub-rpc.js`
+  // 的 astudio 分支，:5713）。
+  if (v?.reused === true) {
+    $('#loginModal').hidden = true
+    await loadAccounts()
+    say('#accMsg', `已导入本机 ${provider} 会话${accountId ? `（${accountId}）` : ''}`, 'ok')
+    return
+  }
+  // ⚠️ 只放行 http(s)（见 safeLoginUrl 的注释）。空串是「复用了本机已有会话」
+  // 的合法形态（`vendor/lib/jet-hub-rpc.js` 的 `{ accountId, loginUrl: '',
+  // reused: true }`），不算协议错误 —— 它在上面就已经分流走了。
+  const loginUrl = safeLoginUrl(v?.loginUrl)
   loginAccountId = accountId
   loginProvider = provider
+  if (v?.loginUrl && loginUrl === null) {
+    // ⚠️ 抛之前必须把状态收干净 —— 与下面 `!loginUrl` 分支同一条纪律
+    // （2026-10-29 三审发现的真实泄漏）。到这里 `loginAccountId` /
+    // `loginProvider` 已经赋值，直接抛会让 `loginAccountId` 残留到下一次点
+    // 「添加账号」时被当成「放弃授权」去 `reclaimPlaceholder` 回收 —— 那是
+    // 一条**真实**的账号，删错了没法恢复。占位账号留着不致命（列表里多一条
+    // 「未登录」），比误删安全。
+    loginAccountId = undefined
+    loginProvider = undefined
+    throw new Error(`登录地址不是 http/https（${String(v.loginUrl).slice(0, 60)}），已拒绝打开`)
+  }
   $('#lmProvider').textContent = provider
   $('#lmState').textContent = '等待授权…'
   $('#lmState').className = 'msg'
@@ -1236,13 +1363,16 @@ async function creditsBalances(btn) {
   const provider = $('#accProvider').value
   try {
     await busy(btn, async () => {
-      const v = await rpc('credits.balances', { provider })
+      // 「刷新余额」是用户主动要求回源的唯一入口 —— 不传 `force` 会拿到 120 秒内
+      // 的共享读数缓存，按钮点了等于没点（`vendor/lib/types.d.ts:911` 的 `force`
+      // 注释明确写着它服务的就是这个按钮）。
+      const v = await rpc('credits.balances', { provider, force: true })
       renderGeneric($('#credOut'), v)
       say('#credMsg', '已查询余额', 'ok')
       // 卡片上的积分是同一份数据，不刷新会出现「上面还是旧数、下面已经是新数」。
       // 直接把这份回包喂给 `loadBalances`，别再发一次同样的 RPC。
       if ($('#accProvider').value !== provider) return
-      await loadBalances(provider, v)
+      BAL = await loadBalances(provider, v)
       renderAccounts(provider)
     })
   } catch (e) {
@@ -1263,6 +1393,53 @@ async function creditsBadge(btn) {
   }
 }
 
+/**
+ * token：`>= 1e6` → `94.54M`；`>= 1e3` → `945.39K`；其余取整。
+ *
+ * 与 `vendor/lib/credits.js:480` 的 `formatTokenAmount`（进而与客户端
+ * `credits-format.js` 的 `formatTokens`）逐字一致。
+ */
+function formatTokenAmount(value) {
+  const abs = Math.abs(value)
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(2)}K`
+  return String(Math.round(value))
+}
+
+/** 积分：整数不带小数位，有小数才保留两位（与客户端 `formatCredits` 一致）。 */
+function formatCreditAmount(value) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2)
+}
+
+/**
+ * 把 `totalByUnit` 拼成 `+100.00MToken, +100积分`。
+ *
+ * ⚠️ 不能直接展示 `summary.totalCredit`：`vendor/lib/jet-hub-rpc.js:511-517`
+ * 明确写它会把不同量纲加在一起（ZCode 的 1 亿 token + 100 积分 =
+ * `100000100`），「**不要**在展示路径上用它」。正确的字段是同层的
+ * `totalByUnit`（`computeClaimSummary` 同时产出两者，`totalCredit` 只为兼容
+ * 既有契约而保留原语义）。
+ *
+ * 这里是 `vendor/lib/credits.js:523` 的 `formatClaimGains` 的同形实现（浏览器侧
+ * 不能 import vendor 的模块图，只能复刻）：只列**非零**单位、token 在前、每个
+ * 单位各带一个 `+`、数值与单位之间**不留空格**。
+ *
+ * ⚠️ 复刻必须是**逐字**的：`token` 走 M / K 两档，`credit` 整数不带小数位、
+ * 有小数才保留两位。少了 K 档，5000 token 会渲染成 `5,000Token` 而不是
+ * `5.00KToken`；`credit` 走 `Math.round` 会把 100.5 分成 101。
+ */
+function formatClaimGains(totals) {
+  if (totals === undefined || totals === null || typeof totals !== 'object') return null
+  const parts = []
+  for (const unit of ['token', 'credit']) {
+    const value = Number(totals[unit])
+    if (!Number.isFinite(value) || value <= 0) continue
+    const text = unit === 'token' ? formatTokenAmount(value) : formatCreditAmount(value)
+    parts.push(`+${text}${unit === 'token' ? 'Token' : '积分'}`)
+  }
+  return parts.length === 0 ? null : parts.join(', ')
+}
+
 async function creditsClaim(btn) {
   const provider = $('#accProvider').value
   try {
@@ -1270,11 +1447,17 @@ async function creditsClaim(btn) {
       const v = await rpc('credits.claimAll', { provider })
       renderGeneric($('#credOut'), v)
       const s = v?.summary
-      say('#credMsg', s ? `领取 ${s.claimed} 个，+${s.totalCredit ?? 0}；已领 ${s.alreadyClaimed ?? 0}，失败 ${s.failed ?? 0}` : '已执行领取', 'ok')
+      const gained = formatClaimGains(s?.totalByUnit)
+      say('#credMsg', s ? `领取 ${s.claimed} 个${gained === null ? '' : `，${gained}`}；已领 ${s.alreadyClaimed ?? 0}，失败 ${s.failed ?? 0}` : '已执行领取', 'ok')
       // 领完卡片上的数字就过期了，重拉一次（也要重拉余额，不然还停在这轮之前）。
       // 期间切了渠道就别渲染了 —— 新渠道的 `ACC` 还没拉，会闪一帧空列表。
       if ($('#accProvider').value !== provider) return
-      await loadBalances(provider)
+      // `force: true`：余额缓存 120 秒，不强制回源的话卡片还是领取前的旧数。
+      const nextBal = await loadBalances(provider, undefined, true)
+      // ⚠️ 第二次 `await` 之后必须**再**校验一次 —— 期间用户可能已经切走，
+      // 用旧渠道的读数渲染新渠道的账号会闪一帧全是「—」的卡。
+      if ($('#accProvider').value !== provider) return
+      BAL = nextBal
       renderAccounts(provider)
     })
   } catch (e) {
@@ -1628,6 +1811,10 @@ function setProvider(id, { silent = false } = {}) {
 }
 
 const TAB_LOADERS = {
+  // ⚠️ `overview` 必须在这里：它原先只在 `boot()` 里渲染一次，切回概览页时
+  // `loadGatewayCards()` / `loadAutoCheckin()` 都不会重跑，于是网关状态与自动
+  // 签到状态永远停在打开页面那一刻（在设置页改了东西回来还是旧值）。
+  overview: () => renderOverview(),
   backup: () => loadBackup(),
   settings: () => {
     loadSettings()

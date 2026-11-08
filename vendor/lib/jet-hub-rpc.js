@@ -7873,13 +7873,35 @@ function registerJetHubEndpoints(ctx, pool, auths, modelAdapters) {
                     const after = { ...disabledBefore };
                     for (const id of ids)
                         after[id] = true;
+                    // ⚠️ 与 `setAllDisabled` 同一条契约：`closeProvider: false` =
+                    //    只写黑名单、**不**落「供应商关闭」意图（客户端「全关但保留
+                    //    供应商可选」的场景，参见 `setAllDisabled` 的 `closeProvider`
+                    //    契约（客户端 `setProviderAll` 传 `false`）。不传 = 默认 `true`。
+                    //    少了这条，同一份黑名单状态经两个入口会得到不同的意图 ——
+                    //    随后打开任意模型时 `account-pool.js` 又清掉意图，状态反向跳变。
+                    const closeProvider = req.closeProvider !== false;
                     const coversAll = catalog.complete
                         && catalog.ids.length > 0
                         && catalog.ids.every((id) => after[id] === true);
                     if (coversAll) {
-                        await pool.writeModelsWithProviderClosed(req.provider, ids, true);
+                        // ⚠️ `closed` 传 `closeProvider` 本身，**不要**写死 `true`。
+                        //    `writeModelsWithProviderClosed` 的第三个参数是「目标意图」：
+                        //    `true` 写入、`false` **删除**该键
+                        //    （`account-pool.js` 的 `if (closed) nextClosed[provider] = true
+                        //    else delete nextClosed[provider]`）。
+                        //    写死 `true` 的话，`closeProvider: false` 会走 `setModelsDisabled`
+                        //    —— 那个方法只写黑名单、**完全不碰** `providerClosedCache`。
+                        //    若该家此前已经处于关闭态（意图为 `true`），调用方传
+                        //    `closeProvider: false` 想表达「只关模型、供应商保持打开」，
+                        //    结果意图仍是 `true` —— 与 `setAllDisabled` 的同一开关
+                        //    语义相反（那边走 `writeModelsWithProviderClosed(..., false)`
+                        //    会删键）。日后目录增长时，新模型仍会被 `listModels` 过滤掉。
+                        await pool.writeModelsWithProviderClosed(req.provider, ids, closeProvider);
                         ctx.logger.info(`[jet-hub] ${req.provider} 的黑名单已覆盖全量目录`
-                            + `（${catalog.ids.length} 个），同时落「供应商关闭」意图`);
+                            + `（${catalog.ids.length} 个）`
+                            + (closeProvider
+                                ? `，同时落「供应商关闭」意图`
+                                : `，但不落「供应商关闭」意图（closeProvider: false）`));
                     }
                     else {
                         await pool.setModelsDisabled(req.provider, ids);

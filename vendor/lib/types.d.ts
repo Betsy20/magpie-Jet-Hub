@@ -1622,6 +1622,14 @@ export interface RpcModelSetDisabledManyRequest {
     provider: string;
     modelIds: string[];
     disabled: boolean;
+    /**
+     * 关闭方向是否同时落「供应商关闭」意图。默认 `true`。
+     *
+     * ⚠️ 与 {@link RpcModelSetAllDisabledRequest.closeProvider} 同一条契约 ——
+     * 两个入口写的是同一张黑名单，不给这条就会出现「同一份黑名单状态经两个入口
+     * 得到不同意图」，随后打开任意模型时又被清掉，状态反向跳变。
+     */
+    closeProvider?: boolean;
 }
 /** RPC: 分组批量开关响应（回传写入后的完整黑名单，与其它两个开关端点同结构） */
 export type RpcModelSetDisabledManyResponse = RpcModelSetDisabledResponse;

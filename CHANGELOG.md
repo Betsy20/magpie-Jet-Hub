@@ -11,6 +11,43 @@
 
 ## 1.0.0（未发布）
 
+- `fix(console)`: **修掉三路代码审查出的 6 个 P1 + 5 个 P2**。
+  - 「新人奖励」读 `claimable` / `canClaim` —— 这两个字段**任何 provider 都不返回**
+    （`RpcOnboardingStatusResponse` 只有 tasks / earned / total / titles / points），条件恒为
+    `false`，`onboarding.claim` 成了没有 UI 入口的死端点。改成 status → claim 两步都调。
+  - 「新人奖励」按钮对全部 28 家渲染，但只有 loomy / raccoon / magicrew / magicrewintl 四家有
+    onboarding 实现，其余 24 家点了必报 `unsupported provider`。加 `ONBOARDING_PROVIDERS` 门控。
+  - `credits.balances` 没传 `force`：后端默认吃 120 秒共享读数缓存，而 `claimAll` 只清折算缓存、
+    **刻意不清余额缓存** ⇒ 点完「全部领取」卡片积分 120 秒内不变。`loadBalances` 加第三参数。
+  - `creditsClaim` 在 `await loadBalances` 之后没再校验 `#accProvider`，切渠道时会把旧 provider
+    的余额写进新渠道的卡片。补第二次守卫。
+  - `loadAccounts` 先 `await loadBalances` 再渲染，余额挂起时整页停在「读取中…」，连「停用 /
+    删除 / 换 Key」都点不到。改成先渲染列表、再异步补余额。
+  - `loadBalances` 在 `await` 之前就清空全局 `BAL`：切渠道时旧渠道的回包晚到会**无条件覆盖**
+    新渠道的读数（卡片显示「—」或旧值）。改成返回局部 `Map`，调用方在 `#accProvider` 守卫
+    **通过之后**才 `BAL = next`。
+  - `onboarding.status` 是硬依赖：它失败时 `onboarding.claim` 一次都不发，而两者响应形状本来
+    就不同。status 改成 best-effort（失败只 `console.warn`），详情以 claim 的回包为准。
+  - AStudio 的 `{ accountId, loginUrl: '', reused: true }` 是**合法**路径（复用本机会话、没有
+    授权地址），原实现会掉进 `else` 分支抛「本体没有返回 loginUrl」。补 `reused === true` 分支。
+  - 领取摘要用跨单位求和的 `totalCredit` 展示积分（ZCode 的 1 亿 token + 100 积分 =
+    `100000100`）。改用 `totalByUnit`。
+  - OAuth 登录地址没有协议白名单，`javascript:` 会被 `window.open` 执行。加 `safeLoginUrl()`。
+  - 「概览」页切回时不刷新（`TAB_LOADERS` 缺 `overview`）。补上 loader。
+  - 账号上下移动的守卫只检查 `j` 没检查 `i`，stale id 下 `orderedIds[0] === null`。补 `i < 0`。
+  - `scripts/shot-console.cjs` 默认 tab 列表还带着已不存在的 `credits`，且 `accounts` 不是 nav
+    按钮 —— 直接跑会在 `overview` 之后 `.click()` 抛 `TypeError`，退出码 1，`proc.kill()` 与
+    临时 profile 清理被跳过（Windows 残留 headless Edge 进程）。默认列表改成
+    `['overview', 'accounts', 'settings', 'backup']`。
+
+- `docs`: **文档与代码对齐**。① 供应商家数统一成「注册 28 家、有目录的 26 家」——
+  `README.md` 与 `CHANGELOG.md` 原来直接写「26 家」，读者会以为插件只接了 26 家；②
+  `README.md` 的 `tests/` 从「27 个 t-*.mjs」改成「30 个 UNIT + 2 个 ENV」；③ `CHANGELOG.md`
+  的「82 条从空串变成裸 id」是错误归因，实际是 48 条空串→裸 id、21 条空串→非裸 id、13 条原本
+  非空的值被改写；④ `docs/testing.md` 的 UNIT 表补上漏掉的 `t-console-credits.mjs`，并纠正
+  「key 一律从环境变量取」（`ui-check.cjs` 也认位置参数）；⑤ `docs/vendor.md` 的补丁表补上
+  `types.d.ts`（8 个文件 / 6 类 / 1122 个逐字节一致）。
+
 - `fix(vendor)`: **`model.setDisabledMany` 在「黑名单覆盖该家全量目录」时补设供应商关闭意图**
   （第 5 类本地补丁）。上游两个关闭入口的语义不一致：`model.setAllDisabled`（关闭全部）默认
   `closeProvider = true`，而 `model.setDisabledMany` **从不落意图**。magpie 的 provider 弹窗把
@@ -22,8 +59,12 @@
   `known` 已经把黑名单并进去了（那是为了清理历史死键），拿它判「全量覆盖」**恒真**，等于
   「关一个模型就关掉整个供应商」；② 目录不完整（`complete === false`）时**不猜**。未覆盖
   全量时一个字节都不变。
-  `tests/t-rpc-cover.mjs` 第 8 节钉了 3 条**补丁存在性断言**：这 5 类补丁打在上游编译产物上，
-  下次按 `docs/vendor.md` 重跑同步会被整片覆盖，且这五类都静默（不报错、只出症状）。
+  **同时接受 `closeProvider` 入参**（与 `setAllDisabled` 同一条契约，默认 `true`）：只补意图
+  不管 `closeProvider` 的话，同一份黑名单状态经两个入口会得到不同的意图 —— 随后打开任意模型时
+  `account-pool.js` 又清掉意图，状态反向跳变。`lib/types.d.ts` 的
+  `RpcModelSetDisabledManyRequest` 同步补上该字段。
+  `tests/t-rpc-cover.mjs` 第 8 节钉了 3 条**补丁存在性断言**：这 6 类补丁打在上游编译产物上，
+  下次按 `docs/vendor.md` 重跑同步会被整片覆盖，且这六类都静默（不报错、只出症状）。
 
 - `fix(console)`: **buddy 补偿改成点一次直接领取**。原来卡片上的「补偿」只查状态，真正领取
   要去页脚那一行输入框（`#accCompId`）+「查补偿」+「领取补偿」再点一次 —— 卡片本来就带着
@@ -34,7 +75,7 @@
   「N 个账号」，所以动作自己的提示要等列表刷完再说（`flash` 变量），否则用户点完只看到
   「2 个账号」，不知道到底成没成。
 
-- `feat(console)`: 左栏改成**供应商列表**（照上游控制台的排法）。26 家供应商各一张最小 48px 的卡片
+- `feat(console)`: 左栏改成**供应商列表**（照上游控制台的排法）。26 家有目录的供应商各一张最小 48px 的卡片
   （品牌图标 + 名称 + 模型数），列表自己滚动、点一家就切到它的账号池；「概览 / 设置 / 备份」
   三个切页按钮固定在左栏底部一行（图标在上、文字在下）。图标来自新增的 `console/icons.js`
   —— 上游 `plugin-src/client/provider-icons.js` 那 29 个 data URI 直接搬过来（内联比多 29 个
@@ -81,7 +122,10 @@
   而当时 29 个测试全绿）。含「裸数组形状必须摊出 0 条」的回归锚点。
 
 - `feat(vendor)`: 同步上游到 `fddb875`（自上次 pin `6fa74723` 起 **110 个提交**、263 个文件）。
-  `vendor/lib` 1058 → **1130** 文件，`docs/vendor.md` 的 pin / 文件数 / 逐字节一致数（1124）一并更新。
+  `vendor/lib` 1058 → **1130** 文件，`docs/vendor.md` 的 pin / 文件数 / 逐字节一致数一并更新。
+  ⚠️ 那时的逐字节一致数是 **1124**（6 个文件不同）；`74fc440` 补上 `lib/jet-hub-rpc.js` 后
+  变成 **1123**（7 个文件不同）；`types.d.ts` 补上 `closeProvider` 类型后是 **1122**（8 个文件
+  不同），以 `docs/vendor.md` 的当前值为准 —— 本条描述的是同步当时的快照。
   本地补丁从 **5 类降到 4 类** —— `lib/jet-hub-rpc.js` 的 `product.id` 判空守卫**退役**：
   上游 `1b03f33` 自己改成 `(product as { id?: string } | undefined)?.id === ASTUDIO.id`（两处），
   语义等价，那一行不再是本仓库独有的差异。
@@ -107,7 +151,8 @@
   仍缺的 3 个（`baizhi.startSession`、`monkeycode.setSession`、`monkeycodeintl.setSession`）是
   「给已有账号补 session cookie」的高级入口，控制台历来只做建号 / 换 Key 两类，本轮不做。
 
-- `chore(snapshot)`: `page/models.js` 重跑（894 个模型 / 26 家，控制台地址回到 `:18500`）。
+- `chore(snapshot)`: `page/models.js` 重跑（894 个模型 / 26 家有目录 —— 注册总数 28 家，
+  `magicrew` 两家仍拿不到目录，见下；控制台地址回到 `:18500`）。
   上一版是用 `JET_HUB_META_PORT` 指定临时容器取的数，快照于是把「数据源宿主」和「控制台地址」
   都记成了那台临时容器的 `:18501` —— 容器早杀了，插件页「完整控制台」那张卡点进去必然
   `ERR_CONNECTION_REFUSED`。宿主 `:18500` 现在返回的目录已经是 894 条（临时容器那版只有 885，
@@ -120,7 +165,8 @@
   `tests/t-new-account.mjs` 的 `SNAPSHOT_MISSING` 白名单保持两条；凭据恢复后重跑快照会自动
   出现，届时那条反向锚点会红、提醒删掉白名单。
   ⚠️ `detail[].disabled` 这一轮从「全 false」翻成「886 true / 8 false」、`detail[].name` 有
-  82 条从空串变成裸 id —— 那是 `~/.config/magpie/jet-hub-models.json` 里机器本地的开关状态
+  82 条变了（48 条空串→裸 id、21 条空串→非裸 id、13 条原本非空的值被改写）——
+  那是 `~/.config/magpie/jet-hub-models.json` 里机器本地的开关状态
   被写进了受版本控制的快照。`page/page.js` 不消费 `detail`（只读 `gateway` / `models` /
   `providers`），所以**无用户可见影响**；将来谁要用这个字段，先想清楚它会随本机状态漂移。
 
