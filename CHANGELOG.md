@@ -11,6 +11,12 @@
 
 ## 1.0.0（未发布）
 
+- `fix(vendor)`: **修掉 `lib/magicrew-browser-login.d.ts` 的 `CDP_CREDENTIAL_EXPRESSION` 声明失配**
+  （2026-11-08 gitee 重审 P2-4）。上游源码是 `` `JSON.stringify({...})` ``（只读 `localStorage`），
+  本仓补丁早就换成了读 IndexedDB 的 **async IIFE**，但 `.d.ts` 仍停在旧值 ⇒ 声明的字面量类型
+  让整个表达式在编辑器里**看不见**（`declare const` 的初始值按 TS 规范只能是字面量，
+  而真实值是一段几百行的 IIFE，写成字面量既不现实也没意义）。改成 `string`。
+  补丁文件 10 → **11 个**（6 类改动数不变），逐字节一致 1128 → **1127**。
 - `feat(vendor)`: **同步上游到 `498a76e`**（自上次 pin `5042cec` 起 **7 个提交**）。
   `vendor/lib` 仍是 1138 个文件，逐字节一致数按实际 diff 是 **1128**（1138 − 10）；6 类改动不变，
   补丁文件实际是 **10 个** —— 此前文档写 9 个，漏了承载 magicrew IndexedDB 读取与 WAL 分片重组的
