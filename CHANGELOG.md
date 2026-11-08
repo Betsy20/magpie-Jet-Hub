@@ -46,7 +46,8 @@
   的「82 条从空串变成裸 id」是错误归因，实际是 48 条空串→裸 id、21 条空串→非裸 id、13 条原本
   非空的值被改写；④ `docs/testing.md` 的 UNIT 表补上漏掉的 `t-console-credits.mjs`，并纠正
   「key 一律从环境变量取」（`ui-check.cjs` 也认位置参数）；⑤ `docs/vendor.md` 的补丁表补上
-  `types.d.ts`（8 个文件 / 6 类 / 1122 个逐字节一致）。
+  `types.d.ts`（8 个文件 / 6 类 / 1122 个逐字节一致），并把「`types.d.ts.map` **保持上游
+  原样**、不重生成」的裁决写进文档 —— 否则下次同步的人会把它当成漏改再纠结一遍。
 
 - `fix(vendor)`: **`model.setDisabledMany` 在「黑名单覆盖该家全量目录」时补设供应商关闭意图**
   （第 5 类本地补丁）。上游两个关闭入口的语义不一致：`model.setAllDisabled`（关闭全部）默认
