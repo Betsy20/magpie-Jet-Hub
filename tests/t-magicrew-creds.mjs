@@ -171,8 +171,31 @@ console.log('\n8. 行为级：idbCredentialsIn 真能解出 jwt × org')
   // 只有 jwt 没有 org ⇒ 一条都不产出
   ok(mod.idbCredentialsIn(`\u0002${u16}`).length === 0, '只有 jwt 没有组织码 ⇒ 不产出（不造假）')
 
-  // 组织码在前、jwt 在后 ⇒ 仍然配上（find 不到「之后」就退回第一个）
-  ok(mod.idbCredentialsIn(`${orgRec} ${u16}`).length === 1, '组织码在前也能配上')
+  // 组织码在前、jwt 在后 ⇒ **不产出**（2026-11-08 复核 P1-1）。
+  // 旧实现退回「文本里第一个组织码」，那可能属于上一次登录的另一套凭据、或一条
+  // 早已被删除的记录，于是产出一个**从未同时写入过**的 `{旧 jwt × 新 org}`。
+  // 与 `credsNear()` 同纪律：宁可读不到（调用方降级去开窗口登录），也绝不编造。
+  ok(mod.idbCredentialsIn(`${orgRec} ${u16}`).length === 0, '组织码在 jwt 之前 ⇒ 不产出（不编造配对）')
+
+  // 两套凭据相邻 ⇒ 各自配自己**后面**那个 org，不许串。
+  {
+    const otherJwt = `eyJ${'d'.repeat(60)}.${'e'.repeat(60)}.${'f'.repeat(20)}`
+    const otherOrg = 'zz9988776655'
+    const otherU16 = [...otherJwt].map((ch) => `${ch}\u0000`).join('')
+    const otherOrgRec = `magic_organization_code"${String.fromCharCode(otherOrg.length)}${otherOrg}"`
+    const pairs = mod.idbCredentialsIn(`\u0002${u16}\u0000\u0000${orgRec} ${otherU16}\u0000\u0000${otherOrgRec}`)
+    ok(pairs.length === 2, `两套凭据都解出（实际 ${pairs.length}）`)
+    ok(pairs[0]?.jwt === jwt && pairs[0]?.organizationCode === org, '第一把 jwt 配到第一个 org')
+    ok(pairs[1]?.jwt === otherJwt && pairs[1]?.organizationCode === otherOrg, '第二把 jwt 配到第二个 org（不串）')
+  }
+
+  // JWT 判据必须与 `isJwtShaped()` 一致：段里混进非 base64url 字符（这里塞个 `"`）
+  // ⇒ 不是合法 jwt，跳过（2026-11-08 复核 P2-4）。
+  {
+    const dirtyJwt = `eyJ${'a'.repeat(60)}.${'b'.repeat(60)}.${'c'.repeat(60)}"`
+    const dirtyU16 = [...dirtyJwt].map((ch) => `${ch}\u0000`).join('')
+    ok(mod.idbCredentialsIn(`\u0002${dirtyU16}\u0000\u0000 ${orgRec}`).length === 0, 'jwt 段里混进 `"` ⇒ 不算合法 jwt（与 isJwtShaped 同判据）')
+  }
 
   // 值被截断（长度字节声明 org.length、实际只剩一半）⇒ 必须当误命中跳过。
   // 否则 `slice` 静默截短 + 全可打印 ⇒ 编造出一个不存在的组织码。
@@ -532,6 +555,95 @@ console.log('\n13. 行为级：上次遗留的临时浏览器 profile 会被回�
     /process\.platform === 'win32'/.test(loginSrc),
     '保留时长按平台分叉（POSIX 没有 EPERM 那道网）',
   )
+}
+
+// ── 14. 行为级：WAL 分片记录要能拼回来（32 KiB 块边界）────────────────────
+console.log('\n14. 行为级：WAL 分片（FIRST/MIDDLE/LAST）要能拼回来')
+{
+  /**
+   * 背景（2026-11-08 复核 P1-3）：真实 Edge 的
+   * `Default/IndexedDB/https_www.letsmagic.cn_0.indexeddb.leveldb/000003.log`
+   * 里有一条 WriteBatch 正好落在 32 KiB 块边界上，被 `log_writer.cc` 切成
+   * `FIRST` / `MIDDLE` / `LAST` 三段 —— 那是**正常**形态。
+   *
+   * 旧实现只要 `type !== kFullType` 就整体返回 `undefined`，于是一份完全正常的
+   * WAL 会让整条 IndexedDB 腿退回 `rawText` 原始字节扫描 ——「不许从原始字节里
+   * 编造凭据」（2026-11-05 对抗审计 P3-3）这条纪律实际从未在这条腿上生效。
+   */
+  const { readWalRecords } = await import(
+    pathToFileURL(path.join(ROOT, 'vendor', 'lib', 'leveldb-sstable.js')).href
+  )
+
+  /** 一条物理记录：`crc32(4) | length(2 LE) | type(1) | payload`（crc 不校验）。 */
+  const physical = (type, payload) => {
+    const head = Buffer.alloc(7)
+    head.writeUInt16LE(payload.length, 4)
+    head[6] = type
+    return Buffer.concat([head, payload])
+  }
+  /** 一条 WriteBatch：`seq(8 LE) | count(4 LE) | (kind | varint keyLen | key | varint valueLen | value)*`。 */
+  const writeBatch = (sequence, entries) => {
+    const body = []
+    for (const [key, value] of entries) {
+      body.push(
+        Buffer.from([1, key.length]),
+        Buffer.from(key),
+        Buffer.from([value.length]),
+        Buffer.from(value),
+      )
+    }
+    const head = Buffer.alloc(12)
+    head.writeBigUInt64LE(BigInt(sequence), 0)
+    head.writeUInt32LE(entries.length, 8)
+    return Buffer.concat([head, ...body])
+  }
+
+  const batch = writeBatch(100, [['alpha', 'A1'], ['beta', 'B2']])
+  const full = readWalRecords(physical(1, batch))
+  ok(full?.length === 2, `整条（FULL）能解出 2 条（实际 ${full?.length}）`)
+
+  // 同一条 batch 切成 FIRST / MIDDLE / LAST 三段。
+  const cut = Math.floor(batch.length / 3)
+  const pieces = readWalRecords(Buffer.concat([
+    physical(2, batch.subarray(0, cut)),
+    physical(3, batch.subarray(cut, cut * 2)),
+    physical(4, batch.subarray(cut * 2)),
+  ]))
+  ok(pieces?.length === 2, `分片拼回来也是 2 条（实际 ${pieces?.length}）`)
+  ok(pieces?.[0]?.key.toString() === 'alpha' && pieces?.[0]?.value.toString() === 'A1', '第一段分片解对了')
+  ok(pieces?.[1]?.key.toString() === 'beta' && pieces?.[1]?.value.toString() === 'B2', '第二段分片解对了')
+  ok(pieces?.[0]?.sequence === 100 && pieces?.[1]?.sequence === 101, '分片里的 sequence 没丢')
+
+  // 块尾不足 7 字节 ⇒ `log_writer.cc` 补零，记录从**下一个 32 KiB 块**继续。
+  {
+    const first = physical(1, batch)
+    const padding = Buffer.alloc(32768 - first.length) // 正好填到块边界
+    const both = readWalRecords(Buffer.concat([first, padding, physical(1, writeBatch(200, [['gamma', 'C3']]))]))
+    ok(both?.length === 3, `块尾补零后仍能接着读（实际 ${both?.length} 条）`)
+    ok(both?.[2]?.key.toString() === 'gamma', '补零块之后的记录解对了')
+  }
+
+  // 真的坏了 ⇒ 必须返回 `undefined`（调用方退回原文扫描），不许产出半截记录。
+  ok(readWalRecords(physical(3, batch)) === undefined, 'SOLO MIDDLE ⇒ 判为损坏（undefined）')
+  ok(readWalRecords(physical(4, batch)) === undefined, 'SOLO LAST ⇒ 判为损坏（undefined）')
+  ok(readWalRecords(physical(9, batch)) === undefined, '未知 type ⇒ 判为损坏（undefined）')
+  ok(readWalRecords(physical(1, batch.subarray(0, 4))) === undefined, '载荷短于 WriteBatch 头 ⇒ 判为损坏')
+}
+
+// ── 15. 源码级：IndexedDB 文本也要跨文件去重 ─────────────────────────────
+console.log('\n15. 源码级：indexedDbRawTextOfDir 走 leveldbVisibleRecords 去重')
+{
+  /**
+   * 2026-11-08 复核 P1-2：同一条 IndexedDB 记录的多次写入会横跨 `.ldb`（旧值）与
+   * `.log`（WAL 新值 / tombstone）。直接逐条渲染 ⇒ 新旧多版本同时进文本，于是
+   * `idbCredentialsIn` 的「jwt 配它后面最近的 org」会把新 jwt 配到旧 org 上
+   * （HTTP 200 + `code:403`），已删除的记录也会「复活」。
+   */
+  const at = localSrc.indexOf('function indexedDbRawTextOfDir(')
+  ok(at >= 0, '源码里有 indexedDbRawTextOfDir')
+  const end = at === -1 ? -1 : localSrc.indexOf('\n}\n', at)
+  const body = at === -1 || end === -1 ? '' : localSrc.slice(at, end)
+  ok(body.includes('leveldbVisibleRecords(records)'), '跨文件按 user key 取最新（与 leveldbTextOfDir 同一纪律）')
 }
 
 console.log('')

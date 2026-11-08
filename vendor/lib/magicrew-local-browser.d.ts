@@ -95,7 +95,23 @@ export declare function magicrewProfilesOf(root: string): string[];
  * ⚠️ 多 profile 之间用 `\n` 隔开：不隔开时前一个 profile 的尾部与后一个的头部
  * 会拼成一条**不存在的**记录（可能凭空造出一对 jwt × org）。
  */
-export declare function leveldbTextFor(root: string, log?: (message: string) => void): string;
+export declare function leveldbTextFor(root: string, log?: (message: string) => void, hostname?: string): string;
+/**
+ * 从 IndexedDB 的 leveldb 文本里取 `jwt × organizationCode`（本仓改动，2026-10-30）。
+ *
+ * ⚠️ 磁盘腿的第二步：`indexedDbRawTextOfDir` 只负责把**记录原始字节**拼成文本
+ * （不 `decodeValue` —— IndexedDB 的值是 V8 序列化格式，解了反而一条都匹配不上），
+ * 配对由本函数按 IndexedDB 自己的编码形态做：JWT 是 UTF-16LE 的 `e\0y\0J\0…`，
+ * 组织码是 `magic_organization_code"<长度字节><值>"`（单字节 latin1）。
+ *
+ * ⚠️ 组织码必须取「这条 jwt **之后**最近的那个」，**找不到就不产出** —— 退回
+ * 文本里第一个组织码会产出一个从未同时写入过的 `{旧 jwt × 新 org}`
+ * （2026-11-08 复核 P1-1）。
+ */
+export declare function idbCredentialsIn(text: string): {
+    jwt: string;
+    organizationCode: string;
+}[];
 /** jwt 里的 `iat` / `exp`；解不出来返回 0（**不猜**）。 */
 export declare function jwtTimes(jwt: string): {
     iat: number;

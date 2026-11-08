@@ -348,8 +348,20 @@ export function leveldbVisibleRecords(records) {
 }
 /** leveldb WAL（`.log`）的 record 头长度：`crc32(4) + length(2) + type(1)`。 */
 const WAL_HEADER_SIZE = 7;
-/** leveldb WAL 里 `type` 的取值（只认整条 `FULL`）。 */
+/**
+ * leveldb WAL 的**块**大小。
+ *
+ * ⚠️ 物理记录（`crc32 | length | type | payload`）**不跨越**块边界：一块写满时，
+ * 块尾不足 7 字节的部分被 `log_writer.cc` 补零；一条比块尾更长的 WriteBatch 则被
+ * **切成多段** `FIRST` / `MIDDLE` / `LAST`。
+ */
+const WAL_BLOCK_SIZE = 32768;
+/** leveldb WAL 里 `type` 的取值（`log_format.h` 的 `RecordType`，逐值对齐）。 */
+const WAL_ZERO_TYPE = 0;
 const WAL_FULL_RECORD = 1;
+const WAL_FIRST_RECORD = 2;
+const WAL_MIDDLE_RECORD = 3;
+const WAL_LAST_RECORD = 4;
 /** WriteBatch 头：`seq(8) + count(4)`。 */
 const WRITE_BATCH_HEADER_SIZE = 12;
 /**
@@ -366,55 +378,115 @@ const WRITE_BATCH_HEADER_SIZE = 12;
  *
  * @returns 记录数组；**不是**合法 WAL 时返回 `undefined`（调用方退回「原文扫描」）。
  *
- * ⚠️ 任何一步越界/未知 kind/分片记录（`FIRST`/`MIDDLE`/`LAST`）都返回
- * `undefined` —— 宁可退回原文扫描（本文件其它 `.log` 的既有行为），也不要
- * 产出半截记录（那会静默改变配对结果）。
+ * ## ⚠️⚠️ 为什么必须做分片重组（2026-11-08 复核 P1-3）
+ *
+ * 真实 Edge 的 IndexedDB WAL（`000003.log`）里，若干条物理记录落在 **32 KiB 块
+ * 边界**上（`type = 2` `FIRST` / `type = 4` `LAST`）—— 那是 `log_writer.cc` 把
+ * 一条超长 WriteBatch 切开的**正常**形态，不是损坏。旧实现只要
+ * `type !== kFullType` 就 `return undefined`，于是一份完全正常的 WAL 会让整条
+ * IndexedDB 腿退回 `rawText` 原始字节扫描 ——「不许从原始字节里编造凭据」那条
+ * 纪律（2026-11-05 对抗审计 P3-3）在这条腿上实际从未生效。
+ *
+ * ## ⚠️ 什么才算「真的坏了」
+ *
+ * | 形态 | 判定 |
+ * |---|---|
+ * | `FULL` | 正常 |
+ * | `FIRST` → `MIDDLE`* → `LAST` | 正常，拼回一条 |
+ * | 块尾不足 7 字节 | 正常（`log_writer.cc` 补零）⇒ 跳过，从下一块继续 |
+ * | 零长 `ZERO` 记录 | 正常（`env_posix.cc` 预分配区域的填充）⇒ 跳过 |
+ * | 文件尾部半写（长度字节声明的载荷越界） | 正常（WAL 正在追加）⇒ **停下来，保留已解析的记录** |
+ * | `MIDDLE` / `LAST` 前面没有 `FIRST` | 真坏 ⇒ `undefined` |
+ * | 未知 `type` / 未知 `kind` / 载荷短于 WriteBatch 头 | 真坏 ⇒ `undefined` |
  */
 export function readWalRecords(input) {
     const records = [];
     let at = 0;
+    /** `FIRST` 之后累积的分片载荷；`undefined` = 当前不在分片中间。 */
+    let fragments;
     try {
-        while (at + WAL_HEADER_SIZE <= input.length) {
+        while (at < input.length) {
+            // 块尾不足一个头：leveldb 写零填充，记录从下一块开头继续。
+            const blockLeft = WAL_BLOCK_SIZE - (at % WAL_BLOCK_SIZE);
+            if (blockLeft < WAL_HEADER_SIZE) {
+                at += blockLeft;
+                continue;
+            }
+            // 文件尾部半写（连 7 字节头都不完整）：已解析出来的记录仍然有效。
+            if (at + WAL_HEADER_SIZE > input.length)
+                break;
             const length = input.readUInt16LE(at + 4);
             const type = input[at + 6];
             const payloadStart = at + WAL_HEADER_SIZE;
-            if (length === 0 || type !== WAL_FULL_RECORD || payloadStart + length > input.length) {
-                return undefined;
+            // 零长 `ZERO`：`env_posix.cc` 预分配区域的填充 ⇒ 丢弃**整块**剩余
+            // （`log_reader.cc` 的 `buffer_.clear()`），从下一个 32 KiB 块继续。
+            // ⚠️ 不要改成 `at += WAL_HEADER_SIZE` 逐条跳：预分配区域可能有几百 KB
+            // 全零，逐条跳是几万次空转。
+            if (type === WAL_ZERO_TYPE && length === 0) {
+                at += blockLeft;
+                continue;
             }
+            // 载荷越界 = WAL 正在追加（尾部半写）。**不是**损坏：保留已解析的记录。
+            if (payloadStart + length > input.length)
+                break;
             const payload = input.subarray(payloadStart, payloadStart + length);
             at = payloadStart + length;
-            if (payload.length < WRITE_BATCH_HEADER_SIZE)
+            let batch;
+            if (type === WAL_FULL_RECORD) {
+                batch = payload;
+            }
+            else if (type === WAL_FIRST_RECORD) {
+                fragments = [payload];
+                continue;
+            }
+            else if (type === WAL_MIDDLE_RECORD) {
+                if (fragments === undefined)
+                    return undefined; // 没有 FIRST 的 MIDDLE：真的坏了
+                fragments.push(payload);
+                continue;
+            }
+            else if (type === WAL_LAST_RECORD) {
+                if (fragments === undefined)
+                    return undefined;
+                fragments.push(payload);
+                batch = Buffer.concat(fragments);
+                fragments = undefined;
+            }
+            else {
+                return undefined; // 未知 type
+            }
+            if (batch.length < WRITE_BATCH_HEADER_SIZE)
                 return undefined;
-            const baseSequence = payload.readBigUInt64LE(0);
-            const count = payload.readUInt32LE(8);
+            const baseSequence = batch.readBigUInt64LE(0);
+            const count = batch.readUInt32LE(8);
             if (count > 1_000_000)
                 return undefined;
             let position = WRITE_BATCH_HEADER_SIZE;
             for (let index = 0; index < count; index += 1) {
-                const kind = payload[position];
+                const kind = batch[position];
                 position += 1;
                 if (kind !== 0 && kind !== 1)
                     return undefined;
-                const keyLength = readVarint(payload, position);
+                const keyLength = readVarint(batch, position);
                 position = keyLength.next;
                 const keyEnd = position + keyLength.value;
-                if (keyEnd > payload.length)
+                if (keyEnd > batch.length)
                     return undefined;
-                const key = payload.subarray(position, keyEnd);
+                const key = batch.subarray(position, keyEnd);
                 position = keyEnd;
                 const sequence = Number(baseSequence + BigInt(index));
                 if (kind === 0) {
                     records.push({ key, value: Buffer.alloc(0), sequence, deleted: true });
                     continue;
                 }
-                const valueLength = readVarint(payload, position);
+                const valueLength = readVarint(batch, position);
                 position = valueLength.next;
                 const valueEnd = position + valueLength.value;
-                if (valueEnd > payload.length)
+                if (valueEnd > batch.length)
                     return undefined;
                 records.push({
                     key,
-                    value: payload.subarray(position, valueEnd),
+                    value: batch.subarray(position, valueEnd),
                     sequence,
                     deleted: false,
                 });
@@ -425,6 +497,7 @@ export function readWalRecords(input) {
     catch {
         return undefined;
     }
+    // 循环最后停在「FIRST 之后没有 LAST」= 尾部半写：残留分片丢弃，已解析的保留。
     return records.length > 0 ? records : undefined;
 }
 /**

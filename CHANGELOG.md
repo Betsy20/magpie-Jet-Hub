@@ -12,7 +12,9 @@
 ## 1.0.0（未发布）
 
 - `feat(vendor)`: **同步上游到 `5042cec`**（自上次 pin `fddb875` 起 **47 个提交**）。
-  `vendor/lib` 1130 → **1138** 文件，逐字节一致数 1122 → **1130**（仍是 8 个补丁文件 / 6 类）。
+  `vendor/lib` 1130 → **1138** 文件，逐字节一致数 1122 → **1129**（仍是 6 类改动，但补丁文件
+  从 8 个变 **9 个**：`lib/magicrew-local-browser.d.ts` 补了 `idbCredentialsIn` 声明与
+  `leveldbTextFor` 的 `hostname` 第三参）。
   上游这一版的重点是 `fix(qoder): 目录并 app 场景（QoDuck 只发布在那里）+ COSY_VERSION 抬到
   1.1.79`；对我们影响最大的是 **`lib/magicrew-local-browser.js` 被重写**（底层从
   `readFileSync().toString('latin1')` 换成 SSTable/WAL 解析 + Snappy 解压 + 按 sequence 去重），
@@ -34,6 +36,32 @@
   `delete providerClosed[provider]`，会**主动删掉**用户设好的意图（2026-11-04 真机报障
   「更新插件后停用的供应商被启用了」）；表达「只关模型、不动供应商意图」要用 `'keep'`。
   另外 `setAllDisabled` 那条**旧补丁已退役**：上游自己改成了三态，我们保留上游版本。
+
+- `fix(vendor)`: **补掉 magicrew IndexedDB 这条腿上的 5 条残余风险**（同步上游时只做到「能跑」，
+  2026-11-08 复核逐条修）：
+  - **不再编造配对**：`idbCredentialsIn` 找不到「这条 jwt 之后最近的」组织码时原来退回文本里
+    **第一个**，会产出**从未同时写入过**的 `{旧 jwt × 新 org}` ⇒ 上游 HTTP 200 + `code:403`，
+    极难归因（平时被「未过期优先 → 同档取 iat 最新」掩盖，只在最新 jwt 的 iat 解不出、而旧的
+    可解时暴露）。改成与 `credsNear()` 同一纪律：找不到就**不产出**，降级去开窗口登录。
+  - **跨文件去重**：`indexedDbRawTextOfDir` 原来直接逐条渲染 `content.records`，同一 user key
+    的新旧多版本（`.ldb` 里的旧值 + `.log` 里的新值 / tombstone）会同时进文本 —— 那正是上一条
+    的触发条件，也会让已删除的记录「复活」。改成与 `leveldbTextOfDir` 一样走
+    `leveldbVisibleRecords`。
+  - **WAL 分片要能拼回来**：`readWalRecords` 原来只要 `type !== kFullType` 就整体返回
+    `undefined`，而真实 Edge 的 `000003.log` 里有一条 WriteBatch 正好落在 32 KiB 块边界上、被
+    `log_writer.cc` 切成 `FIRST` / `MIDDLE` / `LAST` —— 那是**正常**形态。于是一份完好的 WAL
+    让整条腿退回原始字节扫描，「不许从原始字节里编造凭据」（2026-11-05 对抗审计 P3-3）实际
+    从未在这条腿上生效。现在按 `log_reader.cc` 的语义重组分片（块尾补零 ⇒ 跳到下一块），
+    真损坏（SOLO MIDDLE / SOLO LAST / 未知 type）才返回 `undefined`。
+  - **JWT 判据统一**：`idbJwtsIn` 原来只查「长度 ≥ 80 且三段」，不查 base64url 字符集，与
+    `magicrew-browser-login.js` 的 `isJwtShaped()` 不一致（同一份数据两条腿两套判据）。抽成
+    同一个正则 `IDB_JWT_PART`，逐字对齐。
+  - **`.d.ts` 补齐**：`lib/magicrew-local-browser.d.ts` 原来缺 `idbCredentialsIn` 声明，
+    `leveldbTextFor` 也少 `hostname` 第三参 —— 按 `.d.ts` 写 `leveldbTextFor(root, hostname)`
+    会让 hostname 落到 `log` 位，**静默**关掉 IndexedDB 这条腿（症状与「用户没登录」同形）。
+  - 测试：`t-magicrew-creds.mjs` 从 99 项加到 **116 项** —— 新增 §14（WAL 分片行为级，逐段
+    验 key / value / sequence 与块尾补零）、§15（去重的源码级锁），并把 §8 那条把 bug 锁成
+    期望行为的断言掉头。
 
 - `fix(console)`: **修掉三路代码审查出的 6 个 P1 + 5 个 P2**。
   - 「新人奖励」读 `claimable` / `canClaim` —— 这两个字段**任何 provider 都不返回**
