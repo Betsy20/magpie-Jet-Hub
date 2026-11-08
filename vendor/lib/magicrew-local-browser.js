@@ -336,25 +336,37 @@ function indexedDbRawTextOfDir(dir, log) {
     catch {
         return '';
     }
-    const parts = [];
+    const records = [];
+    const rawTexts = [];
     for (const entry of files) {
         if (entry.isDirectory())
             continue;
         const content = leveldbContentForFile(join(dir, entry.name), entry.name, log);
         if (content === undefined)
             continue;
-        for (const record of content.records) {
-            // ⚠️ 不 `decodeValue`：见本函数头「为什么不能复用 leveldbTextOfDir」。
-            parts.push(record.key.toString('latin1'), record.value.toString('latin1'));
-        }
+        // ⚠️ 不要用 `records.push(...content.records)`：记录多时 V8 会抛 RangeError。
+        for (const record of content.records)
+            records.push(record);
         // `rawText` 只对「`.log` 但不是合法 WAL」以及 `LOG` / `MANIFEST-*` / `CURRENT`
         // 这些非记录文件非空（`.ldb` / `.sst` 解析失败是 `return undefined` 直接跳过，
         // 不会走到这里）。此时 `rawText` 是整份 latin1 原文 —— 与旧行为一致：宁可多扫
         // 一遍，也不因为「格式没认出来」就丢掉里面的凭据。
         if (content.rawText.length > 0)
-            parts.push(content.rawText);
+            rawTexts.push(content.rawText);
     }
-    return parts.join('\n');
+    // ⚠️⚠️ 必须**跨文件**按 user key 取最新那条（2026-11-08 复核 P1-2）。
+    //
+    // 同一条 IndexedDB 记录的多次写入会横跨 `.ldb`（旧值）与 `.log`（WAL 新值 /
+    // tombstone）。此处当初直接逐条渲染 ⇒ **新旧多版本同时进文本**，于是
+    // `idbCredentialsIn` 的「jwt 配它后面最近的 org」会把新 jwt 配到旧 org 上
+    // （上游 HTTP 200 + `code:403`，极难归因），已删除的记录也会「复活」。
+    // `leveldbTextOfDir` 一直走这条路径，这里当初漏了。
+    const parts = [];
+    for (const record of leveldbVisibleRecords(records)) {
+        // ⚠️ 不 `decodeValue`：见本函数头「为什么不能复用 leveldbTextOfDir」。
+        parts.push(record.key.toString('latin1'), record.value.toString('latin1'));
+    }
+    return [parts.join('\n'), ...rawTexts].filter((text) => text.length > 0).join('\n');
 }
 /**
  * 一个 User Data 根目录下**全部 profile** 的 leveldb 文本。
@@ -441,6 +453,16 @@ const IDB_ORGANIZATION_KEYS = [
 /** 三段式 JWT 的固定开头。与 `magicrew-browser-login.js` 的 `isJwtShaped()` 同判据。 */
 const IDB_JWT_HEAD = 'e\u0000y\u0000J\u0000';
 const IDB_JWT_MIN = 80;
+/**
+ * 三段式 JWT 每一段的字符集 —— **与 `magicrew-browser-login.js` 的
+ * `isJwtShaped()` 逐字一致**。
+ *
+ * ⚠️ 2026-11-08 复核 P2-4：两条腿对「什么算 JWT」的判据原本不同（这里只查
+ * 「长度 ≥ 80 且三段」），于是 `eyJ…` 后面粘着的 `"` / `}` 会被一起收进 jwt 串，
+ * 产出一个上游必然拒绝的值。两条腿必须同判据，否则「磁盘能读出来、CDP 读不出来」
+ * 这类差异会变成极难复现的偶发。
+ */
+const IDB_JWT_PART = /^[A-Za-z0-9_\-+/=]+$/;
 /** 把 UTF-16LE 的 ASCII 段解回普通字符串；不是这种段就返回空串。 */
 function idbUtf16AsciiAt(text, at) {
     let out = '';
@@ -461,7 +483,12 @@ function idbJwtsIn(text) {
     let at = -1;
     while ((at = text.indexOf(IDB_JWT_HEAD, at + 1)) !== -1) {
         const jwt = idbUtf16AsciiAt(text, at);
-        if (jwt.length < IDB_JWT_MIN || jwt.split('.').length !== 3)
+        const segments = jwt.split('.');
+        // ⚠️ 判据与 `isJwtShaped()` 一致：长度够 + 三段 + 每段都是 base64url 字符。
+        // 少了最后一个条件就会把尾部的引号/花括号一起收进来（P2-4）。
+        if (jwt.length < IDB_JWT_MIN
+            || segments.length !== 3
+            || !segments.every((segment) => IDB_JWT_PART.test(segment)))
             continue;
         if (seen.has(jwt))
             continue;
@@ -514,10 +541,19 @@ export function idbCredentialsIn(text) {
         return [];
     const out = [];
     for (const found of jwts) {
-        // ⚠️ 组织码取「这条 jwt **之后**最近的那个」；实在没有才退回第一个。
-        // 与 `credsNear()` 同一条理由：同一站点可能存过多套凭据，配错会得到
-        // HTTP 200 + `code:403`，极难归因。
-        const org = orgs.find((candidate) => candidate.index > found.index) ?? orgs[0];
+        // ⚠️⚠️ 组织码必须取「这条 jwt **之后**最近的那个」，**找不到就不产出**
+        // （2026-11-08 复核 P1-1）。
+        //
+        // 旧实现在找不到时退回 `orgs[0]` —— 那是文本里**第一个**组织码，可能属于
+        // 上一次登录的另一套凭据、或一条早已被删除的记录，于是产出一个**从未同时
+        // 写入过**的 `{旧 jwt × 新 org}`。上游对这种错配的回应是 HTTP 200 +
+        // `code:403`，比「没读到」难查得多。
+        //
+        // `credsNear()` 早就按这条纪律写（「宁可读不到、降级去开窗口登录，也绝不
+        // 编造」），这里当初漏了。
+        const org = orgs.find((candidate) => candidate.index > found.index);
+        if (org === undefined || org.value.length === 0)
+            continue;
         out.push({ jwt: found.jwt, organizationCode: org.value });
     }
     return out;
