@@ -17,6 +17,16 @@
   让整个表达式在编辑器里**看不见**（`declare const` 的初始值按 TS 规范只能是字面量，
   而真实值是一段几百行的 IIFE，写成字面量既不现实也没意义）。改成 `string`。
   补丁文件 10 → **11 个**（6 类改动数不变），逐字节一致 1128 → **1127**。
+- `docs(vendor)`: **`docs/vendor.md` 的两处上游信息写错**（同一轮 gitee 重审发现）。
+  ① **上游仓库地址写成了 GitHub 镜像** —— `498a76e` 只在
+  [`gitee.com/iJetLi/deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)，
+  `gh api repos/iJetLi/dsh-providers-hub/commits/498a76e` 返回 **422 No commit found**
+  （`5042cec` 才是 200）；而同一份文档别处又写「上游同步到 `5042cec` 后」，两个 sha 打架。
+  照文档 `git checkout 498a76e` **必然失败**。改为主仓 gitee + 注明 GitHub 是落后镜像，
+  两处 `git clone` 命令跟着改。
+  ② **补丁归属写错** —— `indexedDbRawTextOfDir` 不在 `lib/leveldb-sstable.js`
+  （那里只有 `readWalRecords`），在 `lib/magicrew-local-browser.js`。拆成两句各说各的，
+  免得下次同步的人按文档去 `leveldb-sstable.js` 找 IndexedDB 读取。
 - `feat(vendor)`: **同步上游到 `498a76e`**（自上次 pin `5042cec` 起 **7 个提交**）。
   `vendor/lib` 仍是 1138 个文件，逐字节一致数按实际 diff 是 **1128**（1138 − 10）；6 类改动不变，
   补丁文件实际是 **10 个** —— 此前文档写 9 个，漏了承载 magicrew IndexedDB 读取与 WAL 分片重组的
