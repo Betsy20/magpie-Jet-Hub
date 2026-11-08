@@ -60,7 +60,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function main() {
   const tabs = process.argv.slice(2)
-  const want = tabs.length ? tabs : ['overview', 'accounts', 'credits', 'settings', 'backup']
+  // ⚠️ 默认列表是「要截的页面」，其中 `overview` / `settings` / `backup` 三个对应
+  // `console/index.html` 的 `#nav` 按钮，`accounts` 是**特例**（它没有 nav 按钮，
+  // 由侧栏供应商列表驱动，走下面的 `#providerList` 分支）。2026-11-05 改版后
+  // 「积分」并入账号卡，旧默认值里的 `credits` 会让
+  // `document.querySelector('#nav button[data-tab="accounts"]')` 返回 null、
+  // `.click()` 抛 TypeError → 退出码 1，且 `proc.kill()` 与临时 profile 清理被跳过
+  // （Windows 上残留 headless Edge 进程与 %TEMP%\edge-console-* 目录）。
+  // 「账号」仍要截，但它没有 nav 按钮，走下面的 `#providerList` 分支。
+  const want = tabs.length ? tabs : ['overview', 'accounts', 'settings', 'backup']
   const URL_BASE = process.env.CONSOLE_URL || (await readConsoleUrl())
   console.log(`控制台: ${URL_BASE}`)
   fs.mkdirSync(OUT, { recursive: true })
@@ -158,8 +166,15 @@ async function main() {
   }
 
   for (const t of want) {
-    await ev(`document.querySelector('#nav button[data-tab="${t}"]').click()`)
-    await sleep(t === 'credits' || t === 'accounts' ? 3200 : 1400)
+    if (t === 'accounts') {
+      // 「账号」不是标签：由侧栏供应商列表驱动（点一家供应商就切过去）。
+      // ⚠️ 侧栏由 `META.providers`（模型目录）渲染，**不是**账号列表 ——
+      // 一家 provider 都没有时这里什么也不点，让下面的 `.on` 断言兜底。
+      await ev(`document.querySelector('#providerList [data-provider]')?.click()`)
+    } else {
+      await ev(`document.querySelector('#nav button[data-tab="${t}"]').click()`)
+    }
+    await sleep(t === 'accounts' ? 3200 : 1400)
     const info = await ev(`(() => {
       const sec = document.querySelector('#tab-${t}')
       const rows = sec?.querySelectorAll('tbody tr').length ?? 0

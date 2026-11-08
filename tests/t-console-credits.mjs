@@ -98,8 +98,12 @@ function makeHarness() {
     let BAL = BAL_INIT
     let rpc
     ${loadBalancesSrc}
+    // ⚠️ loadBalances 现在**返回**新 Map 而不是直接写全局 BAL
+    //    （修 P1-A：旧实现先清空 BAL 再 await，切渠道时旧回包会覆盖新渠道）。
+    //    抽出来的源码一个字符没改，只在外面补上「调用方把返回值写回」这一步。
+    const load = async (...args) => { BAL = await loadBalances(...args); return BAL }
     return {
-      loadBalances,
+      loadBalances: load,
       getBAL: () => BAL,
       setRpc: (fn) => { rpc = fn },
     }

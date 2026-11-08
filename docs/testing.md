@@ -43,6 +43,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-backup-keep.mjs` | `keepDisabledModels` 三态 + merge 不碰黑名单 |
 | `t-login-reclaim.mjs` | 放弃授权时回收占位账号（四字段判据：昵称等于 id 或白名单、无到期时间、不可 refreshable、10 分钟内创建；外加 `login.poll` 二次确认） |
 | `t-console-backup.mjs` | 控制台解壳：与 CLI / 前端导出侧三方契约常量对账、口令不裁剪、非 JSON 不被说成口令错 |
+| `t-console-credits.mjs` | 控制台余额卡片：真实回包形状（`{accounts:[...]}`）摊平、三个额度字段方向（`total` 是可用合计、`expiringTotal` 是「total 中即将到期」仍可用、`expiredTotal` 是「已失效不可用」）、兼顶旧读数（`balance` + `error` 同时有值时打 `stale`）、`prefetched` 不重复发 RPC、`unsupported provider` 静默降级、每次调用重置 |
 | `t-new-account.mjs` | 「在 magpie 里新建账号」链路（三家豁免、只拿 URL 就返回、三种终态） |
 | `t-key-account.mjs` | Key 型渠道（modelscope / opencode）的「贴 Key 新建」：一条 `api` + `keyless` 方法、`ask()` 收 Key、`authorize(inputs)` 里调 `*.addAccount` |
 | `t-magicrew-creds.mjs` | 超级麦吉凭据读取（在 IndexedDB 不在 localStorage；末节读真实 Edge，读到就验） |
@@ -65,7 +66,9 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 
 ## 要 magpie web 登录 key 的两个脚本
 
-`tests/ui-check.cjs`、`scripts/shot-usage.cjs` 都要用 magpie web 的登录 key。**key 一律从环境变量 `MAGPIE_WEB_KEY` 取，代码里不写默认值。**
+`tests/ui-check.cjs`、`scripts/shot-usage.cjs` 都要用 magpie web 的登录 key。
+**`shot-usage.cjs` 只认环境变量 `MAGPIE_WEB_KEY`；`ui-check.cjs` 两者都认**（位置参数优先，其次环境变量），
+两个脚本里都不写默认值。
 
 ```bash
 MAGPIE_WEB_KEY=<key> node tests/ui-check.cjs

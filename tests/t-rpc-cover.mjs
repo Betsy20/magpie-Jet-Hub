@@ -841,7 +841,7 @@ if (!PROBE) {
     `REKEY_CHANNELS 的键（${a || '空'}）与 submitRekey 的 setApiKey 分支（${b || '空'}）必须一一对应`)
 }
 
-// ── 第 8 节：vendor 本地补丁必须还在（docs/vendor.md 的 5 类 / 7 个文件）──
+// ── 第 8 节：vendor 本地补丁必须还在（docs/vendor.md 的 6 类 / 8 个文件）──
 //
 // 这几条补丁打在**上游编译产物**上（`vendor/lib/*.js`），而 `docs/vendor.md`
 // 的同步流程是「clone 上游 → npm install → 整片拷进 vendor/」——
@@ -851,6 +851,7 @@ if (!PROBE) {
 //   - magicrew 两条读凭据路径回到只读 localStorage ⇒ 真机「登录成功却读不到」
 //   - backup 少了 `keepDisabledModels` ⇒ 导入备份把本机模型黑名单整片关掉
 //   - `jet-hub-rpc` 少了「全关即意图」⇒ magpie 弹窗保存一次写满黑名单，**死循环**
+//   - `types.d.ts` 少了 `closeProvider` 类型 ⇒ 调用方按 `.d.ts` 传参报「对象字面量只能指定已知属性」
 //
 // 前三条的历史事故在各自文件里有长注释；第四条是 2026-11-05 用户报的
 // 「模型又显示已在 JetHub 关闭」。这里把「补丁还在」钉成断言，覆盖时立刻报红
@@ -859,10 +860,19 @@ if (!PROBE) {
   const rpc = read(RPC_JS)
   ok(/本仓改动（2026-11-05）：关闭方向补「供应商关闭意图」/.test(rpc),
     'vendor/lib/jet-hub-rpc.js 的「全关即意图」补丁还在（model.setDisabledMany）')
-  ok(/writeModelsWithProviderClosed\(req\.provider, ids, true\)/.test(rpc),
-    '… 且真的调了 writeModelsWithProviderClosed(provider, ids, true)')
+  // ⚠️ 第三个实参必须是 `closeProvider` 变量本身，**不能**写死 `true`。
+  // `writeModelsWithProviderClosed` 的第三参是「目标意图」：`true` 写入、
+  // `false` **删除**该键。写死 `true` 的话 `closeProvider: false` 会退到
+  // `setModelsDisabled`（只写黑名单、完全不碰 `providerClosedCache`），
+  // 与 `setAllDisabled` 的同一开关语义相反。
+  ok(/writeModelsWithProviderClosed\(req\.provider, ids, closeProvider\)/.test(rpc),
+    '… 且真的调了 writeModelsWithProviderClosed(provider, ids, closeProvider)')
   ok(/const coversAll = catalog\.complete[\s\S]{0,200}?every\(\(id\) => after\[id\] === true\)/.test(rpc),
     '… 判据用的是「写入后黑名单覆盖全量目录」（fullCatalogIds 的纯净并集）')
+  // 契约本身也要钉住：`closeProvider` 必须从 `req` 读、默认 `true`。
+  // 只钉上面三条的话，把 `&& closeProvider` 删掉照样全绿。
+  ok(/const closeProvider = req\.closeProvider !== false;/.test(rpc),
+    '… `closeProvider` 从 `req` 取、不传默认 `true`（与 setAllDisabled 同一条契约）')
 }
 
 console.log(failed === 0 ? `\n✓ RPC 口径一致：本体 ${methods.length} 个方法，控制台接 ${used.length} 个` : `\n✗ ${failed} 条失败`)

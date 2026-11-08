@@ -286,13 +286,13 @@ magpie 里这个插件有两个界面：
 
 **本地控制台**（`console/`）是完整功能，注册在 `http://127.0.0.1:18500/`。端口被占时向后顺延（18501、18502…），
 但**只有拿到首发端口 18500 的那个实例**才会把地址写进 `~/.config/magpie/jet-hub-console.json` ——
-漂移到别的端口时不写，别拿那个文件当唯一来源。左栏是**供应商列表**（26 家，品牌图标 + 名称 + 模型数），
-底部一行三个切页按钮，主区是**账号页**（默认视图）：
+漂移到别的端口时不写，别拿那个文件当唯一来源。左栏是**供应商列表**（注册 28 家，当前有目录的 26 家
+—— `magicrew` 两家凭据失效、目录接口返 405），底部一行三个切页按钮，主区是**账号页**（默认视图）：
 
 | 位置 | 做什么 |
 |---|---|
 | 供应商列表（左栏） | 点一家就切到它的账号池；选中项品牌色描边 |
-| 账号（默认视图） | 登录、续期、停用 / 启用 / 删除、批量重置；每张账号卡自带积分读数（其余 / 临期）与全部领取、永久锁定 |
+| 账号（默认视图） | 登录、续期、停用 / 启用 / 删除、批量重置；每张账号卡自带积分读数（其余 / 临期）与全部领取、永久锁定；「补偿」只在 buddy 出现，「新人奖励」只在 loomy / raccoon / magicrew / magicrewintl 四家出现 |
 | 概览（底部按钮） | 容器状态、模型目录、网关地址、每日签到、专项额度 |
 | 设置（底部按钮） | 渠道原生搜索、面板入口、MiniMax XFF、徽章偏好、验证码载体 |
 | 备份（底部按钮） | 导出 / 导入（含加壳备份） |
@@ -366,15 +366,16 @@ src/
   connection.mjs       给容器补一个 connection 服务（DSH 里由宿主提供）
   hub-server.mjs       控制台 HTTP 服务
   attachments.mjs      图片附件服务
-  icons.mjs            28 家内联矢量图标
+  icons.mjs            28 家内联图标（SVG / PNG data URI 混用）
   site-icons.mjs       四家从官网取的位图（base64）
   magicrew-icon.mjs    \ 两家单独存放的位图，体积大、与上面分开
   zcode-icon.mjs       /
 vendor/                上游本体（MIT，见 docs/vendor.md）
 page/                  侧栏页（只读三标签，跑在 magpie 沙箱 iframe）
 console/               本地控制台（完整功能）
-scripts/               snapshot-models / seed-auth / import-backup / test-all
-tests/                 27 个 t-*.mjs + ui-check.cjs + t-gateway.py（公共桩 _iso.mjs）
+scripts/               snapshot-models / seed-auth / import-backup / test-all /
+                       gen-model-prices / run-console / shot-console.cjs / shot-usage.cjs
+tests/                 30 个 UNIT + 2 个 ENV 的 t-*.mjs，加 ui-check.cjs / t-gateway.py（公共桩 _iso.mjs）
 docs/                  截图、vendor.md、testing.md
 ```
 
