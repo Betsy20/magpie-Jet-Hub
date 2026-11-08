@@ -6,7 +6,7 @@
 
 | 项 | 值 |
 |---|---|
-| 上游源码仓库 | [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) |
+| 上游源码仓库 | [`iJetLi/deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)（**主仓**；GitHub 上的 [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) 是镜像，落后在 `5042cec`） |
 | 代码对应 commit | `498a76eaab1a038935a70c46b03e2c0c0b323a5a` |
 | 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交） |
 | 许可 | MIT，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](../vendor/LICENSE) |
@@ -16,7 +16,7 @@
 取法：
 
 ```bash
-git clone https://github.com/iJetLi/dsh-providers-hub /tmp/up
+git clone https://gitee.com/iJetLi/deepseek-harness-codearts /tmp/up
 cd /tmp/up && git checkout 498a76e && rm -rf lib && npm install
 cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 ```
@@ -47,7 +47,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 | `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭据，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB。⚠️ 上游同步到 `5042cec` 后底层换成 SSTable/WAL 解析（`leveldbRecordsText` 里的 `decodeValue` 能还原 localStorage 的值，但**解不了 IndexedDB 的值** —— 那是 V8 结构的 `"<字段名>"<长度字节><值>`），所以读取侧走 `indexedDbRawTextOfDir`（只用 `record.key` / `record.value` 的 latin1 原文，不 `decodeValue`），再由 `idbCredentialsIn` 按 UTF-16LE 的 `e\0y\0J\0` 头切出 JWT、按三个 `*_organization_code` 字段切出组织码。**不要**退回 `readFileSync().toString('latin1')` 扫原始字节的老路 —— 那会**编造**凭据（2026-11-05 对抗审计 P3-3） |
 | `lib/magicrew-browser-login.js` 开窗前回收上次遗留的一次性 profile 目录 | 上游 `ChromiumSession.dispose()` 的删除只退避 2.1 秒，而窗口被用户关掉时没有任何回调保证走到 `dispose()`。两条路叠加的结果是 `%TEMP%` 里攒了 11 个 `magicrew-login-*` / 856 MB。现在开窗前扫一遍、只删够老的（Windows 1 小时、其它平台 6 小时）、每轮最多删 3 个（这函数同步跑在「点连接」与「窗口出现」之间，清完 856 MB 要约 7 秒，会让用户以为按钮坏了） |
 | `lib/magicrew-local-browser.d.ts` 补上 `idbCredentialsIn` 声明与 `leveldbTextFor` 的 `hostname` 第三参 | 与上面 magicrew 那条配套的类型声明。上游同步到 `5042cec` 后 `leveldbTextFor` 的签名是 `(root, log, hostname = '')`，而 `.d.ts` 里还是两参 —— 按 `.d.ts` 写 `leveldbTextFor(root, hostname)` 会让 hostname 落到 `log` 位，于是 IndexedDB 那条腿被**静默**关掉（症状与「用户没登录」完全同形，2026-11-08 复核 P2-5）；`idbCredentialsIn` 是导出的（`tests/t-magicrew-creds.mjs` 第 8 节直接调），不声明的话 TS 侧看不到这条腿 |
-| `lib/leveldb-sstable.js` 补 IndexedDB 原始记录读取与 WAL 分片重组 | 上游只有 localStorage 用的 SSTable 解析（`leveldbVisibleRecords` / `leveldbTextOfDir`），IndexedDB 的值是 V8 结构（`"<字段名>"<长度字节><值>`），不能走 `decodeValue` ⇒ 本仓新增 `indexedDbRawTextOfDir`（只取 `record.key` / `record.value` 的 latin1 原文）。同时 `readWalRecords` 按 `log_reader.cc` 重组 `FIRST` / `MIDDLE` / `LAST` 分片：真实 Edge 的 `000003.log` 里有 WriteBatch 正好落在 32 KiB 块边界上，旧实现见到分片就整体放弃、退回原始字节扫描（那会**编造**凭据，2026-11-05 对抗审计 P3-3）。详见 CHANGELOG 2026-11-08 的 5 条残余风险 |
+| `lib/leveldb-sstable.js` 的 `readWalRecords` 补 `FIRST` / `MIDDLE` / `LAST` 分片重组 | 上游的 WAL 读取只认「整条记录落在一个 32 KiB 块里」这一种形态（`type !== 1` 就整体放弃），而真实 Edge 的 `IndexedDB/…/000003.log` 里有 WriteBatch 正好落在 32 KiB 块边界上 ⇒ 整份文件被判定为解析失败、退回原始字节扫描（那会**编造**凭据，2026-11-05 对抗审计 P3-3）。本仓按 `log_reader.cc` 补上：块尾补零跳整块、尾部半写保留已解析记录、SOLO `FIRST` / `MIDDLE` / `LAST` 与未知 `type` 一律 `undefined`。⚠️ **IndexedDB 值的读取不在这个文件**，在 `lib/magicrew-local-browser.js` 的 `indexedDbRawTextOfDir`（见上面 magicrew 那条）—— 两个文件各管一半 |
 | `lib/magicrew-browser-login.d.ts` 的 `CDP_CREDENTIAL_EXPRESSION` 声明从字面量改成 `string` | 与上面 magicrew 那条配套的类型声明。上游源码是 `` `JSON.stringify({...})` ``（模板字符串 ⇒ `tsc` 生成**字面量类型**），而本仓补丁换成了读 IndexedDB 的 **async IIFE** ⇒ 值变了，字面量类型必然失配（编辑器里表达式正文整段是错的，且 `declare const` 的字面量类型让任何 `includes` 之类的字符串操作都被 TS 当成常量折叠）。改成 `string` 是唯一正确写法 —— 把整段 IIFE 写成字面量既不现实也没意义。2026-11-08 gitee 重审发现（P2-4） |
 | `lib/backup.js` 与 `.d.ts` 的 `importBackup` 多一个 `keepDisabledModels` 选项 | 控制台导入备份时不让备份里的模型黑名单覆盖本机现状（用户 2026-10-31 报了「导入后 920 个模型全被关掉」）。未传该选项时行为与上游完全一致；CLI 的 `--keep-disabled` 是反向意图 |
 | `lib/jet-hub-rpc.js` 的 `model.setDisabledMany` 在「黑名单覆盖该家全量目录」时补设供应商关闭意图 | 上游两个关闭入口语义不一致：`model.setAllDisabled`（「关闭全部」）默认 `closeProvider = true`，而 `model.setDisabledMany` **从不落意图**。magpie 的 provider 弹窗把「全部未勾选」原样传成 `modelIds`（实测 34 个全传）⇒ 黑名单 = 该家全量 ⇒ 下次打开弹窗 34 个模型全带「已在 Jet Hub 关闭」⇒ 勾选仍是 0 ⇒ 再保存还是全传，**死循环**，清空一次保存一次又满。补设意图后「打开供应商」能一把全恢复，配置里只多一个布尔而不是 34 条死键。判据用 `fullCatalogIds` 的**纯净并集**（`readableCatalogIds` 的 `known` 已把黑名单并进去，拿它判恒真）；目录不完整时不猜。未覆盖全量时一个字节都不变 |
@@ -70,7 +70,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 ## 怎么自己核一遍
 
 ```bash
-git clone https://github.com/iJetLi/dsh-providers-hub /tmp/up2
+git clone https://gitee.com/iJetLi/deepseek-harness-codearts /tmp/up2
 cd /tmp/up2 && git checkout 498a76e && rm -rf lib && npm install
 diff -r /tmp/up2/lib /path/to/magpie-Jet-Hub/vendor/lib
 # 逐文件哈希核（比 diff -r 更严，能看出换行 / 编码差异）：
