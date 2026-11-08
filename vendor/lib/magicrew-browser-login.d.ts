@@ -130,6 +130,37 @@ export interface MagicrewBrowserLoginStartOptions {
      */
     log?: (message: string) => void;
 }
+/**
+ * 页面里的取值表达式。
+ *
+ * ⚠️ 四个值一次取完（**不是**四次 `Runtime.evaluate`）：来回四次会让「读到 jwt 之后、
+ * 读组织码之前用户换了账号」这种情况出现窗口，而错配的 jwt × org 在上游是
+ * HTTP 200 + `code:403`（见 `magicrew-local-browser.ts` 头部的配对纪律）。
+ *
+ * `n` 是 `localStorage.length`：**空 = 还没登完**（见下面的判据）。
+ *
+ * ## ⚠️⚠️ 键名有两套，**必须都试**（真机取证 2026-11-04）
+ *
+ * letsmagic 网页写进 localStorage 的真实键名带 `MAGIC:user:` 前缀 ——
+ * 把本机 Edge 的 `Local Storage/leveldb/071584.ldb` 按 SSTable 解出来后，
+ * 31 条 letsmagic 记录里凭据键是：
+ *
+ *     MAGIC:user:authorization / MAGIC:user:organizationCode /
+ *     MAGIC:user:teamshareOrganizationCode
+ *
+ * 而本文件原来只读**裸键**（`authorization` 等）⇒ 用插件自己开的那个窗口登录时，
+ * 页面写的同样是带前缀的键 ⇒ CDP 腿**恒读不到**，只有「磁盘兜底」在硬撑
+ * （而磁盘那条腿当时又因为不解 Snappy 压缩块一起失效 ⇒ 两条腿全瞎）。
+ *
+ * ⇒ 现在两套都读：**裸键优先**（老版本前端 / 其它站点可能仍是裸键），
+ *   整套裸键不完整再取带前缀的整套。
+ *
+ * ⚠️⚠️ 表达式**只取原始值**，回退配对放在 {@link parseEvaluatedCredential} 里
+ * （逐**对**回退，不逐键）：`getItem` 缺失回 `null`、登出后残留空串，两种都要
+ * 让位；而在表达式里对各键分别 `||` 会拼出「裸 jwt × 前缀 org」这种从未同时
+ * 写入过的组合（2026-11-05 审计 P2-2）。
+ */
+export declare const CDP_CREDENTIAL_EXPRESSION = "JSON.stringify({\n  a: localStorage.getItem('authorization'),\n  ao: localStorage.getItem('MAGIC:user:authorization'),\n  o: localStorage.getItem('organizationCode'),\n  oo: localStorage.getItem('MAGIC:user:organizationCode'),\n  t: localStorage.getItem('teamshareOrganizationCode'),\n  to: localStorage.getItem('MAGIC:user:teamshareOrganizationCode'),\n  n: localStorage.length,\n})";
 /** CDP 通道（只声明本文件用到的那个方法 ⇒ 单测注入假 `send` 即可）。 */
 interface CdpChannel {
     send(method: string, params?: Record<string, unknown>, timeoutMs?: number, sessionId?: string): Promise<unknown>;
@@ -146,6 +177,26 @@ export interface MagicrewRealtimeRead {
      */
     readonly failure?: string;
 }
+/**
+ * 把 `Runtime.evaluate` 回传的 JSON 串解析成凭据（**纯函数**，可直接单测）。
+ *
+ * ## ⚠️⚠️ 回退必须**逐对**，不能逐键（2026-11-05 审计 P2-2）
+ *
+ * 旧写法在表达式里对 `a` / `o` **各自**做 `||` 回退 ⇒ 当「老裸键残留 + 新前缀键
+ * 并存」时会拼出 `{jwt_裸, org_前缀}` 这种**从未同时写入过**的组合（上游症状：
+ * HTTP 200 + `code:403`，与「没读到」相比难查得多）。
+ *
+ * ⇒ 现在表达式只取**原始值**，回退在这里按**整套键名**配对：
+ * 先试裸键那一套（老版本前端），整套不完整再试 `MAGIC:user:` 那一套（当前前端）。
+ * 两套都不完整 ⇒ `undefined`（宁可读不到，也绝不混搭）。
+ *
+ * ⚠️ 逐对回退的**另一条收益**：逻辑落在 TS 里，可以真求值单测 —— 而不是像
+ * 旧守卫那样只断言「表达式文本里有这几个字符串」（`if (false)` 即可旁路）。
+ *
+ * ⚠️⚠️ **`localStorage` 为空要当「还没登完」返回 `undefined`，不要抛**：
+ * 用户刚点开窗口那一刻必然是空的，而这条路径每 500ms 走一次。
+ */
+export declare function parseEvaluatedCredential(value: unknown): MagicrewCredential | undefined;
 /**
  * 通过 CDP 读**实时** localStorage。
  *

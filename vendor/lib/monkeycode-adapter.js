@@ -49,6 +49,7 @@ import { registerAdapterIdempotent } from './llm-register-compat.js';
 import { MONKEYCODE, monkeycodeFallbackModels, } from './monkeycode-product.js';
 import { classifyMonkeycodeFailure, monkeycodeHeaders, monkeycodeMessagesUrl, recordsMonkeycodeRateLimit, shouldRotateMonkeycodeAccount, } from './monkeycode.js';
 import { buildMonkeycodeMessagesPayload, consumeMonkeycodeSse, monkeycodeThinkingFor, } from './monkeycode-messages.js';
+import { monkeycodeDirectFetch } from './monkeycode-http.js';
 /** 单次请求允许最多换几个账号（防止池里 20 个坏 key 时打满上游）。 */
 const MONKEYCODE_MAX_ROTATE = 4;
 /** 限流冷却：1 小时。 */
@@ -313,7 +314,9 @@ export class MonkeycodeAdapter extends LlmAdapter {
         }
         const url = monkeycodeMessagesUrl(this.product);
         const headers = monkeycodeHeaders(slot.credential, { body, product: this.product });
-        const fetcher = this.options.fetchImpl ?? fetch;
+        // ⚠️ 默认必须走 `undici.request` 模块直连（见 {@link monkeycodeDirectFetch}）：
+        // bili 的 global fetch 拦截会把带 `X-OhmyAgent-Signature` 的请求判成正文签名并 403。
+        const fetcher = this.options.fetchImpl ?? monkeycodeDirectFetch;
         return fetcher(url, {
             method: 'POST',
             headers,

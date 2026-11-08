@@ -7,19 +7,21 @@
 | 项 | 值 |
 |---|---|
 | 上游源码仓库 | [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) |
-| 代码对应 commit | `fddb8751f82b7ece80b398f514c974705b656fe4` |
+| 代码对应 commit | `5042cec86a88c01e0061346de0b8c5d325aa2422` |
 | 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交） |
 | 许可 | MIT，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](../vendor/LICENSE) |
 
-**为什么不用 npm 包**：npm 上的版本（最新 `2.14.261103`）落后于仓库 `master`（lib 1126 个文件 vs vendor 1130，缺 `cap-pow.*` 4 个、83 个文件内容不同），而本仓库要的是「渠道最全」的那一版。这一版是从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
+**为什么不用 npm 包**：npm 上的版本（最新 `2.14.261103`）落后于仓库 `master` —— 文件数更少（缺 `cap-pow.*` 等）、且大量文件内容不同，而本仓库要的是「渠道最全」的那一版。这一版是从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
 
 取法：
 
 ```bash
 git clone https://github.com/iJetLi/dsh-providers-hub /tmp/up
-cd /tmp/up && git checkout fddb875 && npm install
+cd /tmp/up && git checkout 5042cec && rm -rf lib && npm install
 cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 ```
+
+> `rm -rf lib` 不是多余的：`tsc` 不清理上次的产物，换 commit 后残留的旧文件会混进快照，让「逐字节一致数」对不上。
 
 ## 三个包名
 
@@ -37,12 +39,12 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 与上游构建产物的差异
 
-`lib/` 共 1130 个文件，其中 **1122 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 8 个（6 类改动；其中 gemini、backup、`types.d.ts` 三类是 `.js` / `.d.ts` 成对，magicrew 的三处改动落在两个 `.js` 上 —— 其中 `magicrew-browser-login.js` 占两类，`jet-hub-rpc.js` 一类）：
+`lib/` 共 1138 个文件，其中 **1130 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 8 个（6 类改动；其中 gemini、backup、`types.d.ts` 三类是 `.js` / `.d.ts` 成对，magicrew 的三处改动落在两个 `.js` 上 —— 其中 `magicrew-browser-login.js` 占两类，`jet-hub-rpc.js` 一类）：
 
 | 差异 | 原因 |
 |---|---|
 | `lib/gemini-oauth.js` 与 `.d.ts` 里两个默认 OAuth client 常量拆成两段字符串拼接 | 规避 GitHub push protection 误报。**值完全相等**（两个常量 `===`，长度 73 / 35 字符一致），另有环境变量可覆盖。边缘副作用：`.d.ts` 是声明文件，`declare const` 的初始值按 TS 规范只能是字面量，单文件 `tsc file.d.ts` 会报两条 `TS1254` —— 本仓库不编译类型声明，正常使用路径不受影响 |
-| `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭据，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB |
+| `lib/magicrew-browser-login.js` 与 `lib/magicrew-local-browser.js` 补读 IndexedDB | 上游这两处只从 `localStorage` 找登录凭据，而超级麦吉网页版把凭据写在 IndexedDB 的 `magic-global/user` 库里 —— 真机上「登录成功却永远读不到」。**行为只增不减**：localStorage 那条老路径原样保留，读不到才走 IndexedDB。⚠️ 上游同步到 `5042cec` 后底层换成 SSTable/WAL 解析（`leveldbRecordsText` 里的 `decodeValue` 能还原 localStorage 的值，但**解不了 IndexedDB 的值** —— 那是 V8 结构的 `"<字段名>"<长度字节><值>`），所以读取侧走 `indexedDbRawTextOfDir`（只用 `record.key` / `record.value` 的 latin1 原文，不 `decodeValue`），再由 `idbCredentialsIn` 按 UTF-16LE 的 `e\0y\0J\0` 头切出 JWT、按三个 `*_organization_code` 字段切出组织码。**不要**退回 `readFileSync().toString('latin1')` 扫原始字节的老路 —— 那会**编造**凭据（2026-11-05 对抗审计 P3-3） |
 | `lib/magicrew-browser-login.js` 开窗前回收上次遗留的一次性 profile 目录 | 上游 `ChromiumSession.dispose()` 的删除只退避 2.1 秒，而窗口被用户关掉时没有任何回调保证走到 `dispose()`。两条路叠加的结果是 `%TEMP%` 里攒了 11 个 `magicrew-login-*` / 856 MB。现在开窗前扫一遍、只删够老的（Windows 1 小时、其它平台 6 小时）、每轮最多删 3 个（这函数同步跑在「点连接」与「窗口出现」之间，清完 856 MB 要约 7 秒，会让用户以为按钮坏了） |
 | `lib/backup.js` 与 `.d.ts` 的 `importBackup` 多一个 `keepDisabledModels` 选项 | 控制台导入备份时不让备份里的模型黑名单覆盖本机现状（用户 2026-10-31 报了「导入后 920 个模型全被关掉」）。未传该选项时行为与上游完全一致；CLI 的 `--keep-disabled` 是反向意图 |
 | `lib/jet-hub-rpc.js` 的 `model.setDisabledMany` 在「黑名单覆盖该家全量目录」时补设供应商关闭意图 | 上游两个关闭入口语义不一致：`model.setAllDisabled`（「关闭全部」）默认 `closeProvider = true`，而 `model.setDisabledMany` **从不落意图**。magpie 的 provider 弹窗把「全部未勾选」原样传成 `modelIds`（实测 34 个全传）⇒ 黑名单 = 该家全量 ⇒ 下次打开弹窗 34 个模型全带「已在 Jet Hub 关闭」⇒ 勾选仍是 0 ⇒ 再保存还是全传，**死循环**，清空一次保存一次又满。补设意图后「打开供应商」能一把全恢复，配置里只多一个布尔而不是 34 条死键。判据用 `fullCatalogIds` 的**纯净并集**（`readableCatalogIds` 的 `known` 已把黑名单并进去，拿它判恒真）；目录不完整时不猜。未覆盖全量时一个字节都不变 |
@@ -66,7 +68,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ```bash
 git clone https://github.com/iJetLi/dsh-providers-hub /tmp/up2
-cd /tmp/up2 && git checkout fddb875 && npm install
+cd /tmp/up2 && git checkout 5042cec && rm -rf lib && npm install
 diff -r /tmp/up2/lib /path/to/magpie-Jet-Hub/vendor/lib
 # 逐文件哈希核（比 diff -r 更严，能看出换行 / 编码差异）：
 cd /tmp/up2/lib && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up2/a.txt
@@ -76,14 +78,14 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 
 注意：`diff` 应该**只**列出上表那 8 个文件。多出任何一个都说明快照被别的动作污染过。
 
-`vendor/` 里有 564 个 `.map`（source map，约 3.87 MiB）运行时用不到，留着是为了与上游构建产物尽量逐字节一致、方便 diff 校验。要在意仓库体积可以删，不影响运行。
+`vendor/` 里有 568 个 `.map`（source map，约 3.91 MiB）运行时用不到，留着是为了与上游构建产物尽量逐字节一致、方便 diff 校验。要在意仓库体积可以删，不影响运行。
 
 ⚠️ **`lib/types.d.ts.map` 是有意保持上游原样的（2026-11-08 决策，不是漏改）。** `types.d.ts`
 打了 `closeProvider` 补丁（多 8 行）而 `.map` 没重生成，于是编辑器里 `types.d.ts` 的跳转
 行号在补丁点之后偏 8 行。不重生成的三条理由：① 运行时用不到（上一条）；② 它没有
 `sourcesContent` 字段，重生成必须拿上游 `src/types.ts` 重跑 `tsc` —— 本仓库做不到，而手改
 `mappings` 的 VLQ 编码一旦改错只会让跳转更乱，且**没有任何测试能发现**；③ 保持逐字节一致
-才能让上面那条 `diff` 校验维持「**1122 个一致**」这个可复核的基线（1130 − 8）。这个偏差
+才能让上面那条 `diff` 校验维持「**1130 个一致**」这个可复核的基线（1138 − 8）。这个偏差
 **只影响 `types.d.ts` 一个文件的编辑器跳转**，不影响编译或运行时行为（本仓库不编译类型
 声明）。下次按「版本怎么升」重跑同步时，按同样口径处理即可 —— 同步产生的**新** `.map`
 照旧整片拷入，不要为这一个文件手改。

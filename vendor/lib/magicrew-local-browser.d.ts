@@ -67,6 +67,13 @@ export interface MagicrewLocalBrowserOptions {
      * 缺省走 {@link magicrewBrowserRoots}。
      */
     readonly roots?: readonly string[];
+    /**
+     * 解析失败时的日志出口（**默认 `console.warn`**，每个文件只报一次）。
+     *
+     * ⚠️ 存在的意义：整条磁盘腿压在 `catch { return '' }` 上，没有这条日志时
+     * 「解析器坏了」与「用户没登录」完全同形（审计 2026-11-05 P1-3）。
+     */
+    readonly log?: (message: string) => void;
 }
 /** 一个浏览器的 User Data 根目录（`browser` 仅用于日志/诊断）。 */
 export interface MagicrewBrowserRoot {
@@ -88,7 +95,7 @@ export declare function magicrewProfilesOf(root: string): string[];
  * ⚠️ 多 profile 之间用 `\n` 隔开：不隔开时前一个 profile 的尾部与后一个的头部
  * 会拼成一条**不存在的**记录（可能凭空造出一对 jwt × org）。
  */
-export declare function leveldbTextFor(root: string): string;
+export declare function leveldbTextFor(root: string, log?: (message: string) => void): string;
 /** jwt 里的 `iat` / `exp`；解不出来返回 0（**不猜**）。 */
 export declare function jwtTimes(jwt: string): {
     iat: number;

@@ -858,15 +858,18 @@ if (!PROBE) {
 // 而不是等用户再撞一次。
 {
   const rpc = read(RPC_JS)
-  ok(/本仓改动（2026-11-05）：关闭方向补「供应商关闭意图」/.test(rpc),
+  ok(/本仓改动（2026-11-05）：第三参是「\*\*目标意图\*\*」/.test(rpc),
     'vendor/lib/jet-hub-rpc.js 的「全关即意图」补丁还在（model.setDisabledMany）')
-  // ⚠️ 第三个实参必须是 `closeProvider` 变量本身，**不能**写死 `true`。
-  // `writeModelsWithProviderClosed` 的第三参是「目标意图」：`true` 写入、
-  // `false` **删除**该键。写死 `true` 的话 `closeProvider: false` 会退到
-  // `setModelsDisabled`（只写黑名单、完全不碰 `providerClosedCache`），
-  // 与 `setAllDisabled` 的同一开关语义相反。
-  ok(/writeModelsWithProviderClosed\(req\.provider, ids, closeProvider\)/.test(rpc),
-    '… 且真的调了 writeModelsWithProviderClosed(provider, ids, closeProvider)')
+  // ⚠️ 第三个实参必须由 `closeProvider` **决定**，**不能**写死 `true`。
+  // `writeModelsWithProviderClosed` 的第三参是三态目标意图：
+  // `true` 写入 / `false` **删除**该键 / `'keep'` **不动**该键。
+  //
+  // ⚠️ 这里必须写 `closeProvider ? true : 'keep'`，**不是** `closeProvider`：
+  // 上游把 `setAllDisabled` 改成三态之后，直接传布尔 `false` 会 `delete
+  // providerClosed[provider]` —— 把用户先前设好的「关闭供应商」意图**主动删掉**
+  // （2026-11-04 真机报障：「更新插件后停用的供应商被启用了」）。
+  ok(/writeModelsWithProviderClosed\(req\.provider, ids, closeProvider \? true : 'keep'\)/.test(rpc),
+    '… 且真的调了 writeModelsWithProviderClosed(provider, ids, closeProvider ? true : \'keep\')')
   ok(/const coversAll = catalog\.complete[\s\S]{0,200}?every\(\(id\) => after\[id\] === true\)/.test(rpc),
     '… 判据用的是「写入后黑名单覆盖全量目录」（fullCatalogIds 的纯净并集）')
   // 契约本身也要钉住：`closeProvider` 必须从 `req` 读、默认 `true`。

@@ -536,9 +536,16 @@ export declare class AccountPool {
      * ⇒ 语义定为：**「打开任意一个模型」= 用户想让这个供应商可用** ⇒ 清除意图，
      * 之后由派生判据（黑名单是否覆盖全目录）如实反映「还剩几个关着」。
      *
-     * ⚠️ 三个打开入口（`setModelDisabled(false)` / `clearModelsDisabled` /
+     * ⚠️ **三个**打开入口（`setModelDisabled(false)` / `clearModelsDisabled` /
      * `clearDisabledModels`）都在**本类内部**调用它 —— 调用方（RPC 层）不需要
      * 记得清，这正是「收口到一个实现」的目的。
+     *
+     * ⚠️ **第四个入口刻意不走这里**：`clearModelsWithProviderClosed`（见下）必须
+     * 「清黑名单 + 清意图」**一次落盘**（Gitee issue IKP8OF —— 分两次会在两次
+     * `replace` 之间留下「黑名单空 + 意图真」，重启后该供应商的模型选择器恒空）。
+     * 所以它**内联** `delete providerClosedCache[provider]`，而不是调本方法
+     *（本方法走 `setProviderClosed` ⇒ 独立落盘）。**这不是漏收口，是刻意的**：
+     * 谁要在这条路径上「顺手统一」成分两步的写法，就会把 IKP8OF 原样挖回来。
      */
     private clearProviderClosed;
     /**
@@ -855,9 +862,33 @@ export declare class AccountPool {
      *
      * @param provider - provider id
      * @param modelIds - 要**追加**进黑名单的 id（已有的关闭项不受影响）
-     * @param closed - 目标关闭意图（`true` 写入 / `false` 删除该键）
+     * @param closed - 目标关闭意图：`true` 写入 / `false` 删除该键 / `'keep'` **不动该键**
+     *
+     * ## ⚠️⚠️ 为什么必须有 `'keep'` 这一态（2026-11-04 真机报障）
+     *
+     * 用户报障：「为什么更新插件后供应商状态会发生变化，比如停用的供应商会被启用」。
+     *
+     * 本方法的第三参原本只有 `true` / `false`，而 `false` 被实现成
+     * **`delete providerClosed[provider]`**（删掉关闭意图）。于是「模型列表屏点一次
+     * 全关」（`model.setAllDisabled` 的 `closeProvider: false` 分支，本意是
+     * 「只关这家的模型、**不碰**供应商开关」）会**把用户先前用「关闭供应商」设下的
+     * 意图一起删掉**：
+     *
+     * ```
+     * ① 用户点「关闭供应商」 ⇒ providerClosed={accio:true} + 全量黑名单   ← 稳定
+     * ② 之后在模型列表屏对同一家点「全关」 ⇒ 删意图 ⇒ providerClosed={}
+     * ③ 插件更新 / 目录变长 ⇒ 派生判据 disabled!==total ⇒ 翻回「启用」
+     * ```
+     *
+     * 实测现场：用户的 `providerClosed` 只剩 `{accio:true}`，其余靠「关闭供应商」
+     * 关过的全都不见了 —— 它们在后续的「全关」里被静默删除。
+     *
+     * ⇒ `false` 只该由「打开供应商」路径使用（`provider.setEnabled(true)` 走
+     * `clearModelsWithProviderClosed`，语义确实是「清掉意图」）；**模型级的批量
+     * 关闭**必须传 `'keep'`：它既不该写意图（那会把整家关掉），也**不该删意图**
+     * （那会让用户先前设下的关闭状态失效）。
      */
-    writeModelsWithProviderClosed(provider: string, modelIds: readonly string[], closed: boolean): Promise<void>;
+    writeModelsWithProviderClosed(provider: string, modelIds: readonly string[], closed: boolean | 'keep'): Promise<void>;
     /**
      * 一次性**清空**某 provider 的黑名单**并**清除「关闭意图」并落盘**一次**
      *（Gitee issue IKP8OF，「打开供应商」专用）。

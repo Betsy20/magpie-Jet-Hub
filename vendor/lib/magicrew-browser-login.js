@@ -105,7 +105,7 @@ function normalizePollMs(value) {
     return Math.max(1, Math.floor(value));
 }
 /**
- * 一次性 profile 目录的前缀 —— **唯一真源**。
+ * 一次性 profile 目录的前缀 —— **唯一真源**（本仓改动，2026-10-31）。
  *
  * 它同时决定两件事：`ChromiumSession` 用它建目录、`collectStaleLoginProfiles`
  * 用它认领自己上次留下的目录。写成两个字面量的话，只改一处就会变成
@@ -153,7 +153,7 @@ const STALE_COLLECT_LIMIT = 3;
  */
 const STALE_PROFILE_MAX_AGE_MS = (process.platform === 'win32' ? 1 : 6) * 60 * 60 * 1000;
 /**
- * 回收**上一次**遗留的一次性 profile 目录。
+ * 回收**上一次**遗留的一次性 profile 目录（本仓改动，2026-10-31）。
  *
  * ## ⚠️ 为什么需要它（实测 2026-10-31）
  *
@@ -260,17 +260,47 @@ function hostnameOf(url) {
  * HTTP 200 + `code:403`（见 `magicrew-local-browser.ts` 头部的配对纪律）。
  *
  * `n` 是 `localStorage.length`：**空 = 还没登完**（见下面的判据）。
+ *
+ * ## ⚠️⚠️ 键名有两套，**必须都试**（真机取证 2026-11-04）
+ *
+ * letsmagic 网页写进 localStorage 的真实键名带 `MAGIC:user:` 前缀 ——
+ * 把本机 Edge 的 `Local Storage/leveldb/071584.ldb` 按 SSTable 解出来后，
+ * 31 条 letsmagic 记录里凭据键是：
+ *
+ *     MAGIC:user:authorization / MAGIC:user:organizationCode /
+ *     MAGIC:user:teamshareOrganizationCode
+ *
+ * 而本文件原来只读**裸键**（`authorization` 等）⇒ 用插件自己开的那个窗口登录时，
+ * 页面写的同样是带前缀的键 ⇒ CDP 腿**恒读不到**，只有「磁盘兜底」在硬撑
+ * （而磁盘那条腿当时又因为不解 Snappy 压缩块一起失效 ⇒ 两条腿全瞎）。
+ *
+ * ⇒ 现在两套都读：**裸键优先**（老版本前端 / 其它站点可能仍是裸键），
+ *   整套裸键不完整再取带前缀的整套。
+ *
+ * ⚠️⚠️ 表达式**只取原始值**，回退配对放在 {@link parseEvaluatedCredential} 里
+ * （逐**对**回退，不逐键）：`getItem` 缺失回 `null`、登出后残留空串，两种都要
+ * 让位；而在表达式里对各键分别 `||` 会拼出「裸 jwt × 前缀 org」这种从未同时
+ * 写入过的组合（2026-11-05 审计 P2-2）。
  */
-const CDP_CREDENTIAL_EXPRESSION = `(async () => {
+export const CDP_CREDENTIAL_EXPRESSION = `(async () => {
   const out = {
     a: localStorage.getItem('authorization'),
+    ao: localStorage.getItem('MAGIC:user:authorization'),
     o: localStorage.getItem('organizationCode'),
+    oo: localStorage.getItem('MAGIC:user:organizationCode'),
     t: localStorage.getItem('teamshareOrganizationCode'),
+    to: localStorage.getItem('MAGIC:user:teamshareOrganizationCode'),
     n: localStorage.length,
     ia: null,
     io: null,
     ii: 0,
   };
+  // 本仓改动（2026-10-30）：下面整段 IndexedDB 是本地补丁。
+  //
+  // ⚠️ magicrew 网页版的凭据**同时**写在两处：localStorage 和 IndexedDB
+  //   （库 \`magic-global\`、store \`user\`）。上游只读 localStorage ⇒ 用插件
+  //   自己开的窗口登录时 CDP 那条腿恒读不到，只剩磁盘兜底在硬撑。
+  //   ⇒ 两处都读，缺一不可。
   try {
     // 先列后开：库不存在就别 open()（open 会凭空新建一个空库，是副作用）。
     let exists = true;
@@ -385,8 +415,44 @@ function pickPageTarget(targets, hostnames) {
     }
     return undefined;
 }
-/** 解析 `Runtime.evaluate` 的返回值（`{ result: { value } }`）⇒ 读到的凭据。 */
-function parseEvaluatedCredential(value) {
+/**
+ * 从**同一套键名**里取出一对凭据；任一缺失就返回 `undefined`。
+ *
+ * ⚠️ `organizationCode` 与 `teamshareOrganizationCode` 是**同层的两个候选**：
+ * 前者优先，为空才退后者（真机两种组织码都存在过）。
+ */
+function credentialOfPair(jwt, organization, teamshare) {
+    const token = typeof jwt === 'string' ? jwt : '';
+    if (!isJwtShaped(token))
+        return undefined;
+    const org = typeof organization === 'string' && organization.length > 0
+        ? organization
+        : typeof teamshare === 'string' && teamshare.length > 0 ? teamshare : '';
+    // ⚠️ 缺组织码 ⇒ `undefined`（**不造假**）：空 org 配 jwt 在上游是 HTTP 200 + code:403。
+    if (org.length === 0)
+        return undefined;
+    return { jwt: token, organizationCode: org };
+}
+/**
+ * 把 `Runtime.evaluate` 回传的 JSON 串解析成凭据（**纯函数**，可直接单测）。
+ *
+ * ## ⚠️⚠️ 回退必须**逐对**，不能逐键（2026-11-05 审计 P2-2）
+ *
+ * 旧写法在表达式里对 `a` / `o` **各自**做 `||` 回退 ⇒ 当「老裸键残留 + 新前缀键
+ * 并存」时会拼出 `{jwt_裸, org_前缀}` 这种**从未同时写入过**的组合（上游症状：
+ * HTTP 200 + `code:403`，与「没读到」相比难查得多）。
+ *
+ * ⇒ 现在表达式只取**原始值**，回退在这里按**整套键名**配对：
+ * 先试裸键那一套（老版本前端），整套不完整再试 `MAGIC:user:` 那一套（当前前端）。
+ * 两套都不完整 ⇒ `undefined`（宁可读不到，也绝不混搭）。
+ *
+ * ⚠️ 逐对回退的**另一条收益**：逻辑落在 TS 里，可以真求值单测 —— 而不是像
+ * 旧守卫那样只断言「表达式文本里有这几个字符串」（`if (false)` 即可旁路）。
+ *
+ * ⚠️⚠️ **`localStorage` 为空要当「还没登完」返回 `undefined`，不要抛**：
+ * 用户刚点开窗口那一刻必然是空的，而这条路径每 500ms 走一次。
+ */
+export function parseEvaluatedCredential(value) {
     if (typeof value !== 'string' || value.length === 0)
         return undefined;
     let parsed;
@@ -397,51 +463,34 @@ function parseEvaluatedCredential(value) {
         return undefined;
     }
     /**
-     * ⚠️⚠️ **`localStorage` 为空要当「还没登完」返回 `undefined`，不要抛**：
-     * 用户刚点开窗口那一刻必然是空的，而这条路径每 500ms 走一次。
-     *
-     * ⚠️ 但**不能**只看 `n`：magicrew 网页版的凭据在 IndexedDB 里，
-     * `localStorage` 里只有页面自己的缓存（键名随版本变），凭据那条键根本不在这里；
-     * 而 `n === 0` 也不代表没登录。所以下面两条腿分别取值、谁先取到用谁。
-     * （实测 2026-10-30：`fontScale` / `i18n` / `theme` 这三条界面配置也在 IndexedDB
-     *  的 `user` store 里，不在 `localStorage` —— 别拿它们当「localStorage 有值」的证据。）
+     * ⚠️ 必须挡**非对象载荷**：`JSON.parse('null')` 合法返回 `null`，随后
+     * `parsed.n` 会抛 `TypeError`（2026-11-05 审计实测）。当前表达式恒产出对象
+     * 字符串 ⇒ 生产不可达，但本函数已**导出**（公共 API + 行为级单测主体），
+     * 不该让调用方拿到一个会炸的纯函数。
+     * ⚠️ `'[]'` / `'123'` / `'true'` 逐属性读是 `undefined`（不炸），但同样不是
+     * 我们的载荷形状 ⇒ 一并早退。
      */
-    const fromStorage = pickCredential(parsed.a, parsed.o, parsed.t);
-    if (fromStorage !== undefined)
-        return fromStorage;
-    return pickCredential(parsed.ia, organizationFromIndexedDb(parsed.io), undefined);
-}
-
-function pickCredential(jwt, organization, fallbackOrganization) {
-    const authorization = typeof jwt === 'string' ? jwt : '';
-    if (!isJwtShaped(authorization))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
         return undefined;
-    const org = typeof organization === 'string' && organization.length > 0
-        ? organization
-        : typeof fallbackOrganization === 'string' && fallbackOrganization.length > 0 ? fallbackOrganization : '';
-    // ⚠️ 缺组织码 ⇒ `undefined`（**不造假**）：空 org 配 jwt 在上游是 HTTP 200 + code:403。
-    if (org.length === 0)
-        return undefined;
-    return { jwt: authorization, organizationCode: org };
+    /**
+     * ⚠️ 本仓改动（2026-10-30）：**删掉了**上游的「localStorage 为空就早退」那条。
+     *
+     * 上游那条早退假设「`localStorage.length` 为 0 ⇒ 还没登完」，但 magicrew 网页版的凭据
+     * 同时写在 IndexedDB 里（`magic-global/user`），`localStorage` 可能只有页面
+     * 自己的界面缓存（`fontScale` / `i18n` / `theme` —— 实测 2026-10-30 它们也
+     * **在** IndexedDB 里），`n === 0` 完全不代表没登录。
+     *
+     * 删掉不会误产出：下面三套 `credentialOfPair` 都是「拿不到 jwt 或拿不到
+     * 组织码就 `undefined`」，三者全空时本函数照样返回 `undefined`。
+     * 保留 `n` 字段是为了诊断（放弃等待时能说清「localStorage 是空的」）。
+     */
+    return credentialOfPair(parsed.a, parsed.o, parsed.t)
+        ?? credentialOfPair(parsed.ao, parsed.oo, parsed.to)
+        // 本仓改动（2026-10-30）：第三套来自 IndexedDB `magic-global/user`。
+        ?? credentialOfPair(parsed.ia, organizationFromIndexedDb(parsed.io), undefined);
 }
-
-function indexedDbNoteOf(value) {
-    if (typeof value !== 'string' || value.length === 0)
-        return '';
-    let parsed;
-    try {
-        parsed = JSON.parse(value);
-    }
-    catch {
-        return '';
-    }
-    const note = typeof parsed?.ie === 'string' ? parsed.ie : '';
-    const unavailable = typeof parsed?.id === 'string' ? parsed.id : '';
-    return [note, unavailable].filter((text) => text.length > 0).join('；');
-}
-
 /**
- * 从 IndexedDB `magic-global/user` 的 `organizations` 记录里取组织码。
+ * 从 IndexedDB `magic-global/user` 的 `organizations` 记录里取组织码（本仓改动，2026-10-30）。
  *
  * ⚠️ 三个字段**都要认**（实测本机 Edge 三条同时存在且值相同，但历史上不同
  * 平台来源只写其中一条）：`magic_organization_code` 是 magicrew 自己的；
@@ -471,6 +520,27 @@ function organizationFromIndexedDb(value) {
             return field;
     }
     return '';
+}
+/**
+ * 把页面里 IndexedDB 那条腿自己报的错捞出来（本仓改动，2026-10-30）。
+ *
+ * ⚠️ 它**不是**「用户没登」：库不存在 / `databases()` 不可用 / `open` 抛错
+ * 是「我们读的方式在这个浏览器上坏了」。挂到放弃等待那一行诊断上，
+ * 下次报障时能一眼区分两者。
+ */
+function indexedDbNoteOf(value) {
+    if (typeof value !== 'string' || value.length === 0)
+        return '';
+    let parsed;
+    try {
+        parsed = JSON.parse(value);
+    }
+    catch {
+        return '';
+    }
+    const note = typeof parsed?.ie === 'string' ? parsed.ie : '';
+    const unavailable = typeof parsed?.id === 'string' ? parsed.id : '';
+    return [note, unavailable].filter((text) => text.length > 0).join('；');
 }
 /**
  * 尝试**一次**通过 CDP 读实时凭据（并把失败原因带出来）。
@@ -512,6 +582,8 @@ async function attemptCredentialViaCdp(session, hostnames) {
         if (attachedId.length === 0)
             return { failure: 'Target.attachToTarget 没给出 sessionId' };
         sessionId = attachedId;
+        // 本仓改动（2026-10-30）：`awaitPromise: true` 是 IndexedDB 补丁的一部分 ——
+        // 表达式现在是 async IIFE（要 `await` 打开库），不传就拿到一个 pending Promise。
         const evaluated = await cdp.send('Runtime.evaluate', { expression: CDP_CREDENTIAL_EXPRESSION, awaitPromise: true, returnByValue: true }, CDP_CREDENTIAL_TIMEOUT_MS, attachedId);
         if (evaluated?.exceptionDetails !== undefined) {
             return { failure: 'Runtime.evaluate 在页面里抛错（页面可能正在导航）' };
@@ -519,6 +591,7 @@ async function attemptCredentialViaCdp(session, hostnames) {
         const credential = parseEvaluatedCredential(evaluated?.result?.value);
         if (credential !== undefined)
             return { credential };
+        // ⚠️ 没读到 = 「用户还没登完」这种**正常**未完成态 ⇒ 不记 failure。
         // 但 IndexedDB 那条腿自己报的错（库不存在 / databases() 不可用 / open 抛错）
         // 不是「用户没登」—— 挂到 note 上，放弃等待时能一眼区分。
         const note = indexedDbNoteOf(evaluated?.result?.value);
@@ -629,7 +702,7 @@ export function createMagicrewCredentialWaiter(deps) {
     /** 实时读尝试了几次 / 最后一次的失败原因（只用于放弃时那一行诊断）。 */
     let realtimeAttempts = 0;
     let lastRealtimeFailure;
-    /** IndexedDB 那条腿最后一次自己报的错（库不存在 / databases() 不可用 / open 抛错）。 */
+    /** IndexedDB 那条腿最后一次自己报的错（本仓改动，2026-10-30；只用于放弃时那行诊断）。 */
     let lastIndexedDbNote;
     /** 读一拍：**实时优先、磁盘兜底**。 */
     const readOnce = async () => {
@@ -649,9 +722,9 @@ export function createMagicrewCredentialWaiter(deps) {
             // 拿它盖掉真故障会让放弃时那一行说不出任何有用的话。
             if (realtime.failure !== undefined)
                 lastRealtimeFailure = realtime.failure;
-            // IndexedDB 那条腿的报错同理：它不是「用户没登」，但也不是致命故障
-            // （localStorage 腿可能还能用），所以单独记、不盖 failure。
-            if (typeof realtime.note === 'string' && realtime.note.length > 0)
+            // IndexedDB 那条腿的报错同理：它不是「用户没登」，但也不是致命故障，
+            // 攒着给放弃时那一行（本仓改动，2026-10-30）。
+            if (realtime.note !== undefined)
                 lastIndexedDbNote = realtime.note;
         }
         try {
@@ -894,7 +967,8 @@ export async function createChromiumMagicrewLogin(url, deps = {}) {
                 overrideValue: process.env.ZCODE_CHROME_PATH,
             }), 'browser-not-found');
     }
-    // 开窗前先把上次没删掉的一次性 profile 收掉（理由见该函数注释）。
+    // 本仓改动（2026-10-31）：开窗前先把上次没删掉的一次性 profile 收掉
+    // （理由见 {@link collectStaleLoginProfiles} 的注释）。
     const staleRemoved = collectStaleLoginProfiles();
     if (staleRemoved > 0) {
         deps.log?.(`[jet-hub] 超级麦吉 回收了 ${staleRemoved} 个上次遗留的临时浏览器 profile（%TEMP%/${LOGIN_PROFILE_PREFIX}*）`);

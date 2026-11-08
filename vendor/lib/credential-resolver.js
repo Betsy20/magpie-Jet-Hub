@@ -249,6 +249,7 @@ export function createCredentialResolver(deps, config) {
             const picked = await pickBuddyAccount(plan.selector, candidates, {
                 allowPermanent,
                 resolveCredential: config.readCredential,
+                degradeOnUnknown: plan.degradeLockedWhenUnknown === true,
             });
             if (picked.kind === 'account') {
                 if (plan.reportPickedAccount !== false)

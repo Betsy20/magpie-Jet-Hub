@@ -677,6 +677,13 @@ export function formatZcodeDiagnostic(input) {
             `身份块 ${input.shape.identityChars} 字符(${input.shape.identityBlockChars.length > 0
                 ? input.shape.identityBlockChars.join('+')
                 : '无'})`,
+            /**
+             * ⚠ 版本号紧跟在身份块之后：两者**必须同代**（Issue #45 的唯一判据），
+             * 放在相邻位置才能一眼看出「版本 3.17.2 + 2608 字符身份块」这类跨代组合。
+             */
+            ...input.appVersion === undefined || input.appVersion.length === 0
+                ? []
+                : [`版本 ${input.appVersion}`],
             `日期块 ${input.shape.hasDateBlock ? '有' : '无'}`,
         ];
     return [

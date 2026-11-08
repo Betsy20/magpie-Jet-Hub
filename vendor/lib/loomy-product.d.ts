@@ -34,8 +34,9 @@ export interface LoomyFallbackModel {
      * 可选思考档位（远端 `reasoning_efforts` 的实测值）。
      *
      * ⚠️ 与远端**同名字段、同一口径**：远端可用时优先用它，兜底表只在远端整体
-     * 失败时顶替。实测 8 个 chat 模型全部是
-     * `['none','low','medium','high','xhigh']`、默认 `low`。
+     * 失败时顶替。2026-09-28 实测 8 个 chat 模型全部是
+     * `['none','low','medium','high','xhigh']`、默认 `low`；2026-11-06 新上架的
+     * `DeepSeek-V4.1-Flash` 下发同款档位，合计 9 个。
      */
     efforts?: string[];
     /** 远端声明的默认档位（`default_reasoning_effort`）。 */
@@ -61,7 +62,7 @@ export interface LoomyProduct {
     appId: string;
     /** 默认凭据 ref（无账号池时的单凭据回退）。 */
     defaultCredentialRef: string;
-    /** 远端模型列表不可用时的兜底模型目录（8 个 chat 模型）。 */
+    /** 远端模型列表不可用时的兜底模型目录（9 个 chat 模型）。 */
     fallbackModels: readonly LoomyFallbackModel[];
     /**
      * 单张请求图片的像素预算。**当前刻意不赋值** —— 见下。
@@ -97,6 +98,34 @@ export interface LoomyProduct {
      */
     imageMaxBytes?: number;
 }
+/**
+ * 兜底模型目录（9 个 chat 模型）。
+ *
+ * 来源：2026-09-26 实测 `GET /api/v1/models`，取 `type === 'chat'` 的条目
+ * （2026-11-06 补 `DeepSeek-V4.1-Flash`，见下方表内注释）。
+ * 顺序**照抄远端返回顺序**，不重排 —— 重排会让「与远端对比」这类排查失去可比性。
+ *
+ * ⚠️ `name` 已按 `loomyDisplayName` 规范化（远端原值是三种括号风格混用）。
+ * ⚠️ `contextWindow` **不是**远端 `context_length` 的照抄 —— 见
+ * {@link LOOMY_CONTEXT_WINDOW_OVERRIDES}（`spark-x` 远端虚高）。
+ */
+/**
+ * 实测的思考档位（2026-09-28 用真实凭据采集 8 个 chat 模型**完全一致**；
+ * 2026-11-06 新上架的 `DeepSeek-V4.1-Flash` 下发同款，合计 9 个）。
+ *
+ * ⚠️ 抽成常量而不是逐条写 9 遍：远端对全部 chat 模型下发同一份档位，
+ * 逐条重复只会让将来上游变更时漏改其中几条。
+ * ⚠️ 远端可用时**优先用远端的 `reasoning_efforts`**，本常量只在远端整体失败时
+ * 顶替（与 `contextWindow` 同策略）。
+ *
+ * ⚠️⚠️ **导出供「目录外 id」复用**（2026-11-06）：本家的档位是**产品级**事实
+ * （实测全部 chat 模型逐字相同，包括 2026-11-06 新上架的 `DeepSeek-V4.1-Flash`），
+ * 与具体模型无关 ⇒ `loomy-adapter` 的 `unknownModelReasoning` 直接返回这一份，
+ * 让**将来又一个**新上架模型在远端抓取失败时也不会退化成「无档位」。
+ * 判据与同型先例（cline / codearts 的未知 id 仍声明档位）见
+ * `src/model-catalog.ts` 的 `unknownModelReasoning` 表格。
+ */
+export declare const LOOMY_EFFORTS: readonly string[];
 /**
  * 上下文窗口的**逐模型硬覆盖**（`模型 id → 真实窗口`）。
  *
@@ -142,6 +171,51 @@ export interface LoomyProduct {
  * ⇒ 有独立证据的条目写**真实值**，没有证据的**保留远端声明**，绝不改成不声明。
  */
 export declare const LOOMY_CONTEXT_WINDOW_OVERRIDES: Readonly<Record<string, number>>;
+/**
+ * 模型 id 的**归一化查表键**：本家两张能力覆盖表唯一的查表口径。
+ *
+ * ## 为什么需要（2026-10-14 审计发现）
+ *
+ * 覆盖表原先用 `Set.has(modelId)` / `OVER[modelId]` 做**逐字节精确匹配**，而
+ * 同一文件里读远端模态的 `readInputModalities()` 却把值 `.toLowerCase()` 归一了
+ * ⇒ **同一个「模型身份」概念在相邻两处用了两套归一标准**。
+ *
+ * 后果是**静默失效**：一旦上游把 id 改成 `Qwen-3.8-Max` 或前后带空白，
+ * 覆盖表恒不命中 ⇒ `inputModalities` 退回 `['text']` ⇒ DSH 附件准入闸门
+ * （`MODEL_DOES_NOT_SUPPORT_IMAGES`）重新拒图，**用户看到的就是本次修复前的
+ * 症状原样复现**，而全程不抛异常、不打日志、测试全绿。
+ *（本仓库有同型前科：`docs/agent-notes/providers-zcode.md` 的
+ * 「上游小写 vs 目录大写」。）
+ *
+ * ## ⚠️ 一个已权衡的取舍（如实登记，别当它不存在）
+ *
+ * 归一化后，**仅大小写不同的两个 id 会折叠成同一个键**。若上游真的同时上架
+ * `spark-x` 与 `Spark-X` 两个不同模型、且只有一个能读图，本函数会把图也放给
+ * 另一个（上游回一个更晚、更难懂的 400 —— 正是覆盖表注释警告的那种代价）。
+ * 判定为**可接受**，理由：① 远端现有 8 条 chat 模型 id 两两不同、且本就混用
+ * 大小写（`MiniMax-M3` / `spark-x`），说明上游按 id 区分模型而非按大小写；
+ * ② 「仅大小写不同」的模型目录会让 DSH 自身的选择器也无法区分，属病态输入；
+ * ③ 反向的代价（不归一 ⇒ 静默拒图）**已经真实发生过一次**。
+ *
+ * ## ⚠️ 只用于查表，**绝不改对外 id**
+ *
+ * `model.id` 同时是 `fallbackIndex`（`loomy-adapter.ts`）与 `effortsForModel`
+ * 的索引键，也是 DSH 选择模型时用的身份。归一化只发生在**查表那一刻**，
+ * 对外播报的 id 逐字节不变 —— 否则会重演 accio「改对外 id ⇒ 聚合补丁索引
+ * 恒不命中」那类**静默**连带失效。
+ *
+ * @param modelId 待查的模型 id（远端原值或兜底表值）。
+ * @returns 小写、去首尾空白的查表键。
+ */
+/**
+ * 取一个模型 id 的查表键（小写、去首尾空白）。
+ *
+ * ⚠️ 2026-11-06 起**导出**：`loomy-product.spec.ts` 的「覆盖表条目必须存在于
+ * 兜底表」守卫需要用**同一个**归一化对齐两侧 —— 兜底表 id 保留上游大小写
+ * （如 `DeepSeek-V4.1-Flash`），覆盖表条目必须小写，直接 `Set.has` 会在
+ * 大小写混用的 id 上恒 false（守卫假红）。归一化逻辑不得在测试里再写一份。
+ */
+export declare function loomyCatalogKey(modelId: string): string;
 /**
  * 取一个模型的**真实**上下文窗口。
  *
@@ -210,6 +284,13 @@ export declare function loomyContextWindow(modelId: string, declared: number): n
  * 纯文本模型时恒 true 会把图放行，让上游回一个更难懂的 400（错误更晚、更难查）。
  *
  * ⚠️ 表内条目必须**小写**：查表经 `loomyCatalogKey()` 归一，混入大写条目会恒不命中。
+ *
+ * ⚠️ **2026-11-06 审计补登 4 条**：上表实测读图 ✅ 的 `DeepSeek-V4.1-Flash` /
+ * `Kimi-k2.6` / `qwen3.8-flash` / `mimo-v2.5` 此前也不在表里 —— 远端可用时
+ * 无影响（远端声明已含 image），但远端失败走兜底表时起算值恒 `false` ⇒
+ * **同一批模型离线不能读图**，能力随远端可用性漂移。四条都实测 ✅ 且都在
+ * 兜底表（`fallbackToRemote` 走同一覆盖表，登记后离线即闭合）。
+ * `GLM-5.3-Flash`（⚠️ 答错过颜色名）与 `MiniMax-M3`（❌ 疑似假声明）刻意不入表。
  */
 export declare const LOOMY_IMAGE_CAPABILITY_OVERRIDES: ReadonlySet<string>;
 /**

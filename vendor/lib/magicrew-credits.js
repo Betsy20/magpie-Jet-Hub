@@ -40,9 +40,18 @@ const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
  *（`magicrewHeaders` / `headersOf`），形状已经**几乎**一样但 UA 取值不同 ——
  * 再复制第三份就是「一份语义三处实现」。签到侧复用本函数。
  *
- * ⚠️ `origin` 必带：网关会看 Origin，缺了偶发 403。
+ * ⚠️ `origin` 的实际作用**未证实**（2026-11-04 七审更正）：本条原写「网关会看 Origin，
+ * 缺了偶发 403」，但完整头矩阵实测（带 / 不带 / 各种取值 × 四种出口）**结论一致**，
+ * 那一句已被证伪。保留该头的理由是「官方网页是同源调用、加上更接近真实客户端」，
+ * **不是**因为缺了会 403。⚠️ 别把「带 origin ⇒ 405」也当成结论写进来 ——
+ * 2026-11-04 下午那一轮「不带 origin 就 200」只在单一时段/出口成立，同日复测即推翻。
  * ⚠️ `organization-code` 只在非空时附 —— 国际站缺了会被上游拒绝，所以**调用方**
  * 必须保证 `organizationCode` 真的取到了（不是这里补空串）。
+ *
+ * ⚠️ **`referer` 一并带上**（2026-11-04 真机二分实测）：本文件覆盖的积分/签到端点
+ * 单看并不校验它（不带也 200），但同一套 Go 服务里的
+ * `/api/v1/contact/accounts/me/users` 与 `/api/v1/model-gateway/tokens`
+ * **不带 referer 就是 403 空 body** ⇒ 头集中在一处派生，才不会漏第二回。
  *
  * ⚠️ **形态以实测为准，别抄「HTTP 500 + 裸文本」**（2026-11-01 二审纠错）：那是
  * **聊天网关**（`/v1/*`）的旧观察且至今未定（见 `magicrew-product.ts` 的
@@ -57,6 +66,9 @@ export function magicrewApiHeaders(params) {
         accept: 'application/json',
         'user-agent': USER_AGENT,
         origin: params.product.webOrigin,
+        // ⚠️ 与 `magicrewHeaders` / `fetchMagicrewProfile` 保持一致（漏了它，同服务的
+        //    另两个端点是 403 空 body）。
+        referer: `${params.product.webOrigin}/`,
     };
     if (params.organizationCode.length > 0)
         headers['organization-code'] = params.organizationCode;
@@ -94,33 +106,199 @@ export function magicrewParseExpiresAt(text) {
         return undefined;
     return utcMs - BEIJING_OFFSET_MS;
 }
-export async function fetchMagicrewBalance(params) {
+/**
+ * 被上游网关（WAF）**拒绝**时两站可能回的码 —— 必须走同一档文案。
+ *
+ * ⚠️ 实测（2026-11-04）：国内站（火山引擎）**403**、国际站（阿里）**405**。
+ * 只按 403 分档会让国际站用户拿不到任何出路。
+ * ⚠️ **归因到此为止**：这一档只说明「网关不认这次请求」，**不**等于「境外出口被拦」——
+ * 完整出口矩阵（10 组，含真境内裸网）实测两站对所有出口都回这两个码，而第三方
+ * 境外代理能 200 ⇒ 地区封锁已被证伪（详见 403/405 分支里的长注释）。
+ * ⚠️ 刻意**不含** 429 / 5xx：那两个分别是限流与服务端故障，方向完全不同。
+ */
+const REJECTED_STATUSES = new Set([403, 405]);
+/**
+ * 把 `product.host`（形如 `https://i-magic-service.letsmagic.cn`）渲染成**域名**。
+ *
+ * ⚠️ 报错文案里必须给**域名**而不是完整 URL：用户要做的是「在代理里把这条域名设为
+ * 直连」，代理规则（Clash / 系统 PAC）匹配的是域名；写成 `https://…` 会被照抄成
+ * 一条匹配不上的规则，而这个文案是他唯一的线索。
+ */
+function hostLabelOf(host) {
+    return host.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+/**
+ * 发请求并**只做**「网络异常 ⇒ 原因」的归一（不解析、不判状态码）。
+ *
+ * ⚠️ 单独抽出来的理由：`try` 只需要包住 `fetchImpl` 这一个调用。
+ * 若把整段（含后面的解析）包进 `try`，坏 JSON 与网络错误会落进同一格 ⇒
+ * 又回到「四种失败抹成一格」。
+ */
+async function magicrewPointsRequest(fetchImpl, url, init) {
+    try {
+        return { response: await fetchImpl(url, init) };
+    }
+    catch (error) {
+        return { error: `积分查询失败（网络异常）：${error instanceof Error ? error.message : String(error)}` };
+    }
+}
+/**
+ * 一次余额请求 + 解析的完整实现 —— **全仓唯一**的一份。
+ *
+ * `fetchMagicrewBalance`（只要余额）与 `fetchMagicrewBalanceDetailed`
+ *（余额 + 原因）都是它的薄包装。⚠️ 不得各自复制一份解析逻辑：
+ * 「一份语义两处实现」在改口径时必然漂移（AGENTS.md 首条红线）。
+ */
+async function magicrewBalanceOf(params) {
     const product = params.product ?? MAGICREW;
     const fetchImpl = params.fetchImpl ?? fetch;
-    const response = await fetchImpl(`${product.host}${MAGICREW_POINTS_PATH}`, {
+    const requested = await magicrewPointsRequest(fetchImpl, `${product.host}${MAGICREW_POINTS_PATH}`, {
         // ⚠️ 超时（2026-10-29 最终审查 I5）：其余每家 `*-credits.ts` 都有；零超时会让积分面板
         //    转圈到 undici 默认 ~300s（本家 `requestTimeoutMs` 是业务 API 口径）。
         signal: AbortSignal.timeout(product.requestTimeoutMs),
         headers: magicrewApiHeaders({ jwt: params.jwt, organizationCode: params.organizationCode, product }),
     });
+    if ('error' in requested)
+        return { ok: false, error: requested.error };
+    const response = requested.response;
+    /**
+     * ⚠️⚠️ **非 2xx 必须带状态码说清**（2026-11-04 真机取证）。
+     *
+     * 真机：火山引擎 WAF 对国内站回 `HTTP 403` + 空 body（`X-TT-System-Error: 3`），
+     * 阿里 WAF 对国际站回 `HTTP 405` + 拦截页。旧实现把这两格都变成 `undefined` ⇒
+     * 面板「余额查询失败」、锁定态报「凭据失效或响应异常」⇒ 用户去重登、去查组织码，
+     * **而凭据一个都没坏**。
+     *
+     * ⇒ 403/405 单独一档并**只说已实测的事**：网关层拒绝、不是凭据问题、
+     * 主机名由 `product.host` 点名。⚠️ **不要**再断言成因是「境外出口」——
+     * 完整出口矩阵已把该结论证伪（见 403/405 分支里的长注释）。
+     */
+    if (!response.ok) {
+        const status = response.status;
+        if (status === 401) {
+            return {
+                ok: false,
+                // ⚠️ **必须点名 host**（2026-11-05 合规审计）：面板上国内 / 国际是两张
+                //    独立卡片，只说「HTTP 401」时用户不知道是哪一站登录失效了。
+                error: `积分查询失败（HTTP 401，登录已失效）：请删除该账号后重新登录 ${product.displayName}`
+                    + `（${hostLabelOf(product.host)}）`
+                    // ⚠️ 补一句「锁定不受影响」（2026-11-04 四审建议 ③(3)）：删号重登是唯一路径，
+                    //    而「永久积分锁定」是按**渠道**落盘的（`src/account-pool.ts` 的
+                    //    `permanentLocked(provider)`），`removeAccount` 只 unset 凭据 + 从账号表
+                    //    filter ⇒ 锁**不会**丢。不写这句，用户会因为怕丢锁而不敢重登。
+                    + '（永久积分锁定按渠道保存，删号重登不会丢）',
+            };
+        }
+        /**
+         * ⚠️⚠️ **403 与 405 必须同一档**（2026-11-04 二稿，上一稿只写了 403）。
+         *
+         * 两站被 WAF 拒时回的**不是同一个码**：国内站（火山引擎）`403`，
+         * 国际站（阿里）`405`。上一稿只给 403 配了出路 ⇒
+         * **国际站用户拿到的仍是纯状态码 + 主机名**，等于没修到他那一半。
+         * ⇒ 判据按「同一形态的拒绝」写（`REJECTED_STATUSES`），文案按状态码回显。
+         *
+         * ⚠️⚠️⚠️ **归因已被真机推翻两次，文案不得再断言「境外出口」**（2026-11-04 七审）。
+         *
+         * 演进：①初稿写「境外出口被拦」——当时确有一条（美国出口 403）作依据；
+         * ②完整出口矩阵（10 组）之后该结论**不再成立**：国内站对本机**所有**出口都回
+         *   403 —— 含 Clash 全退出的**真境内家宽**（`myip.ipip.net` 实测
+         *   `120.229.253.224` / 广东汕头 / 移动）——而同一时刻用 `r.jina.ai` 这类
+         *   第三方境外代理去打它却 **200**（`hello, magic-service!`）。国际站同理：
+         *   美国 / 香港 / 新加坡 / 日本 / 裸网**全是 405**，第三方代理 **200**。
+         * ⇒ 「地区封锁」被证伪，真因落在「**本机这条出口被上游网关按 IP 段 / 网络环境
+         *   拒掉**」这一层，而插件**无法**辨别它到底是哪一条（也不能绕过 WAF）。
+         *
+         * 因此文案只允许说三件**已实测**的事：①这是网关层拒绝、**不是凭据问题**
+         *   （JWT 未过期 + 组织码齐全时照样 403/405）；②**直连与多个代理出口都无效**
+         *   （所以「设为直连」只能作为「先试一次」的低成本动作，不得写成承诺）；
+         *   ③再往上就是换网络环境 / 等服务方放行。
+         * ⚠️ 别再写出「设直连即可」这种**已实测无效**的保证 —— 用户照做一次白做一次，
+         *   而这条文案是他唯一的线索（与 `src/index.ts:76` 记的 Qoder `!136` 同型）。
+         */
+        if (REJECTED_STATUSES.has(status)) {
+            return {
+                ok: false,
+                error: `积分查询失败（HTTP ${status}，上游网关拒绝）：网关层（WAF）拒绝了本机请求，`
+                    + '**不是凭据问题**（JWT 未过期、组织码齐全也照样如此；'
+                    + '真机实测直连与多个代理出口都命中同一档）。'
+                    // ⚠️ 「在代理软件里按域名加规则」这半句是必须的（2026-11-04 四审建议 ③(2)）：
+                    //    本插件**没有**魔法麦吉的代理设置入口（`onOpenProxy` 只对
+                    //    opencode / gemini / qoder / minimaxintl，见 `plugin-src/client/jet-hub.js`），
+                    //    光说「设为直连」会让用户在 Jet Hub 里找开关。
+                    + `可先在代理软件里把 ${hostLabelOf(product.host)} 设为**直连**再试一次，`
+                    + '仍不行就换一个网络环境（如手机热点）重试；'
+                    + '持续如此说明该出口被上游风控挡下，**不用重新登录**，只能等服务方放行',
+            };
+        }
+        /**
+         * ⚠️ **其余状态码必须点名 host**（2026-11-04）：面板上国内 / 国际是**两张
+         * 独立卡片**，而这条文案是逐账号的 —— 只说「HTTP 405」时用户不知道是哪一站
+         * 打不通（真机上海外出口下国内回 403、国际回 **405**，两个数字完全不同）。
+         * `product.host` 是唯一能把码与站点对应起来的线索。
+         */
+        return { ok: false, error: `积分查询失败（HTTP ${status}）：${hostLabelOf(product.host)}` };
+    }
     const text = await response.text();
     let parsed;
     try {
         parsed = JSON.parse(text);
     }
     catch {
-        return undefined;
+        /**
+         * ⚠️ **「非 JSON」不是一格，而且这一格必须能指路**（2026-11-04 四审）。
+         *
+         * 取证：阿里 WAF（国际站与 accio 同族）拦截时回 **HTTP 200 + HTML 拦截页**
+         * （`src/accio-adapter.ts:1828-1865` 记了完整特征：`content-type: text/html`、
+         * `rgv587_flag:sm`、`bixi-intl.alicdn.com/punish/`）—— 这一格落进来时
+         * 旧文案只写「响应不是 JSON」，**既没有 host 也没有任何动作可做**，与
+         * 「上游改版」「空响应」同形（正是本轮要消灭的那种塌陷）。
+         *
+         * 判据用**响应体形状**（以 `<` 开头）而不是 `content-type`：这样不必改动
+         * 已经拿到的 `Response`，也覆盖 WAF 用 `text/plain` 回拦截页的变体。
+         * ⚠️ 不把「HTML ⇒ 一定是 WAF」写成断言：也可能是网关错误页/登录跳转页，
+         *    所以文案是「多为…」并同时给出第二可能。
+         * ⚠️ 同样**不得承诺**「设直连就好」：出口矩阵实测直连与多个代理出口都命中
+         *    同一形态（详见 403/405 分支的长注释）⇒ 直连只能写成「先试一次」。
+         */
+        const host = hostLabelOf(product.host);
+        if (/^\s*</.test(text)) {
+            return {
+                ok: false,
+                error: `积分查询失败（上游返回 HTML 拦截页而不是 JSON，多为网关 / 风控挡下）：`
+                    + `可先在代理软件里把 ${host} 设为**直连**再试一次，`
+                    + '仍不行就换一个网络环境重试',
+            };
+        }
+        return { ok: false, error: `积分查询失败（响应不是 JSON）：${host}` };
     }
     // ⚠️ `JSON.parse('null') === null` ⇒ **信封本身**可能是 `null`，直接读 `.code`
     //    会抛 `TypeError: Cannot read properties of null`（2026-10-29 实测）。
     //    契约是「取数失败 ⇒ `undefined`」（调用方 `magicrewExpiry` 据它判 `UNUSABLE`），
     //    抛出去会变成「折算整轮 reject」，与「取数失败」不同形。
     //    同型守卫见 `src/credits.ts:526-529`。
-    if (typeof parsed !== 'object' || parsed === null)
-        return undefined;
+    if (typeof parsed !== 'object' || parsed === null) {
+        return { ok: false, error: `积分查询失败（响应不是对象）：${hostLabelOf(product.host)}` };
+    }
     const envelope = parsed;
-    if (typeof envelope.code === 'number' && envelope.code !== 1000)
-        return undefined;
+    if (typeof envelope.code === 'number' && envelope.code !== 1000) {
+        // ⚠️ 业务码原样带出：`2182`（用户所在组织不存在）是**唯一**能把用户引向
+        //    「登录时没选组织」的线索，吞掉它等于让这一档永远不可诊断。
+        // ⚠️ **必须点名 host + 给出路**（2026-11-05 合规审计）：`2182` 的官方文案
+        //    「用户所在组织不存在」极易被读成「我的组织被删了」⇒ 必须说清是
+        //    「登录时没选组织」，并指明去网页端选一个组织后重新登录
+        //    （`src/magicrew-checkin.ts` 的本地前置校验用的是同一句出路）。
+        if (envelope.code === 2182) {
+            return {
+                ok: false,
+                error: `积分查询失败（上游业务码 2182：用户所在组织不存在）：${hostLabelOf(product.host)}`
+                    + ' —— 这是**登录时没选组织**，不是组织被删了；请在网页端选中一个组织后重新登录',
+            };
+        }
+        return {
+            ok: false,
+            error: `积分查询失败（上游业务码 ${envelope.code}）：${hostLabelOf(product.host)}`,
+        };
+    }
     const data = envelope.data ?? {};
     /**
      * ⚠️ **`total_points` 必须容错解析，不能要求 `typeof === 'number'`**（2026-11-01 二审）：
@@ -131,7 +309,7 @@ export async function fetchMagicrewBalance(params) {
      */
     const total = magicrewSignedDecimalOf(data.total_points);
     if (total === undefined)
-        return undefined;
+        return { ok: false, error: '积分查询失败（响应缺少可解析的 total_points）' };
     const rawBatches = Array.isArray(data.expiring_quota_details) ? data.expiring_quota_details : [];
     const packages = [];
     for (const raw of rawBatches) {
@@ -259,7 +437,34 @@ export async function fetchMagicrewBalance(params) {
     }
     // ⚠️ `expiredTotal` = 0：上游**不下发**失效额度（既无 frozen 字段、也不回已失效桶），
     //    如实为 0 并在此注明「**不是**算出来的 0」（口径同 `src/astudio-credits.ts:166-167`）。
-    return { total, packages, expiredTotal: 0 };
+    return { ok: true, balance: { total, packages, expiredTotal: 0 } };
+}
+/**
+ * 余额查询（**只要余额**）—— 失败一律 `undefined`。
+ *
+ * ⚠️ 这是**既有契约**（`magicrewExpiry` 据 `undefined` 判 `UNUSABLE`），
+ * 不要改成抛异常：抛出去会成为「折算整轮 reject」，与「取数失败」不同形。
+ * 需要**原因**的调用方（选号器锁定时那句报错）请用
+ * {@link fetchMagicrewBalanceDetailed}。
+ */
+export async function fetchMagicrewBalance(params) {
+    const outcome = await magicrewBalanceOf(params);
+    return outcome.ok ? outcome.balance : undefined;
+}
+/**
+ * 余额查询（**余额 + 原因**）—— 契约：`{ balance: null, error }`，**本身不抛**。
+ *
+ * ⚠️⚠️ **选号器必须接这个变体**（`BuddyBalanceSelector` 的 `fetchBalanceDetailed`）：
+ * 只接 `fetchBalance` 时，锁定永久积分的那句报错只能拿到 `null` ⇒ 说成
+ * 「余额查询失败（凭据失效或响应异常）」，把用户引向凭据；而真因可能是
+ * 网络出口被拒（2026-11-04 真机：代理走境外 ⇒ WAF 403）。
+ * 同款教训见 `src/index.ts:76`（Qoder 的 `!136`）。
+ */
+export async function fetchMagicrewBalanceDetailed(params) {
+    const outcome = await magicrewBalanceOf(params);
+    if (outcome.ok)
+        return { balance: outcome.balance };
+    return { balance: null, error: outcome.error };
 }
 /**
  * `input_points` 的「**已知**」判据 —— 倍率与免费标记**共用这一处**（不写第二份）。

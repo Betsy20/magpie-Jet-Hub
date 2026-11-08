@@ -70,6 +70,14 @@ export interface MonkeycodeAdapterOptions {
     readonly onCatalogLoaded?: () => void;
     readonly warn?: (message: string) => void;
     readonly now?: () => number;
+    /**
+     * 请求传输；**仅单测**注入替身。
+     *
+     * ⚠️ 生产默认是 {@link monkeycodeDirectFetch}（`undici.request` **模块导入**），
+     * **不是**全局 `fetch`：bili（billion-context）会把 `X-OhmyAgent-Signature`
+     * 判成正文签名并 403 拒发（它没有该 scheme 的重签器）。`undici.request` 不会
+     * 被别的插件替换，签名请求才能逐字节到达网关。原因详见 `monkeycode-http.ts`。
+     */
     readonly fetchImpl?: typeof fetch;
 }
 /**

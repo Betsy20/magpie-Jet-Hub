@@ -21,6 +21,26 @@ import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelIn
 import { AccountPool } from './account-pool.js';
 import { type LoomyCredential } from './loomy.js';
 import { type LoomyProduct } from './loomy-product.js';
+/**
+ * 档位 id 数组 → `LlmResolvedModelInfo['reasoning']`（**唯一**实现）。
+ *
+ * ⚠️ 抽成模块级纯函数是因为它现在有**三个**消费者：目录内条目走
+ * `LoomyAdapter.reasoningFor`，目录外 id 的**声明**走 `unknownModelReasoning`，
+ * 目录外 id 的 **wire 白名单**走 `stream()`（2026-11-06 审计 #9：声明与上行
+ * 不同源会让用户选的档位静默蒸发成服务端默认档，且零提示）。
+ * 两套实现会漂移成「目录内下发 high、目录外不发」这类静默缺陷 ——
+ * 与本仓库红线「同一 provider 内不得有两套同义判据」同型。
+ *
+ * 三条口径：
+ * 1. `efforts` **原样取远端顺序**（服务端下发的就是展示顺序，DSH 当作展示序）；
+ * 2. `defaultEffort` **必须落在 `efforts` 内** —— DSH 会拿它直接发请求，
+ *    给一个不存在的档位会抛 `UNSUPPORTED_REASONING_EFFORT`，比不给更糟；
+ * 3. 档位为空时不声明 `reasoning`（UI 显示「当前模型未提供推理等级」）。
+ *
+ * @param efforts - 档位 id 列表（远端 `reasoning_efforts` 或兜底表同名字段）。
+ * @returns 可直接进 `resolveModel()` 的 `reasoning`，或 `undefined` 表示不声明。
+ */
+export declare function reasoningFromEfforts(efforts: readonly string[] | undefined): LlmResolvedModelInfo['reasoning'];
 /** 本适配器注册的 provider 路由名（等价于 `LOOMY.id`）。 */
 export declare const PROVIDER = "loomy";
 /** 远端模型条目（已归一）。 */
@@ -396,6 +416,14 @@ export declare class LoomyAdapter extends LlmAdapter {
      * 2. `defaultEffort` **必须落在 `efforts` 内** —— DSH 会拿它直接发请求，
      *    给一个不存在的档位会抛 `UNSUPPORTED_REASONING_EFFORT`，比不给更糟；
      * 3. 远端未下发档位时不声明 `reasoning`（UI 显示「当前模型未提供推理等级」）。
+     *
+     * ⚠️ **已知残余（2026-11-06 审计 #6，登记不修）**：目录内条目远端**未下发**
+     * 档位（`reasoning_efforts: []` 会被 `parseLoomyRemoteModels` 省略键）⇒ 不声明
+     * ⇒ 用户持久化过的档位仍会被 dsh-llm 硬抛（与本 PR 报障同型但**入口不同**：
+     * 报障是目录外 id，这里是目录内无档位条目 —— 且仅当该 id 也不在兜底表时）。
+     * 刻意**不**在这里回退产品级五档：远端对目录内条目的逐模型声明是优先事实，
+     * 空档位可能是服务端刻意的（「全部 chat 模型逐字相同」只是快照，2026-11-06）。
+     * wire 侧白名单已与声明同源（`stream()`），故该形态下两侧一致地「不声明也不发」。
      */
     private reasoningFor;
     /**

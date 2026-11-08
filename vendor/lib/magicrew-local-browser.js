@@ -44,6 +44,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { registeredBrowserUserDataRoots } from './chromium-session.js';
+import { leveldbRecordsText, leveldbVisibleRecords, readSstableRecords, readWalRecords, } from './leveldb-sstable.js';
 /**
  * 窗口宽度。
  *
@@ -51,6 +52,34 @@ import { registeredBrowserUserDataRoots } from './chromium-session.js';
  * 太小会漏、太大可能跨到另一个站点。
  */
 export const MAGICREW_LOCAL_WINDOW = 2000;
+/**
+ * 已经 warn 过的 leveldb 文件路径（防 500ms 轮询刷屏）。
+ *
+ * ⚠️ **按日志出口（`log` 函数身份）分别去重**，不是全局一张表：
+ * `magicrew` 与 `magicrewintl` 是两个 `MagicrewAuth` 实例、扫**同一批**浏览器
+ * 路径（`magicrewBrowserRoots()` 与 product 无关）。若用模块级 Set 按路径去重，
+ * 先跑的那个 provider 会把路径「吃掉」⇒ **另一个 provider 的 logger 永远收不到**
+ * （2026-11-05 审计 P2-①）。用 `WeakMap<log, Set<path>>` 让每个实例各报一次；
+ * 未注入 `log` 时回落到模块级 `console.warn` 去重表。
+ */
+const warnedLeveldbFilesByLog = new WeakMap();
+const warnedLeveldbFilesDefault = new Set();
+/**
+ * 每个文件只 warn 一次（跨 500ms 轮询），但**按日志出口分别计数**。
+ */
+function warnLeveldbParseFailure(log, path, reason) {
+    const sink = log ?? console.warn;
+    let warned = warnedLeveldbFilesByLog.get(sink);
+    if (warned === undefined) {
+        warned = new Set();
+        warnedLeveldbFilesByLog.set(sink, warned);
+    }
+    const seen = log === undefined ? warnedLeveldbFilesDefault : warned;
+    if (seen.has(path))
+        return;
+    seen.add(path);
+    sink(`[magicrew] leveldb 文件解析失败，已跳过：${path}（${reason}）`);
+}
 /**
  * 各平台的浏览器 User Data 根目录；不存在就跳过。
  *
@@ -117,57 +146,134 @@ export function magicrewProfilesOf(root) {
     }
 }
 /**
- * 一个 profile 的 leveldb 文本（按 **latin1** 拼）。
+ * 一个 leveldb 文件的**结构化**内容。
  *
- * ⚠️ latin1 而不是 utf8：leveldb 文件是二进制，utf8 解码会把非法字节换成 U+FFFD、
- * 长度也会变 —— 而窗口是按字节位置算的。latin1 是**逐字节**映射，位置不变。
+ * ## ⚠️⚠️ 为什么不再直接返回文本（2026-11-05 返工 P2-2 / P2-3）
+ *
+ * 同一条 localStorage key 的多次写入会横跨 `.ldb`（旧值）与 `.log`（WAL 新值 /
+ * tombstone），必须**先收集记录、再按 sequence 取最新**（{@link leveldbVisibleRecords}），
+ * 否则「先登出再登录」会配到空值而漏读、「登出」会复活旧 org。
+ * ⇒ 本函数只负责**单个文件**的解析与失败隔离，去重与渲染交给 profile 层。
+ *
+ * `.log` 若是合法 WAL（WriteBatch）就解成记录；**不是**（`LOG`、`MANIFEST-*`、
+ * 测试里直接写的明文）则退回 latin1 原文 —— 与旧行为一致，不会因为「不是 WAL」
+ * 就丢掉里面的凭据。
  */
-function leveldbTextForProfile(root, profile, hostname) {
-    return leveldbTextOfDir(join(root, profile, 'Local Storage', 'leveldb'))
-        + '\n'
-        + indexedDbTextFor(join(root, profile, 'IndexedDB'), hostname);
+function leveldbContentForFile(path, name, log) {
+    let buffer;
+    try {
+        buffer = readFileSync(path);
+    }
+    catch {
+        // 被浏览器独占 / 权限 / 刚被删（Edge 会滚动删文件）⇒ 跳过。
+        return undefined;
+    }
+    // ⚠️ `.sst` 是 LevelDB 的另一种表文件后缀（老版本 / 某些分支这样落盘），
+    //    与 `.ldb` 同格式；此前只认 `.ldb` ⇒ `.sst` 会退回「原文扫描」那条坏路。
+    // ⚠️ 大小写不敏感：Windows 上 `000003.LDB` / `.SST` 是合法变体，漏了就会退回
+    //    「原文扫描」那条坏路（从原始字节里编造凭据，2026-11-05 对抗审计 P3-3）。
+    const lowerName = name.toLowerCase();
+    if (lowerName.endsWith('.ldb') || lowerName.endsWith('.sst')) {
+        try {
+            return { records: readSstableRecords(buffer), rawText: '' };
+        }
+        catch (error) {
+            // 不是合法 SSTable（半截写入 / 未知格式）⇒ 当作这个文件没有可用记录。
+            // ⚠️ 只 warn 一次：这条路径每 500ms 走一次，逐次 warn 会刷屏。
+            warnLeveldbParseFailure(log, path, error instanceof Error ? error.message : String(error));
+            return undefined;
+        }
+    }
+    if (lowerName.endsWith('.log')) {
+        const records = readWalRecords(buffer);
+        if (records !== undefined)
+            return { records, rawText: '' };
+    }
+    return { records: [], rawText: buffer.toString('latin1') };
 }
-
+/**
+ * 一个 profile 的 leveldb 文本。
+ *
+ * ⚠️ 文件之间用 `\n` 隔开：不隔开时前一个文件的尾部与后一个的头部会拼成一条
+ * **不存在的**记录（可能凭空造出一对 jwt × org）。
+ */
+function leveldbTextForProfile(root, profile, log, hostname = '') {
+    // ⚠️ 本仓改动（2026-10-30）：**两处**都要读。
+    //
+    // magicrew 网页版把凭据写在 **IndexedDB** 的 `magic-global/user` 库里，
+    // `Local Storage` 里只有页面自己的缓存（`fontScale` / `i18n` / `theme` 三条
+    // 界面配置也在 IndexedDB，别拿它们当「已经读到凭据」的证据）。
+    // 只读 `Local Storage` ⇒ 磁盘那条腿恒读不到 ⇒ 只能靠 CDP 腿硬撑。
+    //
+    // 两段之间用 `\n` 隔开，理由同上游注释：不隔开时前一个目录的尾部与后一个的
+    // 头部会拼成一条**不存在的**记录（可能凭空造出一对 jwt × org）。
+    return [leveldbTextOfDir(join(root, profile, 'Local Storage', 'leveldb'), log),
+        indexedDbTextFor(join(root, profile, 'IndexedDB'), hostname, log)]
+        .filter((text) => text.length > 0)
+        .join('\n');
+}
 /**
  * 一个 leveldb 目录（或它的上级目录）的文本。
  *
  * ⚠️ 传上级目录时递归一层：每个站点一个 `https_<host>_0.indexeddb.leveldb` 子目录。
+ *
+ * ## ⚠️⚠️ 为什么要抽成独立函数（2026-11-05 返工）
+ *
+ * `Local Storage/leveldb` 与 `IndexedDB/<site>.indexeddb.leveldb` 是**同一套**
+ * LevelDB 格式（`.ldb` / `.sst` 是 SSTable、`.log` 是 WAL），必须走同一条
+ * 「先解记录、再按 sequence 取最新」的路径 —— 见 {@link leveldbContentForFile}
+ * 与 {@link leveldbVisibleRecords} 的注释。
+ *
+ * ⚠️ **不要**退回 `readFileSync(...).toString('latin1')` 那条老路：从原始字节里
+ * 扫描会编造凭据（2026-11-05 对抗审计 P3-3）。
  */
-function leveldbTextOfDir(dir) {
+function leveldbTextOfDir(dir, log) {
     let files;
     try {
+        // ⚠️ `withFileTypes` 而不是 `readdirSync(dir)` + `statSync`：后者是 N 次系统
+        // 调用，`%TEMP%` 有 19.8 万个条目时实测差一个数量级（同一个坑见
+        // `collectStaleLoginProfiles` 的注释）。
         files = readdirSync(dir, { withFileTypes: true });
     }
     catch {
         return '';
     }
-    let text = '';
+    const records = [];
+    const rawTexts = [];
     for (const entry of files) {
         const full = join(dir, entry.name);
         if (entry.isDirectory()) {
-            text += leveldbTextOfDir(full);
+            const nested = leveldbTextOfDir(full, log);
+            if (nested.length > 0)
+                rawTexts.push(nested);
             continue;
         }
-        try {
-            text += readFileSync(full).toString('latin1');
-        }
-        catch {
-            // 单个文件读不到（被浏览器独占 / 权限）⇒ 跳过，不影响其余文件。
-        }
+        const content = leveldbContentForFile(full, entry.name, log);
+        if (content === undefined)
+            continue;
+        // ⚠️ 不要用 `records.push(...content.records)`：记录多时 V8 会抛 RangeError。
+        for (const record of content.records)
+            records.push(record);
+        if (content.rawText.length > 0)
+            rawTexts.push(content.rawText);
     }
-    return text;
+    const visible = leveldbVisibleRecords(records);
+    const rendered = visible.length > 0 ? leveldbRecordsText(visible) : '';
+    return [rendered, ...rawTexts].filter((text) => text.length > 0).join('\n');
 }
-
 /**
  * 只读**目标站点**的 IndexedDB 目录（`https_<host>_0.indexeddb.leveldb`）。
  *
- * ⚠️⚠️ **不能把整个 `IndexedDB` 目录全扫**：实测本机 Edge 有 **150+ 个站点目录、1.7 GB**
- * （这个数随你上过的网站增长，别当常数），全扫会直接 `RangeError: Invalid string length`
- * （字符串上限 ~512 MB）—— 那是一个每次都会发生的硬崩。按站点定位后单目录通常只有几十 KB。
+ * ## ⚠️⚠️ 不能把整个 `IndexedDB` 目录全扫
  *
- * 目录名形式：`https_www.letsmagic.cn_0.indexeddb.leveldb`（非默认端口时带 `_<port>`）。
+ * 实测本机 Edge 有 **150+ 个站点目录、1.7 GB**（这个数随你上过的网站增长，别当
+ * 常数），全扫会直接 `RangeError: Invalid string length`（字符串上限 ~512 MB）
+ * —— 那是一个每次都会发生的硬崩。按站点定位后单目录通常只有几十 KB。
+ *
+ * 目录名形式：`https_www.letsmagic.cn_0.indexeddb.leveldb`（非默认端口时带
+ * `_<port>`；另有 `.indexeddb.blob` 兄弟目录，也一并认）。
  */
-function indexedDbTextFor(dir, hostname) {
+function indexedDbTextFor(dir, hostname, log) {
     const host = String(hostname ?? '').trim().toLowerCase();
     if (host.length === 0)
         return '';
@@ -180,20 +286,73 @@ function indexedDbTextFor(dir, hostname) {
     catch {
         return '';
     }
-    let text = '';
+    const texts = [];
     for (const entry of entries) {
         if (!entry.isDirectory())
             continue;
-        // ⚠️ 必须完整匹配站点名：`https_account.microsoft.com_0` 不能被 `microsoft.com` 命中。
+        // ⚠️ 必须完整匹配站点名：`https_account.microsoft.com_0` 不能被
+        // `microsoft.com` 命中。
         const match = /^(https?)_(.+?)(?:_(\d+))?\.indexeddb\.(?:leveldb|blob)$/.exec(entry.name);
         if (match === null)
             continue;
         const site = match[2].toLowerCase();
         if (!wanted.includes(site))
             continue;
-        text += leveldbTextOfDir(join(dir, entry.name));
+        const text = indexedDbRawTextOfDir(join(dir, entry.name), log);
+        if (text.length > 0)
+            texts.push(text);
     }
-    return text;
+    return texts.join('\n');
+}
+/**
+ * 一个 IndexedDB leveldb 目录里**记录原始字节**的 latin1 文本（本仓改动，2026-11-05 返工）。
+ *
+ * ## ⚠️⚠️ 为什么不能复用 {@link leveldbTextOfDir}
+ *
+ * 两者只差一步「值怎么解」，但那是**语义**差别：
+ *
+ * - `Local Storage` 的值是 `\x00` / `\x01` 编码头 + 正文（见 `decodeValue`），
+ *   解码后就是 `{"key":"authorization","value":"eyJ…"}` 这种裸 JSON，
+ *   `credsNear()` 的正则直接能配。
+ * - **IndexedDB 的值是 V8 序列化格式**（`"<字段名>"<长度字节><值>`），
+ *   走 `decodeValue` 只会把长度字节当正文，`idbCredentialsIn()` 的
+ *   `magic_organization_code"<长度字节><值>"` 判据一条都匹配不上 ——
+ *   症状与「用户没登录」完全同形（2026-10-30 真机报障就是这么来的）。
+ *
+ * ⇒ 这里**刻意**保留原始字节（`record.value.toString('latin1')`），
+ * 交给 {@link idbCredentialsIn} 按 IndexedDB 自己的编码形态去解。
+ *
+ * ⚠️ 但**必须**仍然走 `leveldbContentForFile`（SSTable / WAL 解析 + Snappy 解压）：
+ * 退回 `readFileSync().toString('latin1')` 那条老路会把压缩块当成乱码扫，
+ * 从原始字节里**编造**凭据（2026-11-05 对抗审计 P3-3）。
+ *
+ * ⚠️ 文件之间用 `\n` 隔开，理由同 {@link leveldbTextForProfile}。
+ */
+function indexedDbRawTextOfDir(dir, log) {
+    let files;
+    try {
+        files = readdirSync(dir, { withFileTypes: true });
+    }
+    catch {
+        return '';
+    }
+    const parts = [];
+    for (const entry of files) {
+        if (entry.isDirectory())
+            continue;
+        const content = leveldbContentForFile(join(dir, entry.name), entry.name, log);
+        if (content === undefined)
+            continue;
+        for (const record of content.records) {
+            // ⚠️ 不 `decodeValue`：见本函数头「为什么不能复用 leveldbTextOfDir」。
+            parts.push(record.key.toString('latin1'), record.value.toString('latin1'));
+        }
+        // 解析失败（不是合法 SSTable / WAL）时 `rawText` 是整份 latin1 原文 ——
+        // 与旧行为一致：宁可多扫一遍，也不因为「格式没认出来」就丢掉里面的凭据。
+        if (content.rawText.length > 0)
+            parts.push(content.rawText);
+    }
+    return parts.join('\n');
 }
 /**
  * 一个 User Data 根目录下**全部 profile** 的 leveldb 文本。
@@ -201,9 +360,9 @@ function indexedDbTextFor(dir, hostname) {
  * ⚠️ 多 profile 之间用 `\n` 隔开：不隔开时前一个 profile 的尾部与后一个的头部
  * 会拼成一条**不存在的**记录（可能凭空造出一对 jwt × org）。
  */
-export function leveldbTextFor(root, hostname = '') {
+export function leveldbTextFor(root, log, hostname = '') {
     const texts = magicrewProfilesOf(root)
-        .map((profile) => leveldbTextForProfile(root, profile, hostname))
+        .map((profile) => leveldbTextForProfile(root, profile, log, hostname))
         .filter((text) => text.length > 0);
     return texts.join('\n');
 }
@@ -254,7 +413,7 @@ function* matchesWithIndex(patterns, chunk) {
     }
 }
 /**
- * IndexedDB 里的登录态：**编码形态与 localStorage 完全不同**。
+ * IndexedDB 里的登录态：**编码形态与 localStorage 完全不同**（本仓改动，2026-10-30）。
  *
  * 这是 2026-10-30 真机报障的根因（用户「网页已登录成功、插件还提示请完成登录」）：
  * magicrew 网页把凭据写在 `IndexedDB/https_<host>_0.indexeddb.leveldb` 的
@@ -265,8 +424,9 @@ function* matchesWithIndex(patterns, chunk) {
  * - **组织码记录是单字节 latin1**，不带 JSON 包装：
  *   `magic_organization_code"<长度字节><值>"`（例：`..._code"\x0cevro2209i6j0"`）。
  *
- * 于是上面那套 `"key":"authorization","value":"eyJ…"` 的裸 JSON 正则在这里一条都匹配不上
- * —— 这就是「文本里明明有 `authorization` 和 `eyJ`、`credsNear()` 却返回 0 条」的原因。
+ * 于是 `credsNear()` 那套 `"key":"authorization","value":"eyJ…"` 的裸 JSON 正则在这里
+ * 一条都匹配不上 —— 这就是「文本里明明有 `authorization` 和 `eyJ`、
+ * `credsNear()` 却返回 0 条」的原因。
  *
  * ⚠️ 全部用 `indexOf` 手写扫描，不写正则：这套字节里 `\s`、`\u0000` 这类转义经过
  * 模板字符串和层层 shell 后极易被吃掉一层，实测踩过两次（`[\s\S]` 变成 `[sS]`）。
@@ -280,7 +440,7 @@ const IDB_ORGANIZATION_KEYS = [
 const IDB_JWT_HEAD = 'e\u0000y\u0000J\u0000';
 const IDB_JWT_MIN = 80;
 /** 把 UTF-16LE 的 ASCII 段解回普通字符串；不是这种段就返回空串。 */
-function utf16AsciiAt(text, at) {
+function idbUtf16AsciiAt(text, at) {
     let out = '';
     for (let cursor = at; cursor + 1 < text.length; cursor += 2) {
         const code = text.charCodeAt(cursor);
@@ -298,7 +458,7 @@ function idbJwtsIn(text) {
     const seen = new Set();
     let at = -1;
     while ((at = text.indexOf(IDB_JWT_HEAD, at + 1)) !== -1) {
-        const jwt = utf16AsciiAt(text, at);
+        const jwt = idbUtf16AsciiAt(text, at);
         if (jwt.length < IDB_JWT_MIN || jwt.split('.').length !== 3)
             continue;
         if (seen.has(jwt))
@@ -330,10 +490,11 @@ function idbOrganizationsIn(text) {
     return out;
 }
 /**
- * 从 IndexedDB 的 leveldb 文本里取 `jwt × organizationCode`。
+ * 从 IndexedDB 的 leveldb 文本里取 `jwt × organizationCode`（本仓改动，2026-10-30）。
  *
- * ⚠️ 这里的 host 归属由**调用方**保证（`indexedDbTextFor()` 只读目标站点那一个目录），
- * 所以不再做窗口截断 —— IndexedDB 的记录里站点名只出现在库名旁边，按窗口配对会漏。
+ * ⚠️ 这里的 host 归属由**调用方**保证（{@link indexedDbTextFor} 只读目标站点那一个
+ * 目录），所以不再做窗口截断 —— IndexedDB 的记录里站点名只出现在库名旁边，
+ * 按窗口配对会漏。
  */
 export function idbCredentialsIn(text) {
     if (typeof text !== 'string' || text.length === 0)
@@ -398,6 +559,28 @@ export function credsNear(text, hostname, window = MAGICREW_LOCAL_WINDOW) {
         const orgs = [...matchesWithIndex(ORGANIZATION_PATTERNS, slice)]
             .sort((left, right) => left.index - right.index);
         for (const jwt of jwts) {
+            /**
+             * ⚠️⚠️ 只取「jwt 之后**第一个** org」，**不要**跳过空值去够更远的那个
+             * （2026-11-05 审计复核：P2-6 的「空值遮蔽」是**误判**）。
+             *
+             * LevelDB 的 internal key 排序是「user key 升序、同 key 内 **sequence 降序**」
+             * ⇒ 同一个 `organizationCode` 的**最新一次写入排在最前**。于是：
+             *
+             * | 形态 | 含义 | 正确行为 |
+             * |---|---|---|
+             * | 空值在前、有效值在后（同一 `.ldb`） | 空值 = **较新的 tombstone**（登出/切组织） | 有效值已失效 ⇒ **跳过**（旧行为对） |
+             * | 有效值在前、空值在后 | 有效值较新 | 正常配对 |
+             * | 跨 `.log` / 跨文件（写入序，旧在前） | 空值较旧 | 严格说该配对更远那个 |
+             *
+             * 只有**前两种**能靠文本判断，而第三种需要 8 字节 trailer 里的 sequence
+             * （`leveldbRecordsText` 刻意丢弃了它）。在「读不到」与「复活一个已删除的
+             * 组织」之间，后者更糟：`jwt_stale × org_new` 在上游是 HTTP 200 + `code:403`，
+             * 且会把一个**已登出**的账号加回池里。
+             *
+             * ⇒ 保守取第一个（含空值），空值就放弃这把 jwt。
+             * 后续若要做对：按 user key 取**最大 sequence**、值为空即视为 tombstone 丢弃
+             * （见 `docs/agent-notes/providers-magicrew.md` 的「已知边界」）。
+             */
             const org = orgs.find((candidate) => candidate.index > jwt.index);
             // ⚠️ 没有 org 就**不产出**：宁可读不到（调用方降级去开窗口登录），
             // 也绝不编造空串 —— 空 organizationCode 与 jwt 配对在上游是
@@ -411,8 +594,9 @@ export function credsNear(text, hostname, window = MAGICREW_LOCAL_WINDOW) {
             out.push({ jwt: jwt.value, organizationCode: org.value });
         }
     }
-    // IndexedDB 那一路单独走：它的编码形态与 localStorage 完全不同，且站点归属
-    // 已由目录筛选保证，套不进上面的 host 开窗逻辑。
+    // 本仓改动（2026-10-30）：IndexedDB 那一路单独走 —— 它的编码形态与 localStorage
+    // 完全不同（UTF-16LE JWT + 长度前缀组织码），且站点归属已由目录筛选保证
+    // （见 `indexedDbTextFor`），套不进上面的 host 开窗逻辑。
     for (const found of idbCredentialsIn(text)) {
         const key = `${found.jwt}\u0000${found.organizationCode}`;
         if (seen.has(key))
@@ -443,7 +627,7 @@ export function readMagicrewLocalCreds(hostname, options = {}) {
     const hosts = hostsFor(host);
     let best;
     for (const root of roots) {
-        const text = leveldbTextFor(root, host);
+        const text = leveldbTextFor(root, options.log, host);
         if (text.length === 0)
             continue;
         for (const candidateHost of hosts) {

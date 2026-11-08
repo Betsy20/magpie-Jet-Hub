@@ -86,10 +86,17 @@ export type BuddyNoAccountReason =
 {
     kind: 'exhausted';
 }
-/** 至少一个候选**查询失败**，无法判定它是否真的没额度。 */
+/**
+ * 至少一个候选**查询失败**，无法判定它是否真的没额度。
+ *
+ * ⚠️ `degraded: true` = 至少一个候选的余额是**降级读数**（总额读到、逐包明细
+ * 丢了）⇒ **不能**按「纯查不到」放宽永久积分锁定（2026-11-05 对抗审计 P2-1）：
+ * 明细丢失时「有临期积分」会被误判成「只剩永久积分」，而放宽就会真烧掉永久积分。
+ */
  | {
     kind: 'unknown';
     errors: string[];
+    degraded?: boolean;
 }
 /**
  * **一个候选都没有** ⇒ 压根没走到余额查询，也就无从断言「积分用尽」。
@@ -371,6 +378,15 @@ export declare function pickBuddyAccount<TCredential = BuddyCredential>(selector
     resolveCredential: (credentialRef: string) => Promise<TCredential | undefined>;
     /** 分档选项透传（测试注入时间用）。 */
     tierOptions?: BuddyTierOptions;
+    /**
+     * 锁定态下「余额查不到」时是否降级放行（**默认不降级**）。
+     *
+     * ⚠️ 默认 `false` 是刻意的：既有语义「锁定时任何不可用都必须报错」是用户
+     * 明确要的确定性结果，改它需要逐家确认。只有确认「余额接口自己也会被上游
+     * 网关整片拒绝」的渠道（超级麦吉两站，2026-11-04 真机 403/405）才开这个开关 ——
+     * 否则一次网关抖动会把整条渠道的模型列表清空，用户一个模型都选不了。
+     */
+    degradeOnUnknown?: boolean;
 }): Promise<{
     kind: 'account';
     account: BuddyCandidateAccount;
