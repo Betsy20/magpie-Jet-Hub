@@ -532,6 +532,7 @@ function toPackage(name, quota, options = {}) {
         cycleEndTime: '',
         expiredTime: expIsPermanent ? '' : expiredTimeRaw,
         ...(deductionEndTime !== undefined ? { deductionEndTime } : {}),
+        ...(options.expiryUnknown === true ? { expiryUnknown: true } : {}),
     };
 }
 /**
@@ -705,7 +706,13 @@ function parseQoderUsage(qoderUsage) {
         packages.push(userQuota);
     // ⚠️ 刻意**不传** `expiresAtMs`：`addOnQuota` 没有任何日期字段，
     //    传了就是把套餐的哨兵按到资源包头上。
-    const addOnQuota = toPackage('资源包', qoderUsage.addOnQuota);
+    // ⚠️⚠️ 但**必须**传 `expiryUnknown`（Gitee issue IKTLMX，2026-11-08）：
+    //    「上游没给日期」**不等于**「永不到期」。这一池是官方用量页里
+    //    「30 × 100 credits、逐笔 30 天后作废」的每日领取批次，说「永久」是
+    //    事实错误（报障者截图：有效期 2026-11-07 … 2026-12-07）。置位后分桶
+    //    行为一格不变（仍是 `permanent`，永久锁 / 选号 / 聚合轮换都不受影响），
+    //    只有卡片文案改成「到期未知」。
+    const addOnQuota = toPackage('资源包', qoderUsage.addOnQuota, { expiryUnknown: true });
     if (addOnQuota !== undefined)
         packages.push(addOnQuota);
     const dedicated = qoderUsage.dedicatedResourcePackages;

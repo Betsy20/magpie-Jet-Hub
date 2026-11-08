@@ -4665,6 +4665,7 @@ function splitCreditsByExpiry(packages, windowDays, now) {
   let expired = 0;
   let longTerm = 0;
   let permanent = 0;
+  let unknownExpiry = 0;
   let earliestExpiringAt = null;
   let earliestExpiringAmount = 0;
   let exclusivePoolRemaining = 0;
@@ -4681,13 +4682,14 @@ function splitCreditsByExpiry(packages, windowDays, now) {
     if (!known) {
       const expiringPart = Number(pkg.expiringRemaining);
       const hasExpiring = Number.isFinite(expiringPart) && expiringPart > 0;
+      let toPermanent = remaining;
       if (hasExpiring) {
         const capped = Math.min(expiringPart, remaining);
         expiring += capped;
-        permanent += remaining - capped;
-      } else {
-        permanent += remaining;
+        toPermanent = remaining - capped;
       }
+      permanent += toPermanent;
+      if (pkg.expiryUnknown === true) unknownExpiry += toPermanent;
       continue;
     }
     if (end <= at) {
@@ -4706,7 +4708,7 @@ function splitCreditsByExpiry(packages, windowDays, now) {
       longTerm += remaining;
     }
   }
-  return { expiring, ...expired > 0 ? { expired } : {}, longTerm, permanent, earliestExpiringAt, earliestExpiringAmount, exclusivePoolRemaining };
+  return { expiring, ...expired > 0 ? { expired } : {}, longTerm, permanent, ...unknownExpiry > 0 ? { unknownExpiry } : {}, earliestExpiringAt, earliestExpiringAmount, exclusivePoolRemaining };
 }
 function expiryBucketLabel(pkg, windowDays, now) {
   const days = normalizeWindowDays2(windowDays);
@@ -4727,12 +4729,17 @@ function formatExpiryHint(pkg, windowDays, now) {
 function formatExpirySplitLine(split, format) {
   if (!split) return null;
   const parts = [];
-  const permanent = split.permanent > 0 ? format(split.permanent) : null;
+  const unknownAmount = Number.isFinite(split.unknownExpiry) && split.unknownExpiry > 0 ? split.unknownExpiry : 0;
+  const permanentTotal = Number.isFinite(split.permanent) && split.permanent > 0 ? split.permanent : 0;
+  const knownPermanent = Math.max(0, permanentTotal - unknownAmount);
+  const permanent = knownPermanent > 0 ? format(knownPermanent) : null;
+  const unknownExpiry = unknownAmount > 0 ? format(unknownAmount) : null;
   const longTerm = split.longTerm > 0 ? format(split.longTerm) : null;
   const expiredAmount = Number.isFinite(split.expired) && split.expired > 0 ? split.expired : 0;
   const expiring = split.expiring > 0 ? format(split.expiring) : null;
   const expired = expiredAmount > 0 ? format(expiredAmount) : null;
   if (permanent !== null) parts.push(`永久 ${permanent}`);
+  if (unknownExpiry !== null) parts.push(`到期未知 ${unknownExpiry}`);
   if (longTerm !== null) parts.push(`长期 ${longTerm}`);
   if (expiring !== null) parts.push(`临期 ${expiring}`);
   if (expired !== null) parts.push(`已过期 ${expired}`);
@@ -4741,13 +4748,18 @@ function formatExpirySplitLine(split, format) {
 function expirySplitParts(split, format, now) {
   if (!split) return [];
   const parts = [];
-  const permanent = split.permanent > 0 ? format(split.permanent) : null;
+  const unknownAmount = Number.isFinite(split.unknownExpiry) && split.unknownExpiry > 0 ? split.unknownExpiry : 0;
+  const permanentTotal = Number.isFinite(split.permanent) && split.permanent > 0 ? split.permanent : 0;
+  const knownPermanent = Math.max(0, permanentTotal - unknownAmount);
+  const permanent = knownPermanent > 0 ? format(knownPermanent) : null;
+  const unknownExpiryText = unknownAmount > 0 ? format(unknownAmount) : null;
   const longTerm = split.longTerm > 0 ? format(split.longTerm) : null;
   const expiredAmount = Number.isFinite(split.expired) && split.expired > 0 ? split.expired : 0;
   const expiringAmount = split.expiring > 0 ? split.expiring : 0;
   const expiring = expiringAmount > 0 ? format(expiringAmount) : null;
   const expiredText = expiredAmount > 0 ? format(expiredAmount) : null;
   if (permanent !== null) parts.push({ key: "permanent", text: `永久 ${permanent}`, tone: "ok" });
+  if (unknownExpiryText !== null) parts.push({ key: "unknownExpiry", text: `到期未知 ${unknownExpiryText}`, tone: "warn" });
   if (longTerm !== null) parts.push({ key: "longTerm", text: `长期 ${longTerm}`, tone: "warn" });
   if (expiring !== null) {
     const at = split.earliestExpiringAt;

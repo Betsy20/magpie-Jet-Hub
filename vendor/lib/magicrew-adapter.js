@@ -47,18 +47,17 @@
 import { LlmAdapter, LlmError, ReasoningEffortId, } from '@deepseek-ai/dsh-llm';
 import { createModelCatalog, isCatalogFreshFor } from './model-catalog.js';
 import { collectImages, consumeOpenAiSse, serializeMessages } from './openai-compat.js';
-import { MAGICREW, MAGICREW_CHAT_PATH, MAGICREW_FALLBACK_CONTEXT_WINDOW, MAGICREW_MIN_MAX_TOKENS, MAGICREW_REASONING_EFFORTS, MAGICREW_DEFAULT_EFFORT, magicrewFallbackModelOf, } from './magicrew-product.js';
+import { MAGICREW, MAGICREW_CHAT_PATH, MAGICREW_FALLBACK_CONTEXT_WINDOW, MAGICREW_MIN_MAX_TOKENS, MAGICREW_REASONING_EFFORTS, MAGICREW_DEFAULT_EFFORT, MAGICREW_USER_AGENT, magicrewFallbackModelOf, } from './magicrew-product.js';
 import { isMagicrewApiKeyDeadError } from './magicrew-auth.js';
 import { fetchMagicrewCatalogModels } from './magicrew-catalog.js';
 import { fetchMagicrewModelPoints, magicrewIsFree, magicrewRateOf } from './magicrew-credits.js';
 /**
- * 上游 UA（缺了偶发 403）。
+ * 上游 UA —— 定义在 `magicrew-product.ts` 的 {@link MAGICREW_USER_AGENT}。
  *
- * ⚠️ 与 `magicrew-auth.ts` / `magicrew-catalog.ts` 里那两份**逐字相同**：
- * 三处各留一份是既有形态（不改骨架），但改的时候必须一起改。
+ * ⚠️ **不要再在这里写一份字面量**（issue IKTPRV）：五个生产者打同一个
+ * `product.host`，复制 5 份就会出现「改一个忘四个」⇒ 一个入口好了、别的入口
+ * 照旧 405。取值的历史与真机矩阵见那个常量自己的注释。
  */
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-    + '(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 /**
  * 档位声明 —— 上游认 7 档但**强度不被区分**（见 `MAGICREW_REASONING_EFFORTS`）
  * ⇒ 只声明「关闭 / 开启」两档。
@@ -245,7 +244,7 @@ export class MagicrewAdapter extends LlmAdapter {
             authorization: `Bearer ${credential.apiKey}`,
             'content-type': 'application/json',
             accept: 'text/event-stream',
-            'user-agent': USER_AGENT,
+            'user-agent': MAGICREW_USER_AGENT,
             origin: this.product.webOrigin,
             // ⚠️ 聊天网关本身不校验 referer（实测 200），但与其余 magicrew 请求统一：
             //    同一上游的 profile / gateway-token 两个端点缺了它就是 403 空 body。

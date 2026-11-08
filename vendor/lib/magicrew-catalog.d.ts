@@ -10,6 +10,12 @@ export interface MagicrewCatalogModel {
     readonly name: string;
     readonly vision: boolean;
 }
+/**
+ * 上游 UA 来自 {@link MAGICREW_USER_AGENT}（单一定义处）。
+ *
+ * ⚠️ **不要在这里恢复一份字面量**（issue IKTPRV）：目录 GET 与其余四腿打同一个
+ * `product.host`，漏改的症状是「模型列表回退静态表」而积分行报 405。
+ */
 export declare function fetchMagicrewCatalogModels(params: {
     jwt: string;
     organizationCode: string;

@@ -841,7 +841,7 @@ if (!PROBE) {
     `REKEY_CHANNELS 的键（${a || '空'}）与 submitRekey 的 setApiKey 分支（${b || '空'}）必须一一对应`)
 }
 
-// ── 第 8 节：vendor 本地补丁必须还在（docs/vendor.md 的 6 类 / 9 个文件）──
+// ── 第 8 节：vendor 本地补丁必须还在（docs/vendor.md 的 6 类 / 10 个文件）──
 //
 // 这几条补丁打在**上游编译产物**上（`vendor/lib/*.js`），而 `docs/vendor.md`
 // 的同步流程是「clone 上游 → npm install → 整片拷进 vendor/」——
