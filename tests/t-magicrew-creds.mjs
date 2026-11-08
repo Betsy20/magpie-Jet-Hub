@@ -173,6 +173,11 @@ console.log('\n8. 行为级：idbCredentialsIn 真能解出 jwt × org')
 
   // 组织码在前、jwt 在后 ⇒ 仍然配上（find 不到「之后」就退回第一个）
   ok(mod.idbCredentialsIn(`${orgRec} ${u16}`).length === 1, '组织码在前也能配上')
+
+  // 值被截断（长度字节声明 org.length、实际只剩一半）⇒ 必须当误命中跳过。
+  // 否则 `slice` 静默截短 + 全可打印 ⇒ 编造出一个不存在的组织码。
+  const truncated = `\u0002${u16}\u0000\u0000 garbage magic_organization_code"${String.fromCharCode(org.length)}${org.slice(0, 5)}`
+  ok(mod.idbCredentialsIn(truncated).length === 0, '长度字节超出文本末尾 ⇒ 不产出（不编造截断值）')
 }
 
 // ── 9. 行为级：CDP 表达式「先列后开」，库不存在时绝不 open() ────────────────

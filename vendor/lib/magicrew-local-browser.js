@@ -347,8 +347,10 @@ function indexedDbRawTextOfDir(dir, log) {
             // ⚠️ 不 `decodeValue`：见本函数头「为什么不能复用 leveldbTextOfDir」。
             parts.push(record.key.toString('latin1'), record.value.toString('latin1'));
         }
-        // 解析失败（不是合法 SSTable / WAL）时 `rawText` 是整份 latin1 原文 ——
-        // 与旧行为一致：宁可多扫一遍，也不因为「格式没认出来」就丢掉里面的凭据。
+        // `rawText` 只对「`.log` 但不是合法 WAL」以及 `LOG` / `MANIFEST-*` / `CURRENT`
+        // 这些非记录文件非空（`.ldb` / `.sst` 解析失败是 `return undefined` 直接跳过，
+        // 不会走到这里）。此时 `rawText` 是整份 latin1 原文 —— 与旧行为一致：宁可多扫
+        // 一遍，也不因为「格式没认出来」就丢掉里面的凭据。
         if (content.rawText.length > 0)
             parts.push(content.rawText);
     }
@@ -479,6 +481,11 @@ function idbOrganizationsIn(text) {
             const length = text.charCodeAt(start);
             // 长度字节必须像个长度：0 或 >128 一律当误命中（真实值是 12 上下）。
             if (!(length > 0 && length <= 128))
+                continue;
+            // ⚠️ 值必须**整段**落在文本内。WAL 尾部可能半写（长度字节声明 12、实际只剩
+            // 5 个字符），而 `slice` 越界是静默截短 —— 截出来的短串只要全可打印就会被
+            // 当成组织码，那是**编造**凭据（同 2026-11-05 对抗审计 P3-3 的纪律）。
+            if (start + 1 + length > text.length)
                 continue;
             const value = text.slice(start + 1, start + 1 + length);
             if (!/^[\x20-\x7e]+$/.test(value))
