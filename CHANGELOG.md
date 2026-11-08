@@ -11,6 +11,23 @@
 
 ## 1.0.0（未发布）
 
+- `feat(vendor)`: **同步上游到 `498a76e`**（自上次 pin `5042cec` 起 **7 个提交**）。
+  `vendor/lib` 仍是 1138 个文件，逐字节一致数按实际 diff 是 **1128**（1138 − 10）；6 类改动不变，
+  补丁文件实际是 **10 个** —— 此前文档写 9 个，漏了承载 magicrew IndexedDB 读取与 WAL 分片重组的
+  `lib/leveldb-sstable.js`，本次核实补上。上游这几版的重点都在渠道可用性：
+  - **astudio**：推理 / 目录网关从 `astronstudio-api-volces-prod.xf-yun.com` 迁到
+    `maas-api.cn-huabei-1.xf-yun.com/v1`（`e86a8a2` / `f2ca0c1`）——旧域名的请求会失效。
+  - **monkeycode / baizhi**：声明逐模型 `maxTokens`（monkeycode deepseek 系 128000；baizhi
+    qwen 系列 65536、qwen-flash 32768），修「宿主不 materialize 输出预算 ⇒ 适配器 4096 兜底
+    ⇒ 长回答被静默截断」（`054f778`）；baizhi 还补了能力表大小写不敏感匹配与 minimax-m3.1-flash。
+  - **qoder**：积分「永久」改口径为「到期未知」（`CreditPackage.expiryUnknown`；展示层只改文案，
+    选号 / 永久锁 / 聚合轮换行为不变，`e4c2c9e`）。
+  - **magicrew**：五处 UA 副本收敛成唯一 `MAGICREW_USER_AGENT`，且必须是真实 build 号
+    `Chrome/141.0.7390.55` —— 旧的 `Chrome/141.0.0.0` 命中阿里 WAF 黑名单，国际站积分 / 目录 /
+    聊天**整站 405**（`498a76e`，issue IKTPRV）。本仓既有的 magicrew IndexedDB 补丁与新 UA 改动
+    落在不同文件，互不冲突。
+  - 其余为 monkeycode / baizhi 的三域审计返工（`5cee5be` / `0c467a3`）。
+
 - `feat(vendor)`: **同步上游到 `5042cec`**（自上次 pin `fddb875` 起 **47 个提交**）。
   `vendor/lib` 1130 → **1138** 文件，逐字节一致数 1122 → **1129**（仍是 6 类改动，但补丁文件
   从 8 个变 **9 个**：`lib/magicrew-local-browser.d.ts` 补了 `idbCredentialsIn` 声明与

@@ -87,8 +87,18 @@ export declare const BAIZHI: BaizhiProduct;
  * 不是逐模型窗口；单条模型没实测过窗口时不要拿它冒充 per-model 窗口。
  */
 export declare const BAIZHI_MAX_CONTEXT = 1048576;
-/** 单次输出上限（`max_tokens=100000` 实测可成功）。 */
+/**
+ * 单次输出上限的服务级默认值（`max_tokens=100000` 实测可成功）。
+ *
+ * ⚠️ 不是所有模型都吃这个值：qwen 系列有更低的上游硬限
+ * （100,000 时 400 原文 `Range of max_tokens should be [1, 65536]` / `[1, 32768]`）。
+ * 逐模型上限见 `BAIZHI_KNOWN_CAPABILITIES` 的 `maxTokens`，夹取用 `baizhiMaxOutputTokensFor`。
+ */
 export declare const BAIZHI_MAX_OUTPUT_TOKENS = 100000;
+/** qwen3.6-plus / qwen3.5-plus / qwen3.5-flash 的上游硬限（实测 65,536 可成功，100,000 被 400）。 */
+export declare const BAIZHI_QWEN_MAX_OUTPUT_TOKENS = 65536;
+/** qwen-flash 的上游硬限（实测 32,768 可成功，100,000 被 400）。 */
+export declare const BAIZHI_QWEN_FLASH_MAX_OUTPUT_TOKENS = 32768;
 /** 兜底/能力表中的一条模型。形状对齐 `model-catalog.ts` 的 `CatalogEntry` 子集。 */
 export interface BaizhiModelEntry {
     readonly id: string;
@@ -97,11 +107,15 @@ export interface BaizhiModelEntry {
     readonly contextWindow?: number;
     /** 省略 = **未知**（不等于「明确不支持」）。只对明确知道的写 true。 */
     readonly supportsImage?: boolean;
+    /** 实测网关接受的单次输出上限（`max_tokens`）；省略 = **未知**，回落服务级默认。 */
+    readonly maxTokens?: number;
 }
 /** 模型的已知能力；未列出的字段一律表示「不知道」。 */
 export interface BaizhiCapability {
     readonly contextWindow?: number;
     readonly supportsImage?: boolean;
+    /** 实测网关接受的单次输出上限（`max_tokens`）；省略 = **未知**。 */
+    readonly maxTokens?: number;
 }
 /**
  * 内置兜底模型表（远端目录拉不到时用）。
@@ -110,8 +124,23 @@ export interface BaizhiCapability {
  * 与 `parseBaizhiModelList` 的降级规则保持一致。
  */
 export declare const BAIZHI_FALLBACK_MODELS: readonly BaizhiModelEntry[];
-/** 查某个模型 id 的已知能力；未知 id 返回 `undefined`（**不要**返回空对象假装知道）。 */
+/**
+ * 查某个模型 id 的已知能力；未知 id 返回 `undefined`（**不要**返回空对象假装知道）。
+ *
+ * ⚠️ **大小写不敏感**（2026-11-08 审计实测的零守卫路径）：原实现是精确 `===`，
+ *    上游若把 id 改成 `Qwen3.6-Plus`，能力表就查不到 ⇒
+ *    `baizhiMaxOutputTokensFor('Qwen3.6-Plus')` 静默回落 100,000，
+ *    而 qwen 的上游硬限是 65,536 ⇒ 用户手填大预算时**上游 400**。
+ *    这里只**放宽**匹配（不改写 id 本身），不会让两个不同模型相撞。
+ */
 export declare function baizhiCapabilityOf(modelId: string): BaizhiCapability | undefined;
+/**
+ * 某个模型的单次输出上限（`max_tokens` 能用多大）。
+ *
+ * 已知模型走 `maxTokens`（实测值）；未知模型回落 `BAIZHI_MAX_OUTPUT_TOKENS`。
+ * ⚠️ 必须按**模型**夹取，不能一律夹到 100,000 —— qwen 系列会被上游 400。
+ */
+export declare function baizhiMaxOutputTokensFor(modelId: string | undefined): number;
 /** 是否在已知清单里。 */
 export declare function isKnownBaizhiModel(modelId: string): boolean;
 /** 在兜底表里查模型条目。 */

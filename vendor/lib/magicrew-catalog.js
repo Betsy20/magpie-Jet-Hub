@@ -5,9 +5,13 @@
  * ⚠️ 该端点**不返回** ctx / 档位（实测 27 条全字段确认）⇒ 本模块只负责
  * id / 名称 / vision 三项，其余由静态表补。
  */
-import { MAGICREW, MAGICREW_MODELS_PATH } from './magicrew-product.js';
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-    + '(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+import { MAGICREW, MAGICREW_MODELS_PATH, MAGICREW_USER_AGENT } from './magicrew-product.js';
+/**
+ * 上游 UA 来自 {@link MAGICREW_USER_AGENT}（单一定义处）。
+ *
+ * ⚠️ **不要在这里恢复一份字面量**（issue IKTPRV）：目录 GET 与其余四腿打同一个
+ * `product.host`，漏改的症状是「模型列表回退静态表」而积分行报 405。
+ */
 export async function fetchMagicrewCatalogModels(params) {
     const product = params.product ?? MAGICREW;
     const fetchImpl = params.fetchImpl ?? fetch;
@@ -15,7 +19,7 @@ export async function fetchMagicrewCatalogModels(params) {
         authorization: `Bearer ${params.jwt}`,
         'content-type': 'application/json',
         accept: 'application/json',
-        'user-agent': USER_AGENT,
+        'user-agent': MAGICREW_USER_AGENT,
         origin: product.webOrigin,
         // ⚠️ 本端点不带 referer 也 200，但与其余 magicrew 请求统一（同一 Go 服务的
         //    另两个端点缺了它就是 403 空 body，见 `magicrew-auth.ts` 的实测记录）。

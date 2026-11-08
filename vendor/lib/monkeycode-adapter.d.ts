@@ -25,8 +25,17 @@
  * MonkeyCode 没有下发「每个模型支持哪些思考档位」的元数据。凭空编一张表
  * 就是假能力（Qoder 的教训：UI 给了选项、请求却被丢弃）。
  * - 目录条目**不带** `reasoning` ⇒ UI 不出现档位选择器；
- * - 但如果 harness 自己传了 `reasoningEffort`（例如用户在别处设过），
- *   仍会映射成 `thinking.budget_tokens` —— 见 `monkeycodeThinkingFor`。
+ * - ⚠️ 2026-11-08 审计**订正**：本注释原写「但 harness 自己传了
+ *   `reasoningEffort`（例如用户在别处设过）时仍会映射成
+ *   `thinking.budget_tokens`」—— **不成立**。宿主 `dsh-llm` 的
+ *   `resolveCallWithInfo`（`lib/index.js:2186-2196`）在
+ *   `reasoning === void 0 && requested !== void 0` 时**直接抛**
+ *   `UNSUPPORTED_REASONING_EFFORT`，请求根本到不了适配器。
+ *   故 `monkeycodeThinkingFor` 的档位阶梯（low 2048 / medium 4096 /
+ *   high 8192）当前是**死代码**；真正会生效的只有 `purpose ===
+ *   'session-title'` 的强制 `disabled` 与「不发该字段」两条。
+ *   保留阶梯是为了上游将来下发档位表时不必重写，**不是当前可达的行为**
+ *   （不要再拿它当「思考预算会影响输出」的依据）。
  *
  * ## 错误码纪律（与 minimax 同口径）
  *

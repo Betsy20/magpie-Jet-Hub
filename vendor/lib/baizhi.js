@@ -138,11 +138,13 @@ export function parseBaizhiModelList(raw) {
         const capability = baizhiCapabilityOf(id);
         const contextWindow = capability?.contextWindow;
         const supportsImage = capability?.supportsImage;
+        const maxTokens = capability?.maxTokens;
         models.push({
             id,
             name: displayName.length > 0 ? displayName : id,
             ...contextWindow === undefined ? {} : { contextWindow },
             ...supportsImage === undefined ? {} : { supportsImage },
+            ...maxTokens === undefined ? {} : { maxTokens },
         });
     }
     return models;
