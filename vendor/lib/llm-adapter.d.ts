@@ -21,6 +21,53 @@ import type { CodeArtsCredential } from './types.js';
 import { codeartsAcceptsImage, codeartsVisionModel } from './codearts-vision.js';
 export declare const CHAT_API_BASE = "https://snap-access.cn-north-4.myhuaweicloud.com/api/v2";
 /**
+ * CodeArts 推理请求的 `User-Agent` —— **必须是官方客户端的身份**。
+ *
+ * ## ⚠️⚠️ 为什么不能沿用宿主的 `attributionHeaders()`（2026-11-05 真机实测）
+ *
+ * 宿主的 `attributionHeaders()` 恒发
+ * `deepseek-harness/<ver> (+https://github.com/deepseek-ai/deepseek-harness)`，
+ * 而**华为 WAF 按这个前缀拒发**：报文
+ * `403 {"error_code":"TM.00000001","error_msg":"网络繁忙，请稍后重试"}`，
+ * 响应头带 `server: CW` / `set-cookie: HWWAFSESID=…`（WAF 侧，不是 APIG）。
+ *
+ * ⚠️ **症状极具误导性**：403 落到 {@link httpErrorCode} 的 `AUTH` 分支 ⇒ 客户端
+ * 把整条 message 换成「**API 密钥无效**」（`dsh-client-ui-chat` 的
+ * `message.failure.auth`）⇒ 用户以为凭据坏了去重新登录，而凭据**完全有效**。
+ * 且 `isAuthError` 对 403 恒真 ⇒ 每次失败还**白跑一次凭据续期**（CodeArts 的
+ * `refresh_token` 是**一次性轮换**的，见 `tests/e2e/codearts-credential.ts` 的
+ * 注释 ⇒ 这不是无害副作用）。
+ *
+ * ## 实测对照（同一账号、同一份签名、逐字节相同的 body，只改 UA）
+ *
+ * | `User-Agent` | 结果 |
+ * |---|---|
+ * | `deepseek-harness/0.2.1-rc.2 (+https://…)` | **403 TM.00000001** |
+ * | `deepseek-harness/0.2.1`（无 url 段） | **403 TM.00000001** |
+ * | `deepseek-harness`（无 `/版本`） | 200 |
+ * | `deepseek-harness-x/1.0` / `DEEPSEEK-HARNESS/1.0` | 200 |
+ * | `VSCode/1.95.3` / `Mozilla/5.0 …` / `curl/8.4.0` | 200 |
+ * | `claude-code` / `opencode` / `cline` | 200（**不是**「拦所有 AI 客户端」） |
+ *
+ * ⇒ 拒发判据是**大小写敏感的前缀 `deepseek-harness/`**（4 个账号全部一致，
+ * 交替顺序 3 轮可复现）。故本家必须显式覆盖该头。
+ *
+ * ## 取值 = 官方 IDE 的身份（不是随手编一个能过的值）
+ *
+ * `codearts/1.0.0-1147257973136832` 逐字取自本机 CodeArts Agent 内核进程的
+ * 启动参数（`~/.codeartsdoer/codearts-data/log/kernel_error_*.log`：
+ * `Args: "…AgentKernel_Vscode_….exe" "--user-agent=codearts/1.0.0-1147257973136832"`）
+ * ⇒ 与真实客户端同形。终值部分只影响指纹相似度（WAF 只拒 `deepseek-harness/`）。
+ *
+ * ⚠️ UA **不参与** SDK-HMAC-SHA256 签名（`signRequestHuawei` 只签
+ * `host` / `x-sdk-date` / `x-sdk-content-sha256` / `x-security-token` /
+ * `content-type` / 显式传入的 `extraHeaders`）⇒ 覆盖它**不会**打破验签。
+ * ⚠️ 覆盖只作用于**推理**路径：目录（`fetchSignedGet`）/ 积分 / 签到路径
+ * **不显式设置** UA —— 实测 Node 的 `fetch` 会补 `user-agent: node`（本机验证），
+ * 而 WAF 只拒 `deepseek-harness/` 前缀 ⇒ 那三条腿本来就过 WAF，无需改动。
+ */
+export declare const CODEARTS_USER_AGENT = "codearts/1.0.0-1147257973136832";
+/**
  * codearts 的 provider id。
  *
  * ⚠️ 字面量的**唯一定义处在 `codearts-vision.ts`**（叶子模块）—— 注册期包装
@@ -396,6 +443,33 @@ export interface CodeArtsQueueStatus {
     readonly queuePosition: number;
     readonly message: string;
 }
+/** 错误体是否为「网关按客户端标识拒发」（`TM.00000001`）。 */
+export declare function isGatewayBusyError(body: string): boolean;
+/** 错误体是否为「账号级并发上限」（`TM.00001041`）。 */
+export declare function isConcurrencyLimitError(body: string): boolean;
+/** 错误体是否为「模型未在本租户开通」（`TM.000010051`，见常量注释的取证强度）。 */
+export declare function isTenantNotEnabledError(body: string): boolean;
+/**
+ * 「网关按客户端标识拒发」给用户看的完整说明。
+ *
+ * ⚠️ 三条措辞不可省：
+ * 1. **不是凭据问题**（否则用户去重登，白费一轮）；
+ * 2. **重试无效**（同 UA 重试恒 403 —— 这是它与并发上限的**本质区别**；
+ *    映射成 `RATE_LIMIT` 会让宿主白退避重试 5 次，每次都打上游一次 403）；
+ * 3. **本插件已发官方 IDE UA**（告诉用户「这是上游策略、不是你没配好」，
+ *    并给出可执行的下一步：升级插件 / 贴日志）。
+ */
+export declare function codeartsGatewayBusyMessage(model: string): string;
+/**
+ * 账号级并发上限给用户看的完整说明。
+ *
+ * ⚠️ 措辞必须交代三件事（缺一件用户就会走错方向）：不是密钥问题 / 上限是 3 /
+ * 等一会儿会自己好（或换账号立即解除）。
+ * ⚠️ 刻意**不写死秒数**：实测槽位释放是变长的（等 60s 恢复，但没有公开的确切时长）。
+ */
+export declare function codeartsConcurrencyLimitMessage(model: string): string;
+/** 「模型未在本租户开通」给用户看的说明（出路是换模型/换账号，不是重试）。 */
+export declare function codeartsTenantNotEnabledMessage(model: string): string;
 /**
  * 判断 SSE 流内返回的 error_code 是否属于**可重试**的排队/限流错误。
  *

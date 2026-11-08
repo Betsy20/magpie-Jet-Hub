@@ -57,6 +57,18 @@ export declare const BAIZHI_SESSION_COOKIE_NAME = "baizhi_session";
 /** 控制台签到/登录态里那枚 `sl-session`（与 `baizhi_session` 同时下发）。 */
 export declare const BAIZHI_SL_SESSION_COOKIE_NAME = "sl-session";
 /**
+ * 每日临时积分的**发放总额**（积分）。
+ *
+ * 上游 `POST /api/v1/user/wallet/daily-temporary-credit` 实测
+ * `amount_credit_cents: 10000` ⇒ 100 积分，控制台「每日领积分 +100」也是同一口径。
+ * 这是每日包的**固定分母**：`remaining` 随消耗下降，`total` 必须保持 100，
+ * 否则会显示成 `98.21 / 98.21`（用户 2026-11-05 报障）。
+ *
+ * ⚠️ 只用于「每日积分」包；`permanent`（充值积分）上游不给初始总额，
+ * 不能套用这个数。
+ */
+export declare const BAIZHI_DAILY_CREDIT_TOTAL = 100;
+/**
  * 控制台请求的可注入依赖。
  *
  * ⚠️ `fetchImpl` 只给单测用：本仓红线是「单测不许发真网络」。
@@ -70,7 +82,7 @@ export interface BaizhiCreditsDeps {
 export interface BaizhiWallet {
     /** 控制台用户 id（数字）。 */
     readonly userId?: number;
-    /** 当前可用积分（temporary + permanent - frozen）。 */
+    /** 当前可用积分（temporary + permanent - frozen；授信账户则为授信剩余）。 */
     readonly available: number;
     /** 每日积分（**零点过期**）。 */
     readonly temporary: number;
@@ -80,6 +92,14 @@ export interface BaizhiWallet {
     readonly frozen: number;
     /** 今天是否已领取每日积分。 */
     readonly dailyClaimed: boolean;
+    /**
+     * 计费模式。控制台钱包对**授信账户**返回 `'postpaid'`，此时
+     * `available` 是「授信总额 - 预占 - 未出账 - 已出账未结清」的剩余，
+     * `creditLimit` 才是真正的分母（控制台 JS 的 `billing_mode` 分支）。
+     */
+    readonly billingMode?: string;
+    /** 授信总额（仅 `billingMode==='postpaid'` 时有意义）。 */
+    readonly creditLimit?: number;
 }
 /** 用量明细里的一天 / 一个周期。 */
 export interface BaizhiUsageItem {

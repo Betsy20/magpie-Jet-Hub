@@ -11,6 +11,30 @@
 
 ## 1.0.0（未发布）
 
+- `feat(vendor)`: **同步上游到 `5042cec`**（自上次 pin `fddb875` 起 **47 个提交**）。
+  `vendor/lib` 1130 → **1138** 文件，逐字节一致数 1122 → **1130**（仍是 8 个补丁文件 / 6 类）。
+  上游这一版的重点是 `fix(qoder): 目录并 app 场景（QoDuck 只发布在那里）+ COSY_VERSION 抬到
+  1.1.79`；对我们影响最大的是 **`lib/magicrew-local-browser.js` 被重写**（底层从
+  `readFileSync().toString('latin1')` 换成 SSTable/WAL 解析 + Snappy 解压 + 按 sequence 去重），
+  所以 IndexedDB 那条补丁要**换实现**而不是平移：
+  - `leveldbRecordsText` 里的 `decodeValue` 能还原 localStorage 的值（`0x00` ⇒ utf16le、
+    `0x01` ⇒ latin1），但**解不了 IndexedDB 的值** —— 那是 V8 结构的
+    `"<字段名>"<长度字节><值>`。⇒ 新增 `indexedDbRawTextOfDir`，只用 `record.key` /
+    `record.value` 的 latin1 原文、**不** `decodeValue`；再由 `idbCredentialsIn` 按 UTF-16LE 的
+    `e\0y\0J\0` 头切 JWT、按三个 `*_organization_code` 字段切组织码。
+  - **不要**退回「扫原始字节」的老路：从原始字节里匹配会**编造**凭据（2026-11-05 对抗审计 P3-3）。
+  - 上游把 `pickCredential` 改名成 `credentialOfPair(jwt, organization, teamshare)`，
+    `parseEvaluatedCredential` 的三套回退跟着改；`CDP_CREDENTIAL_EXPRESSION` 换成 async IIFE
+    （读 IndexedDB 要 `await`），`Runtime.evaluate` 必须带 `awaitPromise: true`，否则
+    `returnByValue` 下拿到的是 `{}`。
+- `fix(vendor)`: **`model.setDisabledMany` 的 `closeProvider` 改成三态**（第 6 类本地补丁）。
+  上游已吸收我们 2026-11-05 那版「黑名单覆盖全量即补设意图」（`071c220`），但它把第三参写死
+  `true`。现在与 `setAllDisabled` 走同一条契约：`req.closeProvider !== false ? true : 'keep'`。
+  **不能传布尔 `false`** —— `writeModelsWithProviderClosed(provider, ids, false)` 的语义是
+  `delete providerClosed[provider]`，会**主动删掉**用户设好的意图（2026-11-04 真机报障
+  「更新插件后停用的供应商被启用了」）；表达「只关模型、不动供应商意图」要用 `'keep'`。
+  另外 `setAllDisabled` 那条**旧补丁已退役**：上游自己改成了三态，我们保留上游版本。
+
 - `fix(console)`: **修掉三路代码审查出的 6 个 P1 + 5 个 P2**。
   - 「新人奖励」读 `claimable` / `canClaim` —— 这两个字段**任何 provider 都不返回**
     （`RpcOnboardingStatusResponse` 只有 tasks / earned / total / titles / points），条件恒为

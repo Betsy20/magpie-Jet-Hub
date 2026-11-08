@@ -31,9 +31,18 @@ import type { CreditBalance } from './credits.js';
  *（`magicrewHeaders` / `headersOf`），形状已经**几乎**一样但 UA 取值不同 ——
  * 再复制第三份就是「一份语义三处实现」。签到侧复用本函数。
  *
- * ⚠️ `origin` 必带：网关会看 Origin，缺了偶发 403。
+ * ⚠️ `origin` 的实际作用**未证实**（2026-11-04 七审更正）：本条原写「网关会看 Origin，
+ * 缺了偶发 403」，但完整头矩阵实测（带 / 不带 / 各种取值 × 四种出口）**结论一致**，
+ * 那一句已被证伪。保留该头的理由是「官方网页是同源调用、加上更接近真实客户端」，
+ * **不是**因为缺了会 403。⚠️ 别把「带 origin ⇒ 405」也当成结论写进来 ——
+ * 2026-11-04 下午那一轮「不带 origin 就 200」只在单一时段/出口成立，同日复测即推翻。
  * ⚠️ `organization-code` 只在非空时附 —— 国际站缺了会被上游拒绝，所以**调用方**
  * 必须保证 `organizationCode` 真的取到了（不是这里补空串）。
+ *
+ * ⚠️ **`referer` 一并带上**（2026-11-04 真机二分实测）：本文件覆盖的积分/签到端点
+ * 单看并不校验它（不带也 200），但同一套 Go 服务里的
+ * `/api/v1/contact/accounts/me/users` 与 `/api/v1/model-gateway/tokens`
+ * **不带 referer 就是 403 空 body** ⇒ 头集中在一处派生，才不会漏第二回。
  *
  * ⚠️ **形态以实测为准，别抄「HTTP 500 + 裸文本」**（2026-11-01 二审纠错）：那是
  * **聊天网关**（`/v1/*`）的旧观察且至今未定（见 `magicrew-product.ts` 的
@@ -52,12 +61,35 @@ export declare function magicrewApiHeaders(params: {
  * 解析不出来返回 `undefined`（**不编造**）。
  */
 export declare function magicrewParseExpiresAt(text: string): number | undefined;
-export declare function fetchMagicrewBalance(params: {
+/** `fetchMagicrewBalance*` 两兄弟的入参（**唯一**一份定义）。 */
+export interface MagicrewBalanceParams {
     jwt: string;
     organizationCode: string;
     product?: MagicrewProduct;
     fetchImpl?: typeof fetch;
-}): Promise<CreditBalance | undefined>;
+}
+/**
+ * 余额查询（**只要余额**）—— 失败一律 `undefined`。
+ *
+ * ⚠️ 这是**既有契约**（`magicrewExpiry` 据 `undefined` 判 `UNUSABLE`），
+ * 不要改成抛异常：抛出去会成为「折算整轮 reject」，与「取数失败」不同形。
+ * 需要**原因**的调用方（选号器锁定时那句报错）请用
+ * {@link fetchMagicrewBalanceDetailed}。
+ */
+export declare function fetchMagicrewBalance(params: MagicrewBalanceParams): Promise<CreditBalance | undefined>;
+/**
+ * 余额查询（**余额 + 原因**）—— 契约：`{ balance: null, error }`，**本身不抛**。
+ *
+ * ⚠️⚠️ **选号器必须接这个变体**（`BuddyBalanceSelector` 的 `fetchBalanceDetailed`）：
+ * 只接 `fetchBalance` 时，锁定永久积分的那句报错只能拿到 `null` ⇒ 说成
+ * 「余额查询失败（凭据失效或响应异常）」，把用户引向凭据；而真因可能是
+ * 网络出口被拒（2026-11-04 真机：代理走境外 ⇒ WAF 403）。
+ * 同款教训见 `src/index.ts:76`（Qoder 的 `!136`）。
+ */
+export declare function fetchMagicrewBalanceDetailed(params: MagicrewBalanceParams): Promise<{
+    balance: CreditBalance | null;
+    error?: string;
+}>;
 /** 从计费条目算倍率；缺价格返回 `undefined`（**不猜**）。 */
 export declare function magicrewRateOf(entry: {
     input_points?: unknown;

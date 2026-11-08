@@ -4842,7 +4842,9 @@ function packageExpiryMs(pkg) {
 }
 function formatPackageExpiry(pkg, now) {
   const end = packageExpiryMs(pkg);
-  if (end === null) return "长期";
+  if (end === null) {
+    return pkg && typeof pkg.expiryNote === "string" && pkg.expiryNote !== "" ? pkg.expiryNote : "长期";
+  }
   const at = Number.isFinite(now) ? now : Date.now();
   const local = new Date(end);
   if (Number.isNaN(local.getTime())) return "长期";
@@ -4876,7 +4878,8 @@ function formatPackageTooltip(packages, options = {}) {
     const name2 = pkg && pkg.name || "未命名";
     const remaining = format ? format(Number(pkg && pkg.remaining) || 0) : String(pkg && pkg.remaining);
     const total = format ? format(Number(pkg && pkg.total) || 0) : String(pkg && pkg.total);
-    return `${name2}  ${remaining} / ${total}  ${formatPackageExpiry(pkg, at)}`;
+    const amount = pkg && pkg.totalKnown === false ? remaining : `${remaining} / ${total}`;
+    return `${name2}  ${amount}  ${formatPackageExpiry(pkg, at)}`;
   });
   const rest = sorted.slice(maxRows);
   if (rest.length > 0) {
@@ -5892,6 +5895,13 @@ function providerSwitchState(status) {
   }
   const total = typeof status.models?.total === "number" ? status.models.total : 0;
   if (status.closed === true) return { checked: false, disabled: false, reason: null };
+  if (typeof status.verifyFailed === "string" && status.verifyFailed.length > 0 && total > 0 && status.models?.disabled === total) {
+    return {
+      checked: true,
+      disabled: true,
+      reason: `目录核实失败，无法确认是否已全部关闭：${status.verifyFailed}`
+    };
+  }
   if (total <= 0) {
     return {
       checked: true,
@@ -6951,12 +6961,14 @@ function summarizeTest(res) {
 function formatPackageLine(pkg, windowDays, now) {
   const remaining = formatUnits(pkg.remaining, pkg.unit) ?? "?";
   const total = formatUnits(pkg.total, pkg.unit) ?? "?";
-  const parts = [`${pkg.active ? "" : "[已失效] "}${pkg.name || "未命名"}: ${remaining} / ${total}`];
+  const amount = pkg.totalKnown === false ? remaining : `${remaining} / ${total}`;
+  const parts = [`${pkg.active ? "" : "[已失效] "}${pkg.name || "未命名"}: ${amount}`];
   const daysLeft = daysUntilExpiry(pkg, now);
   if (!pkg.active && pkg.expiredTime) parts.push(`失效于 ${pkg.expiredTime}`);
   else if (daysLeft !== null) {
     parts.push(formatExpiryHint(pkg, windowDays, now));
   } else if (pkg.cycleEndTime) parts.push(`本周期至 ${pkg.cycleEndTime}`);
+  else if (typeof pkg.expiryNote === "string" && pkg.expiryNote !== "") parts.push(pkg.expiryNote);
   return parts.join(" · ");
 }
 function CreditBalanceRow({ balance, error, loading, windowDays, provider, actions }) {
@@ -6991,6 +7003,8 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
   const total = formatUnits(balance.total, unit) ?? "0";
   const activeCount = all.filter((p) => p.active).length;
   const quotaText = formatQuotaLine(all, unit);
+  const creditWindow = provider === "baizhi" ? all.find((pkg) => pkg && (pkg.name === "授信额度" || pkg.name === "充值积分") && pkg.totalKnown !== false && Number(pkg.total) > 0 && Number(pkg.total) >= Number(pkg.remaining)) : void 0;
+  const mainText = creditWindow ? `${formatUnits(creditWindow.remaining, unit) ?? "0"} / ${formatUnits(creditWindow.total, unit) ?? "0"}` : quotaText ?? total;
   const crossUnitText = unit === void 0 ? null : (() => {
     const mainUnit = normalizeUnit(unit);
     const parts = all.filter((pkg) => pkg && typeof pkg.unit === "string" && pkg.unit.length > 0 && normalizeUnit(pkg.unit) !== mainUnit).map((pkg) => {
@@ -6998,7 +7012,7 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
       const poolTotal = Number(pkg.total);
       const poolName = typeof pkg.name === "string" && pkg.name ? pkg.name : unitLabel(pkg.unit);
       const remainingText = formatUnits(remaining, pkg.unit) ?? String(remaining);
-      const hasRange = Number.isFinite(poolTotal) && poolTotal > 0 && poolTotal !== remaining;
+      const hasRange = pkg.totalKnown !== false && Number.isFinite(poolTotal) && poolTotal > 0 && poolTotal !== remaining;
       return hasRange ? `${poolName} ${remainingText} / ${formatUnits(poolTotal, pkg.unit) ?? String(poolTotal)}` : `${poolName} ${remainingText}`;
     });
     return parts.length === 0 ? null : parts.join(" · ");
@@ -7028,7 +7042,7 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
     return countdown === null ? null : `每日额度 ${countdown}后刷新`;
   })() : null;
   const lineText = [
-    quotaText ?? total,
+    mainText,
     crossUnitText,
     poolSplitText,
     namedPoolText,
@@ -7065,7 +7079,7 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
       },
       // ⚠️ 配额窗口显示**逐窗口百分比**而不是均值：均值（94.5）既不是上游给的数，
       // 在「额度」这个标签下更会被读成 94.5 个积分。见 quotaText 的注释。
-      React6.createElement("strong", { className: "dim-jh-creditTotal" }, quotaText ?? total),
+      React6.createElement("strong", { className: "dim-jh-creditTotal" }, mainText),
       // 跨量纲附注（MonkeyCode 的每日额度）：与 loomy 的 `每日 5000` 同位置、同样式，
       // 只是**不参与**上面的合计 —— 单位不同，不能相加（用户 2026-11-02 定调）。
       crossUnitText === null ? null : React6.createElement("span", { className: "dim-jh-creditPools" }, crossUnitText),
@@ -12307,7 +12321,7 @@ function providerRowSummary(row) {
   if (row.models === null && row.accounts === null) return "状态尚未读取";
   return row.accounts ? `账号 ${row.accounts.total ?? 0}（启用 ${row.accounts.enabled ?? 0}）` : "账号 —";
 }
-function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onToggle, onReload, onClose, order, onCommitOrder, reordering, notice, rpcCall }) {
+function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onToggle, onReload, onClose, order, onCommitOrder, reordering, notice, rpcCall, onProviderStatusPatched }) {
   React6.useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === "Escape") onClose();
@@ -12454,7 +12468,7 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
       React6.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        view === "models" ? React6.createElement(ModelCenterPanel, { providers, rpcCall, statuses }) : React6.createElement(
+        view === "models" ? React6.createElement(ModelCenterPanel, { providers, rpcCall, statuses, onProviderStatusPatched }) : React6.createElement(
           "div",
           { className: "dim-jh-modelList" },
           rows.map((row) => {
@@ -12520,7 +12534,7 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
     )
   );
 }
-function ModelCenterPanel({ providers, rpcCall, statuses }) {
+function ModelCenterPanel({ providers, rpcCall, statuses, onProviderStatusPatched }) {
   const [states, setStates] = React6.useState({});
   const [query, setQuery] = React6.useState("");
   const [statusFilter, setStatusFilter] = React6.useState("all");
@@ -12663,6 +12677,7 @@ function ModelCenterPanel({ providers, rpcCall, statuses }) {
       });
       if (mounted.current) setToggleWarnings(Array.isArray(result?.warnings) ? result.warnings : []);
       await loadProvider(providerId);
+      if (mounted.current) onProviderStatusPatched?.(providerId, disabled);
     } catch (error) {
       if (mounted.current) setToggleError(`批量切换「${label}」失败：${error?.message || String(error)}`);
     } finally {
@@ -13914,6 +13929,7 @@ function JetHubPage({ rpcCall }) {
   const checkinSaveFailedRef = React6.useRef(false);
   const [providerStatuses, setProviderStatuses] = React6.useState(null);
   const [providerStatusFailed, setProviderStatusFailed] = React6.useState(false);
+  const providerStatusSeqRef = React6.useRef(0);
   const [showProviderSwitches, setShowProviderSwitches] = React6.useState(false);
   const [providerBusy, setProviderBusy] = React6.useState(() => /* @__PURE__ */ new Set());
   const [providerOrder, setProviderOrder] = React6.useState(null);
@@ -13979,14 +13995,15 @@ function JetHubPage({ rpcCall }) {
     }
   }, [rpcCall, loadGatewayStatus]);
   const loadProviderStatuses = React6.useCallback(async () => {
+    const seq = ++providerStatusSeqRef.current;
     try {
       const res = await rpcCall("provider.status", { providers: PROVIDERS.map((p) => p.id) });
-      if (!mounted.current) return;
+      if (!mounted.current || seq !== providerStatusSeqRef.current) return;
       setProviderStatuses(res?.statuses || {});
       setProviderStatusFailed(false);
     } catch (caught) {
       console.error("[jet-hub] load provider statuses failed:", caught);
-      if (!mounted.current) return;
+      if (!mounted.current || seq !== providerStatusSeqRef.current) return;
       setProviderStatuses(null);
       setProviderStatusFailed(true);
       setProviderNotice({
@@ -13995,6 +14012,28 @@ function JetHubPage({ rpcCall }) {
       });
     }
   }, [rpcCall]);
+  const patchProviderStatus = React6.useCallback((providerId, disabled) => {
+    providerStatusSeqRef.current += 1;
+    setProviderStatuses((prev) => {
+      const current = prev?.[providerId];
+      if (current === void 0) return prev;
+      const total = current.models?.total ?? 0;
+      const nextDisabled = disabled ? total : 0;
+      return {
+        ...prev,
+        [providerId]: {
+          ...current,
+          models: { total, disabled: nextDisabled },
+          // 与 `provider.status` 同一条判据（`total > 0 && disabled === total`）。
+          closed: total > 0 && nextDisabled === total,
+          // ⚠️ 「本次核实失败」的附注已经过时 —— 我们刚刚**知道**这一家的开关
+          // 结果（`model.setAllDisabled` 成功返回）。不清掉的话
+          // `providerSwitchState` 会继续按「核实失败」把它渲染成禁用。
+          verifyFailed: void 0
+        }
+      };
+    });
+  }, []);
   React6.useEffect(() => {
     mounted.current = true;
     void loadProviderStatuses();
@@ -14651,7 +14690,12 @@ function JetHubPage({ rpcCall }) {
       reordering: providerReordering,
       notice: providerNotice,
       // 弹窗的「模型列表」视图要逐家调 `model.list`（服务端只有单 provider 端点）。
-      rpcCall
+      rpcCall,
+      // ⚠️⚠️ 模型列表屏点「全部打开/全部关闭」后就地补一家状态（2026-11-05
+      // 四审测试判别力 P0：`f51b3ef` 让 `ModelCenterPanel` 直接写
+      // `setProviderStatuses`，而那是本组件（`JetHubPage`）的 state ⇒
+      // 该标识符在孙辈作用域里不存在 ⇒ 一点按钮就 `ReferenceError`）。
+      onProviderStatusPatched: patchProviderStatus
     }) : null,
     // 同款做法：网关开关也是覆盖层，且与「供应商开关」互斥 —— 两者都是
     // `position: fixed` 的全屏弹窗，同时打开会叠在一起、ESC 只关掉后挂载的那个。
@@ -15218,6 +15262,24 @@ function creditGroupsOf(accounts) {
     const group = byUnit.get(unit) ?? { unit, label: unitLabel(unit), total: 0, accountCount: 0 };
     group.total += balance.total;
     group.accountCount += 1;
+    for (const pkg of Array.isArray(balance.packages) ? balance.packages : []) {
+      if (!pkg || pkg.active === false) continue;
+      const pkgRawUnit = typeof pkg.unit === "string" ? pkg.unit : "";
+      if (pkgRawUnit === "") continue;
+      const pkgUnit = pkgRawUnit === QUOTA_UNIT ? QUOTA_UNIT : normalizeUnit(pkgRawUnit);
+      if (pkgUnit === unit) continue;
+      const remaining = Number(pkg.remaining);
+      if (!Number.isFinite(remaining)) continue;
+      const extraGroup = byUnit.get(pkgUnit) ?? {
+        unit: pkgUnit,
+        label: unitLabel(pkgUnit),
+        total: 0,
+        accountCount: 0
+      };
+      extraGroup.total += remaining;
+      extraGroup.accountCount += 1;
+      byUnit.set(pkgUnit, extraGroup);
+    }
     if (unit === QUOTA_UNIT) {
       const line = formatQuotaLine(balance.packages, unit);
       group.quotaLines = group.quotaLines ?? [];
@@ -15253,11 +15315,13 @@ function planGroupsOf(rows) {
       label: unitLabel(unit),
       remaining: 0,
       total: 0,
+      totalKnown: true,
       accountCount: 0,
       deductionEndTime: void 0
     };
     group.remaining += Number(plan.remaining) || 0;
     group.total += Number(plan.total) || 0;
+    if (plan.totalKnown === false) group.totalKnown = false;
     group.accountCount += 1;
     const end = typeof plan.deductionEndTime === "number" && Number.isFinite(plan.deductionEndTime) ? plan.deductionEndTime : void 0;
     if (end !== void 0 && (group.deductionEndTime === void 0 || end < group.deductionEndTime)) {
@@ -15335,7 +15399,7 @@ function readingOf({ mode, windows, planGroups, groups, accounts, failedCount })
   }
   if (mode === "plan") {
     const best = planGroups[0];
-    const range = `${formatUnits(best.remaining, best.unit) ?? "?"} / ${formatUnits(best.total, best.unit) ?? "?"}`;
+    const range = best.totalKnown === false ? `${formatUnits(best.remaining, best.unit) ?? "?"}` : `${formatUnits(best.remaining, best.unit) ?? "?"} / ${formatUnits(best.total, best.unit) ?? "?"}`;
     return { detail: best.name, reading: `${range}${best.label}` };
   }
   if (mode === "credits") {
@@ -16066,7 +16130,7 @@ function UsageBadgeActive(props) {
             //   `94.54MToken` 在同一弹窗里并列，像两种单位
             //   （2026-10-05 复审补修；这是该批次最后一处空格漏网，见
             //    `tests/unit/claim-unit-callsites.spec.ts` 的穷举断言）。
-            `${formatUnits(group.remaining, group.unit) ?? "?"} / ${formatUnits(group.total, group.unit) ?? "?"}${group.label}`
+            `${formatUnits(group.remaining, group.unit) ?? "?"}${group.totalKnown === false ? "" : ` / ${formatUnits(group.total, group.unit) ?? "?"}`}${group.label}`
           )
         ]),
         React7.createElement(

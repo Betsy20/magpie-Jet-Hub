@@ -330,6 +330,18 @@ export declare class MagicrewAuth extends Service {
     /** 每账号一份在途状态（含最新 refresh_token）。 */
     private readonly states;
     /**
+     * 本机浏览器腿的日志出口（**稳定引用**，见 `readLocalBrowserCreds`）。
+     *
+     * ⚠️ 必须走 `this.warn()`（它带 `ctx.logger?.warn?.` 兜底）而**不是**
+     * `this.warnImpl`（只有单测注入时才有值）—— 用 `warnImpl` 的版本在生产里
+     * 恒 `undefined`，`log` 不注入 ⇒ 只剩 `console.warn`，宿主结构化日志收不到
+     *（2026-11-05 对抗审计 P1-1）。
+     *
+     * ⚠️ 引用必须**稳定**（类字段只建一次）：`leveldbTextForFile` 的「每文件一次」
+     * 去重按日志出口身份分桶，每次 new 一个箭头函数会让去重失效（每次轮询都报）。
+     */
+    private readonly localBrowserLog;
+    /**
      * 登录态是否活跃。`stop()` / `logout()` 置 false，**阻止在途续期回写**。
      *
      * ⚠️ 为什么必须有：续期是**异步**的（一次网络往返）。用户中途登出或插件被停用时，

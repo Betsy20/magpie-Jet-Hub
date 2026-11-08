@@ -59,6 +59,7 @@ import { collectImages, serializeMessages } from './openai-compat.js';
 import { projectRequestImage } from './image-budget.js';
 import { ZCODE } from './zcode-product.js';
 import { buildChannelRequest, describeChannels, resolveChannelFor, shouldFallbackToOtherChannel, } from './zcode-transport.js';
+import { zcodeInferenceAppVersion } from './zcode-upstream.js';
 import { buildZcodeSystemBlocks, withCallerSystem, withContextPrefix, } from './zcode-identity.js';
 import { consumeAnthropicSse, toAnthropicMessages, toAnthropicTools, } from './zcode-anthropic.js';
 import { ZcodeCaptchaBrowser, ZCODE_CAPTCHA_FALLBACK, requiresCaptchaUpfront, } from './zcode-captcha.js';
@@ -1140,6 +1141,14 @@ export class ZcodeAdapter extends LlmAdapter {
                         sentAt: upstreamStartedAt,
                         status: response.status,
                         shape: describeZcodeRequestShape(body.system, body.messages),
+                        /**
+                         * ★ 实际发出的客户端版本（Issue #45）。
+                         *
+                         * 3012 的判据是「版本号与身份块**同代**」⇒ 只报身份块字符数不够，
+                         * 必须把版本一并打出来。取值与真实请求头**同源**
+                         * （{@link zcodeInferenceAppVersion}），不另写门控。
+                         */
+                        appVersion: zcodeInferenceAppVersion(credential),
                         /**
                          * ★ `logid` —— 上游侧排障的**唯一凭据**（2026-10-12 新增）。
                          *
