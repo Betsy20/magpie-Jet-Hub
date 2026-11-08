@@ -159,8 +159,17 @@ export interface MagicrewBrowserLoginStartOptions {
  * （逐**对**回退，不逐键）：`getItem` 缺失回 `null`、登出后残留空串，两种都要
  * 让位；而在表达式里对各键分别 `||` 会拼出「裸 jwt × 前缀 org」这种从未同时
  * 写入过的组合（2026-11-05 审计 P2-2）。
+ *
+ * ## 本仓补丁（2026-10-30）
+ *
+ * 上游的表达式只读 `localStorage`；本仓改成 **async IIFE**，同时读 IndexedDB
+ * （库 `magic-global` / store `user`）—— magicrew 网页版的凭据**两处都写**，
+ * 只读 localStorage 时「用插件自己开的那个窗口登录」那条腿恒读不到。
+ *
+ * ⇒ 声明只能是 `string`：表达式是模板字符串，值随补丁变，
+ *   不要再收窄成某个字面量（那正是 2026-11-08 gitee 重审报的 P2-4）。
  */
-export declare const CDP_CREDENTIAL_EXPRESSION = "JSON.stringify({\n  a: localStorage.getItem('authorization'),\n  ao: localStorage.getItem('MAGIC:user:authorization'),\n  o: localStorage.getItem('organizationCode'),\n  oo: localStorage.getItem('MAGIC:user:organizationCode'),\n  t: localStorage.getItem('teamshareOrganizationCode'),\n  to: localStorage.getItem('MAGIC:user:teamshareOrganizationCode'),\n  n: localStorage.length,\n})";
+export declare const CDP_CREDENTIAL_EXPRESSION: string;
 /** CDP 通道（只声明本文件用到的那个方法 ⇒ 单测注入假 `send` 即可）。 */
 interface CdpChannel {
     send(method: string, params?: Record<string, unknown>, timeoutMs?: number, sessionId?: string): Promise<unknown>;
