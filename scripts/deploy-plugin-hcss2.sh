@@ -32,6 +32,7 @@ set -Eeuo pipefail
 
 REPO_DIR="/root/project/magpie-Jet-Hub"
 GH_URL="https://github.com/hnlinyh/magpie-Jet-Hub"
+MANIFEST_KEY="magpie-jet-hub"
 REMOTE_HOST="1.95.121.143"
 REMOTE_USER="root"
 SSH_KEY="/mnt/workspace/.ssh/hcss_dc2f"
@@ -159,15 +160,90 @@ PY"
 # [5/7] bun install（从 GitHub 拉取）
 # ---------------------------------------------------------------------------
 log "[5/7] bun install（从 GitHub 拉取）"
+# ⚠️⚠️ **必须先删 lock 里的这条**：GitHub 依赖在 bun.lock 里锁的是**具体 commit**
+# （`magpie-jet-hub@github:owner/repo#<sha>`）。manifest 写的是 URL（无 sha），
+# 但 lock 已锁旧 sha 时 `bun install` 判定「已满足」直接 no changes，
+# 于是**装到旧版**却全程无报错（2026-11-09 实测：manifest 已指新 repo，
+# bun.lock 仍锁 35e6b70，node_modules 里没有新改动）。
+# 删锁 + 重装 = 按 manifest 的 URL 重新解析 HEAD。
+# 解锁逻辑放独立脚本文件（用 base64 传输）：bun.lock 是 JSONC（带尾随逗号），
+# 且这里的 Python 含反斜杠/引号 —— 塞进 ssh 的双引号字符串里会被 bash 层层转义
+# 弄坏（2026-11-09 实测：「json.load: 未找到命令」「unterminated string literal」）。
+UNLOCK_PY="$(base64 -w0 <<'UNLOCKEOF'
+import json, os, sys
+key, p = sys.argv[1], sys.argv[2]
+raw = open(p, encoding='utf-8').read()
+def strip_trailing_commas(s):
+    out, in_str, esc = [], False, False
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if in_str:
+            out.append(ch)
+            if esc:
+                esc = False
+            elif ch == chr(92):
+                esc = True
+            elif ch == '"':
+                in_str = False
+            i += 1
+            continue
+        if ch == '"':
+            in_str = True; out.append(ch); i += 1; continue
+        if ch == ',':
+            j = i + 1
+            while j < len(s) and s[j] in ' \t\r\n':
+                j += 1
+            if j < len(s) and s[j] in '}]':
+                i += 1
+                continue
+        out.append(ch); i += 1
+    return ''.join(out)
+try:
+    lock = json.loads(strip_trailing_commas(raw))
+except Exception as e:
+    print('    [FAIL] bun.lock 解析失败（不应发生）：', e)
+    raise SystemExit(9)
+changed = []
+if key in lock:
+    lock.pop(key); changed.append(key)
+pkgs = lock.get('packages')
+if isinstance(pkgs, dict) and key in pkgs:
+    pkgs.pop(key); changed.append('packages.' + key)
+ws = lock.get('workspaces')
+if isinstance(ws, dict):
+    for wk, wv in ws.items():
+        deps = (wv or {}).get('dependencies')
+        if isinstance(deps, dict) and key in deps:
+            deps.pop(key); changed.append('workspaces.' + str(wk))
+if changed:
+    tmp = p + '.tmp'
+    open(tmp, 'w', encoding='utf-8').write(json.dumps(lock, indent=2) + '\n')
+    os.replace(tmp, p)
+print('    已从 bun.lock 移除锁定条目：', changed or '（无需移除）')
+UNLOCKEOF
+)"
+rsh "echo '${UNLOCK_PY}' | base64 -d | python3 - '${MANIFEST_KEY}' '${REMOTE_PLUGINS}/bun.lock'"
+rsh "rm -rf '${REMOTE_PLUGINS}/node_modules/magpie-jet-hub'"
 rsh "cd '${REMOTE_PLUGINS}' && ${MAGPIE_ENV} '${MAGPIE_BUN}' install 2>&1 | tail -8"
 
 log "[5b] 校验安装结果"
 rsh "grep 'magpie-jet-hub' '${REMOTE_PLUGINS}/bun.lock' | head -2"
 rsh "grep -q 'github:hnlinyh/magpie-Jet-Hub' '${REMOTE_PLUGINS}/bun.lock'" || die "bun.lock 里没有 github:hnlinyh/magpie-Jet-Hub"
 if rsh "grep -q 'github:Betsy20' '${REMOTE_PLUGINS}/bun.lock' 2>/dev/null"; then die "bun.lock 里还有 github:Betsy20"; fi
+# 装到的 commit 必须就是本地 HEAD（否则就是装的旧版）
+# ⚠️ bun 在 lock 里写的是**短 sha**（7 位，如 `#d83afdc`），而本地 `rev-parse HEAD`
+# 是 40 位 ⇒ 比较必须用**前缀**而不是等长。2026-11-09 实测踩过：两边都是
+# d83afdc 却因为长度不同被判成失败（假红）。
+INSTALLED_SHA="$(rsh "grep -o 'github:hnlinyh/magpie-Jet-Hub#[0-9a-f]*' '${REMOTE_PLUGINS}/bun.lock' | head -1 | sed 's/.*#//'" || true)"
+info "bun.lock 锁定的 commit：${INSTALLED_SHA}（本地 HEAD ${LOCAL_HEAD:0:12}）"
+[[ -n "${INSTALLED_SHA}" && "${LOCAL_HEAD}" == "${INSTALLED_SHA}"* ]] || die "装到的是 ${INSTALLED_SHA}，不是本地 HEAD ${LOCAL_HEAD:0:12}（bun 用了旧 lock？）"
 HITS="$(rsh "grep -c 'formatBaizhiPoolSplit' '${REMOTE_PLUGINS}/node_modules/magpie-jet-hub/console/console.js' 2>/dev/null || true")"
 info "node_modules console.js 含 formatBaizhiPoolSplit：${HITS:-0} 处"
 [[ "${HITS:-0}" -gt 0 ]] || die "安装后的代码不含本地修复（装到旧版了？）"
+WALLET_HITS="$(rsh "grep -c 'anyTotalUnknown' '${REMOTE_PLUGINS}/node_modules/magpie-jet-hub/src/plugin.mjs' 2>/dev/null || true")"
+info "node_modules plugin.mjs 含钱包判定：${WALLET_HITS:-0} 处"
+[[ "${WALLET_HITS:-0}" -gt 0 ]] || die "安装后的代码不含钱包判定（剩余永远 100% 的修复没进来）"
 
 # ---------------------------------------------------------------------------
 # [6/7] 重启（带在途流排空保护）
@@ -221,15 +297,19 @@ info "console /__meta -> ${meta_code:-<none>}（期望 200）"
 info "gateway https  -> ${tls_code:-<none>}（期望非 000）"
 [[ "${ok}" == "1" ]] || die "探针失败：控制台或网关没恢复"
 
+# ⚠️ `--no-restart` 必须在这里就退出：没重启就没有「本次新增日志」，
+# LOG_MARK_LINE 还是初值 1 ⇒ 下面会扫**整份历史日志**，把上一轮事故的
+# "didn't load" 当成这次的失败（2026-11-09 实测两次假红）。
+if [[ "${NO_RESTART}" == "1" ]]; then
+  info "--no-restart：代码已更新、未重启；跳过「新代码已加载」类探针"
+  info "装到的版本：${INSTALLED_SHA}（本地 HEAD ${LOCAL_HEAD:0:12}）"
+  info "下次 magpie 重启后生效：ssh ${REMOTE_USER}@${REMOTE_HOST} systemctl restart magpie"
+  exit 0
+fi
+
 LOAD_ERR="$(rsh "tail -n +${LOG_MARK_LINE} /var/log/magpie.log | grep -c \"didn't load\" 2>/dev/null || true")"
 info "重启后 \"didn't load\"：${LOAD_ERR:-0} 条（期望 0）"
 [[ "${LOAD_ERR:-0}" == "0" ]] || die "有插件加载失败"
-
-if [[ "${NO_RESTART}" == "1" ]]; then
-  info "--no-restart：跳过「新代码已加载」探针（当前跑的还是旧进程）"
-  info "部署完成（未重启）。下次重启后生效：systemctl restart magpie"
-  exit 0
-fi
 
 READY="$(rsh "tail -n +${LOG_MARK_LINE} /var/log/magpie.log | grep -c 'jet-hub-accio' 2>/dev/null || true")"
 info "重启后 jet-hub 就绪行：${READY:-0} 条（期望 >0）"
