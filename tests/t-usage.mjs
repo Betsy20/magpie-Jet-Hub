@@ -196,6 +196,9 @@ if (live()) {
       // 桩语义与 src 一致：**首见额度即分母**，之后不再变（测试里用全局表模拟）。
       'isDailyPool',
       'dailyTotalOf',
+      'isWalletWindowPool',
+      'walletPeakOf',
+      'WALLET_WINDOW_POOLS',
       body + String.fromCharCode(10) + 'return { mergePackages, toMagpieUsage, windowName, dateLabel }',
     )(
       NAMES_FIXTURE,
@@ -209,6 +212,17 @@ if (live()) {
           return base.get(key)
         }
       })(),
+      // 白名单判定桩：与 src 的 isWalletWindowPool 同表（百智云「充值积分」）。
+      (p, name) => ({ baizhi: ['充值积分'] }[String(p ?? '')] ?? []).includes(String(name ?? '').trim()),
+      // 水位桩：与 src 的 walletPeakOf 同语义 —— 只抬不降。
+      (() => {
+        const base = new Map()
+        return (key, remaining) => {
+          if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+          return base.get(key)
+        }
+      })(),
+      { baizhi: ['充值积分'] },
     )
 
     // 到期时间一律用**相对当前时间的未来值**：渲染期会按 deductionEndTime
@@ -423,6 +437,9 @@ if (live()) {
     // 切片范围不含每日额度基线（它在文件更前面），必须注入桩，否则 ReferenceError。
     'isDailyPool',
     'dailyTotalOf',
+    'isWalletWindowPool',
+    'walletPeakOf',
+    'WALLET_WINDOW_POOLS',
     // 起点要在 mergePackages 之前：toMagpieUsage 会调它，截漏就 ReferenceError。
     // 起点要在 groupName 之前：它被 mergePackages 调用，截漏就 ReferenceError。
     src2.slice(src2.indexOf('function groupName('), b2) + String.fromCharCode(10) + 'return { toMagpieUsage, groupName }',
@@ -437,6 +454,17 @@ if (live()) {
         return base.get(key)
       }
     })(),
+    // 白名单判定桩：与 src 的 isWalletWindowPool 同表（百智云「充值积分」）。
+    (p, name) => ({ baizhi: ['充值积分'] }[String(p ?? '')] ?? []).includes(String(name ?? '').trim()),
+    // 水位桩：与 src 的 walletPeakOf 同语义 —— 只抬不降。
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    { baizhi: ['充值积分'] },
   )
 
   const withSnapshot = {
@@ -760,6 +788,9 @@ if (live()) {
     'humanizeUsageError',
     'isDailyPool',
     'dailyTotalOf',
+    'isWalletWindowPool',
+    'walletPeakOf',
+    'WALLET_WINDOW_POOLS',
     src3.slice(src3.indexOf('function groupName('), e3) + String.fromCharCode(10) + 'return { toMagpieUsage }',
   )(
     { baizhi: '百度云', cline: 'Cline', codearts: 'CodeArts' },
@@ -772,18 +803,93 @@ if (live()) {
         return base.get(key)
       }
     })(),
+    // 白名单判定桩：与 src 的 isWalletWindowPool 同表（百智云「充值积分」）。
+    (p, name) => ({ baizhi: ['充值积分'] }[String(p ?? '')] ?? []).includes(String(name ?? '').trim()),
+    // 水位桩：与 src 的 walletPeakOf 同语义 —— 只抬不降。
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    { baizhi: ['充值积分'] },
   )
-  const one = (pkgs) => fn3.toMagpieUsage(
-    { provider: 'x', accountId: 'a', nickname: 'n', balance: { total: 0, packages: pkgs } }, 'x',
+  // ⚠️ 每个用例用独立 accountId：基线/水位桩是**跨调用共享**的 Map，
+  // 同一个账号复用会把上一个用例抬上去的水位带进下一个，断言就成了假红。
+  const one = (pkgs, provider = 'x', accountId = 'a') => fn3.toMagpieUsage(
+    { provider, accountId, nickname: 'n', balance: { total: 0, packages: pkgs } }, provider,
   )
 
-  // 实机形状（2026-11-09 hcss2 实测）：
-  // 百智云充值积分 total=817.04 remaining=817.04 totalKnown=false → 钱包
+  // 反例：**不在白名单**的渠道 + 典型钱包形状 ⇒ 仍然是钱包（只给 balance）。
+  // 百智云的「充值积分」已经改走水位窗口（见下一段），所以这里用 provider='x'
+  // 验证「白名单之外的渠道一个都不动」这条边界。
   const uBz = one([{ name: '充值积分', unit: 'credit', remaining: 817.04, total: 817.04, used: 0, totalKnown: false, active: true }])
   const bz = uBz.windows[0]
-  ok(bz && bz.balance === 817.04, `百智充值积分应给 balance=817.04（实际 ${JSON.stringify(bz?.balance)}）`)
+  ok(bz && bz.balance === 817.04, `非白名单渠道的「充值积分」应保持钱包 balance=817.04（实际 ${JSON.stringify(bz?.balance)}）`)
   ok(bz && bz.limit === undefined && bz.used === undefined,
     `钱包不得给 limit/used（否则 magpie 画出 817.04/817.04 剩余 100%），实际 limit=${JSON.stringify(bz?.limit)} used=${JSON.stringify(bz?.used)}`)
+
+  // 正例：白名单渠道（baizhi）「充值积分」⇒ 水位分母，画进度条
+  // 首见无水位历史 ⇒ 分母==余额，此时理应显示 100%（这是诚实的：还没消耗过）
+  const uBzPk = one([{ name: '充值积分', unit: 'credit', remaining: 500, total: 500, used: 0, totalKnown: false, active: true }], 'baizhi', 'pk1')
+  const bzPk = uBzPk.windows[0]
+  ok(bzPk && bzPk.balance === undefined,
+    `百智「充值积分」不能给 balance（给了 magpie 就不画进度条，等于没改），实际 ${JSON.stringify(bzPk?.balance)}`)
+  ok(bzPk && bzPk.limit === 500 && bzPk.amount === 500,
+    `首见应给 500 / 500（分母=余额=500），实际 limit=${JSON.stringify(bzPk?.limit)} amount=${JSON.stringify(bzPk?.amount)}`)
+  ok(bzPk && bzPk.display === '500 / 500 credit', `展示串应为 500 / 500 credit，实际 ${JSON.stringify(bzPk?.display)}`)
+
+  // 消耗后：余额 420，水位仍是 500 ⇒ 已用 16%
+  const uBzPk2 = one([{ name: '充值积分', unit: 'credit', remaining: 420, total: 420, used: 0, totalKnown: false, active: true }], 'baizhi', 'pk1')
+  const bzPk2 = uBzPk2.windows[0]
+  ok(bzPk2 && bzPk2.limit === 500 && bzPk2.amount === 420,
+    `消耗后应显示 420 / 500（水位不跟着余额掉），实际 ${JSON.stringify(bzPk2?.amount)}/${JSON.stringify(bzPk2?.limit)}`)
+  ok(bzPk2 && bzPk2.used === 16, `420/500 ⇒ 已用 16%，实际 ${JSON.stringify(bzPk2?.used)}%`)
+
+  // 充值后：余额 820 > 水位 500 ⇒ 水位抬到 820（用户说的「充值会让窗口扩大」）
+  const uBzPk3 = one([{ name: '充值积分', unit: 'credit', remaining: 820, total: 820, used: 0, totalKnown: false, active: true }], 'baizhi', 'pk1')
+  const bzPk3 = uBzPk3.windows[0]
+  ok(bzPk3 && bzPk3.limit === 820 && bzPk3.used === 0,
+    `充值后水位应抬到 820、已用 0%，实际 ${JSON.stringify(bzPk3?.limit)}/${JSON.stringify(bzPk3?.used)}`)
+
+  // 合计行也带分母（用户 m01511 选的「总额度 + 充值积分 都加」）。
+  // 实机形状：充值积分 500 + 每日积分 199.96 ⇒ 未消耗时 699.96 / 699.96。
+  const uBzSum = one([
+    { name: '充值积分', unit: 'credit', remaining: 500, total: 500, used: 0, totalKnown: false, active: true },
+    { name: '每日积分', unit: 'credit', remaining: 199.96, total: 199.96, used: 0, totalKnown: false, active: true },
+  ], 'baizhi', 'sum1')
+  ok(String(uBzSum.balance ?? '') === '699.96 / 699.96 credit',
+    `合计行应为 699.96 / 699.96 credit（总额度窗口），实际 ${JSON.stringify(uBzSum.balance)}`)
+
+  // 消耗后：充值 420（水位 500）+ 每日 100/199.96 ⇒ 520 / 699.96 —— 分母不动、分子变小。
+  // 先做一次「未消耗」读数，把水位与当天首见额度种进桩（模拟昨天查过一次）。
+  one([
+    { name: '充值积分', unit: 'credit', remaining: 500, total: 500, used: 0, totalKnown: false, active: true },
+    { name: '每日积分', unit: 'credit', remaining: 199.96, total: 199.96, used: 0, totalKnown: false, active: true },
+  ], 'baizhi', 'sum4')
+  const uBzSum4 = one([
+    { name: '充值积分', unit: 'credit', remaining: 420, total: 420, used: 0, totalKnown: false, active: true },
+    { name: '每日积分', unit: 'credit', remaining: 100, total: 100, used: 0, totalKnown: false, active: true },
+  ], 'baizhi', 'sum4')
+  ok(String(uBzSum4.balance ?? '') === '520 / 699.96 credit',
+    `消耗后合计行应为 520 / 699.96 credit（分母来自水位与首见额度），实际 ${JSON.stringify(uBzSum4.balance)}`)
+
+  // 只要有一条窗口没分母 ⇒ 合计行不加分母（拿部分分母拼总和就是编数字）。
+  // 这里用「赠送积分」（非白名单包名、上游只说余额）当那条没分母的窗口。
+  const uBzSum2 = one([
+    { name: '充值积分', unit: 'credit', remaining: 500, total: 500, used: 0, totalKnown: false, active: true },
+    { name: '赠送积分', unit: 'credit', remaining: 30, total: 30, used: 0, totalKnown: false, active: true },
+  ], 'baizhi', 'sum2')
+  ok(!String(uBzSum2.balance ?? '').includes('/'),
+    `有一条窗口没分母时合计行不加 /，实际 ${JSON.stringify(uBzSum2.balance)}`)
+
+  // aside 的包（冻结/过期作废）不进分子分母：只剩它时不加 /。
+  const uBzSum3 = one([
+    { name: '冻结积分', unit: 'credit', remaining: 10, total: 10, used: 0, active: false },
+  ], 'baizhi', 'sum3')
+  ok(!String(uBzSum3.balance ?? '').includes('/'),
+    `只剩 aside 包时合计行不加 /，实际 ${JSON.stringify(uBzSum3.balance)}`)
 
   // Cline 账户余额 / ModelScope 魔粒 / Raccoon 奖励积分：无周期、used=0、total==remaining
   const uCl = one([{ name: 'Cline 账户余额', unit: 'USD', remaining: 5, total: 5, used: 0, active: true }])
@@ -858,6 +964,7 @@ if (live()) {
   const f4 = src4.indexOf('function writeCache(')
   const fn4 = new Function(
     'NAMES', 'humanizeUsageError', 'isDailyPool', 'dailyTotalOf',
+    'isWalletWindowPool', 'walletPeakOf', 'WALLET_WINDOW_POOLS',
     src4.slice(src4.indexOf('function groupName('), f4) + String.fromCharCode(10) + 'return { toMagpieUsage }',
   )(
     { monkeycode: 'MonkeyCode' },
@@ -870,6 +977,17 @@ if (live()) {
         return base.get(key)
       }
     })(),
+    // 白名单判定桩：与 src 的 isWalletWindowPool 同表（百智云「充值积分」）。
+    (p, name) => ({ baizhi: ['充值积分'] }[String(p ?? '')] ?? []).includes(String(name ?? '').trim()),
+    // 水位桩：与 src 的 walletPeakOf 同语义 —— 只抬不降。
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    { baizhi: ['充值积分'] },
   )
 
   // ① MonkeyCode 正常账号：每日额度有真总额 ⇒ 必须直接用 10000000

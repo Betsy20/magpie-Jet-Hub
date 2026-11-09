@@ -741,7 +741,11 @@ function loadDailyBaseline() {
     if (j !== null && typeof j === 'object' && !Array.isArray(j)) {
       for (const [k, v] of Object.entries(j)) {
         if (v && typeof v.day === 'string' && Number.isFinite(Number(v.total))) {
-          dailyBaseline.set(k, { day: v.day, total: Number(v.total) })
+          // ⚠️ 老文件没有 `kind`（第一版只存每日基线）⇒ 一律按 daily 解析，
+          // 否则升级后已经把 199.96 采下来的 4 个百智云账号基线会全部丢失，
+          // 当天的每日窗口立刻退回「分母==余额 · 永远 100%」。
+          const kind = v.kind === 'peak' ? 'peak' : 'daily'
+          dailyBaseline.set(k, { kind, day: v.day, total: Number(v.total) })
         }
       }
     }
@@ -751,9 +755,13 @@ function loadDailyBaseline() {
 function saveDailyBaseline() {
   try {
     const out = {}
-    // 只留今天的：昨天的基线明天必然失效（每日额度零点重置），留着只是垃圾。
     const today = localDay()
-    for (const [k, v] of dailyBaseline) if (v.day === today) out[k] = v
+    for (const [k, v] of dailyBaseline) {
+      // 每日基线只留今天的（每日额度零点重置，昨天的必然失效）；
+      // 水位**永久保留** —— 长期积分不过期，昨天的高水位今天照样是上限下限，
+      // 删掉就等于把分母退回余额，「永远 100%」立刻复发。
+      if (v.kind === 'peak' || v.day === today) out[k] = v
+    }
     mkdirSync(dirname(dailyBaselineFileOf()), { recursive: true })
     writeFileSync(dailyBaselineFileOf(), JSON.stringify(out, null, 2))
   } catch { /* 写不进去不影响读数正确性，下次重新采基线即可 */ }
@@ -772,7 +780,7 @@ function dailyTotalOf(key, remaining) {
   const hit = dailyBaseline.get(key)
   // 跨天 ⇒ 重置：今天第一次读到就是今天的新基线
   if (hit === undefined || hit.day !== today) {
-    dailyBaseline.set(key, { day: today, total: remaining })
+    dailyBaseline.set(key, { kind: 'daily', day: today, total: remaining })
     saveDailyBaseline()
     return remaining
   }
@@ -788,6 +796,42 @@ function dailyTotalOf(key, remaining) {
 /** 这条包名是不是「每日额度」桶（精确匹配，与上游 DAILY_POOL_NAMES 同口径）。 */
 function isDailyPool(name) {
   return DAILY_POOL_NAMES.includes(String(name ?? '').trim())
+}
+
+/** 这个渠道的这个池子是否允许用「历史水位」当分母（见 WALLET_WINDOW_POOLS 注释）。 */
+function isWalletWindowPool(provider, name) {
+  const list = WALLET_WINDOW_POOLS[String(provider ?? '')]
+  if (!Array.isArray(list)) return false
+  return list.includes(String(name ?? '').trim())
+}
+
+/**
+ * 取（或抬）某个钱包型池子的历史水位 —— 只在**涨**的时候更新，永不回落。
+ *
+ * 与 `dailyTotalOf` 的区别：那个按天重置（每日额度零点清零），这个永久保留
+ * （长期积分不过期）。水位只增不减，所以消耗多少都能算出真实百分比；充值把
+ * 余额顶上去，水位跟着上抬 —— 用户说的「充值会让窗口扩大」就是这一条。
+ *
+ * @param {string} key  `<provider>|<accountId>|<包名>`
+ * @param {number} remaining 当下余额（调用方已保证 > 0）
+ * @returns {number} 水位（≥ remaining）
+ */
+function walletPeakOf(key, remaining) {
+  loadDailyBaseline()
+  const hit = dailyBaseline.get(key)
+  // 老版本可能把同一个 key 存成了 daily（不会 —— 白名单是新增的包名），
+  // 但即便撞上也要以「取大值」为准，不然分母会比余额小、进度条溢出。
+  if (hit === undefined || hit.kind !== 'peak') {
+    const total = hit !== undefined && Number(hit.total) > remaining ? Number(hit.total) : remaining
+    dailyBaseline.set(key, { kind: 'peak', day: localDay(), total })
+    saveDailyBaseline()
+    return total
+  }
+  if (remaining > hit.total) {
+    hit.total = remaining
+    saveDailyBaseline()
+  }
+  return hit.total
 }
 
 /* ── 按账号：列出 / 解析 ──────────────────────────────────────────────────
@@ -2076,6 +2120,15 @@ function toMagpieUsage(reading, provider) {
       p.dailyTotal = dailyTotalOf(dailyKey, remaining)
     }
     /**
+     * 长期积分（百智云「充值积分」）用**历史水位**当分母 —— 用户 m01511
+     * 「总额度也要有窗口」。上游不给初始总额，只能自采；白名单见
+     * `WALLET_WINDOW_POOLS`，理由见那段注释。
+     */
+    const isWalletWindow = isWalletWindowPool(provider, p.name)
+    if (isWalletWindow && remaining > 0) {
+      p.walletPeak = walletPeakOf(dailyKey, remaining)
+    }
+    /**
      * 欠费（余额为负）：上游真的会下发负数 —— MonkeyCode 实测
      * `total=-10.402, remaining=-10.402`（透支扣费）。
      *
@@ -2112,7 +2165,16 @@ function toMagpieUsage(reading, provider) {
       if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
       return w
     }
-    if (wallet && !isDaily) {
+    if (isWalletWindow && p.walletPeak > 0) {
+      // 长期积分：分母 = 历史水位（≥ 余额）。这里**不能**填 balance ——
+      // magpie 见到 balance 就退回「N left」、不画进度条，等于白改
+      // （`quotaNoShare(w)` 的 `w.balance != null` 分支）。
+      const base = p.walletPeak
+      w.used = Math.min(100, Math.max(0, Math.round(((base - remaining) / base) * 100)))
+      w.display = `${remaining} / ${base} ${p?.unit ?? ''}`.trim()
+      w.amount = remaining
+      w.limit = base
+    } else if (wallet && !isDaily) {
       // 钱包：只报「还剩多少」，不给 limit/used —— magpie 见到 balance 就不画
       // 进度条，只写「N left」。这是唯一诚实的显示：没有总量就不该编分母。
       w.balance = remaining
@@ -2180,10 +2242,36 @@ function toMagpieUsage(reading, provider) {
    * 合计为 0/负时干脆不写 balance，交给 windows 各行自己带单位。
    */
   const balanceText = total > 0 ? `${fmtNum(total)} ${unit}`.trim() : ''
+  /**
+   * 合计行也带分母（用户 m01511 选的「总额度 + 充值积分 都加」）。
+   *
+   * magpie 的行内配额只画**前 2 条**窗口（`ws.slice(0, 2)`），其余进 tooltip ——
+   * 所以硬塞一个「总额度」窗口当第三条，会被挤进 tooltip 并把「每日积分」
+   * 从行内顶掉。改在这里：合计行本来就是「整家渠道一眼看多少」，给它加分母
+   * 等价于「总额度窗口」，且不占配额行的名额。
+   *
+   * 口径：**每个窗口都必须有可信分母**（`limit > 0`）才加。百智云是
+   * `充值积分（水位）+ 每日积分（当天首见）` 恰好两条都有；将来某家渠道出现
+   * 「只有余额、没分母」的窗口就整体跳过 —— 拿部分分母拼总和就是编数字。
+   */
+  const windowedTotal = (() => {
+    if (!Object.hasOwn(WALLET_WINDOW_POOLS, provider)) return ''
+    // aside 的是冻结/过期作废之类，本就不算「可用额度」，不进分子分母
+    const counted = windows.filter((w) => w.aside !== true)
+    if (counted.length === 0) return ''
+    if (!counted.every((w) => Number.isFinite(w.limit) && w.limit > 0)) return ''
+    if (!counted.every((w) => Number.isFinite(w.amount) && w.amount >= 0)) return ''
+    const den = counted.reduce((s, w) => s + w.limit, 0)
+    const amt = counted.reduce((s, w) => s + w.amount, 0)
+    if (!(den > 0) || !(amt <= den)) return ''
+    return `${fmtNum(amt)} / ${fmtNum(den)} ${unit}`.trim()
+  })()
   return {
     plan,
     user: reading?.nickname !== undefined ? String(reading.nickname) : '',
-    ...(balanceText === '' ? {} : { balance: balanceText }),
+    ...(windowedTotal !== ''
+      ? { balance: windowedTotal }
+      : balanceText === '' ? {} : { balance: balanceText }),
     ...(untils.length ? { until: Math.min(...untils) } : {}),
     windows,
   }
