@@ -40,6 +40,7 @@
  */
 
 import { JetHubContainer } from './container.mjs'
+import { parseRefs } from './credentials.mjs'
 // 上游的**积分/签到能力表** —— 由它直接回答「这家有没有签到」，
 // 而不是在插件里再抄一份名单（抄了必然漂移）。
 import { createProviderCredits, creditsOf } from '../vendor/lib/provider-credits.js'
@@ -1686,6 +1687,206 @@ function windowName(pkg) {
 }
 
 /**
+ * MonkeyCode 两站：上游**只有收支净额**，没有「积分包 + 有效期」。
+ *
+ * ## 为什么不能照 MiniMax 那套做
+ *
+ * MiniMax 的 `credit/details` 会回 `details[]`，**每笔发放各带 `expire_at_ms`**，
+ * 余额 = Σ 各包 `remaining_amount` ⇒ 过期的包自动退出累加，窗口自然收缩
+ *（`vendor/lib/minimax-credits.js:590-650`）。这正是理想的「有效积分累积」模型。
+ *
+ * MonkeyCode 没有这条路（2026-11-09 实测）：
+ *  - `/wallet/credits`、`/wallet/credit`、`/users/credits`、`/credit/details`、
+ *    `/wallet/details`、`/wallet/packages`、`/wallet/grants` → **全部 404**
+ *  - 唯一可用的是 `/wallet/transaction`（流水），字段只有
+ *    `inout_type / kind / amount / amount_balance / amount_daily / remark / created_at`
+ *    ——**没有任何到期时间**
+ *  - `/wallet` 只给一个标量 `balance`（单位千分之一积分），且**可以是负数**
+ *
+ * ## 用户定的口径（2026-11-09）
+ *
+ * 「近 30 天的收入之和为总窗口」+「余额为负时显示 0」+「实时拉流水」。
+ * 账目实测吻合：4 个负余额账号的 `wallet.balance` 与
+ * 「30 天收入 − 30 天支出」**逐位相等**（-16.616 / -10.402 / -10.402 / -39.721），
+ * 说明这个 balance 就是收支滚出来的净额，不是「欠费」而是「滚到负数」。
+ *
+ * ⇒ 剩信用 `max(0, balance)`（负的按 0 即「已用尽」），分母用 30 天收入之和。
+ *
+ * ## 开销
+ *
+ * 流水必须翻页（默认一页 10 条，`?page=N&size=100` 才给 100 条；实测单账号
+ * 最多 103 条）。这里限制**最多 5 页**并把结果按 60 秒缓存 —— 与
+ * `BALANCE_TTL_MS`（90 秒）同一量级，避免 magpie 反复重绘卡片时打爆上游。
+ * 拉取失败**不当作错误**：退回原有的钱包语义（只报余额），绝不因为「算不出
+ * 分母」让整个用量卡变成错误。
+ */
+const MONKEYCODE_PROVIDERS = new Set(['monkeycode', 'monkeycodeintl'])
+/** 30 天窗口（秒）。 */
+const MONKEYCODE_WINDOW_SEC = 30 * 86400
+/** 单账号最多翻几页流水（每页 100 条，5 页 = 500 条，实测最多 103 条）。 */
+const MONKEYCODE_MAX_PAGES = 5
+/** 窗口读数的缓存时长 —— 与 `BALANCE_TTL_MS` 同量级。 */
+const MONKEYCODE_WINDOW_TTL_MS = 60_000
+/** @type {Map<string, {at:number, income:number|undefined}>} */
+const monkeycodeWindowCache = new Map()
+
+/** 取该渠道的平台根地址（`monkeycode` / `monkeycodeintl` 两套部署）。 */
+function monkeycodeBaseUrl(provider) {
+  return provider === 'monkeycodeintl' ? 'https://monkeycode-ai.net' : 'https://monkeycode-ai.com'
+}
+
+/** 从凭据对象里取会话 cookie（与 vendor 的归一化规则同源）。 */
+async function monkeycodeCookieOf(credential) {
+  if (credential === null || typeof credential !== 'object') return undefined
+  const raw = credential.session_cookie
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined
+  const { MONKEYCODE_SESSION_COOKIE_NAME } = await import('../vendor/lib/monkeycode-browser-login.js')
+  const { normalizeSessionCookie } = await import('../vendor/lib/session-cookie.js')
+  return normalizeSessionCookie(raw, [MONKEYCODE_SESSION_COOKIE_NAME], MONKEYCODE_SESSION_COOKIE_NAME)
+}
+
+/**
+ * 拉近 30 天的收入合计（千分之一积分）。
+ *
+ * @returns {Promise<number|undefined>} 拿不到（会话失效/网络失败）时 undefined，
+ *   调用方据此退回钱包语义 —— **不编造分母**。
+ */
+async function monkeycodeIncome30d(provider, credential, log) {
+  const cookie = await monkeycodeCookieOf(credential)
+  if (cookie === undefined) return undefined
+  const baseUrl = monkeycodeBaseUrl(provider)
+  const headers = {
+    cookie,
+    accept: 'application/json',
+    referer: `${baseUrl}/`,
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      + '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  }
+  const cutoff = Math.floor(Date.now() / 1000) - MONKEYCODE_WINDOW_SEC
+  let income = 0
+  let seen = 0
+  try {
+    for (let page = 1; page <= MONKEYCODE_MAX_PAGES; page += 1) {
+      const res = await fetch(
+        `${baseUrl}/api/v1/users/wallet/transaction?page=${page}&size=100`,
+        { headers, signal: AbortSignal.timeout(15_000) },
+      )
+      if (!res.ok) return undefined
+      const body = await res.json()
+      const txs = Array.isArray(body?.data?.transactions) ? body.data.transactions : []
+      if (txs.length === 0) break
+      seen += txs.length
+      let crossedWindow = false
+      for (const t of txs) {
+        const at = Number(t?.created_at)
+        if (!Number.isFinite(at) || at < cutoff) {
+          // 流水按时间倒序：一旦越过窗口边界，后面的都不用看了
+          if (Number.isFinite(at)) crossedWindow = true
+          continue
+        }
+        // 收入 = 非 model_consumption 的一切（实测有 checkin）。金额单位与
+        // wallet.balance 一致，都是千分之一积分。
+        if (t?.kind !== 'model_consumption') {
+          const amount = Number(t?.amount)
+          if (Number.isFinite(amount) && amount > 0) income += amount
+        }
+      }
+      if (crossedWindow || txs.length < 100) break
+    }
+  } catch (e) {
+    log?.(`[${provider}] 流水拉取失败（退回钱包语义）：${e?.message ?? e}`)
+    return undefined
+  }
+  // 一条流水都没读到 ⇒ 不是「收入 0」，而是「读不到」⇒ 不编分母
+  if (seen === 0) return undefined
+  return income
+}
+
+/**
+ * 取某账号的真实凭据（含 `session_cookie`）。
+ *
+ * ⚠️ `getAuth()` 给的记录**不含凭据**：实测 `plugin-auth.json` 里 MonkeyCode
+ * 记录只有 `{type, key, accountId, uid, metadata}` —— `key` 是引用串
+ * （`jet-hub-local:monkeycode/monkeycode-xxxx`），不是 cookie 本体。
+ * 真正的 cookie 在 DSH 的 `.credentials.yaml` 里，要按
+ * `metadata.dshAccountId` → 池条目的 `credentialRef` → 凭据文件取值 这条链拿。
+ *
+ * ⚠️ 不走 `ctx.credentials.resolve()`：那个 ctx 只在容器内部账号池包装闭包里，
+ * 插件侧拿不到（`usage()` 闭包里的 `container` 是 `JetHubContainer` 实例，
+ * 只暴露 `rpc` / `credentialFile` / `credentialAlive`）。
+ * ⇒ 直接读凭据文件 + `parseRefs`（与 `credentialAlive` 同一条读法）。
+ * 任何一环断掉都返回 undefined（调用方退回钱包语义，不编分母）。
+ */
+async function credentialOfAccount(container, provider, accountId, log) {
+  const want = String(accountId ?? '').trim()
+  if (want === '') return undefined
+  try {
+    const rows = await listAccountsOf(container, provider, log)
+    const hit = rows.find((a) => String(a?.id ?? '') === want)
+    const ref = hit?.credentialRef
+    if (typeof ref !== 'string' || ref.trim() === '') return undefined
+    const refs = parseRefs(readFileSync(container.credentialFile(), 'utf8'))
+    const raw = refs.get(ref)
+    if (typeof raw !== 'string' || raw.trim() === '') return undefined
+    return JSON.parse(raw)
+  } catch (e) {
+    log?.(`[${provider}] 取账号 ${want} 的凭据失败（退回钱包语义）：${e?.message ?? e}`)
+    return undefined
+  }
+}
+
+/**
+ * 把 MonkeyCode 的用量读数改成「剩余 / 30 天收入」。
+ *
+ * 只在拿到收入合计时才改写；拿不到就**原样返回** `base`（钱包语义：
+ * 只报「N credit left」），保证「算不出分母」不会污染读数。
+ *
+ * @param {object} base `toMagpieUsage` 的结果
+ * @param {string} provider
+ * @param {object} container 用来解析账号凭据
+ * @param {string} accountId DSH 账号 id（`usage(getAuth)` 里认出来的那个）
+ */
+async function withRollingIncomeWindow(base, provider, container, accountId, log) {
+  const packages = Array.isArray(base?.windows) ? base.windows : []
+  if (packages.length === 0) return base
+  const key = `${provider}\u0000${String(accountId ?? '')}`
+  let income
+  const hit = monkeycodeWindowCache.get(key)
+  if (hit !== undefined && Date.now() - hit.at < MONKEYCODE_WINDOW_TTL_MS) {
+    income = hit.income
+  } else {
+    const credential = await credentialOfAccount(container, provider, accountId, log)
+    income = credential === undefined ? undefined : await monkeycodeIncome30d(provider, credential, log)
+    monkeycodeWindowCache.set(key, { at: Date.now(), income })
+  }
+  if (!Number.isFinite(income) || income <= 0) return base
+
+  const totalCredit = income / 1000
+  return {
+    ...base,
+    windows: packages.map((w) => {
+      // 只改「积分余额」那条（单位 credit）；每日额度（token）有上游真总额，不动
+      if (String(w?.unit ?? '') !== 'credit') return w
+      const rawLeft = typeof w.balance === 'number'
+        ? w.balance
+        : (typeof w.text === 'string' ? Number.parseFloat(w.text.replace(/[^\d.-]/g, '')) : Number.NaN)
+      // 负余额按 0 处理（用户口径：显示 0 = 已用尽，不显示成欠费）
+      const left = Number.isFinite(rawLeft) ? Math.max(0, rawLeft) : 0
+      const used = Math.min(100, Math.round(((totalCredit - left) / totalCredit) * 100))
+      return {
+        name: w.name,
+        unit: 'credit',
+        // 分母 = 近 30 天收入之和（滚动窗口：老收入自然退出，等价于 minimax 的包过期）
+        used,
+        display: `${fmtNum(left)} / ${fmtNum(totalCredit)} credit`,
+        amount: left,
+        limit: totalCredit,
+      }
+    }),
+  }
+}
+
+/**
  * 把本体的余额读数翻译成 magpie 的 `auth.usage` 返回形状。
  */
 function toMagpieUsage(reading, provider) {
@@ -2672,7 +2873,15 @@ export function makePlugin(dshProvider) {
                 ],
               }
             }
-            return toMagpieUsage(reading, dshProvider)
+            const base = toMagpieUsage(reading, dshProvider)
+            // MonkeyCode 两站：上游只给「收支净额」，没有积分包/有效期
+            //（`/wallet/credits` 等包接口全 404，交易流水也只有
+            // `inout_type/kind/amount/amount_balance/amount_daily/remark/created_at`）
+            // ⇒ 用**近 30 天收入之和**当总窗口，balance 当剩余。用户 2026-11-09 定的口径。
+            if (MONKEYCODE_PROVIDERS.has(dshProvider)) {
+              return await withRollingIncomeWindow(base, dshProvider, container, want, log)
+            }
+            return base
           } catch (e) {
             return { error: humanizeUsageError(e?.message ?? e), windows: [] }
           }
