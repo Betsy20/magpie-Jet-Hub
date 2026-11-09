@@ -518,6 +518,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 /* 「另有 N 已失效」：弱化的橙，与主数值的品牌蓝明确区分，也不跟「临期」抢注意力
    （上游 `jet-hub.js:330` 的注释：已失效额度用弱化橙，用量才用中性色）。 */
 .creditExpired { margin-left: 8px; font-size: 11px; color: var(--orange-ink); }
+/* 百智云每日桶的「非默认口径」小字（今日尚未领取 / 发放额超过固定值 / 领取状态未知）。
+   ⚠️ 必须**直显**而不是只挂 title：那一档数字（尤其是 0）不带解释会被读成「已经用光」。
+   用中性灰而不是橙：它解释的是数字含义，不是告警（橙色留给「临期 / 零点过期」）。 */
+.creditSplitNote { margin-left: 6px; font-size: 11px; color: var(--fg3); }
 /* 「旧」：这一行是**兼顶旧读数**（RPC 层查不到新的就回上一轮的，并带 error 说明）。
    ⚠️ 必须标出来 —— 否则用户看到过期积分却以为是最新的（`jet-hub-rpc.js:905-925` 的硬要求）。
    用中性灰框而不是橙色：它不是错误，只是「不是这一秒的数」。 */
