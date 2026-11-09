@@ -169,22 +169,38 @@ if (!replaced) {
 }
 
 const accountsCache = new Map()
+
+// `landedAccountOf` 要用账号列表，而 `listAccountsOf` 在切片**之前**（它属于缓存那
+// 一段）。这里照 `t-account-cache.mjs` 的做法把它也原样切进来 —— 不另写一份假实现，
+// 否则「缓存里躺着旧列表 ⇒ 认错存活卡」这类问题就测不到了。
+const LIST_FROM = 'async function listAccountsOf('
+const li = src.indexOf(LIST_FROM)
+const lj = src.indexOf('\n}\n', li)
+if (li < 0 || lj <= li) {
+  console.error('✗ 截不出 listAccountsOf：', { li, lj })
+  process.exit(1)
+}
+const listBody = src.slice(li, lj + 3)
+ok(/container\.rpc\('account\.list'/.test(listBody), '切出来的 listAccountsOf 真的走 account.list')
+
 const make = (container, log = () => {}) =>
   new Function(
     'container',
     'log',
     'accountsCache',
+    'ACCOUNTS_TTL_MS',
     // ⚠️ 常量用 `typeof` 兜一层：源码里把它们改名/删掉时，裸引用会让这个
     // `new Function` 在**调用时**抛 `ReferenceError`，表现为 exit=1 却 0 条 ✗ ——
     // 看不出是哪条断言红了（2026-10-29 三审指出）。兜成 NaN 之后，第 6.2 节
     // 的 `ok(gotStart, '源码里能读到 START_TIMEOUT_MS（读不到，常量改名了？）')`
     // 就会正常报一条可读的失败。
-    `${body}\nreturn { NO_NEW_ACCOUNT,`
+    `${listBody}\n${body}\nreturn { NO_NEW_ACCOUNT,`
       + ' CREATE_TIMEOUT_MS: typeof CREATE_TIMEOUT_MS === "undefined" ? NaN : CREATE_TIMEOUT_MS,'
       + ' START_TIMEOUT_MS: typeof START_TIMEOUT_MS === "undefined" ? NaN : START_TIMEOUT_MS,'
       + ' withDeadline, withRpcDeadline, startNewAccount, startNewAccountSmart, MAGICREW_CREATE_MODES,'
-      + ' pollLoginOnce, waitForLogin, abandonAccount }',
-  )(container, log, accountsCache)
+      + ' pollLoginOnce, waitForLogin, abandonAccount,'
+      + ' landedAccountOf: typeof landedAccountOf === "undefined" ? undefined : landedAccountOf }',
+  )(container, log, accountsCache, 15_000)
 
 /** 假容器：按队列依次吐出 `login.poll` 的返回值，并记录删了谁 */
 function fakeContainer({ create, polls = [] }) {
@@ -775,6 +791,138 @@ console.log('\n超级麦吉的 mode 分派：')
     }
     ok(err3 !== undefined && err3.includes('workbuddy'), '别家的空 URL 一律抛错（并点名 provider）')
   }
+}
+
+/* ── 6.95 判重转写：签入必须跟着存活的那条走（2026-11-09 实测的残留卡） ── */
+
+console.log('')
+console.log('判重转写后签入哪一条：')
+{
+  // 现场：重登同一个云号 ⇒ 容器层把新凭据转写给老卡、unset 新卡凭据、把新卡标成
+  // `OfficeAce <云号前8位>（重复，已停用）`。老写法把新壳卡 id 编进 key/uid 交给
+  // 宿主 save()，magpie 里就多一张 `API key …eae7` 卡，点它必报「凭据已失效」。
+  const NEW = 'officeace-485eeae7'
+  const OLD = 'officeace-ec7237f7'
+  const shell = {
+    id: NEW,
+    nickname: 'OfficeAce 01a0a421（重复，已停用）',
+    enabled: false,
+    credentialRef: 'OFFICEACE_ACCOUNT_9C7D5B4C',
+  }
+  const survivor = {
+    id: OLD,
+    nickname: 'OfficeAce 01a0a421',
+    enabled: true,
+    credentialRef: 'OFFICEACE_ACCOUNT_4F84283B',
+  }
+  // 假容器：account.list 吐给定行；credentialAlive 按「哪些 ref 还活着」回答。
+  const listContainer = (rows, aliveRefs) => ({
+    async rpc(method) {
+      if (method === 'account.list') return { accounts: rows }
+      throw new Error('没预期的 rpc: ' + method)
+    },
+    credentialAlive: (ref) => aliveRefs.includes(ref),
+  })
+  // 每条用例都要看到**新鲜**列表：accountsCache 是整个文件共用的，上一条留下的
+  // 行会让下一条读到别人的池子（TTL 15 秒内直接命中缓存）。
+  const landed = async (rows, aliveRefs, id, hit) => {
+    accountsCache.clear()
+    const c = listContainer(rows, aliveRefs)
+    return make(c).landedAccountOf(c, 'officeace', id, hit, () => {})
+  }
+
+  {
+    ok(
+      typeof make(listContainer([], [])).landedAccountOf === 'function',
+      '源码里有 landedAccountOf（改名/删了？）',
+    )
+    const got = await landed([shell, survivor], [survivor.credentialRef], NEW, shell)
+    ok(got.id === OLD, `壳卡 ⇒ 签入存活的老卡 ${OLD}（实际 ${got.id}）`)
+    ok(got.hit === survivor, '带回来的 hit 是存活卡本身（显示名要用它的昵称）')
+    ok(
+      got.id !== NEW,
+      '绝不把空壳新卡签进去（签了就是那张点不动的 `API key …` 卡）',
+    )
+  }
+
+  // 反转形态：老卡原本停用 ⇒ 容器层留新卡当存活卡、老卡标重复。新卡 enabled:true
+  // 且凭据在，判据不成立，必须原样返回 —— 否则会把登录签给一个停用的号。
+  {
+    const revived = { ...shell, nickname: 'OfficeAce 01a0a421', enabled: true }
+    const oldDisabled = { ...survivor, nickname: 'OfficeAce 01a0a421（重复，已停用）', enabled: false }
+    const got = await landed([revived, oldDisabled], [revived.credentialRef], NEW, revived)
+    ok(got.id === NEW, '反转形态（新卡才是存活卡）⇒ 原样签新卡')
+  }
+
+  // 用户自己停用的号：enabled:false 但**凭据还在** ⇒ 不是判重壳卡，别乱改签入对象。
+  // ⚠️ 昵称必须带真云号前缀、池里还得有一条同云号的存活卡 —— 否则「认不出云号」
+  // 那道闸门会先兜住，把「凭据还在就不算壳卡」这道闸门变异掉也照样绿（实测）。
+  {
+    const mine = { ...shell, nickname: 'OfficeAce 01a0a421', enabled: false }
+    const got = await landed([mine, survivor], [mine.credentialRef, survivor.credentialRef], NEW, mine)
+    ok(got.id === NEW, '自己停用的号（凭据还在）⇒ 原样返回，不当成判重壳卡')
+  }
+
+  // 认不出存活卡时一律退回新卡：宁可留一张壳卡，也不能把登录签给**别的号**。
+  {
+    const other = { ...survivor, nickname: 'OfficeAce 01a0c290' }
+    const got = await landed([shell, other], [other.credentialRef], NEW, shell)
+    ok(got.id === NEW, '池里没有同云号的存活卡 ⇒ 退回新卡（不猜别的号）')
+  }
+  {
+    // 云号必须**整段相等**：`…101a0a421` 也以 `01a0a421` 收尾，但那是另一个号。
+    // 用 endsWith 匹配就会把登录签给它 —— 这条是变异测试逼出来的。
+    const lookalike = { ...survivor, nickname: 'OfficeAce 9901a0a421' }
+    const got = await landed([shell, lookalike], [lookalike.credentialRef], NEW, shell)
+    ok(got.id === NEW, '云号只是后缀相同（另一个号）⇒ 退回新卡，不签给它')
+  }
+  {
+    const twin = { ...survivor, id: 'officeace-aaaaaaaa' }
+    const got = await landed([shell, survivor, twin], [survivor.credentialRef, twin.credentialRef], NEW, shell)
+    ok(got.id === NEW, '两条都像存活卡 ⇒ 分不清，退回新卡（不猜）')
+  }
+  {
+    // 存活卡凭据也读不到 ⇒ 它自己也是空壳，签过去照样点不动。
+    const got = await landed([shell, survivor], [], NEW, shell)
+    ok(got.id === NEW, '存活卡凭据也不在 ⇒ 退回新卡（不签给另一张空壳）')
+  }
+  {
+    // 昵称被用户改过 ⇒ 取不到云号前缀，退回新卡。
+    const renamed = { ...shell, nickname: '随便起的名字（重复，已停用）' }
+    const got = await landed([renamed, survivor], [survivor.credentialRef], NEW, renamed)
+    ok(got.id === NEW, '壳卡昵称被改过（认不出云号）⇒ 退回新卡')
+  }
+  {
+    // hit 拿不到（账号列表一时读失败）⇒ 保持老行为，用新卡 id。
+    const got = await landed([], [], NEW, undefined)
+    ok(got.id === NEW && got.hit === undefined, 'hit 缺失 ⇒ 退回新卡 id（保持老行为）')
+  }
+
+  // 源码守卫：callback() 真的用了 landedAccountOf，且 key/uid/metadata 三处都跟着它。
+  // 只断言「调了」不够 —— 调完不用（仍拿 accountId 编 key）是最容易的手滑。
+  // ⚠️ 从 `landedAccountOf(` 的**调用点**往前找 callback：源码里 `async authorize(`
+  // 有好几处（ask 分支也有一个），从第一个 authorize 往后找 callback 会落到别家去。
+  const callAt = src.indexOf('await landedAccountOf(')
+  const cbAt = src.lastIndexOf('async callback() {', callAt)
+  ok(callAt > 0 && cbAt > 0, '定位到了 callback() 里的 landedAccountOf 调用点')
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  // 切到 callback 自己的收尾（18 空格 + `},`）：从 `type: 'success'` 往后数固定
+  // 字符数会被中间那段注释的长度带着漂，注释一改断言就假红。
+  const cbEnd = src.indexOf('\n                  },', cbAt)
+  ok(cbEnd > cbAt, 'callback() 的收尾找得到（缩进变了？）')
+  const cbAll = strip(src.slice(cbAt, cbEnd))
+  ok(/await landedAccountOf\s*\(/.test(cbAll), 'callback() 里真的 await 了 landedAccountOf')
+  // ⚠️ 这条是变异测试逼出来的：只断言下面三处「用了 signedId」时，把
+  // `const signedId = landed.id` 改成 `= accountId` 照样全绿 —— 调了却不用，
+  // 正是最容易的手滑。所以必须钉住 signedId 的**来源**。
+  ok(/const signedId = landed\.id/.test(cbAll), 'signedId 取自 landed.id（不是新建的 accountId）')
+  ok(
+    /key: `jet-hub-local:\$\{dshProvider\}\/\$\{signedId\}`/.test(cbAll),
+    'callback() 的 key 用签入 id（不是新建 id）',
+  )
+  ok(/uid: signedId/.test(cbAll), 'callback() 的 uid 用签入 id')
+  ok(/dshAccountId: signedId/.test(cbAll), 'callback() 的 metadata.dshAccountId 用签入 id')
+  ok(/accountLabel\(landed\.hit/.test(cbAll), 'callback() 的显示名用存活卡的昵称（不是壳卡）')
 }
 
 /* ── 7. oauth 方法本身的形状 ── */

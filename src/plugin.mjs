@@ -1380,6 +1380,64 @@ function credentialAliveOf(container, ref) {
 }
 
 /**
+ * 这次新建的账号，最后该把哪一条签进 magpie。
+ *
+ * ## 为什么不能直接用新建的那个 id
+ *
+ * 容器层登录成功后会按云端身份判重（`jet-hub-rpc.js` 的 officeace / zcode 分支）：
+ * 同一个云号已经在池里 ⇒ 新凭据**转写给老卡**、新卡的凭据被 `unset`、新卡标成
+ * `…（重复，已停用）`。而 `login.poll` 只回 `{done:true,success:true}`，不告诉插件
+ * 「存活的是哪一条」。于是老写法把新壳卡的 id 编进 key/uid 交给宿主 `save()`：
+ * magpie 里就多出一张指向空壳的登录卡 —— 显示成 `API key …eae7`（宿主拿不到名字
+ * 时的兜底），点它必报「积分查询失败（凭据已失效）」，删了插件池的壳卡也清不掉它
+ * （2026-11-09 实测，用户连着踩了三次）。
+ *
+ * ## 判据与找法
+ *
+ * 壳卡有两个同时成立的特征：`enabled === false` **且**凭据已不在。只看 `enabled`
+ * 会把用户自己停用的号也算进来；只看凭据会把「凭据文件一时读不到」误判成壳。
+ *
+ * 存活卡靠**昵称里的云号前缀**认：容器层给壳卡写的是
+ * `OfficeAce <云号前 8 位>（重复，已停用）`，存活卡是 `OfficeAce <同一前 8 位>`。
+ * 前缀相同且凭据还在的那条就是它。认不出来（云号不足 8 位、昵称被用户改过、
+ * 存活卡凭据也读不到）⇒ 退回新卡 id：宁可留一张壳卡，也不能把登录签给**别的号**。
+ *
+ * ⚠️ 判重的「反转形态」（老卡原本是停用的）里，容器层把**新卡**留成存活卡、
+ * 老卡标重复停用 —— 那时新卡 `enabled:true` 且凭据在，这里的判据不成立，原样返回。
+ */
+async function landedAccountOf(container, provider, accountId, hit, log) {
+  const fallback = { id: accountId, hit }
+  if (hit === undefined || hit.enabled !== false) return fallback
+  if (credentialAliveOf(container, hit.credentialRef)) return fallback
+
+  // 壳卡昵称形如 `OfficeAce 01a0a421（重复，已停用）`：取「（」之前那截的最后一段。
+  const nick = String(hit.nickname ?? '').trim()
+  const head = nick.split('（')[0].trim()
+  const cloud = head.includes(' ') ? head.slice(head.lastIndexOf(' ') + 1) : ''
+  if (cloud.length < 8) return fallback
+
+  const rows = await listAccountsOf(container, provider, log)
+  const alive = rows.filter(
+    (a) =>
+      a !== null &&
+      typeof a === 'object' &&
+      String(a.id ?? '') !== accountId &&
+      a.enabled !== false &&
+      credentialAliveOf(container, a.credentialRef) &&
+      // 整段相等，不是 `endsWith`：`…101a0a421` 也以 `01a0a421` 收尾，那是**另一个号**。
+      String(a.nickname ?? '').split('（')[0].trim().split(' ').pop() === cloud,
+  )
+  // 只认唯一命中：两条都像 ⇒ 分不清是哪条，退回新卡（不猜）。
+  if (alive.length !== 1) return fallback
+  const survivor = alive[0]
+  log?.(
+    `[${provider}] 新账号 ${accountId} 被判重转写给了 ${survivor.id}（同一个云号 ${cloud}…）` +
+      '，签入改用存活的那条 —— 否则 magpie 里会留一张没有凭据的空壳登录卡',
+  )
+  return { id: String(survivor.id), hit: survivor }
+}
+
+/**
  * 账号在 magpie 里显示成什么。
  *
  * 昵称优先（用户认得 `user-g7h8`，不认得 `workbuddy-9c0d1e2f`），后接 id 尾巴
@@ -2767,6 +2825,10 @@ export function makePlugin(dshProvider) {
                     }
 
                     const hit = await accountById(container, dshProvider, accountId, log)
+                    // 判重可能把凭据转写给了老卡、把这条新卡留成空壳。签入必须跟着
+                    // **存活的那条**走，否则 magpie 里多一张点不动的 `API key …` 卡。
+                    const landed = await landedAccountOf(container, dshProvider, accountId, hit, log)
+                    const signedId = landed.id
                     let wide = 0
                     try {
                       fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
@@ -2778,11 +2840,11 @@ export function makePlugin(dshProvider) {
                       type: 'success',
                       // key 里编进账号 id：`dshAccountIdOf()` 靠它认回「这条 magpie 账号是哪个
                       // DSH 账号」，同时宿主 `settle()` 的 secret 分支（比 key 字符串）据此判重。
-                      key: `jet-hub-local:${dshProvider}/${accountId}`,
-                      accountId: `${accountLabel(hit ?? { id: accountId })}·已新建`
+                      key: `jet-hub-local:${dshProvider}/${signedId}`,
+                      accountId: `${accountLabel(landed.hit ?? { id: signedId })}·已新建`
                         + (wide > 0 ? `·上游 ${wide} 个模型` : ''),
-                      uid: accountId,
-                      metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: accountId },
+                      uid: signedId,
+                      metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: signedId },
                     }
                   },
                 }
