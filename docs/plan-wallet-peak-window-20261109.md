@@ -54,8 +54,18 @@
 
 ## 验证
 
-- `node tests/t-usage.mjs` 全绿，新增分组覆盖：水位首见/消耗/充电抬水位/0 余额用旧水位/
-  MonkeyCode 不受影响/总额度仅在同单位 ≥2 池时出现。
-- 反向验证：把 `walletPeakOf` 分支注释掉，新断言必须变红。
-- hcss2 部署后核 `quotas.json` 实渲染：`充值积分` 应为 `used/amount/limit` 形态（无 `balance`），
-  合计行应含 `/`。
+- `node tests/t-usage.mjs`：新增 10 条断言覆盖「白名单外的充值积分仍是钱包 / 首见 500·500 /
+  消耗后 420·500 已用 16% / 充值后抬到 820·820 / 合计行 699.96·699.96 / 消耗后 520·699.96 /
+  有窗口缺分母时不加 `/` / 只剩 aside 时不加 `/`」。
+- 新增 `tests/t-baseline-store.mjs`：真读写临时磁盘，锁持久化契约。
+- 反向验证（均已实测变红）：
+  - 注释掉钱包水位分支 + 关掉合计行 ⇒ `t-usage.mjs` **8 红**；
+  - 把 `saveDailyBaseline` 的保留条件改成只看 `day === today` ⇒ `t-baseline-store.mjs` **2 红**
+    （落盘的水位跨天丢失、`kind` 不再是 peak）；
+  - 让 `loadDailyBaseline` 丢弃无 `kind` 的老条目 ⇒ **1 红**（老文件兼容断言）。
+  - ⚠️ 踩到的假绿：只读不写时水位根本不经过 `saveDailyBaseline` 的保留条件，反证不会变红。
+    所以第 ② 组必须先刷一次每日桶触发落盘，才有判别力。
+- hcss2 部署后核 `quotas.json` 实渲染（2026-11-09 22:13，commit `0f9bd7f`）：
+  `{"name":"充值积分","used":0,"display":"500 / 500 credit","amount":500,"limit":500,"unit":"credit"}`
+  （无 `balance`），合计行 `699.96 / 699.96 credit`；梨花不写诗为
+  `650.39 / 650.39 credit` + 每日 `used:100`（已用光），合计行 `650.39 / 750.39 credit`。
