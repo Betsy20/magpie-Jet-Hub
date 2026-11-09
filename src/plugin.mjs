@@ -1475,6 +1475,18 @@ function mergePackages(list) {
     const used = Number(p?.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
     const until = Number(p?.deductionEndTime)
     const hasUntil = Number.isFinite(until) && until > 0
+    // 这一份包**有没有周期/到期**信息（三者任一非空即算有）。
+    // 它是「这是配额还是钱包」的关键判据之一，见下面 wallet 的注释。
+    const hasCycle =
+      hasUntil ||
+      String(p?.cycleStartTime ?? '').trim() !== '' ||
+      String(p?.cycleEndTime ?? '').trim() !== '' ||
+      String(p?.expiredTime ?? '').trim() !== ''
+    // ⚠️ `totalKnown === false` 是**上游明说**「只有余额、没有初始总额」。
+    // `vendor/lib/credits.d.ts:184-196` 的契约原文：此时 `total` 只能冗余填
+    // `remaining`，面板**不得**把两者并列显示，否则每次消耗后都是 `100/100 →
+    // 98/98` 这种「分母跟着余额跑」的假读数（用户 2026-11-05 报障）。
+    const totalKnownFalse = p?.totalKnown === false
     const key = `${name}\u0000${unit}`
     const cur = byKey.get(key)
     if (cur === undefined) {
@@ -1491,6 +1503,10 @@ function mergePackages(list) {
         until: hasUntil ? until : undefined,
         // 组内每个包的到期时间（去重升序）。合并后仍要能逐个报出来。
         untils: hasUntil ? [until] : [],
+        // 组内**任一份**是钱包 ⇒ 整组按钱包显示（合并只会让 total/remaining 更不可信）
+        anyTotalUnknown: totalKnownFalse,
+        // 组内**每一份**都没有周期信息 ⇒ 才有可能是钱包（见 toMagpieUsage）
+        allCycleless: !hasCycle,
       })
       continue
     }
@@ -1500,6 +1516,8 @@ function mergePackages(list) {
     cur.count += 1
     if (total > cur.each) cur.each = total
     cur.allInactive = cur.allInactive && p?.active === false
+    cur.anyTotalUnknown = cur.anyTotalUnknown || totalKnownFalse
+    cur.allCycleless = cur.allCycleless && !hasCycle
     if (hasUntil) {
       cur.untils.push(until)
       if (cur.until === undefined || until < cur.until) cur.until = until
@@ -1640,18 +1658,53 @@ function toMagpieUsage(reading, provider) {
     const total = Number(p.total) || 0
     const remaining = Number(p.remaining) || 0
     const used = Number(p.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
+    /**
+     * 这一条是**钱包**（只知道还剩多少）还是**配额**（知道总量、能算百分比）？
+     *
+     * ## 为什么必须分（2026-11-09 用户截图：所有渠道「剩余永远 100%」）
+     *
+     * magpie 画进度条用的是 `limit`（总量）当分母，文案是「剩余 N%」。当上游
+     * **只给余额、没有初始总额**时，我们把 `remaining` 冗余填进 `total` ⇒
+     * 分母 == 余额 ⇒ 刚查完就是 100%，消耗完又变 100%，**永远 100%**
+     * （截图里的 `817.04 / 817.04 · 剩余 100%`、`0 / 500` 全是这一条）。
+     *
+     * `vendor/lib/credits.d.ts:184-196` 早写死了这条契约：`totalKnown:false`
+     * 时面板**不得**把 `remaining` 与 `total` 并列。magpie 自己也有对应语义：
+     * 窗口给 `balance` 就只显示「N left」，**不画进度条**
+     * （`quotaNoShare(w)` 里 `w.balance != null` 即成立）。
+     *
+     * 判定（三者满足其一即钱包）：
+     *  ① 上游明说 `totalKnown === false`（百智充值积分、MonkeyCode 积分余额）；
+     *  ② 组内**每一份**都没有任何周期/到期字段（`cycleStart/End/expired/deductionEnd`
+     *     全空）—— 有周期的是配额（WorkBuddy Free Plan、Cline 的日额度等都有）；
+     *  ③ `total === remaining` 且 `used` 为 0 且无周期：从没扣减过的「总量=余额」
+     *     只可能是余额型（Cline 账户余额、ModelScope 魔粒、Raccoon 奖励积分…）。
+     *
+     * ⚠️ 反过来**不能**一刀切「无周期就当钱包」：codearts 的「赠送积分包」
+     * `cycleEndTime` 为空但有 `used=4.48`，那是真配额（`17100` 里扣了 4.48），
+     * 误判成钱包会让它丢掉进度条。
+     */
+    const wallet =
+      p.anyTotalUnknown === true ||
+      (total > 0 && p.allCycleless === true && used === 0 && total === remaining)
     const w = {
       // 名字带到期日（`签到奖励 ×31 · 10-30 到期`），理由见 windowName 的注释
       name: windowName(p),
+      unit: String(p?.unit ?? ''),
+    }
+    if (wallet) {
+      // 钱包：只报「还剩多少」，不给 limit/used —— magpie 见到 balance 就不画
+      // 进度条，只写「N left」。这是唯一诚实的显示：没有总量就不该编分母。
+      w.balance = remaining
+    } else {
       // used 是**已用百分比**（0–100），magpie 用它画进度条并写「剩余 100%」。
       // ⚠️ 别填 remaining —— 实测 astudio 会变成「0 / 6,200 · 剩余 100%」这种
       //    自相矛盾的卡片（显示剩余 0、进度条却是满的）。
-      used: total > 0 ? Math.round((used / total) * 100) : 0,
+      w.used = total > 0 ? Math.round((used / total) * 100) : 0
       // display 是**剩余 / 总额**（magpie 自己的文案就是「剩余 x%」，这里对齐它）
-      display: `${remaining} / ${total} ${p?.unit ?? ''}`.trim(),
-      amount: remaining,
-      limit: total,
-      unit: String(p?.unit ?? ''),
+      w.display = `${remaining} / ${total} ${p?.unit ?? ''}`.trim()
+      w.amount = remaining
+      w.limit = total
     }
     // 到期：`deductionEndTime` 是毫秒时间戳，`cycleEndTime` 是本地时间串
     if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until

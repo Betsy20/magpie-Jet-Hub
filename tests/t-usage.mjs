@@ -412,7 +412,15 @@ if (live()) {
     // 上游在「有快照 + 本次失败」时就是这个形状：数据在，另带一条 error。
     balance: {
       total: 100,
-      packages: [{ name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true }],
+      packages: [{
+        name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true,
+        // ⚠️ 必须有周期字段：本节的断言是「旧快照的数据别丢」，需要一个**确定是配额**
+        // 的包。没有周期的 `total===remaining && used===0` 包与钱包同形，会被
+        // toMagpieUsage 判成 wallet（只报 `N left`、不画分母），那时 display/used
+        // 本来就不该有 —— 那是另一条契约，见 t-usage.mjs 后面的钱包小节。
+        cycleStartTime: '2026-11-01 00:00:00',
+        cycleEndTime: '2026-11-30 23:59:59',
+      }],
     },
     error: '本次查询失败，显示的是上一次成功读到的数据（可能已过期）',
   }
@@ -656,6 +664,58 @@ if (live()) {
       `credits.status 侧也不该抛 product.id（实际 warn：${JSON.stringify(warns)}）—— 两处守卫都要在`,
     )
   }
+}
+
+// 钱包 vs 配额：没有初始总额就不能编分母（2026-11-09 用户报「剩余永远 100%」）。
+//
+// magpie 画进度条用 `limit` 当分母、文案「剩余 N%」。上游只给余额时我们把
+// remaining 冗余填进 total ⇒ 分母==余额 ⇒ 永远 100%。契约依据
+// `vendor/lib/credits.d.ts:184-196`（totalKnown:false 时面板不得并列显示）。
+// 判据：① 上游明说 totalKnown:false；② 组内每份都无周期 且 used==0 且 total==remaining
+//       ⇒ wallet（只给 balance，不给 limit/used，magpie 只写「N left」不画进度条）。
+{
+  console.log('')
+  const fs3 = await import('node:fs')
+  const src3 = fs3.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8').replace(/\r\n/g, String.fromCharCode(10))
+  const e3 = src3.indexOf('function writeCache(')
+  const fn3 = new Function(
+    'NAMES',
+    'humanizeUsageError',
+    src3.slice(src3.indexOf('function groupName('), e3) + String.fromCharCode(10) + 'return { toMagpieUsage }',
+  )({ baizhi: '百度云', cline: 'Cline', codearts: 'CodeArts' }, (x) => String(x))
+  const one = (pkgs) => fn3.toMagpieUsage(
+    { provider: 'x', accountId: 'a', nickname: 'n', balance: { total: 0, packages: pkgs } }, 'x',
+  )
+
+  // 实机形状（2026-11-09 hcss2 实测）：
+  // 百智云充值积分 total=817.04 remaining=817.04 totalKnown=false → 钱包
+  const uBz = one([{ name: '充值积分', unit: 'credit', remaining: 817.04, total: 817.04, used: 0, totalKnown: false, active: true }])
+  const bz = uBz.windows[0]
+  ok(bz && bz.balance === 817.04, `百智充值积分应给 balance=817.04（实际 ${JSON.stringify(bz?.balance)}）`)
+  ok(bz && bz.limit === undefined && bz.used === undefined,
+    `钱包不得给 limit/used（否则 magpie 画出 817.04/817.04 剩余 100%），实际 limit=${JSON.stringify(bz?.limit)} used=${JSON.stringify(bz?.used)}`)
+
+  // Cline 账户余额 / ModelScope 魔粒 / Raccoon 奖励积分：无周期、used=0、total==remaining
+  const uCl = one([{ name: 'Cline 账户余额', unit: 'USD', remaining: 5, total: 5, used: 0, active: true }])
+  ok(uCl.windows[0]?.balance === 5, `Cline 账户余额（无周期、恰好没用过）应判钱包（实际 ${JSON.stringify(uCl.windows[0]?.balance)}）`)
+
+  // 反例：codearts 赠送积分包 —— cycleEndTime 为空但 used=4.48，是真配额，必须仍画进度条
+  const uCa = one([{ name: '赠送积分包', unit: 'credit', remaining: 17095.52, total: 17100, used: 4.48, active: true }])
+  const ca = uCa.windows[0]
+  ok(ca && ca.limit === 17100 && ca.amount === 17095.52,
+    `codearts 赠送积分包（无周期但有消耗）必须仍是配额，实际 limit=${JSON.stringify(ca?.limit)} amount=${JSON.stringify(ca?.amount)}`)
+  ok(ca && ca.used === 0, `17100 里只用了 4.48 ⇒ 已用 0%（四舍五入），实际 ${JSON.stringify(ca?.used)}`)
+
+  // 反例：有周期的配额（WorkBuddy Free Plan）即便 total==remaining、used=0 也必须画进度条
+  const uWb = one([{ name: 'Free Plan', unit: 'credits', remaining: 100, total: 100, used: 0, active: true,
+    cycleStartTime: '2026-11-01 00:00:00', cycleEndTime: '2026-11-30 23:59:59' }])
+  ok(uWb.windows[0]?.limit === 100 && uWb.windows[0]?.balance === undefined,
+    `有周期的 Free Plan（未使用）必须仍是配额，实际 limit=${JSON.stringify(uWb.windows[0]?.limit)}`)
+
+  // 反例：百智云每日积分 totalKnown=true ⇒ 配额，进度条照画
+  const uD = one([{ name: '每日积分', unit: 'credit', remaining: 99.48, total: 100, used: 0.52, totalKnown: true, active: true }])
+  ok(uD.windows[0]?.limit === 100 && uD.windows[0]?.amount === 99.48,
+    `百智每日积分有真实总额 ⇒ 必须保留分母，实际 limit=${JSON.stringify(uD.windows[0]?.limit)}`)
 }
 
 if (problems.length) {
