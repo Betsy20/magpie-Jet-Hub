@@ -1867,9 +1867,23 @@ async function withRollingIncomeWindow(base, provider, container, accountId, log
     windows: packages.map((w) => {
       // 只改「积分余额」那条（单位 credit）；每日额度（token）有上游真总额，不动
       if (String(w?.unit ?? '') !== 'credit') return w
-      const rawLeft = typeof w.balance === 'number'
-        ? w.balance
-        : (typeof w.text === 'string' ? Number.parseFloat(w.text.replace(/[^\d.-]/g, '')) : Number.NaN)
+      /**
+       * 取「剩余」原值。
+       *
+       * ⚠️ `text` 形态（负数包被 `toMagpieUsage` 转成「已欠费 10.4 credit」）里
+       * **负号已经丢了** —— 那串文字是 `已欠费 <绝对值>`。这里若直接 parseFloat
+       * 会得到 +10.4，把「透支」误读成「还剩 10.4」。
+       * ⇒ 先判文案里有没有「欠费」，有就返回负数。
+       */
+      let rawLeft
+      if (typeof w.balance === 'number') {
+        rawLeft = w.balance
+      } else if (typeof w.text === 'string') {
+        const num = Number.parseFloat(w.text.replace(/[^\d.-]/g, ''))
+        rawLeft = Number.isFinite(num) && /欠费/.test(w.text) ? -Math.abs(num) : num
+      } else {
+        rawLeft = Number.NaN
+      }
       // 负余额按 0 处理（用户口径：显示 0 = 已用尽，不显示成欠费）
       const left = Number.isFinite(rawLeft) ? Math.max(0, rawLeft) : 0
       const used = Math.min(100, Math.round(((totalCredit - left) / totalCredit) * 100))
@@ -1878,7 +1892,9 @@ async function withRollingIncomeWindow(base, provider, container, accountId, log
         unit: 'credit',
         // 分母 = 近 30 天收入之和（滚动窗口：老收入自然退出，等价于 minimax 的包过期）
         used,
-        display: `${fmtNum(left)} / ${fmtNum(totalCredit)} credit`,
+        // `fmtNum` 会把 `700` 渲染成 `700`（整数不带 .00），所以这里统一两位小数，
+        // 免得出现「0 / 700 credit」这种一边有小数一边没有的读法。
+        display: `${left.toFixed(2)} / ${totalCredit.toFixed(2)} credit`,
         amount: left,
         limit: totalCredit,
       }

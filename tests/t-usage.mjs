@@ -870,6 +870,83 @@ if (live()) {
     `0/0 空包仍必须丢弃（否则画出「0/0、可用 100%」），实际 ${JSON.stringify(empty.windows.map((w) => w.name))}`)
 }
 
+// MonkeyCode「近 30 天收入之和为总窗口」（用户 2026-11-09 口径）。
+//
+// 上游没有积分包概念：`/wallet/credits` 等包接口全 404，流水
+// `inout_type/kind/amount/amount_balance/amount_daily/remark/created_at`
+// 不含任何到期时间；`/wallet` 只给标量 balance（单位千分之一积分，可为负）。
+// 账目实测吻合：4 个负余额账号的 balance 与「30 天收入 − 30 天支出」逐位相等。
+//
+// 这里测**纯函数部分**（不联网）：把 withRollingIncomeWindow 的改写逻辑抽出来
+// 求值，覆盖「负余额按 0」「分母=30天收入」「拿不到收入不改写」三条。
+{
+  console.log('')
+  const fs5 = await import('node:fs')
+  const src5 = fs5.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8').replace(/\r\n/g, String.fromCharCode(10))
+
+  // 从源码里截 withRollingIncomeWindow（它依赖 fmtNum，一并带上）
+  const iFn = src5.indexOf('async function withRollingIncomeWindow(')
+  ok(iFn > 0, '从 src/plugin.mjs 截到 withRollingIncomeWindow')
+  if (iFn > 0) {
+    const endFn = src5.indexOf('\n}\n', iFn)
+    const body = src5.slice(iFn, endFn + 3)
+    const iFmt = src5.indexOf('function fmtNum(')
+    const endFmt = src5.indexOf('\n}\n', iFmt)
+    const fmtBody = src5.slice(iFmt, endFmt + 3)
+    // 桩：credentialOfAccount 返回假凭据，monkeycodeIncome30d 返回指定收入
+    const make = (income) => new Function('fmtNum', 'MONKEYCODE_WINDOW_TTL_MS', 'monkeycodeWindowCache',
+      'credentialOfAccount', 'monkeycodeIncome30d',
+      fmtBody + String.fromCharCode(10) + body + String.fromCharCode(10) + 'return { withRollingIncomeWindow }',
+    )(
+      (n) => (Number.isInteger(n) ? String(n) : Number(n).toFixed(2)),
+      60_000,
+      new Map(),
+      async () => ({ session_cookie: 'x' }),
+      async () => income,
+    ).withRollingIncomeWindow
+
+    const mkBase = (unit, balance, text) => ({
+      plan: 'MonkeyCode',
+      windows: [
+        { name: '积分余额', unit, ...(balance === undefined ? {} : { balance }), ...(text === undefined ? {} : { text }) },
+        { name: '每日额度', unit: 'token', used: 0, display: '9560586 / 10000000 token', amount: 9560586, limit: 10000000 },
+      ],
+    })
+
+    // ① 负余额 ⇒ 剩余按 0，分母 700
+    const r1 = await make(700_000)(mkBase('credit', -16.616), 'monkeycode', {}, 'acc1', () => {})
+    const w1 = r1.windows.find((w) => w.name === '积分余额')
+    ok(w1 && w1.amount === 0, `负余额应显示 0（不是 -16.616），实际 ${JSON.stringify(w1?.amount)}`)
+    ok(w1 && w1.limit === 700, `分母应为 30 天收入 700，实际 ${JSON.stringify(w1?.limit)}`)
+    ok(w1 && w1.used === 100, `负余额 ⇒ 已用 100%，实际 ${JSON.stringify(w1?.used)}`)
+    ok(w1 && w1.display === '0.00 / 700.00 credit', `展示串应含 0 / 700，实际 ${JSON.stringify(w1?.display)}`)
+
+    // ② 正余额 ⇒ 正常算百分比
+    const r2 = await make(700_000)(mkBase('credit', 146.341), 'monkeycode', {}, 'acc2', () => {})
+    const w2 = r2.windows.find((w) => w.name === '积分余额')
+    ok(w2 && w2.amount === 146.341 && w2.limit === 700, `正余额应给 146.341/700，实际 ${JSON.stringify(w2?.amount)}/${JSON.stringify(w2?.limit)}`)
+    ok(w2 && w2.used === 79, `146.341/700 ⇒ 已用 79%，实际 ${JSON.stringify(w2?.used)}%`)
+
+    // ③ 每日额度（token）不能被改写 —— 它有上游真总额
+    const dayW = r2.windows.find((w) => w.name === '每日额度')
+    ok(dayW && dayW.limit === 10000000, `每日额度必须保持上游总额 10000000，实际 ${JSON.stringify(dayW?.limit)}`)
+
+    // ④ 拿不到收入 ⇒ 原样返回（退回钱包语义，不编分母）
+    const base4 = mkBase('credit', -16.616)
+    const r4 = await make(undefined)(base4, 'monkeycode', {}, 'acc4', () => {})
+    ok(r4 === base4, '拿不到 30 天收入时必须原样返回 base（不编造分母）')
+
+    // ⑤ 收入为 0 ⇒ 同样不改写（除以 0 会出 Infinity）
+    const r5 = await make(0)(base4, 'monkeycode', {}, 'acc5', () => {})
+    ok(r5 === base4, '收入为 0 时也不改写（避免除零）')
+
+    // ⑥ text 形态（负数走 text 窗口时的兜底解析）
+    const r6 = await make(700_000)(mkBase('credit', undefined, '已欠费 16.6 credit'), 'monkeycode', {}, 'acc6', () => {})
+    const w6 = r6.windows.find((w) => w.name === '积分余额')
+    ok(w6 && w6.amount === 0, `text 形态的负数也应解析成 0，实际 ${JSON.stringify(w6?.amount)}`)
+  }
+}
+
 if (problems.length) {
   console.log('✗ ' + problems.length + ' 处不符：')
   for (const p of problems) console.log('  ' + p)
