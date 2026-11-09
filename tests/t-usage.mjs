@@ -192,8 +192,24 @@ if (live()) {
     const { toMagpieUsage, windowName, dateLabel } = new Function(
       'NAMES',
       'humanizeUsageError',
+      // 切片范围（groupName…writeCache）不含这两个 —— 每日额度基线在文件更前面。
+      // 桩语义与 src 一致：**首见额度即分母**，之后不再变（测试里用全局表模拟）。
+      'isDailyPool',
+      'dailyTotalOf',
       body + String.fromCharCode(10) + 'return { mergePackages, toMagpieUsage, windowName, dateLabel }',
-    )(NAMES_FIXTURE, (x) => String(x))
+    )(
+      NAMES_FIXTURE,
+      (x) => String(x),
+      (name) => ['每日积分', '每日赠送', '每日额度', '每日签到奖励'].includes(String(name ?? '').trim()),
+      // 每个 key 记住第一次见到的余额当分母；之后只抬不降（与 src 的 dailyTotalOf 同语义）
+      (() => {
+        const base = new Map()
+        return (key, remaining) => {
+          if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+          return base.get(key)
+        }
+      })(),
+    )
 
     const big = { name: '每月登录赠送', unit: 'credits', remaining: 500, total: 500, used: 0, active: true, deductionEndTime: 1793462399000 }
     const small = Array.from({ length: 20 }, (_, i) => ({
@@ -400,10 +416,24 @@ if (live()) {
   const fn2 = new Function(
     'NAMES',
     'humanizeUsageError',
+    // 切片范围不含每日额度基线（它在文件更前面），必须注入桩，否则 ReferenceError。
+    'isDailyPool',
+    'dailyTotalOf',
     // 起点要在 mergePackages 之前：toMagpieUsage 会调它，截漏就 ReferenceError。
     // 起点要在 groupName 之前：它被 mergePackages 调用，截漏就 ReferenceError。
     src2.slice(src2.indexOf('function groupName('), b2) + String.fromCharCode(10) + 'return { toMagpieUsage, groupName }',
-  )({ officeace: 'OfficeAce' }, (x) => `已人化:${x}`)
+  )(
+    { officeace: 'OfficeAce' },
+    (x) => `已人化:${x}`,
+    (name) => ['每日积分', '每日赠送', '每日额度', '每日签到奖励'].includes(String(name ?? '').trim()),
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+  )
 
   const withSnapshot = {
     provider: 'officeace',
@@ -681,8 +711,21 @@ if (live()) {
   const fn3 = new Function(
     'NAMES',
     'humanizeUsageError',
+    'isDailyPool',
+    'dailyTotalOf',
     src3.slice(src3.indexOf('function groupName('), e3) + String.fromCharCode(10) + 'return { toMagpieUsage }',
-  )({ baizhi: '百度云', cline: 'Cline', codearts: 'CodeArts' }, (x) => String(x))
+  )(
+    { baizhi: '百度云', cline: 'Cline', codearts: 'CodeArts' },
+    (x) => String(x),
+    (name) => ['每日积分', '每日赠送', '每日额度', '每日签到奖励'].includes(String(name ?? '').trim()),
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+  )
   const one = (pkgs) => fn3.toMagpieUsage(
     { provider: 'x', accountId: 'a', nickname: 'n', balance: { total: 0, packages: pkgs } }, 'x',
   )
@@ -712,10 +755,41 @@ if (live()) {
   ok(uWb.windows[0]?.limit === 100 && uWb.windows[0]?.balance === undefined,
     `有周期的 Free Plan（未使用）必须仍是配额，实际 limit=${JSON.stringify(uWb.windows[0]?.limit)}`)
 
-  // 反例：百智云每日积分 totalKnown=true ⇒ 配额，进度条照画
-  const uD = one([{ name: '每日积分', unit: 'credit', remaining: 99.48, total: 100, used: 0.52, totalKnown: true, active: true }])
-  ok(uD.windows[0]?.limit === 100 && uD.windows[0]?.amount === 99.48,
-    `百智每日积分有真实总额 ⇒ 必须保留分母，实际 limit=${JSON.stringify(uD.windows[0]?.limit)}`)
+  // 每日积分桶：分母 = **当天首见额度**（用户 2026-11-09 定的口径）。
+  // 百智云每日发放额不固定：实测梨花 100、其余 4 个账号 200（上游
+  // `temporary_credit_cents: 19996`）。而 baizhi-credits 里
+  // `dailyTotal = max(100, temporary)` ⇒ 200 的账号分母==余额 ⇒ 永远 100%。
+  // 首次读到 199.96 时就以它为分母；后续消耗才算得出百分比。
+  const uD1 = one([{ name: '每日积分', unit: 'credit', remaining: 199.96, total: 199.96, used: 0, active: true }])
+  ok(uD1.windows[0]?.limit === 199.96 && uD1.windows[0]?.amount === 199.96,
+    `每日积分首见 199.96 ⇒ 分母取 199.96（不能用写死的 100），实际 limit=${JSON.stringify(uD1.windows[0]?.limit)}`)
+
+  // 同一账号第二次读数：余额降到 150、上游 total 仍给 199.96 ⇒ 分母**必须还是 199.96**
+  // 且已用 = (199.96-150)/199.96 ≈ 25%，不能变成「150/150 剩余 100%」。
+  const uD2 = fn3.toMagpieUsage({
+    provider: 'x', accountId: 'a', nickname: 'n',
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 150, total: 150, used: 0, active: true }] },
+  }, 'x')
+  ok(uD2.windows[0]?.limit === 199.96,
+    `同账号第二次读数分母应保持首见值 199.96，实际 ${JSON.stringify(uD2.windows[0]?.limit)}`)
+  ok(uD2.windows[0]?.used === 25,
+    `已用应为 25%（(199.96-150)/199.96），实际 ${JSON.stringify(uD2.windows[0]?.used)}%`)
+
+  // 当天中途补发（余额超过首见值）⇒ 基线抬高，避免「已用为负」
+  const uD3 = fn3.toMagpieUsage({
+    provider: 'x', accountId: 'a', nickname: 'n',
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 260, total: 260, used: 0, active: true }] },
+  }, 'x')
+  ok(uD3.windows[0]?.limit === 260 && uD3.windows[0]?.used === 0,
+    `余额涨到 260 ⇒ 基线抬到 260 且已用 0，实际 limit=${JSON.stringify(uD3.windows[0]?.limit)} used=${JSON.stringify(uD3.windows[0]?.used)}`)
+
+  // 不同账号各有各的发放额：另一个账号首见 99.48 ⇒ 分母 99.48（不串号）
+  const uD4 = fn3.toMagpieUsage({
+    provider: 'x', accountId: 'other', nickname: 'n',
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 99.48, total: 100, used: 0.52, active: true }] },
+  }, 'x')
+  ok(uD4.windows[0]?.limit === 99.48,
+    `另一个账号首见 99.48 ⇒ 分母 99.48（基线按账号隔离），实际 ${JSON.stringify(uD4.windows[0]?.limit)}`)
 }
 
 if (problems.length) {

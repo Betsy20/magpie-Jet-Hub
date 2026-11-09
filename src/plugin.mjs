@@ -672,6 +672,98 @@ const BALANCE_TTL_MS = 90_000
 /** @type {Map<string, {at:number, reading:object|undefined}>} */
 const balanceCache = new Map()
 
+/* ── 每日额度基线（当天首见额度当分母）────────────────────────────────────
+ *
+ * 用户 2026-11-09 定的口径：「每日限时的积分以首次获取的额度作为窗口」。
+ *
+ * 为什么需要它：百智云的每日积分发放额**不是固定 100** —— 实测同一时刻
+ * 梨花不写诗 100、其余 4 个账号 200（上游 `temporary_credit_cents: 19996`）。
+ * 而 `vendor/lib/baizhi-credits.js:259` 把分母写死成
+ * `Math.max(100, temporary)` ⇒ 200 的账号显示 `199.96 / 199.96`，
+ * 分母还是等于余额 ⇒ 进度条永远 100%，与「分母跟着余额跑」是同一个病。
+ *
+ * 解法：每天第一次读到某个每日额度包时，把那一刻的 `remaining` 记下来当分母，
+ * 当天后续都按它算。跨天（本地日期变了）基线重置 —— 因为每日额度是零点重置的。
+ *
+ * ⚠️ 只对**每日桶**生效（名字精确等于「每日积分/每日赠送/每日额度」之一，
+ * 与上游客户端 `DAILY_POOL_NAMES` 同口径）。充值/长期包不走这里 ——
+ * 它们没有周期重置，首见值不是分母（那是钱包，交给 balance 语义）。
+ *
+ * 存储位置：与模型缓存同目录的 `jet-hub-daily-baseline.json`（容器层，
+ * 丢了最多让当天第一次读数退化成钱包语义，不影响正确性）。
+ */
+const DAILY_POOL_NAMES = ['每日积分', '每日赠送', '每日额度', '每日签到奖励']
+/** @type {Map<string, {day:string, total:number}>} */
+const dailyBaseline = new Map()
+let dailyBaselineLoaded = false
+
+const dailyBaselineFileOf = () =>
+  process.env.JET_HUB_DAILY_BASELINE
+  || join(homedir(), '.config', 'magpie', 'jet-hub-daily-baseline.json')
+
+/** 本地日历日（YYYY-MM-DD）。每日额度按**本地**零点重置，不能用 UTC。 */
+function localDay(now = Date.now()) {
+  const d = new Date(now)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function loadDailyBaseline() {
+  if (dailyBaselineLoaded) return
+  dailyBaselineLoaded = true
+  try {
+    const j = JSON.parse(readFileSync(dailyBaselineFileOf(), 'utf8'))
+    if (j !== null && typeof j === 'object' && !Array.isArray(j)) {
+      for (const [k, v] of Object.entries(j)) {
+        if (v && typeof v.day === 'string' && Number.isFinite(Number(v.total))) {
+          dailyBaseline.set(k, { day: v.day, total: Number(v.total) })
+        }
+      }
+    }
+  } catch { /* 没有文件是正常情况（首次运行） */ }
+}
+
+function saveDailyBaseline() {
+  try {
+    const out = {}
+    // 只留今天的：昨天的基线明天必然失效（每日额度零点重置），留着只是垃圾。
+    const today = localDay()
+    for (const [k, v] of dailyBaseline) if (v.day === today) out[k] = v
+    mkdirSync(dirname(dailyBaselineFileOf()), { recursive: true })
+    writeFileSync(dailyBaselineFileOf(), JSON.stringify(out, null, 2))
+  } catch { /* 写不进去不影响读数正确性，下次重新采基线即可 */ }
+}
+
+/**
+ * 取（或采）某个每日额度包今天的基线分母。
+ *
+ * @param {string} key  `<provider>|<accountId>|<包名>`
+ * @param {number} remaining 当下余额
+ * @returns {number} 今天的分母（≥ remaining，保证「已用」不会是负数）
+ */
+function dailyTotalOf(key, remaining) {
+  loadDailyBaseline()
+  const today = localDay()
+  const hit = dailyBaseline.get(key)
+  // 跨天 ⇒ 重置：今天第一次读到就是今天的新基线
+  if (hit === undefined || hit.day !== today) {
+    dailyBaseline.set(key, { day: today, total: remaining })
+    saveDailyBaseline()
+    return remaining
+  }
+  // 余额**超过**首见值（当天中途补发/叠加活动）⇒ 抬高基线，
+  // 否则会出现「剩余 120 / 基线 100」这种已用为负的倒挂。
+  if (remaining > hit.total) {
+    hit.total = remaining
+    saveDailyBaseline()
+  }
+  return hit.total
+}
+
+/** 这条包名是不是「每日额度」桶（精确匹配，与上游 DAILY_POOL_NAMES 同口径）。 */
+function isDailyPool(name) {
+  return DAILY_POOL_NAMES.includes(String(name ?? '').trim())
+}
+
 /* ── 按账号：列出 / 解析 ──────────────────────────────────────────────────
  *
  * magpie 侧「一个 provider 多个账号」要求插件能做两件事：
@@ -1692,10 +1784,37 @@ function toMagpieUsage(reading, provider) {
       name: windowName(p),
       unit: String(p?.unit ?? ''),
     }
-    if (wallet) {
+    /**
+     * 每日额度桶：分母用**当天首见额度**，不用上游那个不可信（或缺失）的 total。
+     *
+     * 用户 2026-11-09 定的口径：「每日限时的积分以首次获取的额度作为窗口」。
+     * 例：百智云每日发放 200 的账号，`buildBaizhiBalance` 给的是
+     * `total = max(100, 199.96) = 199.96` ⇒ 分母==余额 ⇒ 永远 100%。
+     * 这里改用那天第一次看到的余额（199.96）当分母，之后消耗才算得出百分比。
+     *
+     * ⚠️ 只对**每日桶**（名字精确匹配 DAILY_POOL_NAMES）生效；充值/长期包
+     * 没有周期重置，首见值不是分母 —— 那是钱包，走上面的 balance 语义。
+     * ⚠️ 基线 key 必须带账号：同家渠道多个账号各有各的发放额（100 / 200 不等）。
+     */
+    const acctId = String(reading?.accountId ?? reading?.id ?? '')
+    const dailyKey = `${provider}\u0000${acctId}\u0000${p.name}`
+    const isDaily = isDailyPool(p.name)
+    if (isDaily && remaining > 0) {
+      // 采/取当天基线；它必然 ≥ remaining（见 dailyTotalOf 的抬高逻辑）
+      p.dailyTotal = dailyTotalOf(dailyKey, remaining)
+    }
+    if (wallet && !isDaily) {
       // 钱包：只报「还剩多少」，不给 limit/used —— magpie 见到 balance 就不画
       // 进度条，只写「N left」。这是唯一诚实的显示：没有总量就不该编分母。
       w.balance = remaining
+    } else if (isDaily && p.dailyTotal > 0) {
+      // 每日桶：分母 = 当天首见额度（不是上游那个可能等于余额的 total）
+      const base = p.dailyTotal
+      const dayUsed = Math.max(0, Math.round((base - remaining) * 100) / 100)
+      w.used = Math.min(100, Math.round((dayUsed / base) * 100))
+      w.display = `${remaining} / ${base} ${p?.unit ?? ''}`.trim()
+      w.amount = remaining
+      w.limit = base
     } else {
       // used 是**已用百分比**（0–100），magpie 用它画进度条并写「剩余 100%」。
       // ⚠️ 别填 remaining —— 实测 astudio 会变成「0 / 6,200 · 剩余 100%」这种
