@@ -1713,10 +1713,19 @@ function toMagpieUsage(reading, provider) {
   // ⚠️ 过滤 total=0 的空套餐：本体照样会返回 `{total:0, remaining:0}` 的条目
   //    （astudio 的「会员积分」实测就是这样），画成卡片就是「0/0、可用 100%」，
   //    纯误导。有 remaining 没有 total 的（按量计费）保留。
+  //
+  // ⚠️⚠️ **负数必须保留**（2026-11-09 用户报「都变成负数了，还不如之前的」）：
+  //    MonkeyCode 欠费账号的「积分余额」上游给的是 `total=-10.402,
+  //    remaining=-10.402`（实测 3 个账号：-10.402 / -39.721 / -16.616）。
+  //    旧过滤式只留 `> 0`，把这条**整个丢掉** ⇒ 卡片上一点欠费痕迹都没有，
+  //    用户反而看不到「这个号已经透支了」。⇒ 改成只掐掉「恰好都是 0」的空包。
   const packages = mergePackages(
-    (Array.isArray(b.packages) ? b.packages : []).filter(
-      (p) => (Number(p?.total) || 0) > 0 || (Number(p?.remaining) || 0) > 0,
-    ),
+    (Array.isArray(b.packages) ? b.packages : []).filter((p) => {
+      const t = Number(p?.total) || 0
+      const r = Number(p?.remaining) || 0
+      // 空包判定：total 与 remaining **都为 0** 才丢（负数是真实欠费，要留）
+      return t !== 0 || r !== 0
+    }),
   )
   // 排序：**快到期的排前面**，aside（已失效）压到最后。
   //
@@ -1799,9 +1808,44 @@ function toMagpieUsage(reading, provider) {
     const acctId = String(reading?.accountId ?? reading?.id ?? '')
     const dailyKey = `${provider}\u0000${acctId}\u0000${p.name}`
     const isDaily = isDailyPool(p.name)
-    if (isDaily && remaining > 0) {
+    /**
+     * 只有**上游没给可信总额**的每日桶才需要自采基线。
+     *
+     * ⚠️⚠️ 2026-11-09 回归（用户报「都变成负数了，还不如之前的」）：
+     * 第一版对**所有**每日桶都采基线 ⇒ MonkeyCode 的「每日额度」（上游给了真总额
+     * `10000000`、已用 439414）被写成基线 `9560586`（当时的**残值**）⇒ 显示
+     * `9560586 / 9560586 · 剩余 0%` —— 比修复前的
+     * `9560586 / 10000000 · 剩余 4%` 更糟，是我引入的回归。
+     *
+     * 判据：**上游 total 可信**（`total > 0` 且没被标 `totalKnown:false`）
+     * ⇒ 直接用上游的，**不采基线**。只有上游没给真总额（百智云那种
+     * `total = max(100, 余额)` 的假分母）才需要自采当天首见值。
+     */
+    const upstreamTotalTrusted = total > 0 && p.anyTotalUnknown !== true
+    if (isDaily && remaining > 0 && !upstreamTotalTrusted) {
       // 采/取当天基线；它必然 ≥ remaining（见 dailyTotalOf 的抬高逻辑）
       p.dailyTotal = dailyTotalOf(dailyKey, remaining)
+    }
+    /**
+     * 欠费（余额为负）：上游真的会下发负数 —— MonkeyCode 实测
+     * `total=-10.402, remaining=-10.402`（透支扣费）。
+     *
+     * 这种包**不能**按金额画进度条（负的 amount/limit 会让 magpie 的百分比
+     * 计算失控），也不该被隐藏（用户要知道这个号已经透支）。用 magpie 的
+     * `text` 窗口：它只显示这行文字，不画进度条、不参与百分比。
+     * ⚠️ `text` 优先于一切（`quotaNoShare` 的 `!!w.text` 第一条件），
+     * 所以这里必须**提前返回**，不要再去填 amount/limit。
+     */
+    if (remaining < 0) {
+      const u = String(p?.unit ?? '').trim()
+      const w = {
+        name: windowName(p),
+        unit: u,
+        // 「-10.4 credit」+ 说明，别写 left（负数说 left 读着是反的）
+        text: `已欠费 ${fmtNum(Math.abs(remaining))} ${u}`.trim(),
+      }
+      if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
+      return w
     }
     if (wallet && !isDaily) {
       // 钱包：只报「还剩多少」，不给 limit/used —— magpie 见到 balance 就不画
@@ -1853,11 +1897,28 @@ function toMagpieUsage(reading, provider) {
   const unit = packages[0]?.unit ?? '积分'
   // 最早到期的那一份：magpie 用它显示「订阅到 X 到期」
   const untils = windows.map((w) => w.resetsAt).filter((t) => Number.isFinite(t) && t > 0)
+  /**
+   * 合计行：`balance` 是 magpie 卡片右上那行「余额 N 单位」。
+   *
+   * ⚠️⚠️ 2026-11-09 回归（用户报「都变成负数了」）：MonkeyCode 的
+   * `balance.total` 是上游逐账号汇总值，**欠费账号本来就是负的**
+   * （实测 -10.402 / -39.721 / -16.616，上游原样下发）。这不是我们算错，
+   * 但直接把负号铺在最显眼的合计行上，用户会以为整个渠道坏了。
+   *
+   * 处置：合计行**不再单列一个可能为负的汇总数**，改成按包逐个报 ——
+   * 这正是用户当初要的「看得懂」：MonkeyCode 卡片显示
+   * `积分余额 -10.4 credit`、`每日额度 0 / 10,000,000 token · 剩余 0%`，
+   * 负数只出现在**它真正所属的那个包**上，不再冒充整家渠道的总余额。
+   *
+   * ⚠️ 单位也别拿 `packages[0].unit` 硬套历史合计（MonkeyCode 第一个包是
+   * `credit`、合计却是 token 计的数字，旧码因此显示成「146.34 token」）。
+   * 合计为 0/负时干脆不写 balance，交给 windows 各行自己带单位。
+   */
+  const balanceText = total > 0 ? `${fmtNum(total)} ${unit}`.trim() : ''
   return {
     plan,
     user: reading?.nickname !== undefined ? String(reading.nickname) : '',
-    // `total` 是原始浮点，必须过 fmtNum —— 见它的注释（magpie 不格式化 balance）
-    balance: `${fmtNum(total)} ${unit}`.trim(),
+    ...(balanceText === '' ? {} : { balance: balanceText }),
     ...(untils.length ? { until: Math.min(...untils) } : {}),
     windows,
   }

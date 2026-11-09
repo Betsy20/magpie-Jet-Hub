@@ -760,7 +760,11 @@ if (live()) {
   // `temporary_credit_cents: 19996`）。而 baizhi-credits 里
   // `dailyTotal = max(100, temporary)` ⇒ 200 的账号分母==余额 ⇒ 永远 100%。
   // 首次读到 199.96 时就以它为分母；后续消耗才算得出百分比。
-  const uD1 = one([{ name: '每日积分', unit: 'credit', remaining: 199.96, total: 199.96, used: 0, active: true }])
+  // ⚠️ totalKnown:false 是关键：百智云发放额超过写死的 100 时，vendor 的
+  // `buildBaizhiBalance` 会标 totalKnown:false（dailyExcess 分支）—— 只有这种
+  // 「上游没给可信总额」的情况才走自采基线。给了真总额的每日桶（MonkeyCode
+  // 的 10000000）必须直接用上游值，见本文件后面的回归断言。
+  const uD1 = one([{ name: '每日积分', unit: 'credit', remaining: 199.96, total: 199.96, used: 0, totalKnown: false, active: true }])
   ok(uD1.windows[0]?.limit === 199.96 && uD1.windows[0]?.amount === 199.96,
     `每日积分首见 199.96 ⇒ 分母取 199.96（不能用写死的 100），实际 limit=${JSON.stringify(uD1.windows[0]?.limit)}`)
 
@@ -768,7 +772,7 @@ if (live()) {
   // 且已用 = (199.96-150)/199.96 ≈ 25%，不能变成「150/150 剩余 100%」。
   const uD2 = fn3.toMagpieUsage({
     provider: 'x', accountId: 'a', nickname: 'n',
-    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 150, total: 150, used: 0, active: true }] },
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 150, total: 150, used: 0, totalKnown: false, active: true }] },
   }, 'x')
   ok(uD2.windows[0]?.limit === 199.96,
     `同账号第二次读数分母应保持首见值 199.96，实际 ${JSON.stringify(uD2.windows[0]?.limit)}`)
@@ -778,7 +782,7 @@ if (live()) {
   // 当天中途补发（余额超过首见值）⇒ 基线抬高，避免「已用为负」
   const uD3 = fn3.toMagpieUsage({
     provider: 'x', accountId: 'a', nickname: 'n',
-    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 260, total: 260, used: 0, active: true }] },
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 260, total: 260, used: 0, totalKnown: false, active: true }] },
   }, 'x')
   ok(uD3.windows[0]?.limit === 260 && uD3.windows[0]?.used === 0,
     `余额涨到 260 ⇒ 基线抬到 260 且已用 0，实际 limit=${JSON.stringify(uD3.windows[0]?.limit)} used=${JSON.stringify(uD3.windows[0]?.used)}`)
@@ -786,10 +790,84 @@ if (live()) {
   // 不同账号各有各的发放额：另一个账号首见 99.48 ⇒ 分母 99.48（不串号）
   const uD4 = fn3.toMagpieUsage({
     provider: 'x', accountId: 'other', nickname: 'n',
-    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 99.48, total: 100, used: 0.52, active: true }] },
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 99.48, total: 100, used: 0.52, totalKnown: false, active: true }] },
   }, 'x')
   ok(uD4.windows[0]?.limit === 99.48,
     `另一个账号首见 99.48 ⇒ 分母 99.48（基线按账号隔离），实际 ${JSON.stringify(uD4.windows[0]?.limit)}`)
+}
+
+// 回归：有真实总额的每日桶**不能**被自采基线覆盖；负余额要保留且不画进度条。
+//
+// 用户 2026-11-09 报「这都变成负数了，还不如之前的」—— 两处都是我先引入的：
+//  ① 第一版对**所有**每日桶采基线 ⇒ MonkeyCode「每日额度」（真总额 10000000、
+//     已用 439414）被写成基线 9560586（当时残值）⇒ `9560586 / 9560586 · 剩余 0%`，
+//     比修复前的 `9560586 / 10000000 · 剩余 4%` 更糟。
+//  ② 过滤 `total>0 || remaining>0` 把 MonkeyCode 欠费账号的
+//     `积分余额 total=-10.402` **整条丢掉** ⇒ 卡片上毫无欠费痕迹。
+{
+  console.log('')
+  const fs4 = await import('node:fs')
+  const src4 = fs4.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8').replace(/\r\n/g, String.fromCharCode(10))
+  const f4 = src4.indexOf('function writeCache(')
+  const fn4 = new Function(
+    'NAMES', 'humanizeUsageError', 'isDailyPool', 'dailyTotalOf',
+    src4.slice(src4.indexOf('function groupName('), f4) + String.fromCharCode(10) + 'return { toMagpieUsage }',
+  )(
+    { monkeycode: 'MonkeyCode' },
+    (x) => String(x),
+    (name) => ['每日积分', '每日赠送', '每日额度', '每日签到奖励'].includes(String(name ?? '').trim()),
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+  )
+
+  // ① MonkeyCode 正常账号：每日额度有真总额 ⇒ 必须直接用 10000000
+  const mc = fn4.toMagpieUsage({
+    provider: 'monkeycode', accountId: 'mc1', nickname: 'n',
+    balance: { total: 146.341, packages: [
+      { name: '积分余额', unit: 'credit', remaining: 146.341, total: 146.341, used: 0, totalKnown: false, active: true },
+      { name: '每日额度', unit: 'token', remaining: 9560586, total: 10000000, used: 439414, active: true },
+    ] },
+  }, 'monkeycode')
+  const day = mc.windows.find((w) => String(w.name).startsWith('每日额度'))
+  ok(day && day.limit === 10000000,
+    `有真总额的每日额度必须用上游 10000000 当分母（不能被首见残值 9560586 覆盖），实际 ${JSON.stringify(day?.limit)}`)
+  ok(day && day.amount === 9560586 && day.used === 4,
+    `应显示 9560586 / 10000000 · 已用 4%，实际 amount=${JSON.stringify(day?.amount)} used=${JSON.stringify(day?.used)}`)
+
+  // ② MonkeyCode 欠费账号：负数包必须保留，且用 text 窗口（不画进度条）
+  const od = fn4.toMagpieUsage({
+    provider: 'monkeycode', accountId: 'mc2', nickname: 'n',
+    balance: { total: -10.402, packages: [
+      { name: '积分余额', unit: 'credit', remaining: -10.402, total: -10.402, used: 0, totalKnown: false, active: true },
+      { name: '每日额度', unit: 'token', remaining: 0, total: 10000000, used: 10000000, active: true },
+    ] },
+  }, 'monkeycode')
+  const owed = od.windows.find((w) => String(w.name).startsWith('积分余额'))
+  ok(owed !== undefined, '欠费账号的负数「积分余额」不能被过滤掉（否则卡片毫无欠费痕迹）')
+  ok(owed && typeof owed.text === 'string' && owed.text.includes('欠费'),
+    `负数包应给 text「已欠费 …」，实际 ${JSON.stringify(owed?.text)}`)
+  ok(owed && owed.limit === undefined && owed.used === undefined && owed.balance === undefined,
+    `负数包不得带 limit/used/balance（负值会让百分比失控），实际 limit=${JSON.stringify(owed?.limit)} used=${JSON.stringify(owed?.used)} balance=${JSON.stringify(owed?.balance)}`)
+  // 汇总 balance 行不铺负数（否则整家渠道看起来像坏了）
+  ok(od.balance === undefined,
+    `合计为负时不写 balance 行（交给各包自己报），实际 ${JSON.stringify(od.balance)}`)
+
+  // ③ 恰为 0/0 的空包仍必须被丢掉（astudio 的「会员积分」实测形状）
+  const empty = fn4.toMagpieUsage({
+    provider: 'astudio', accountId: 'a', nickname: 'n',
+    balance: { total: 7200, packages: [
+      { name: '会员积分', unit: 'credit', remaining: 0, total: 0, used: 0, active: true },
+      { name: '赠送积分', unit: 'credit', remaining: 7200, total: 7200, used: 0, active: true,
+        cycleStartTime: '2026-11-01 00:00:00', cycleEndTime: '2026-11-30 23:59:59' },
+    ] },
+  }, 'astudio')
+  ok(empty.windows.length === 1 && !empty.windows.some((w) => String(w.name).includes('会员积分')),
+    `0/0 空包仍必须丢弃（否则画出「0/0、可用 100%」），实际 ${JSON.stringify(empty.windows.map((w) => w.name))}`)
 }
 
 if (problems.length) {
