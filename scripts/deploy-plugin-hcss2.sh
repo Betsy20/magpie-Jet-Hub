@@ -8,7 +8,14 @@
 # 用法：
 #   bash scripts/deploy-plugin-hcss2.sh            # 校验 + 远端更新 + 重启 + 探针
 #   bash scripts/deploy-plugin-hcss2.sh --check    # 只做本地/远端版本校验，不动服务器
+#   bash scripts/deploy-plugin-hcss2.sh --no-restart  # 更新插件但不重启（下个自然重启生效）
+#   bash scripts/deploy-plugin-hcss2.sh --restart-anyway  # 有在途流也强制重启
 #   DRY_RUN=1 bash scripts/deploy-plugin-hcss2.sh  # 只打印将要执行的动作
+#
+# ⚠️ 重启会**硬切所有在途 SSE 流**（magpie 无 drain/reload；用户 2026-11-09 报
+#    `upstream stream ended before a completion event` 就是它）。所以默认重启前
+#    会查 :3425 的活跃连接：有任何非本机 established 连接就等（最多 120s），
+#    仍不静默则**拒绝重启**（插件已装好，可稍后重跑或 --restart-anyway）。
 #
 # 前置：本地分支已推到 fork 且 main 已快进（脚本会校验 fork main==本地 HEAD，
 #       不一致直接失败，避免「服务器装到旧版」的静默错误）。
@@ -36,7 +43,15 @@ MAGPIE_BUN="/opt/magpie/cache/magpie/bun/1.4.4/magpie-bun"
 MAGPIE_ENV="HOME=/opt/magpie/home XDG_CONFIG_HOME=/opt/magpie/config XDG_CACHE_HOME=/opt/magpie/cache MAGPIE_NPM_REGISTRY=https://registry.npmmirror.com MAGPIE_GITHUB_MIRROR=https://gh-proxy.com"
 
 CHECK_ONLY=0
-[[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
+NO_RESTART=0
+RESTART_ANYWAY=0
+for arg in "$@"; do
+  case "${arg}" in
+    --check) CHECK_ONLY=1 ;;
+    --no-restart) NO_RESTART=1 ;;
+    --restart-anyway) RESTART_ANYWAY=1 ;;
+  esac
+done
 LOG_MARK_LINE=1
 REMOTE_MUTATED=0
 
@@ -155,11 +170,40 @@ info "node_modules console.js 含 formatBaizhiPoolSplit：${HITS:-0} 处"
 [[ "${HITS:-0}" -gt 0 ]] || die "安装后的代码不含本地修复（装到旧版了？）"
 
 # ---------------------------------------------------------------------------
-# [6/7] 重启
+# [6/7] 重启（带在途流排空保护）
 # ---------------------------------------------------------------------------
-log "[6/7] 重启 magpie.service"
-LOG_MARK_LINE="$(rsh "wc -l < /var/log/magpie.log" | tr -d ' ')"
-rsh "systemctl restart magpie"
+if [[ "${NO_RESTART}" == "1" ]]; then
+  log "[6/7] --no-restart：跳过重启（插件文件已更新，下次 magpie 重启后生效）"
+else
+  log "[6/7] 检查在途流（:3425 established）"
+  busy_snapshot() {
+    rsh "ss -tn state established '( sport = :3425 )' 2>/dev/null | awk 'NR>1 && \$5 != \"127.0.0.1:3425\" && \$5 != \"1.95.121.143:3425\" {print \$5}' | sort -u" || true
+  }
+  ACTIVE="$(busy_snapshot)"
+  if [[ -n "${ACTIVE}" ]]; then
+    info "有在途连接："; printf '%s\n' "${ACTIVE}" | sed 's/^/      /'
+    if [[ "${RESTART_ANYWAY}" == "1" ]]; then
+      warn "--restart-anyway：强制重启（会掐断这些流）"
+    else
+      info "等待在途流结束（最多 120s）……"
+      waited=0
+      while [[ -n "${ACTIVE}" && "${waited}" -lt 120 ]]; do
+        sleep 5; waited=$((waited + 5))
+        ACTIVE="$(busy_snapshot)"
+      done
+      if [[ -n "${ACTIVE}" ]]; then
+        warn "仍有在途连接（${waited}s）："
+        printf '%s\n' "${ACTIVE}" | sed 's/^/      /'
+        die "为避免掐断正在跑的会话，拒绝自动重启。插件已装好；稍后重跑本脚本，或加 --restart-anyway 强制。"
+      fi
+      info "在途流已清空（等待 ${waited}s）"
+    fi
+  else
+    info "无在途连接，可以安全重启"
+  fi
+  LOG_MARK_LINE="$(rsh "wc -l < /var/log/magpie.log" | tr -d ' ')"
+  rsh "systemctl restart magpie"
+fi
 
 # ---------------------------------------------------------------------------
 # [7/7] 探针
@@ -180,6 +224,12 @@ info "gateway https  -> ${tls_code:-<none>}（期望非 000）"
 LOAD_ERR="$(rsh "tail -n +${LOG_MARK_LINE} /var/log/magpie.log | grep -c \"didn't load\" 2>/dev/null || true")"
 info "重启后 \"didn't load\"：${LOAD_ERR:-0} 条（期望 0）"
 [[ "${LOAD_ERR:-0}" == "0" ]] || die "有插件加载失败"
+
+if [[ "${NO_RESTART}" == "1" ]]; then
+  info "--no-restart：跳过「新代码已加载」探针（当前跑的还是旧进程）"
+  info "部署完成（未重启）。下次重启后生效：systemctl restart magpie"
+  exit 0
+fi
 
 READY="$(rsh "tail -n +${LOG_MARK_LINE} /var/log/magpie.log | grep -c 'jet-hub-accio' 2>/dev/null || true")"
 info "重启后 jet-hub 就绪行：${READY:-0} 条（期望 >0）"
