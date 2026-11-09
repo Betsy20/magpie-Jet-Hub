@@ -694,7 +694,32 @@ const balanceCache = new Map()
  * 丢了最多让当天第一次读数退化成钱包语义，不影响正确性）。
  */
 const DAILY_POOL_NAMES = ['每日积分', '每日赠送', '每日额度', '每日签到奖励']
-/** @type {Map<string, {day:string, total:number}>} */
+/**
+ * 哪些渠道的哪些**钱包型**池子可以用「历史最高余额」当下限分母。
+ *
+ * ## 为什么需要（用户 m01511「总额度也要有窗口」）
+ *
+ * 百智云的「充值积分」（`permanent_credit_cents`）是长期积分：上游 `/balance`
+ * 只回当前值，**没有初始总额、没有累计充值**（45 个候选流水/订单端点全 404，
+ * 控制台 SPA 分包里也没有充值流水 API 字面量，2026-11-09 实证）。所以它只能
+ * 按钱包显示「剩余 500 credit」—— 没有分母、没有进度条，用户看不到消耗比例。
+ *
+ * 又不能像 MonkeyCode 那样用「近 30 天收入」：百智云没有流水接口。唯一可算的
+ * `app-credit-usage?period=month` 是**整月总消耗**（每日桶也含在内），拿它反推
+ * 期初会把其余天的每日消耗算进充值桶（`vendor/lib/baizhi-credits.js` 里
+ * 2026-11-05 审计 P0-1/P0-2 已否决这条路）。
+ *
+ * ⇒ 只能插件侧自采**水位**（每天首次见到的余额里取历史最高）：充值时余额上涨
+ * ⇒ 水位跟着涨 ⇒ 分母变大，等价于用户说的「充值会让窗口扩大」；长期积分不过期，
+ * 所以水位**永不回落**。首见当天是 `500 / 500 · 剩余 100%`，之后每笔消耗都能
+ * 算出真实百分比（这正是用户否掉的「分母跟着余额跑、永远 100%」的反面）。
+ *
+ * ⚠️ 只对**白名单里的池子**生效：其它渠道的「积分余额 / 奖励积分 / 魔粒」语义
+ * 各异（有的每日重置、有的按包过期），拿水位当分母会把它们全部改出进度条，
+ * 属于没人要求的连带改动。要加渠道就往这里加一行。
+ */
+const WALLET_WINDOW_POOLS = { baizhi: ['充值积分'] }
+/** @type {Map<string, {kind:'daily'|'peak', day:string, total:number}>} */
 const dailyBaseline = new Map()
 let dailyBaselineLoaded = false
 
@@ -1962,9 +1987,16 @@ function toMagpieUsage(reading, provider) {
   //   主套餐会被压到小包后面（2026-10-29 三审指出的脆弱点）。
   // · 最大值天然把「至少有一个大包」的组排在「全是一堆小包」的组前面。
   const untilRank = (p) => (Number.isFinite(p.until) && p.until > 0 ? p.until : Number.POSITIVE_INFINITY)
+  // 渲染期过期重算：上游的 `active`/`expired` 在快照路径会冻结（officeace 的
+  // stale 缓存原样返回，过期每日桶仍 active=true；trae 干脆硬编码 true），
+  // 只有 `deductionEndTime` 是「这批积分何时作废」的硬事实（credits.d.ts:245-263）。
+  // 在这里按当前时间重算，过期组与 allInactive 一样压后、改 text 窗口，
+  // 否则过期桶会画成「100 / 100 · 剩余 100%」还占住卡片前两行（2026-11-09 用户截图）。
+  const now = Date.now()
+  for (const g of packages) g.expired = Number.isFinite(g.until) && g.until > 0 && g.until <= now
   packages.sort((a, b2) => {
-    const aAside = a.allInactive ? 1 : 0
-    const bAside = b2.allInactive ? 1 : 0
+    const aAside = a.allInactive || a.expired ? 1 : 0
+    const bAside = b2.allInactive || b2.expired ? 1 : 0
     if (aAside !== bAside) return aAside - bAside
     const au = untilRank(a)
     const bu = untilRank(b2)
@@ -2060,6 +2092,22 @@ function toMagpieUsage(reading, provider) {
         unit: u,
         // 「-10.4 credit」+ 说明，别写 left（负数说 left 读着是反的）
         text: `已欠费 ${fmtNum(Math.abs(remaining))} ${u}`.trim(),
+      }
+      if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
+      return w
+    }
+    /**
+     * 已过期作废：`deductionEndTime` 已过，这批积分（哪怕快照里 remaining>0）
+     * 已经花不出去。画进度条就是谎报「还有 100% 可用」—— 2026-11-09 用户截图
+     * 里 11-06 到期的每日签到有礼被 stale 快照冻成 `100 / 100 · 剩余 100%`。
+     * 与欠费同款处置：`text` 窗口只报事实，不画条、不参与百分比；aside 压后。
+     */
+    if (p.expired) {
+      const w = {
+        name: windowName(p),
+        unit: String(p?.unit ?? ''),
+        text: '已过期作废',
+        aside: true,
       }
       if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
       return w

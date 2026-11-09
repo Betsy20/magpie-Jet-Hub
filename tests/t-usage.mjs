@@ -211,10 +211,14 @@ if (live()) {
       })(),
     )
 
-    const big = { name: '每月登录赠送', unit: 'credits', remaining: 500, total: 500, used: 0, active: true, deductionEndTime: 1793462399000 }
+    // 到期时间一律用**相对当前时间的未来值**：渲染期会按 deductionEndTime
+    // 重算过期（过期组改 text 窗口），写死绝对时间戳会让夹具在某天悄悄变过期。
+    const T0 = Date.now()
+    const DAY = 86400000
+    const big = { name: '每月登录赠送', unit: 'credits', remaining: 500, total: 500, used: 0, active: true, deductionEndTime: T0 + 30 * DAY }
     const small = Array.from({ length: 20 }, (_, i) => ({
       name: '签到奖励', unit: 'credits', remaining: 100, total: 100, used: 0, active: true,
-      deductionEndTime: 1793292923000 + i * 86400000,
+      deductionEndTime: T0 + DAY + i * DAY,
     }))
     const dead = { name: '已过期包', unit: 'credits', remaining: 0, total: 0, active: false }
     const u6 = toMagpieUsage(
@@ -231,8 +235,8 @@ if (live()) {
     ok(bonus && String(bonus.name).includes('到期'), `合并条目名字应带到期日（用户要求「能看到过期时间」），实际 ${bonus?.name}`)
     // 排序首判据是**到期时间**，不是额度。
     //
-    // 本夹具里 small 的到期日从 1793292923000 起逐日递增、big（主套餐）是
-    // 1793462399000 ⇒ 小包组最早那一天比主套餐更早，小包组排前面。
+    // 本夹具里 small 的到期日从 T0+DAY 起逐日递增、big（主套餐）是
+    // T0+30*DAY ⇒ 小包组最早那一天比主套餐更早，小包组排前面。
     //
     // 这与旧断言（「主套餐应排第一」）相反，是**需求变更后的预期结果**：
     // 用户 m07331 明确要求「按到期顺序展示」，额度退为同档内的次判据。
@@ -240,12 +244,12 @@ if (live()) {
     // （主套餐更早过期时它照样排第一）。
     ok(
       String(ws[0]?.name).startsWith('签到奖励'),
-      `到期更早的组应排第一（该组最早 1793292923000 早于主套餐 1793462399000），实际第一条是 ${ws[0]?.name}`,
+      `到期更早的组应排第一（该组最早 T0+DAY 早于主套餐 T0+30*DAY），实际第一条是 ${ws[0]?.name}`,
     )
     ok(ws.every((w) => w.limit > 0), '合并后不该留下 0/0 的空包')
 
     // 到期时间取合并组里最早的那个（最近要过期的先提醒）
-    ok(bonus && bonus.resetsAt === 1793292923000, `合并组 resetsAt 应取最早，实际 ${bonus?.resetsAt}`)
+    ok(bonus && bonus.resetsAt === T0 + DAY, `合并组 resetsAt 应取最早，实际 ${bonus?.resetsAt}`)
 
     // aside 压到最后
     const u7 = toMagpieUsage(
@@ -311,11 +315,11 @@ if (live()) {
         balance: {
           total: 1200,
           packages: [
-            // 主套餐 500 到期 11-10；小包 20 个 100 到期 11-20 起。
-            { name: '主套餐', unit: 'c', total: 500, remaining: 500, active: true, deductionEndTime: 1794216000000 },
+            // 主套餐 500 到期 T0+5d；小包 20 个 100 到期 T0+15d 起。
+            { name: '主套餐', unit: 'c', total: 500, remaining: 500, active: true, deductionEndTime: T0 + 5 * DAY },
             ...Array.from({ length: 20 }, (_, i) => ({
               name: '小包', unit: 'c', total: 100, remaining: 100, active: true,
-              deductionEndTime: 1795080000000 + i * 86400000,
+              deductionEndTime: T0 + 15 * DAY + i * DAY,
             })),
           ],
         },
@@ -334,11 +338,11 @@ if (live()) {
         balance: {
           total: 5500,
           packages: [
-            // 主套餐 500 到期 11-20... 更晚；小包 50 个 100 到期 11-10 起。
-            { name: '主套餐', unit: 'c', total: 500, remaining: 500, active: true, deductionEndTime: 1795080000000 },
+            // 主套餐 500 到期 T0+30d 更晚；小包 50 个 100 到期 T0+DAY 起。
+            { name: '主套餐', unit: 'c', total: 500, remaining: 500, active: true, deductionEndTime: T0 + 30 * DAY },
             ...Array.from({ length: 50 }, (_, i) => ({
               name: '小包', unit: 'c', total: 100, remaining: 100, active: true,
-              deductionEndTime: 1794216000000 + i * 86400000,
+              deductionEndTime: T0 + DAY + i * DAY,
             })),
           ],
         },
@@ -478,6 +482,46 @@ if (live()) {
     `used 必须仍是数字（实际 ${JSON.stringify(uSnap.windows?.[0]?.used)}）`,
   )
 
+  // ── 过期桶渲染期重算（2026-11-09 用户截图回归）──
+  //
+  // OfficeAce 凭据失效走 stale 快照时，上游把过期每日桶的 active 冻成 true、
+  // remaining 冻成 100 ⇒ 旧码画成「100 / 100 · 剩余 100%」，还因到期最早排第一
+  // 占住卡片前两行。deductionEndTime 才是「这批积分何时作废」的硬事实，
+  // 渲染期必须按当前时间重算：过期组改 text 窗口、aside 压后。
+  const uExpired = fn2.toMagpieUsage(
+    {
+      provider: 'officeace',
+      accountId: 'officeace-exp',
+      balance: {
+        total: 4100,
+        packages: [
+          // 故意 active:true（stale 快照冻住的形状）+ 到期在过去
+          { name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true, deductionEndTime: Date.now() - 86400000 },
+          { name: '新用户专属福利', unit: 'Token', remaining: 1314.48, total: 4000, used: 2685.52, active: true, deductionEndTime: Date.now() + 4 * 86400000 },
+        ],
+      },
+      error: '本次查询失败，显示的是上一次成功读到的数据（可能已过期）',
+    },
+    'officeace',
+  )
+  const wsExp = uExpired.windows ?? []
+  ok(wsExp.length === 2, `过期桶不该被丢掉（实际 ${wsExp.length} 条）`)
+  ok(
+    String(wsExp[0]?.name ?? '').startsWith('新用户专属福利'),
+    `过期桶必须压后、活跃包占第一行（实际第一条 ${JSON.stringify(wsExp[0]?.name)}）`,
+  )
+  const expW = wsExp.find((w) => String(w?.name ?? '').includes('每日签到有礼'))
+  ok(expW !== undefined && String(expW.text ?? '').includes('过期'), `过期桶应改 text 窗口报「已过期作废」（实际 ${JSON.stringify(expW)}）`)
+  ok(
+    expW !== undefined && expW.limit === undefined && expW.used === undefined && expW.amount === undefined,
+    `过期桶不该再画进度条（limit/used/amount 必须缺席，实际 ${JSON.stringify(expW)}）`,
+  )
+  ok(expW?.aside === true, '过期桶应带 aside 标记')
+  ok(
+    String(wsExp[0]?.name ?? '').includes('本次未刷新'),
+    `stale 标注应落在第一条（现在是活跃包）上（实际 ${JSON.stringify(wsExp[0]?.name)}）`,
+  )
+
   // 多个套餐时只该标第一条：magpie 行内只画前 2 条，全标就是噪音。
   const uTwo = fn2.toMagpieUsage(
     {
@@ -528,6 +572,9 @@ if (live()) {
   ok(gn('Free Plan Subscription') === 'Free Plan Subscription', 'Free Plan 不能被误剥')
   ok(gn(' 2026/10/9') === '2026/10/9', '只由日期组成的名字剥空后要退回原名（不能变成空串）')
 
+  // 到期时间用相对当前时间的未来值（渲染期会重算过期，绝对时间戳会某天悄悄变过期）
+  const T1 = Date.now()
+  const DAY1 = 86400000
   const uMiniPkgs = [
           ...Array.from({ length: 20 }, (_, i) => ({
             name: `积分包 2026/10/${9 + i}`,
@@ -536,7 +583,7 @@ if (live()) {
             total: 400,
             used: 0,
             active: true,
-            deductionEndTime: Date.UTC(2026, 10, 3 + i),
+            deductionEndTime: T1 + i * DAY1,
           })),
           ...Array.from({ length: 2 }, (_, i) => ({
             name: `积分包 2026/11/${1 + i}`,
@@ -545,7 +592,7 @@ if (live()) {
             total: 1000,
             used: 0,
             active: true,
-            deductionEndTime: Date.UTC(2026, 10, 28 + i),
+            deductionEndTime: T1 + (25 + i) * DAY1,
           })),
         ]
   const uMini = fn2.toMagpieUsage(
@@ -583,11 +630,11 @@ if (live()) {
     'minimax',
   )
   ok(
-    uShuffled.until === Date.UTC(2026, 10, 3),
-    `乱序输入时 until 仍要取最早（实际 ${JSON.stringify(uShuffled.until)}，期望 ${Date.UTC(2026, 10, 3)}）`,
+    uShuffled.until === T1,
+    `乱序输入时 until 仍要取最早（实际 ${JSON.stringify(uShuffled.until)}，期望 ${T1}）`,
   )
   ok(
-    uMini.until === Date.UTC(2026, 10, 3),
+    uMini.until === T1,
     `升序输入时 until 同样是最早（实际 ${JSON.stringify(uMini.until)}）`,
   )
 
