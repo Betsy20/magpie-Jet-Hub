@@ -339,6 +339,23 @@ async function loadAccounts() {
   const provider = $('#accProvider').value
   if (!provider) return
   say('#accMsg', '读取中…')
+  // ⚠ **发请求之前**先清场：`setProvider()` 是**同步**改 `#accProvider` 的，而本函数
+  // 是异步的 —— 两者一旦在失败路径上分叉，页面就进入「标题是 B、卡片是 A」的混合态。
+  // 而 `onAccAction()` 取的是 `$('#accProvider').value`（B）、`btn.dataset.id`
+  // 却是 A 家的 accountId ⇒ 点「删除」会真的删掉 **A 家**的账号，并连带
+  // `credentials.unset`（**不可逆**）。`account.update`（`enabled` 反转）同理。
+  //
+  // 触发条件只是「任何一次 `account.list` 失败」（本地服务重启 / 端口漂移到
+  // 18501+ / 上游超时），而 `rpc()` 是裸 fetch、没有 `AbortSignal` / 超时
+  // （见上面 `loadBalances` 的注释），所以失败窗口**不是毫秒级而是无限长** ——
+  // 用户有充足时间踩进去。
+  //
+  // 清场之后，失败时用户看到的是「读取失败」的空态 + 一条红字，不会误操作到别家账号。
+  // 代价是重新加载时会闪一下空列表 —— 比「静默删掉一个号」便宜太多。
+  ACC = []
+  BAL = new Map()
+  renderAccounts(provider)
+  syncProxyButtons()
   try {
     const list = (await rpc('account.list', { provider }))?.accounts ?? []
     // 两次 await 之间用户可能已经切走 —— 守卫必须放在给 `ACC` 赋值**之前**，
@@ -369,7 +386,11 @@ async function loadAccounts() {
       .join('、')
     say('#accMsg', notes ? `${ACC.length} 个账号（${notes}）` : `${ACC.length} 个账号`, 'ok')
   } catch (e) {
-    say('#accMsg', String(e.message ?? e), 'err')
+    const msg = String(e.message ?? e)
+    // 卡片已经在开头的清场里清掉了（必须清，理由见那里）—— 这里把空态文案换成
+    // 「读取失败」，别让用户以为「账号真的没了」。
+    renderAccounts(provider, `读取失败：${msg}`)
+    say('#accMsg', msg, 'err')
   }
 }
 
@@ -384,8 +405,11 @@ const GRIP_ICON =
  * @param {string} [provider] 渲染哪个渠道。默认读当前下拉框 —— 但**异步调用点
  *   必须显式传**（await 期间用户可能已经切走，用新 provider 去配旧 `ACC` / `BAL`
  *   会闪一帧全是「—」的卡）。
+ * @param {string} [emptyText] 列表为空时显示什么。默认「这个 provider 下还没有账号」；
+ *   `loadAccounts()` 失败时传「读取失败：…」—— 那两种情况都渲染成空列表，
+ *   但**含义完全相反**（一个是真的没号，一个是没读到），文案不能混。
  */
-function renderAccounts(provider = $('#accProvider').value) {
+function renderAccounts(provider = $('#accProvider').value, emptyText) {
   const px = PROXY_CHANNELS[provider]
   const rekey = REKEY_CHANNELS[provider]
   const cards = ACC.map((a, i) => {
@@ -456,7 +480,7 @@ function renderAccounts(provider = $('#accProvider').value) {
     </article>`
   })
   $('#accList').innerHTML =
-    cards.join('') || '<div class="accountEmpty">这个 provider 下还没有账号</div>'
+    cards.join('') || `<div class="accountEmpty">${esc(emptyText ?? '这个 provider 下还没有账号')}</div>`
 }
 
 async function onAccAction(e) {
@@ -472,7 +496,12 @@ async function onAccAction(e) {
     await busy(btn, async () => {
       if (act === 'toggle') {
         const a = ACC.find((x) => x.id === id)
-        await rpc('account.update', { accountId: id, patch: { enabled: a?.enabled === false } })
+        // ⚠ 找不到就**别发请求**：`a?.enabled === false` 在 `a` 为 `undefined` 时
+        // 求值是 `false`，也就是 `enabled: false` = **停用** —— 方向正好反。
+        // 卡片已经不在 `ACC` 里（列表刚被刷新 / 换过 provider）时点一下，
+        // 反而会把一个还活着的账号停掉。报一句让用户重试即可。
+        if (!a) throw new Error('这个账号已经不在列表里了，刷新后再试')
+        await rpc('account.update', { accountId: id, patch: { enabled: a.enabled === false } })
       } else if (act === 'refresh') {
         const v = await rpc('account.refresh', { accountId: id })
         renderGeneric($('#accDetail'), v)
@@ -565,9 +594,10 @@ async function onAccAction(e) {
         openRekeyModal(id, provider)
         return
       } else if (act === 'rotfp') {
-        // rotateFingerprint 自己写完再整表重读（代次变了要在行里显示出来）；
-        // 它不自己套 busy —— 这里已经是 busy 里面了。
-        await rotateFingerprint(id)
+        // 重读交给外层的 `await loadAccounts()`（代次变了要在行里显示出来）；
+        // 这里只把结果文案存进 flash —— 直接 `say` 会被 `loadAccounts()` 的
+        // 「读取中…」立刻盖掉（见 `rotateFingerprint` 的注释）。
+        flash = await rotateFingerprint(id)
         return
       } else if (act === 'del') {
         if (!confirm(`删除账号 ${id}？凭据也会一起清掉。`)) return
@@ -974,8 +1004,17 @@ async function rotateFingerprint(accountId) {
   // 套两层 busy 会让内层先恢复文字与 disabled，外层的「执行中」状态提前消失。
   // 方法名写字面量（tests/t-rpc-cover.mjs 按字面量数覆盖率）。
   const v = await rpc('opencode.rotateFingerprint', { accountId })
-  say('#accMsg', `指纹代次 → ${v?.generation ?? '—'}（projectId ${v?.projectId ?? '—'}；换指纹不加额度，要额度请给它单独配出口）`, 'ok')
-  await loadAccounts()
+  // ⚠ **不**在这里 `await loadAccounts()`（2026-11-11 审计发现）：
+  //   ① 外层 `onAccAction` 已经统一重读过一遍 ⇒ 这里再读是**双倍** RPC，
+  //      而 `credits.balances` 要为**每个账号**发一次上游请求，29 家 × N 个账号；
+  //   ② 更要命的是 `loadAccounts()` 开头的 `say('#accMsg', '读取中…')` 会立刻
+  //      把这条「指纹代次 → N」覆盖掉 —— 它是用户点「换指纹」后**唯一**的结果
+  //      反馈（卡片上那行「指纹代次」只是数字悄悄变了，用户不会注意到）。
+  // 改用 `flash`：等外层列表刷完再统一说（`test` / `retest` / `comp` 都是这个模式）。
+  return {
+    text: `指纹代次 → ${v?.generation ?? '—'}（projectId ${v?.projectId ?? '—'}；换指纹不加额度，要额度请给它单独配出口）`,
+    kind: 'ok',
+  }
 }
 
 /* ══════════ 出口代理（per-账号，四家各自的端点与池字段） ══════════
@@ -1290,7 +1329,17 @@ async function startLogin(provider) {
   }
   const started = Date.now()
   clearInterval(loginTimer)
+  // ⚠ 每次 tick 记下**自己属于哪一次登录**（2026-11-11 审计发现）：
+  // `setInterval` 的回调是 async，`clearInterval` 只能取消**未来**的 tick，
+  // 取消不了已经 `await` 在飞的那一次。旧登录的 `login.poll` 若在新
+  // `startLogin()` 之后才返回 `done:true`，就会：
+  //   ① `clearInterval(loginTimer)` —— 停掉**新**登录的轮询（新弹窗永远「等待中…」）；
+  //   ② `loginAccountId = undefined` —— 抹掉新登录的占位账号 id，之后 `closeLogin()`
+  //      不会再 `reclaimPlaceholder` 它（池里留一条**幽灵账号**）；
+  //   ③ `#lmState` 被写成「✓ 登录成功」—— 明明是新登录还在授权中。
+  // 下面 900ms 那套 `settledId` 守卫只防住了 `setTimeout`，没防住这里的 `await`。
   loginTimer = setInterval(async () => {
+    const myTimer = loginTimer
     if (Date.now() - started > 5 * 60 * 1000) {
       $('#lmState').textContent = '超时（5 分钟），可关闭后重试'
       $('#lmState').className = 'msg err'
@@ -1300,6 +1349,8 @@ async function startLogin(provider) {
     }
     try {
       const s = await rpc('login.poll', { accountId })
+      // 期间又开了一次「添加账号」⇒ 这个回包属于**上家**，整个作废。
+      if (loginTimer !== myTimer) return
       if (s?.done === true) {
         clearInterval(loginTimer)
         if (s.success === false) {
@@ -1555,6 +1606,14 @@ async function loadStrictOrder(provider) {
     el.checked = v?.enabled === true
     el.disabled = false
   } catch {
+    // ⚠ 失败路径**同样**要守卫（2026-11-11 实测复现）：切到 buddy 发请求 → 切到
+    // zcode（zcode 的 `getEnabled` 成功、开关打开且可交互）→ buddy 的请求超时。
+    // 没有这道守卫时，buddy 的失败回包会无条件写 `checked=false; disabled=true`
+    // 到**当前**的 `#accStrict` 上 —— 用户看到「zcode 的严格手动顺序被关掉了」，
+    // 而实际是上一家问不出来。
+    // （`tests/t-console-strict-order.mjs` 的 3.3 / 3.4 只覆盖了成功路径的守卫与
+    // 「本来就没切走」的失败，这条竞态是测试盲区。）
+    if ($('#accProvider').value !== provider) return
     // 问不出来就置灰：让用户看到「这一家没有这个能力」，而不是一个点了没反应的开关。
     el.checked = false
     el.disabled = true
@@ -1574,21 +1633,39 @@ async function saveStrictOrder(enabled) {
   }
 }
 
+/**
+ * 读四项设置。
+ *
+ * ⚠ 四个端点**各自**兜住错误是为了「一个端点不存在不影响其它三项」（上游版本不同，
+ * 有的项在某些版本里没有），但**不能**把失败悄悄压成 `{}` —— 那样「读不到」会被
+ * 渲染成「确认是关的」：用户在设置页看到「渠道原生搜索：关」，实际可能是开的，
+ * 他会去点一下「开」，反而把本来开着的**关掉**。而且原来那个 `catch` 是**死代码**
+ * （四个 promise 都被 `.catch` 兜住，`Promise.all` 永远不 reject），错误提示永远
+ * 不会出现 —— 出问题时页面完全静默。
+ *
+ * 现在把每一项包成 `{ ok, value, error }`：能读到的照常渲染，读不到的**明确说
+ * 有几项没读出来**，并提示「显示的可能不是真实状态」。
+ */
 async function loadSettings() {
-  try {
-    const [ns, pe, xff, sb] = await Promise.all([
-      rpc('nativeSearch.getEnabled').catch(() => ({})),
-      rpc('panelEntry.get').catch(() => ({})),
-      rpc('minimax.getXff').catch(() => ({})),
-      rpc('sessionBalance.getEnabled').catch(() => ({})),
-    ])
-    $('#setSearch').checked = ns?.enabled === true
-    $('#setSession').checked = sb?.enabled === true
-    if (pe?.entry) $('#setPanel').value = pe.entry
-    $('#setXff').value = xff?.xff ?? ''
+  const grab = (method) => rpc(method).then(
+    (value) => ({ ok: true, value }),
+    (error) => ({ ok: false, value: {}, error: String(error?.message ?? error) }),
+  )
+  const [ns, pe, xff, sb] = await Promise.all([
+    grab('nativeSearch.getEnabled'),
+    grab('panelEntry.get'),
+    grab('minimax.getXff'),
+    grab('sessionBalance.getEnabled'),
+  ])
+  $('#setSearch').checked = ns.value?.enabled === true
+  $('#setSession').checked = sb.value?.enabled === true
+  if (pe.value?.entry) $('#setPanel').value = pe.value.entry
+  $('#setXff').value = xff.value?.xff ?? ''
+  const failed = [ns, pe, xff, sb].filter((r) => !r.ok)
+  if (failed.length > 0) {
+    say('#setMsg', `${failed.length} 项没读出来（${failed[0].error}），下面显示的可能不是真实状态`, 'err')
+  } else {
     say('#setMsg', '')
-  } catch (e) {
-    say('#setMsg', String(e.message ?? e), 'err')
   }
 }
 
@@ -1603,6 +1680,11 @@ async function saveSetting(what, value) {
     if (what === 'session') await rpc('sessionBalance.setEnabled', { enabled: value })
     say('#setMsg', '已保存', 'ok')
   } catch (e) {
+    // 落盘失败就把控件拨回**真实**状态（同 `saveStrictOrder` 的做法）——
+    // 不然 `#setSearch` / `#setSession` 停在用户刚勾上的位置、`#setPanel` /
+    // `#setXff` 停在刚改的值，下次进设置页之前都是假状态。
+    // 顺序：先回读（它会写 `#setMsg`），再把错误覆盖上去 —— 错误比「读取中」重要。
+    await loadSettings()
     say('#setMsg', String(e.message ?? e), 'err')
   }
 }
@@ -1866,7 +1948,13 @@ function wireTabs() {
   $('#nav').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-tab]')
     if (!b) return
-    $$('#nav button').forEach((x) => x.classList.toggle('on', x === b))
+    // `class="on"` 只负责**视觉**；`aria-selected` 才是屏幕阅读器读的 ——
+    // 两者必须同步（只改 class 的话读屏器永远停在初始的 `false`）。
+    $$('#nav button').forEach((x) => {
+      const on = x === b
+      x.classList.toggle('on', on)
+      x.setAttribute('aria-selected', on ? 'true' : 'false')
+    })
     $$('.tab').forEach((t) => t.classList.toggle('on', t.id === `tab-${b.dataset.tab}`))
     TAB_LOADERS[b.dataset.tab]?.()
   })
@@ -1874,7 +1962,10 @@ function wireTabs() {
   $('#providerList').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-provider]')
     if (!b) return
-    $$('#nav button').forEach((x) => x.classList.remove('on'))
+    $$('#nav button').forEach((x) => {
+      x.classList.remove('on')
+      x.setAttribute('aria-selected', 'false')
+    })
     $$('.tab').forEach((t) => t.classList.toggle('on', t.id === 'tab-accounts'))
     setProvider(b.dataset.provider)
   })

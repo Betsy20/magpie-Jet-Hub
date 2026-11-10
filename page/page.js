@@ -64,7 +64,11 @@ function flash(btn, text, ok = false) {
   btn.textContent = text
   // 只有成功才变绿：失败文案（「复制失败」「没有可复制的内容」）也走这个函数，
   // 无条件设 data-done 会让失败看起来像成功。
+  // ⚠ 失败时还要**主动删掉**上一次留下的 `data-done`（2026-11-11 审计实测复现）：
+  // 1.6 秒窗口内先成功、再失败时，按钮会同时是「绿色成功态」+「复制失败」文案 ——
+  // 正是上面这句注释要避免的形态。`data-done` 是个布尔态，两条边都得有。
   if (ok) btn.dataset.done = '1'
+  else delete btn.dataset.done
   clearTimeout(Number(btn.dataset.flashTimer) || 0)
   btn.dataset.flashTimer = String(setTimeout(() => {
     // 用 innerHTML 还原：按钮里若有 <span class="ico"> 之类子元素，textContent 会把它们拍平

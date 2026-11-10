@@ -952,6 +952,21 @@ const LOGIN_POLL_TIMEOUT_MS = 15_000
 const CREATE_TIMEOUT_MS = 45_000
 
 /**
+ * `auth.usage()` / `auth.checkin()` 里那几次 RPC 的上限。
+ *
+ * 为什么也要有（2026-11-11 审计发现）：这两条路径都走 `container.rpc()`，而那条
+ * 路径**没有超时**（见上面 `LOGIN_POLL_TIMEOUT_MS` 的说明）。宿主
+ * `usageOf(provider, account, signal)` 虽然传了 `{ signal }`，但那个 signal 只到得了
+ * `a.usage(getAuth, info, { signal })` 这一层 —— `container.rpc()` 不吃它。
+ * 于是上游一挂住：用量卡永远转圈、promise 永远不 settle（泄漏）、
+ * `balanceCache` 也永远不写。表现是「点开账号卡片，余额那一行一直是空的」。
+ *
+ * 取 20 秒：`credits.balances` 要为**每个账号**发一次上游请求，比单次 `login.poll`
+ * 慢一档；但也不能更长 —— magpie 那边对 `usage` 的等待也是 20 秒量级。
+ */
+const USAGE_TIMEOUT_MS = 20_000
+
+/**
  * `container.start()` 的上限。
  *
  * 为什么也要有：`authorize()` 整个被 magpie 的 1 分钟硬超时包着
@@ -1393,7 +1408,12 @@ function toMagpieCheckin(row) {
       // 同一条判据也覆盖「结果走 results、不抛错」的形态（例如某家 claim 内部
       // 自己回了一句「不支持每日签到」而不是在入口就拒）。
       if (isCheckinUnsupported(message)) return { outcome: 'ineligible', ...base }
-      return { outcome: 'failed', message: message ?? (kind === '' ? '本体未返回签到结果' : kind) }
+      // ⚠ 用 `||` 而不是 `??`（2026-11-11 审计发现）：上游偶尔回 `message: ''`
+      // （不是 `undefined`），而 `??` 只挡 null / undefined ⇒ 落盘的是
+      // `{outcome:'failed', message:''}` —— 用户看到一张**空白**的失败卡，
+      // 连「为什么失败」都没有。正是项目价值观点名的「报错信息一片空白」。
+      // 空串 / 纯空白都算「没说到」，退回 `kind` 或兜底文案。
+      return { outcome: 'failed', message: String(message ?? '').trim() || (kind === '' ? '本体未返回签到结果' : kind) }
   }
 }
 
@@ -1520,9 +1540,13 @@ function mergePackages(list) {
  * 额度的显示文本：最多两位小数，整数不带 `.00`。
  *
  * 上游给的是**原始浮点**（officeace 实测 `4584.442685714286`），直接拼进
- * `balance` 就是卡片上那串 12 位小数（2026-11-01 用户截图）。magpie 对
- * `windows[].display` 会自己按数字格式化，但 `balance` 是**纯文本**原样贴上去，
- * 所以这一处必须由我们收敛。
+ * `balance` / `windows[].display` 就是卡片上那串 12 位小数（2026-11-01 用户截图）。
+ *
+ * ⚠ 原来这里写「magpie 对 `windows[].display` 会自己按数字格式化」—— **不对**
+ * （2026-11-11 审计核过宿主 `_mp_host.js`）：`display: text(w?.display)` 与
+ * `balance: text(u.balance)` 走的是**同一条** `text()`，都不格式化。所以两处都得
+ * 由我们收敛，否则同一条 officeace 数据会显示成「`balance:"10000 积分"` +
+ * `display:"4584.442685714286 / 10000 积分"`」这种一个整齐、一个满屏小数的割裂画面。
  *
  * 为什么不四舍五入到整数：额度确实可能是小数（实测 `8.064516129032259`），
  * 抹成整数会让「0.5 → 1」这种小额度失真。
@@ -1654,8 +1678,9 @@ function toMagpieUsage(reading, provider) {
       // ⚠️ 别填 remaining —— 实测 astudio 会变成「0 / 6,200 · 剩余 100%」这种
       //    自相矛盾的卡片（显示剩余 0、进度条却是满的）。
       used: total > 0 ? Math.round((used / total) * 100) : 0,
-      // display 是**剩余 / 总额**（magpie 自己的文案就是「剩余 x%」，这里对齐它）
-      display: `${remaining} / ${total} ${p?.unit ?? ''}`.trim(),
+      // display 是**剩余 / 总额**（magpie 自己的文案就是「剩余 x%」，这里对齐它）。
+      // ⚠ 必须过 `fmtNum` —— 理由见它的注释（宿主 `text()` 不格式化数字）。
+      display: `${fmtNum(remaining)} / ${fmtNum(total)} ${p?.unit ?? ''}`.trim(),
       amount: remaining,
       limit: total,
       unit: String(p?.unit ?? ''),
@@ -1726,8 +1751,33 @@ function writeCache(log) {
   }
 }
 
+/**
+ * 后台刷新的**进行中**标记 —— 一次只允许跑一条链。
+ *
+ * ⚠ 必须去重（2026-11-11 审计发现，冷启动必现）：`currentAll()` 的判据是
+ * `allModels === undefined || fullModels === undefined || stale`，而**干净机器上
+ * 没有磁盘缓存**（`readCache()` 返回 `{}`）⇒ 前两项恒为真，每次调用都新起一条
+ * `refreshInBackground()`。而 magpie 宿主 `providers()` 是
+ * `Promise.all([...auths()].map(row))` —— 29 家**并行**各调一次 `provider.models()`，
+ * `config` 钩子另外 29 次串行 ⇒ 冷启动最多 **58 条**刷新链同时跑。次生故障：
+ *   ① `container._absorbModels()` 的 `this.modelMeta.clear()` 与
+ *      `refreshFullCatalog()` 的 `set()` 并发互清 ⇒ 能力声明（上下文窗口 / 图片 /
+ *      推理档位）随机丢；
+ *   ② 上千次 `rpc('model.list')` 打满容器；
+ *   ③ 58 次**同步**写盘（`writeCache()` 里是 `writeFileSync`）；
+ *   ④ 20 秒超时到点，magpie 拿到的是空列表 —— 而**没有任何错误**。
+ * 用户看到的就是「新装的插件第一次打开 magpie，模型列表是空的」。`tests/` 里
+ * `refreshInBackground|currentAll` 零命中，这条路径此前完全没有守护。
+ *
+ * 用 `finally` 而不是 `then` 清标记：失败也要能重试，否则一次网络抖动就把
+ * 后台刷新永久卡死（那比并发更糟 —— 并发至少还有一条链能成功）。
+ */
+let refreshing = false
+
 /** 后台把两个目录都刷一遍（实时可用 + 上游全量）。 */
 function refreshInBackground(container, log) {
+  if (refreshing) return
+  refreshing = true
   container
     .start()
     .then(() => container.refreshModels())
@@ -1745,6 +1795,9 @@ function refreshInBackground(container, log) {
       writeCache(log)
     })
     .catch((e) => log?.(`后台刷新模型目录失败：${e?.message ?? e}`))
+    .finally(() => {
+      refreshing = false
+    })
 }
 
 /**
@@ -2023,14 +2076,37 @@ export function makePlugin(dshProvider) {
 
             async authorize(inputs = {}) {
               // 这里可以等（用户点了按钮），所以把两个目录都拉全。
-              const all = await liveAll(container, log)
-              const n = Object.keys(modelsOf(dshProvider, all)).length
+              //
+              // ⚠ 但「可以等」**不等于**「无限等」（2026-11-11 审计发现）：`liveAll` /
+              // `refreshFullCatalog` 内部走 `container.rpc()`，那条路径**不会自己超时**
+              // （`route.fetch(req)` 没有 AbortSignal）。Key 型的 `addAccount` 分支
+              // 早就为此套了 `withDeadline`，oauth 这条**没修** —— 同样的两条调用、
+              // 同样的风险，行为却不一致。上游挂住时「Sign in」按钮会永远转圈、没有
+              // 任何错误。目录拉不到不影响签入本身（凭据已经在池里了），所以超时只
+              // 记一行日志、按「没有目录」继续。
+              let all = []
               let wide = 0
               try {
-                fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
-                wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
-                writeCache(log)
-              } catch { /* 全量拉不到不影响签入，退回实时可用 */ }
+                ;[all, wide] = await withDeadline(
+                  (async () => {
+                    const live = await liveAll(container, log)
+                    let wide = 0
+                    try {
+                      fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+                      wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
+                      writeCache(log)
+                    } catch {
+                      /* 全量拉不到不影响签入，退回实时可用 */
+                    }
+                    return [live, wide]
+                  })(),
+                  START_TIMEOUT_MS,
+                  '签入后刷新目录',
+                )
+              } catch (e) {
+                log?.(`签入后刷新目录超时或失败（不影响签入）：${e?.message ?? e}`)
+              }
+              const n = Object.keys(modelsOf(dshProvider, all)).length
               if (n === 0 && wide === 0) {
                 throw new Error(
                   `本体里的 ${dshProvider} 没有可用模型：确认这个账号在 DSH 里已登录，或先在 /v1/models 里看它是否有模型`,
@@ -2417,8 +2493,12 @@ export function makePlugin(dshProvider) {
          *    卡片点开是某个具体账号，所以必须按 `uid`（= 本体账号 id）挑那一条，
          *    不能把整家渠道的余额加起来。
          */
-        async usage(getAuth) {
+        async usage(getAuth, _info, { signal } = {}) {
           try {
+            // 宿主在卡片关掉 / 切走时会 abort 这个 signal。我们没法把它透给
+            // `container.rpc()`（那条路径不支持），但**可以**在入口先看一眼：
+            // 已经取消的请求就别再发了，省一次上游调用。
+            if (signal?.aborted) return { windows: [] }
             const account = typeof getAuth === 'function' ? await getAuth() : undefined
             // 统一走 `dshAccountIdOf`（2026-10-30 修）：原先这里手写
             // `account?.uid ?? account?.metadata?.dshAccountId`，与 `dshAccountIdOf`
@@ -2427,7 +2507,13 @@ export function makePlugin(dshProvider) {
             // metadata 优先）；③ 少了「key 尾巴」这条退路。真实数据目前 0 条
             // `uid: ''`、0 条两者冲突，所以还没炸，但那是运气不是设计。
             const want = dshAccountIdOf(account, dshProvider)
-            const reading = await balanceOf(container, dshProvider, want, log)
+            // ⚠ 套上限（理由见 `USAGE_TIMEOUT_MS`）：`balanceOf` 内部走
+            // `container.rpc('credits.balances')`，那条路径不会自己超时。
+            const reading = await withDeadline(
+              balanceOf(container, dshProvider, want, log),
+              USAGE_TIMEOUT_MS,
+              '查询账号余额',
+            )
             if (reading === undefined) {
               // 路由组 / 本体里没有账号的渠道：说清「这里没有可查的积分」，别编数字
               const { live, full } = currentAll(container, log)
@@ -2448,7 +2534,14 @@ export function makePlugin(dshProvider) {
             }
             return toMagpieUsage(reading, dshProvider)
           } catch (e) {
-            return { error: humanizeUsageError(e?.message ?? e), windows: [] }
+            // ⚠ 必须带 `plan`（2026-11-11 审计发现）：宿主 `plan: text(u.plan)` 缺失
+            // 就是空串 ⇒ 一张**没有标题**的错误卡。同文件其它 4 条 `usage` 返回路径
+            // 都带，只有这条漏了 —— 而它恰好是用户最可能看到的那条（网络故障）。
+            return {
+              plan: NAMES[dshProvider] ?? dshProvider,
+              error: humanizeUsageError(e?.message ?? e),
+              windows: [],
+            }
           }
         },
 
@@ -2470,12 +2563,22 @@ export function makePlugin(dshProvider) {
            *    summary: {claimed, totalCredit, alreadyClaimed, inactive, failed, ...} }`。
            * 所以这里同样要按账号 id 挑出属于本账号的那一条 —— 不能报整家渠道的合计。
            */
-          async checkin(getAuth) {
+          async checkin(getAuth, _info, { signal } = {}) {
             try {
+              // 同 `usage()`：宿主 abort 之后别再发请求（会影响整家渠道的账号）。
+              if (signal?.aborted) return { outcome: 'failed', message: '请求已取消' }
               const account = typeof getAuth === 'function' ? await getAuth() : undefined
               // 与 `usage()` 同源，统一走 `dshAccountIdOf`（理由见那边注释）
               const want = dshAccountIdOf(account, dshProvider)
-              const v = await container.rpc('credits.claimAll', { provider: dshProvider })
+              // ⚠ 套上限（理由见 `USAGE_TIMEOUT_MS`）：`credits.claimAll` 会**逐个账号**
+              // 打上游，一次挂住就再也没有返回，签到按钮永远转圈。
+              const v = await withRpcDeadline(
+                container,
+                'credits.claimAll',
+                { provider: dshProvider },
+                USAGE_TIMEOUT_MS,
+                '领取积分',
+              )
               const rows = Array.isArray(v?.results) ? v.results : []
               const mine = rows.find((r) => String(r?.accountId ?? '') === want) ?? (want === '' ? rows[0] : undefined)
               if (mine === undefined) {

@@ -181,6 +181,29 @@ console.log('· 3.4 问不出来 ⇒ 置灰 + 不勾（「没有这个能力」�
   ok(sb.el.disabled === true, '失败时置灰')
 }
 
+console.log('· 3.4b 竞态的**失败**路径：上家的失败回包不许污染新渠道（2026-11-11 审计）')
+{
+  // 场景：切到 buddy 发请求 → 切到 zcode（zcode 的 `getEnabled` 成功，开关打开且
+  // 可交互）→ buddy 的请求超时失败。没有守卫时，buddy 的 catch 会无条件把
+  // `checked = false; disabled = true` 写到**当前**的 `#accStrict` 上，用户看到
+  // 「zcode 的严格手动顺序被关掉了」—— 而这个开关决定「拖拽排序到底算不算数」，
+  // 接错方向用户得到的结论正好相反。
+  //
+  // ⚠ 3.3 只覆盖了**成功**路径的守卫，3.4 只覆盖了「本来就没切走」的失败 ——
+  // 失败路径的竞态是盲区（本用例就是补这一格）。
+  const sb = sandbox({
+    // 初始态取 zcode 的真实值：开关已开、可交互。
+    checkboxChecked: true,
+    rpcImpl: async () => {
+      sb.state.provider = 'zcode' // await 期间用户已经切走
+      throw new Error('timeout')
+    },
+  })
+  await sb.loadStrictOrder('buddy')
+  ok(sb.el.checked === true, '切走后上家失败**不**把新渠道的开关拨回 false')
+  ok(sb.el.disabled === false, '也不置灰（失败属于上家 buddy，新渠道自己那次请求会负责）')
+}
+
 console.log('· 3.5 没有 provider ⇒ 一个请求都不发')
 {
   let n = 0
