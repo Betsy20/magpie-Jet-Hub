@@ -54,6 +54,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-rpc-cover.mjs` | 控制台接了本体哪些 RPC、哪些明确交给 magpie 或弃用 |
 | `t-console-strict-order.mjs` | 「严格手动顺序」开关：本体侧 RPC 契约（`{enabled}` 回包、只接布尔、不猜默认值）+ 控制台侧接线（按供应商存、切家重读、`change` 不是 `click`）+ 六个运行时行为（严格 `=== true`、**await 期间切走不许覆盖新渠道**、问不出来就置灰、空 provider 不发请求、成功/失败文案、失败后回读拨回） |
 | `t-vendor-patches.mjs` | `vendor/` 的本地补丁还在不在：gemini 两个默认 client 常量**拆成两段**（含 `.d.ts`）且拼出来长度不变、`types.d.ts` 两处 `closeProvider`、magicrew 两个 `.d.ts` 的声明与实现对齐（同步整片覆盖时这几处都是静默丢） |
+| `t-page-contract.mjs` | 侧栏页（`page/`）的结构性契约：沙箱里**不许有网络 API**（`fetch` / XHR / WebSocket / `EventSource` / `eval` / `new Function`，`connect-src 'none'` 下全是静默死代码）、HTML 无内联 `on*=`、`data-tab` 与 `data-panel` 一一对应、`data-copy` 目标存在、四种 `data-snippet` 各有**专属**实现（只判「非空 + 带网关」会被「落回 curl 分支」骗过）、控制台地址**优先取快照**（缺快照才退 18500） |
 | `t-error-shape.mjs` | 错误出口三件套：不支持的路径回 **501**（不是 404，否则 magpie 只搁置模型、换个同样坏的端点重试）、`errorResponse` 抛错也带 code、上游 404/503 原样透传、`jsonResponse` 形状 |
 | `t-hub-cors.mjs` | 控制台跨站防线：只认实际绑定的那一个端口、只认 `http`、`Host` 必须回环（挡 DNS rebinding）、跨站 Origin 与 `null`、跨站导航 403、写操作连 `same-site` 也拒、多值 `Sec-Fetch-Site` 绕不过；同源不误伤，被拦的请求不进 handler |
 
