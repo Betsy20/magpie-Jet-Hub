@@ -10,7 +10,7 @@
  *
  * magpie 宿主 `servers(mod)` 会取模块导出的**每一个函数**，`auths()` 再按
  * `hooks.auth.provider` 建映射 —— 所以一个插件包导出 N 个插件工厂，就能注册
- * N 个 provider id。本文件对本体里**除两个路由组之外**的 28 个 provider 各生成一个工厂。
+ * N 个 provider id。本文件对本体里**除两个路由组之外**的 29 个 provider 各生成一个工厂。
  *
  * ## 架构
  *
@@ -19,7 +19,7 @@
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
- *   └─ …（28 个）                     ┘
+ *   └─ …（29 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
  *             └─ 直连本体 llm：ctx.llm.stream()（src/llm-bridge.mjs）
  *                  └─ 各 provider 的真实上游
@@ -29,8 +29,8 @@
  * `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以
  * `container.forward()` 在进程内就完成了整件事 —— 不占端口、不需要 apiKey。
  *
- * ⚠️ 容器**必须模块级共享**：28 个插件工厂各自 new 一个容器的话，会拉起 28 个
- * cordis（28 份账号池 + 28 份模型目录），冷启动直接炸。
+ * ⚠️ 容器**必须模块级共享**：29 个插件工厂各自 new 一个容器的话，会拉起 29 个
+ * cordis（29 份账号池 + 29 份模型目录），冷启动直接炸。
  *
  * ## 凭据从哪来
  *
@@ -44,6 +44,11 @@ import { parseRefs } from './credentials.mjs'
 // 上游的**积分/签到能力表** —— 由它直接回答「这家有没有签到」，
 // 而不是在插件里再抄一份名单（抄了必然漂移）。
 import { createProviderCredits, creditsOf } from '../vendor/lib/provider-credits.js'
+// 腾讯 Marvis 的授权页地址 + 设备 guid：两个**纯函数**，不碰浏览器。
+// 登录因此能走宿主 `mode: 'code'`（给链接 + 收粘贴的 code）那条通道，
+// 不依赖本机有没有 Chromium —— 见 `marvisSignInMethod()` 的长注释。
+import { authorizeUrlOf } from '../vendor/lib/marvis-browser-login.js'
+import { newMarvisDeviceGuid } from '../vendor/lib/marvis-device.js'
 import { iconFor } from './icons.mjs'
 import { syncAuthQuietly } from './auth-sync.mjs'
 // 模型目录价（USD / 1M tokens）。由 `node scripts/gen-model-prices.mjs` 生成，
@@ -464,7 +469,7 @@ function modelEntry(id, def, meta, price) {
 
 // ---- 共享容器与模型缓存 -------------------------------------------------------
 
-/** 模块级单例：28 个 provider 共用同一个容器。 */
+/** 模块级单例：29 个 provider 共用同一个容器。 */
 let shared = null
 
 /**
@@ -516,7 +521,7 @@ function containerFor(options, log) {
 }
 
 /**
- * 把 28 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
+ * 把 29 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
  *
  * 给 `syncAuthQuietly()` 用：它要的是「全量账号」，而 `account.list` 必须按
  * provider 逐家问。失败一律当「这家没有账号」——未登录的渠道本来就该失败，
@@ -981,7 +986,7 @@ function creditsTable() {
  *
  * 为什么要在插件侧也判一次：magpie 的签到开关**只看插件有没有声明 `auth.checkin`**
  * （宿主 `host.js` 的 `checkin: typeof a.auth.checkin === "function"`，Go 侧
- * `Provider.Checkin` 再决定 Settings 里显不显示）。给 28 家都声明，就等于给
+ * `Provider.Checkin` 再决定 Settings 里显不显示）。给 29 家都声明，就等于给
  * 「后端根本没有签到接口」的 9 家也画了一个开关 —— 用户点了只能看到失败，
  * 而那是**能力缺失**，不是故障（2026-11-01 用户报「部分供应商签到失败」的根因）。
  *
@@ -1165,15 +1170,13 @@ async function withRpcDeadline(container, method, payload, ms, what) {
  * `refreshable: false`）再返回 `loginUrl`，登录成功后由后台流程回填昵称与
  * 有效期。所以这里返回的 `accountId` 此时还只是个占位，不能当成「已登录」。
  */
-async function startNewAccount(container, provider, log, mode, extra) {
+async function startNewAccount(container, provider, log, mode) {
   // 只有超级麦吉两站要带 `mode`（见下方 `MAGICREW_CREATE_MODES` 的说明），
   // 其余各家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
   //
-  // 腾讯 Marvis 是第二个要带 `mode` 的家，而且要**多带一个** `marvisLoginType`
-  // （`'1'` = QQ、`'2'` = 微信，见 `authorize()` 里 `marvis_wechat` 那个开关）。
-  // 它也是本函数唯一用 `extra` 的家 —— 别的家多传字段同样会被本体忽略，但同样没必要冒险。
+  // 腾讯 Marvis 不走这里：它不需要本机浏览器，走宿主 `mode: 'code'` 的
+  // 「给链接 + 收粘贴的 code」那条通道，见 `marvisSignIn()`。
   const payload = mode === undefined ? { provider } : { provider, mode }
-  if (extra !== undefined) Object.assign(payload, extra)
   const v = await withRpcDeadline(
     container,
     'account.create',
@@ -1235,28 +1238,19 @@ async function startNewAccount(container, provider, log, mode, extra) {
  * 腾讯 Marvis 是第三种形状：单次调用、但**必须**带 `mode: 'browser'`（另有
  * `marvisLoginType`），见下面那条分支的注释。
  *
- * 除超级麦吉两站与 Marvis 外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
+ * 除超级麦吉两站外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
  * 超级麦吉两站两条腿都失败时，**报第一条腿（`browser`）的错误**，并把其余腿的
  * 原因附在括号里 —— 用户点的是「新建」，先看到那条腿为什么不行才定位得到问题。
+ *
+ * 腾讯 Marvis 也不走这里：它不用本机浏览器，走宿主 `mode: 'code'` 那条通道，
+ * 见 `marvisSignIn()`。
  *
  * ⚠️ 这里的「失败」只指 `startNewAccount` 抛出来的**`account.create` RPC 错误**
  * （超时 / 账号池写失败 / 返回体里 `accountId` 缺失或为空）。**不包括**「窗口起不来」「授权
  * 被拒」：那两条发生在 vendor 的后台任务里（`mode: 'browser'` 是「先返回、后开窗」），
  * 只会变成 `login.poll` 的终态，根本不在本函数的 errors 数组里。
  */
-async function startNewAccountSmart(container, provider, log, extra) {
-  // 腾讯 Marvis 只有**一条**腿，但必须带 `mode: 'browser'`：上游 `account.create`
-  // 里 marvis 的两个分支都以 `req.mode` 为条件（`'magpie-import'` / `'browser'`），
-  // 不带 mode 会一路落到末尾的 `unknown provider: marvis`。`browser` 腿在 vendor
-  // 自己开的窗里登录、**立刻**回 `{ accountId, loginUrl: '' }`，靠 `login.poll`
-  // 的 `magicrewBrowserLoginInFlight` 收口 —— 所以它既不能当 `reused` 收口，
-  // 也不需要像超级麦吉那样有第二条腿可退（另一种登录方式是 QQ/微信二选一，
-  // 由 `marvis_wechat` 开关决定，不是重试）。
-  //
-  // 这段故意用字面量 `'browser'` 而不是常量：`tests/t-magicrew-modes.mjs` 把本函数
-  // 整段丢进 `new Function('startNewAccount','MAGICREW_CREATE_MODES', …)` 求值，
-  // 段内引用任何**别的**模块级常量都会在那份求值里 `ReferenceError`。
-  if (provider === 'marvis') return startNewAccount(container, provider, log, 'browser', extra)
+async function startNewAccountSmart(container, provider, log) {
   if (provider !== 'magicrew' && provider !== 'magicrewintl') return startNewAccount(container, provider, log)
 
   const errors = []
@@ -2789,7 +2783,10 @@ export function makePlugin(dshProvider) {
             ? []
             : [{
               type: 'oauth',
-              label: `在浏览器里新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`,
+              // Marvis 那条腿不碰浏览器（见 `marvisSignIn()`），说「在浏览器里新建」会误导。
+              label: dshProvider === 'marvis'
+                ? `扫一次码新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`
+                : `在浏览器里新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`,
 
               /**
                * 起一次登录流程，把登录页交给 magpie 打开。
@@ -2815,16 +2812,35 @@ export function makePlugin(dshProvider) {
                 // 30 秒 + `MAGICREW_PROFILE_TIMEOUT_MS` 6 秒 ⇒ 最坏约 36 秒），`browser` 腿
                 // 起完后台任务**立刻**返回（不等用户登录）⇒ 现实最坏约 12 + 36 ≈ 48 秒，仍在闸内。
                 await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+
+                // 腾讯 Marvis 走另一条通道：**不**让本体去开浏览器。
+                //
+                // 上游的 marvis 登录是「vendor 自己拉一个 Chromium、用 CDP 在
+                // `marvis_oauth` 请求发出的**前一刻**截下来」。这要求跑插件的机器
+                // 上有一个 headful Chromium（`vendor/lib/chromium-session.js` 实测
+                // `--headless=new` 恒 F001）—— 在只有 sshd 的服务器上根本不存在，
+                // 于是报「找不到可用的浏览器」。
+                //
+                // 但授权页地址是**纯函数**算出来的（`authorizeUrlOf`：QQ 是
+                // graph.qq.com、微信是 open.weixin.qq.com，`state` 由我们造），
+                // 而且 `exchangeCode` 的失败次序是「先校参数、后兑 code」
+                // （不带 `Ual-Access-Guid` 头一律 `-109 RC_PARAMS_INVALID`，
+                // 2026-11-10 实测），所以浏览器真发那次回调也不会把 code 烧掉 ——
+                // 只要我们能拿到那条 URL 上的 `code`，就能在 Node 侧带着 guid 兑换。
+                //
+                // 宿主本来就支持这种形状：`authorize()` 返回 `mode: 'code'` 时，
+                // 它会显示登录链接 + 一个粘贴框，把用户粘回来的文本作为
+                // `callback(text)` 的唯一入参（`internal/provider/pluginsignin_paste.go`；
+                // `magpie` 里装的那 8 个社区登录插件（名字都带 `-auth`）全这么写）。
+                // 于是这里把 Marvis 的登录整个交给那条通道，一台没有浏览器的机器也能建号。
+                if (dshProvider === 'marvis') {
+                  return marvisSignIn(container, log, optionOn('marvis_wechat') ? '2' : '1')
+                }
+
                 const { accountId, loginUrl, reused, incognitoOpened } = await startNewAccountSmart(
                   container,
                   dshProvider,
                   log,
-                  // 只有 Marvis 读这个：QQ（`'1'`，默认）还是微信（`'2'`）扫码。
-                  // 上游判据是 `req.marvisLoginType === '2' ? '2' : '1'`，两家凭据不通用，
-                  // 所以做成开关而不是「先试 QQ 再试微信」—— 重试解决不了「用户就没绑过 QQ」。
-                  dshProvider === 'marvis'
-                    ? { marvisLoginType: optionOn('marvis_wechat') ? '2' : '1' }
-                    : undefined,
                 )
 
                 return {
@@ -3201,5 +3217,146 @@ export function makePlugin(dshProvider) {
   }
 }
 
-/** 全部 28 个工厂（`index.mjs` 逐个具名导出）。 */
+/**
+ * 从用户粘回来的那段文本里抠出授权码。
+ *
+ * 宿主那条通道的文案是「请将页面显示的代码粘贴到下方」，但 Marvis 的授权页**停不下来**：
+ * QQ / 微信把浏览器跳到 `yybadaccess.3g.qq.com/marvis_client_login/marvis_oauth?…&code=…`，
+ * 那个地址没带 `Ual-Access-Guid` 头 ⇒ 恒 `-109 RC_PARAMS_INVALID`，页面上只有一段
+ * JSON（或微信那句「抱歉，出错了」）。用户真正能复制的是**地址栏整条 URL**，
+ * 所以这里两种都认：整条地址、半截 query、以及裸 code。
+ */
+function marvisCodeOf(pasted) {
+  const text = String(pasted ?? '').trim()
+  if (text === '') return ''
+  // 整条地址或半截 query：`...?login_type=QC&code=XXXX&state=0.123`
+  const m = /[?&#]code=([^&#\s]+)/.exec(text)
+  if (m !== null) {
+    try {
+      return decodeURIComponent(m[1])
+    } catch {
+      return m[1]
+    }
+  }
+  // 只粘了 code 本身（也可能带引号 —— 页面 JSON 里是 `"code":"…"`）
+  const bare = text.replace(/^["']|["']$/g, '')
+  if (/^[A-Za-z0-9._~+/=%-]{8,}$/.test(bare)) return bare
+  return ''
+}
+
+/**
+ * 腾讯 Marvis 的登录：**不用本机浏览器**，把授权页交给宿主，用户粘回 code 后在
+ * 本进程里兑换凭据。
+ *
+ * ## 为什么不能沿用上游那条路
+ *
+ * 上游 `marvis` 的登录是 `loginViaBrowser()`：拉一个本地 Chromium、用 CDP 在
+ * `marvis_oauth` 请求**发出前** `Fetch.fulfillRequest` 截下来。这条路的两个前提在
+ * 「只有 sshd 的服务器」上都不成立 ——
+ * ① 机器上得有一个 headful Chromium（`--headless=new` 与 `chrome-headless-shell`
+ * 都实测恒 `F001`，见 `vendor/lib/chromium-session.js`）；
+ * ② 还得有 X display（headful 要窗口）。
+ * 于是用户在 magpie 里点「新建账号」只拿到「Marvis 找不到可用的浏览器」。
+ *
+ * ## 为什么这条路能走通
+ *
+ * 三个实测出来的事实凑在一起：
+ * ① 授权页地址是**纯函数**算的（`authorizeUrlOf`）——QQ 是 `graph.qq.com`、
+ * 微信是 `open.weixin.qq.com`，`state` 我们自己造，不需要任何本机能力；
+ * ② `exchangeCode` 的失败次序是「**先校参数、后兑 code**」：不带
+ * `Ual-Access-Guid` 头一律回 `-109 RC_PARAMS_INVALID`（2026-11-10 实测，QC/WX 两侧同），
+ * 所以浏览器那次跳转**不会**把 code 烧掉，用户粘回来我们再带 guid 兑一次仍有效；
+ * ③ 宿主本来就支持这种形状：`authorize()` 返回 `mode: 'code'` 时它显示登录链接 +
+ * 粘贴框，把文本作为 `callback(text)` 的唯一入参（`internal/provider/pluginsignin_paste.go`；
+ * `magpie` 里装的那 8 个社区登录插件（名字都带 `-auth`）全这么写）。
+ *
+ * ## 落库走哪条腿
+ *
+ * 凭据由我们自己兑出来，`account.create` 的 `browser` 腿用不上。上游正好有一条
+ * `mode: 'magpie-import'` 的腿（原本给「读本机 magpie 的 plugin-auth.json」用），
+ * 它的 `req.magpieCredential` 可以是**一段 JSON 文本**，走同一个
+ * `importCredentialFromMagpie()` 解析、同一套按 openid 判重、同一套写池与写凭据。
+ * 这里把兑出来的凭据按那个形状拼好交给它 —— 宿主侧不需要任何改动。
+ */
+async function marvisSignIn(container, log, loginType) {
+  const guid = newMarvisDeviceGuid()
+  // QQ 的 `state` 必须是小数字符串（上游同款）；微信直接拿 guid 当 state。
+  const state = loginType === '1' ? `0.${String(Math.random()).slice(2)}` : guid
+  const url = authorizeUrlOf(loginType, guid, state)
+
+  return {
+    url,
+    instructions: `在新页面里完成${loginType === '2' ? '微信扫码' : ' QQ 授权'}。`
+      + '这一步结束后页面会停在一段 JSON（或「抱歉，出错了」）上 —— 这是正常的，'
+      + '把**地址栏整条地址**粘到下面就行（只粘 code 那串也认）。',
+    // 宿主读这个字段决定用哪套 UI：给了它就会显示「登录链接 + 粘贴框」，
+    // 而不是去拉起本机浏览器。
+    mode: 'code',
+    opened: false,
+    /**
+     * 用户粘回文本后：兑 code → 交 `account.create` 落库 → 与别的家同样收口。
+     */
+    async callback(pasted) {
+      const code = marvisCodeOf(pasted)
+      if (code === '') {
+        throw new Error('没在这段文本里找到授权码：请把登录后那个页面的**整条地址栏**粘过来')
+      }
+      const auth = container.ctx?.get('marvisAuth')
+      if (auth === undefined || typeof auth.exchangeCode !== 'function') {
+        throw new Error('本体没有可用的 Marvis 登录服务（容器没起来？），请重新点一次「新建账号」')
+      }
+      const credential = await auth.exchangeCode({ code, loginType, guid, state })
+      log?.(`[marvis] 授权码已兑换成凭据（${loginType === '2' ? '微信' : 'QQ'}，openid ${String(credential.openid).slice(0, 8)}…）`)
+
+      // 形状必须与 `importCredentialFromMagpie()` 逐字对上：`access`/`refresh` 为非空
+      // 字符串、`metadata.openid` + `metadata.guid` 必填、`loginType` 是 `'1'`/`'2'`、
+      // `expires` 是**数字**（vendor 那边只认 number，字符串会被当成「没有有效期」丢掉）。
+      const expires = Number(credential.expires_at)
+      const payload = {
+        access: credential.access_token,
+        refresh: credential.refresh_token,
+        metadata: {
+          openid: credential.openid,
+          guid: credential.guid ?? guid,
+          loginType: credential.login_type ?? loginType,
+          ...(typeof credential.nickname === 'string' ? { nickname: credential.nickname } : {}),
+        },
+        ...(Number.isFinite(expires) ? { expires } : {}),
+      }
+
+      const created = await withRpcDeadline(
+        container,
+        'account.create',
+        { provider: 'marvis', mode: 'magpie-import', magpieCredential: JSON.stringify(payload) },
+        CREATE_TIMEOUT_MS,
+        'account.create',
+      )
+      const accountId = String(created?.accountId ?? '').trim()
+      if (accountId === '') throw new Error('本体没回账号 id（Marvis 凭据可能没被接受）')
+      accountsCache.delete('marvis')
+
+      const hit = await accountById(container, 'marvis', accountId, log)
+      // 判重命中时会话可能被转写给老卡、新卡留成空壳 —— 与别的家同样签给存活的那条。
+      const landed = await landedAccountOf(container, 'marvis', accountId, hit, log)
+      const signedId = landed.id
+      let wide = 0
+      try {
+        fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+        wide = Object.keys(modelsOfFull('marvis', fullModels)).length
+        writeCache(log)
+      } catch { /* 全量拉不到不影响签入 */ }
+
+      return {
+        type: 'success',
+        key: `jet-hub-local:marvis/${signedId}`,
+        accountId: `${accountLabel(landed.hit ?? { id: signedId })}·已新建`
+          + (wide > 0 ? `·上游 ${wide} 个模型` : ''),
+        uid: signedId,
+        metadata: { via: 'jet-hub', provider: 'marvis', dshAccountId: signedId },
+      }
+    },
+  }
+}
+
+/** 全部 29 个工厂（`index.mjs` 逐个具名导出）。 */
 export const PLUGINS = DSH_PROVIDERS.map((p) => [idOf(p), makePlugin(p)])
