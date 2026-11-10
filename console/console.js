@@ -386,6 +386,13 @@ async function loadAccounts() {
       .join('、')
     say('#accMsg', notes ? `${ACC.length} 个账号（${notes}）` : `${ACC.length} 个账号`, 'ok')
   } catch (e) {
+    // ⚠ **失败回包同样要守卫**（2026-11-11 三审 P2）：`setProvider()` 是同步改
+    // `#accProvider` 的，旧渠道的失败回包若在切走之后才到，会：
+    //   ① 把**新**渠道的卡片按旧 provider 渲染（`gen` / `px` / `rekey` 全按旧家
+    //      算，指纹行、代理按钮、换 Key 按钮全都错位）；
+    //   ② 用旧渠道的错误顶掉新渠道自己那条「N 个账号」。
+    // 与上面 `:363`、`:376` 那两处是同一条理由，只是这条在失败路径上。
+    if ($('#accProvider').value !== provider) return
     const msg = String(e.message ?? e)
     // 卡片已经在开头的清场里清掉了（必须清，理由见那里）—— 这里把空态文案换成
     // 「读取失败」，别让用户以为「账号真的没了」。
@@ -1389,6 +1396,11 @@ async function startLogin(provider) {
         $('#lmState').textContent = `等待中…（${s.state ?? 'pending'}）`
       }
     } catch (e) {
+      // ⚠ 失败路径同样要守卫（2026-11-11 三审 P2）：上面 `:1360` 的 `myTimer`
+      //    校验只在**成功**路径上；旧 tick 的 `login.poll` 若是 **reject** 回来，
+      //    就会把「轮询出错」写到**新**弹窗上 —— 用户明明刚开了一次新登录，
+      //    却看到上家的网络错误。
+      if (loginTimer !== myTimer) return
       $('#lmState').textContent = `轮询出错：${e.message ?? e}`
       $('#lmState').className = 'msg err'
     }
