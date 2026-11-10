@@ -21,6 +21,7 @@
  *
  * 用法：node tests/t-vendor-patches.mjs
  */
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -62,27 +63,32 @@ function splitForm(name, quote = "'") {
   return (src) => re.test(src)
 }
 
-/** 「整串写在一个字面量里」的形态 —— 命中就说明补丁被覆盖掉了。 */
-function singleLiteral(name, quote, length) {
-  const re = new RegExp(`export (?:declare )?const ${name} = ${quote}[^${quote}]{${length}}${quote};`)
-  return (src) => re.test(src)
-}
-
 console.log('· 1  gemini 默认 client 常量：拆开了，且值没变')
 {
   // `.js` 是单引号、`.d.ts` 是双引号 —— 两边都钉，因为 `tsc` 重新生成时只会覆盖后者。
   ok(splitForm('GEMINI_DEFAULT_CLIENT_ID', "'")(read(GEMINI_JS)), 'lib/gemini-oauth.js 的 client id 是两段拼接')
   ok(splitForm('GEMINI_DEFAULT_CLIENT_ID', '"')(read(GEMINI_DTS)), 'lib/gemini-oauth.d.ts 的声明同样是两段拼接')
-  ok(!singleLiteral('GEMINI_DEFAULT_CLIENT_ID', "'", 73)(read(GEMINI_JS)), '… 没有退回成 73 字符的整串明文')
+  // ⚠️ 原有一条 `!singleLiteral(id, 73)` 与上面的 `splitForm` **逻辑等价**（一个字面量
+  //    不可能同时是两段拼接），2026-11-10 对抗审查指出是零增量，已删。
 
   ok(splitForm('GEMINI_DEFAULT_CLIENT_SECRET', "'")(read(GEMINI_JS)), 'lib/gemini-oauth.js 的 client secret 是两段拼接')
   ok(splitForm('GEMINI_DEFAULT_CLIENT_SECRET', '"')(read(GEMINI_DTS)), 'lib/gemini-oauth.d.ts 的声明同样是两段拼接')
 
-  // 值必须真的拼出来：拆完少一段 / 少个字符时，上面四条形态判据都还是绿的。
+  // ⚠️⚠️「形态 + 长度 + 前缀」**不够**（2026-11-10 对抗审查 m03–m06 实测）：
+  //    把 client id 中间任意一个字符**等长替换**（`tmhssin`→`tmhssiN`），
+  //    上面四条形态判据 + `length === 73` + `startsWith('1071')` **全绿** ——
+  //    而那是真事故：浏览器授权成功、账号却永不出现（token 端点直接拒绝）。
+  //    secret 更糟：`'GOCS' + ''` / `'GOCS' + 'x'` / 等长替换**三种全绿**
+  //    （`length > 0` 与 `startsWith('GOCS')` 都只覆盖前 4 个字符）。
+  // ⇒ 用 **sha256 指纹**锁值：单向哈希不泄露明文（push protection 扫的是明文），
+  //    但任何字符改动都会红。改常量时连同指纹一起改。
+  const fingerprint = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16)
   ok(GEMINI_DEFAULT_CLIENT_ID.length === 73, '拼出来的 client id 长度是 73', GEMINI_DEFAULT_CLIENT_ID.length)
-  ok(GEMINI_DEFAULT_CLIENT_ID.startsWith('1071'), '… 且以项目号 1071 开头', GEMINI_DEFAULT_CLIENT_ID.slice(0, 4))
-  ok(GEMINI_DEFAULT_CLIENT_SECRET.length > 0, '拼出来的 client secret 非空', GEMINI_DEFAULT_CLIENT_SECRET.length)
-  ok(GEMINI_DEFAULT_CLIENT_SECRET.startsWith('GOCS'), '… 且以 GOCS 开头', GEMINI_DEFAULT_CLIENT_SECRET.slice(0, 4))
+  ok(fingerprint(GEMINI_DEFAULT_CLIENT_ID) === 'bf00c418024ba6bf',
+    '… 且值未被等长替换（sha256 前 16 位）', fingerprint(GEMINI_DEFAULT_CLIENT_ID))
+  ok(GEMINI_DEFAULT_CLIENT_SECRET.length === 35, '拼出来的 client secret 长度是 35', GEMINI_DEFAULT_CLIENT_SECRET.length)
+  ok(fingerprint(GEMINI_DEFAULT_CLIENT_SECRET) === '1d2f041093fd95aa',
+    '… 且值未被等长替换（sha256 前 16 位）', fingerprint(GEMINI_DEFAULT_CLIENT_SECRET))
 }
 
 console.log('· 2  types.d.ts 的 closeProvider 契约（setAllDisabled / setDisabledMany 各一处）')

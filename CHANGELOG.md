@@ -17,8 +17,9 @@
   的变量名取入口 basename（`entryPoints: [index.js]`）—— 0.24 给 `client_exports`，上游作者
   用的更新版本给 `index_exports`，**差 3 字节**。⇒ 任何人按文档重建都会得到 **1158**，
   而脚本把 `client/jet-hub.js` 归进「手改或污染」并 exit 1 —— **一条必然误报的基线等于没有**。
-  现在加 `BUILD_ARTIFACTS` 白名单：差异数按「文档 1159 − 构建产物差异」判，且**最多只允许 1 个**
-  （白名单被滥用时单独报一条），输出里点名「文档 1159 − 构建产物 1：client/jet-hub.js」。
+    不是「整份文件豁免」—— 那会**把真手改一起吞掉**（2026-11-10 一审实测：改 1 个字符仍
+    exit 0、还打印「无污染」）。正确做法是**归一化后仍要求逐字节相等**：把这个变量名
+    抹平成 `EXPORTS` 再比 —— 干净快照仍算「一致」（1159 成立），手改任何一位就红。
   `docs/vendor.md` 的「它做四件事」同步补这句说明。
 
 - `chore(snapshot)`: **`page/models.js` 重跑**（894 → **979** 个模型 / 28 → **29** 家，含
@@ -39,12 +40,12 @@
   （换机漏依赖的表现是「控制台打不开」）。两条变异（把补丁文件换回上游原样 / 手改一个
   非补丁文件）都实测退出码 1。
 
-- `test(vendor)`: **新增 `tests/t-vendor-patches.mjs`（14 条断言），把「同步会把补丁整片覆盖」
+- `test(vendor)`: **新增 `tests/t-vendor-patches.mjs`（13 条断言），把「同步会把补丁整片覆盖」
   里最静默的两类钉成断言**。`vendor/` 那 11 个补丁文件在「版本怎么升」第 2 步会被整片
   覆盖，而其中两类**没有任何测试**（`docs/vendor.md` 原来只承认 gemini 一条）：
   ① gemini 的两个默认 OAuth client 常量必须「拆成两段」—— 恢复成整串明文时本地一切
   正常，**只有 `git push` 那一刻被 push protection 拒**，所以判据刻意用**源码形态**
-  （`.js` 单引号 / `.d.ts` 双引号各一条）加「拼出来的长度 73 / 35」，**不写死值** ——
+  （`.js` 单引号 / `.d.ts` 双引号各一条）加「拼出来的长度 73 / 35」**再加 sha256 指纹**，
   把整串 client id 写进断言等于把这条补丁要躲的东西原样搬回来；② `lib/types.d.ts` 的
   两处 `closeProvider?: boolean`，以及两个 magicrew `.d.ts` 的声明
   （`CDP_CREDENTIAL_EXPRESSION: string`、`leveldbTextFor(…, hostname?: string)`、
