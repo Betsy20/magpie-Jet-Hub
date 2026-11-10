@@ -7,6 +7,13 @@
   "exports": {
     ".": "./index.mjs"
   },
+  "scripts": {
+    "test": "node scripts/test-all.mjs",
+    "test:all": "node scripts/test-all.mjs --all",
+    "verify:vendor": "node scripts/verify-vendor.mjs",
+    "snapshot": "node scripts/snapshot-models.mjs",
+    "console": "node scripts/run-console.mjs"
+  },
   "files": [
     "index.mjs",
     "src",
