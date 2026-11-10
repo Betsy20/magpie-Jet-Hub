@@ -40,11 +40,93 @@ const PATCH_FILES = [
   'lib/magicrew-browser-login.js',      // ② IndexedDB 读取 + ③ 一次性 profile 回收
   'lib/magicrew-local-browser.d.ts',    // ② 声明跟上实现（leveldbTextFor 三参 / idbCredentialsIn）
   'lib/magicrew-local-browser.js',      // ② IndexedDB 读取
-  'lib/types.d.ts',                     // ⑤ RpcModelSetDisabledManyRequest.closeProvider
+  'lib/types.d.ts',                     // ⑥ RpcModelSetDisabledManyRequest.closeProvider
 ].sort()
 
-/** 文档里写死的两个数（docs/vendor.md「与上游构建产物的差异」）。 */
-const EXPECT = { libFiles: 1170, identical: 1159, localeFiles: 2 }
+/**
+ * 11 个补丁文件**内容**的 sha256 指纹。
+ *
+ * ## ⚠️⚠️ 为什么光有「差异集合 = 补丁表」还不够（2026-11-10 对抗审查 P1-4）
+ *
+ * 上面那条只核「这 11 个文件**与上游不同**」，不核「**怎么**不同」——
+ * 实测把 `jet-hub-rpc.js` 的 `closeProvider ? true : 'keep'` 改回 `closeProvider`
+ * （正是 CHANGELOG 说 `t-rpc-cover` 盯着的那个回归）、或给 `leveldb-sstable.js`
+ * 加一行注释，脚本照样打印「无污染、无漏打」并 exit 0。
+ *
+ * ⇒ 补丁文件被人手改是本脚本**唯一**该抓、却又抓不到的一类。这里给每个文件存
+ * sha256：任何字符改动都会红。
+ *
+ * ## 怎么更新
+ *
+ * 有意改补丁时跑 `node scripts/verify-vendor.mjs --print-hashes`，把它打印的
+ * 11 行原样贴回来。**不要**为了让脚本变绿就跳过校验 —— 那等于把这条门禁拆掉。
+ */
+const PATCH_SHA256 = {
+  'lib/backup.d.ts': '0f1169ae4beca9f5757a348e65385705deac52ea6226c3f9843eba9fff1b83b0',
+  'lib/backup.js': '53631bb8e2c0022b8794c638089a2013ffff7da0291c37e796c7f4a829e431ba',
+  'lib/gemini-oauth.d.ts': 'cbc9c21e0b39ecedee4eaf3749bc81439cbe45f77550b1d6bea5b38d3e332c52',
+  'lib/gemini-oauth.js': '0e78a047d0ea62f70d30e54e16196a9530abf0c77e60ae027e4fb93d17220320',
+  'lib/jet-hub-rpc.js': 'b72491d639a62e56dbdaf6eff7f8db6ee3f541229776122aa90ce3e55ccb52d9',
+  'lib/leveldb-sstable.js': '2d6954eccdb63a46ec68d0cf57fdd7ded2d31df5463d77e5569ed29457ddb853',
+  'lib/magicrew-browser-login.d.ts': '5e7c3359790c77badfb1f9ebe9de6c4d26509075957dd7ac9813861ff5d7fc97',
+  'lib/magicrew-browser-login.js': 'e81f252e2cea662c336d39122b3ec8d0094bd54ec04256c0ae48d67afdbf42c4',
+  'lib/magicrew-local-browser.d.ts': '7198b59278585fa3da5afbc68a23fa917575cc17a8ec096b2da3a31da3a30758',
+  'lib/magicrew-local-browser.js': '6adc02a9116267151dd1c0f5fccb56e714637160512b5c27b44e33493143b435',
+  'lib/types.d.ts': 'c259c4878f5f526494f9ebf28066d88a730ce519b4ef6a2ee0adfefe60849add',
+}
+
+/**
+ * 文档里写死的两个数（docs/vendor.md「与上游构建产物的差异」）。
+ *
+ * ⚠ `identical` 是「**归一化后**算一致」的数（**1159**），不是真逐字节（**1158**）：
+ * `lib/client/jet-hub.js` 由 esbuild 打包，`__export` 的变量名取入口 basename ——
+ * 本仓 `package.json` 的 `esbuild ^0.24.0` 给 `client_exports`、上游作者用的 0.25.x
+ * 给 `index_exports`，差 3 字节。见 `BUILD_ARTIFACTS` / `normalizeExports`：
+ * **归一化后仍要求逐字节相等**（不是整份文件豁免），所以干净快照算「一致」、
+ * 手改任何一位都会进 `differing` 判污染。
+ */
+const EXPECT = { libFiles: 1170, identical: 1159, localeFiles: 2, maps: 584, mapMiB: '4.00' }
+
+/**
+ * 上游构建产物里**随工具链版本漂移**的文件 —— 既不是补丁，也不是污染。
+ *
+ * esbuild 给 `__export` 生成的变量名取入口 basename（`entryPoints: [index.js]`），
+ * 不同版本命名不同：
+ *
+ * | esbuild | `lib/client/jet-hub.js` 里是 |
+ * |---|---|
+ * | 0.24.x（`package.json` 的 `^0.24.0` 只能装到这档） | `client_exports` |
+ * | **0.25.x**（上游作者构建快照用的版本，逐字节复现） | `index_exports` |
+ * | 0.27+ | 另外多一条 `@__PURE__` 注解 |
+ *
+ * ⇒ 直接比 sha256 会把 `lib/client/jet-hub.js` 报成「手改或污染」（实测：任何按
+ * `docs/vendor.md` 取法 `npm install` 的人都拿到 1158 而不是 1159）。
+ *
+ * ## ⚠️⚠️ 修法：归一化后仍要求**逐字节相等**，**不是**整份文件豁免
+ *
+ * 2026-11-10 一审实测：`BUILD_ARTIFACTS` 式的「白名单豁免」会把**真手改**一起吞掉
+ * （改 1 个字符仍然 exit 0、还打印「无污染」）。正确做法是把这个变量名抹平成
+ * `EXPORTS` **再比** —— 干净快照仍然算「一致」（文档 1159 成立），手改一位就红。
+ */
+const BUILD_ARTIFACTS = new Set(['client/jet-hub.js'])
+const normalizeExports = (buf) => buf.toString('latin1').replace(/\b(?:client|index)_exports\b/g, 'EXPORTS')
+
+/**
+ * `lib/client/jet-hub.js` 里 `__export` 变量名的**拼写一致性**。
+ *
+ * ⚠️⚠️ 光做归一化比较**不够**（2026-11-10 对抗审查 P1-1）：文件里 3 处出现这个标识符
+ * （`var X_exports = {}` / `__export(X_exports, …)` / `module.exports = __toCommonJS(X_exports)`）。
+ * 把其中**任意 1 处**改成另一种拼写，归一化后仍是 3 个 `EXPORTS`、**逐位相等 ⇒ 绿**，
+ * 而 vm 实测那是 `ReferenceError`（`var` 声明与 `__export` 用了不同标识符）—— 插件完全
+ * 无法加载。8 种拼写组合里 6 种是这种破的。
+ *
+ * ⇒ 单独钉「两种拼写**恰有一个出现 3 次、另一个 0 次**」。这比「整份文件豁免」严格，
+ * 也不受 esbuild 版本影响（0.24 给 `client_exports`、0.25 给 `index_exports`，都是 3/0）。
+ */
+const exportsSpellings = (buf) => {
+  const s = buf.toString('latin1')
+  return { index: (s.match(/\bindex_exports\b/g) ?? []).length, client: (s.match(/\bclient_exports\b/g) ?? []).length }
+}
 
 const sha256 = (p) => createHash('sha256').update(fs.readFileSync(p)).digest('hex')
 
@@ -65,6 +147,11 @@ function walk(root) {
 }
 
 function main() {
+  // `--print-hashes`：有意改补丁后，把这里打印的 11 行原样贴回 PATCH_SHA256。
+  if (process.argv.includes('--print-hashes')) {
+    for (const f of PATCH_FILES) console.log(`  '${f}': '${sha256(path.join(VENDOR, f))}',`)
+    process.exit(0)
+  }
   const upstream = process.argv[2]
   if (!upstream) {
     console.error('用法：node scripts/verify-vendor.mjs <上游仓库根目录>')
@@ -93,10 +180,31 @@ function main() {
 
   const differing = []
   let identical = 0
+  /** 靠「归一化 esbuild 变量名」才算一致的构建产物 —— 干净快照下应有 1 个，且只允许这一个。 */
+  const artifactNormalized = []
   for (const rel of ups) {
     if (!vendSet.has(rel)) continue
-    if (sha256(path.join(upLib, rel)) === sha256(path.join(VENDOR, 'lib', rel))) identical += 1
-    else differing.push(rel)
+    const a = fs.readFileSync(path.join(upLib, rel))
+    const b = fs.readFileSync(path.join(VENDOR, 'lib', rel))
+    if (a.equals(b)) { identical += 1; continue }
+    // ⚠️ 只对 BUILD_ARTIFACTS 里的文件做归一化重比 —— 干净快照仍算「一致」；
+    //    真手改（任何字符）归一化后仍不相等 ⇒ 进 differing 判污染。
+    if (BUILD_ARTIFACTS.has(rel) && normalizeExports(a) === normalizeExports(b)) {
+      // ⚠️⚠️ 归一化只能证明「抹平拼写后相等」，**证明不了拼写本身一致**（P1-1）。
+      //     把 3 处里任意 1 处换成另一种拼写，归一化后仍相等 —— 而那是 ReferenceError。
+      const sp = exportsSpellings(b)
+      const consistent = (sp.index === 3 && sp.client === 0) || (sp.client === 3 && sp.index === 0)
+      if (!consistent) {
+        bad(`lib/client/jet-hub.js 的 __export 变量名**混合拼写**（index_exports=${sp.index} / client_exports=${sp.client}）`
+          + ` —— 必须是 3/0 或 0/3；混合会让模块 ReferenceError（插件完全无法加载）`)
+        differing.push(rel)
+        continue
+      }
+      identical += 1
+      artifactNormalized.push(rel)
+      continue
+    }
+    differing.push(rel)
   }
   differing.sort()
 
@@ -104,11 +212,15 @@ function main() {
 
   if (vend.length !== EXPECT.libFiles) bad(`vendor/lib 文件数应为 ${EXPECT.libFiles}，实际 ${vend.length}（同步后请更新文档与 EXPECT）`)
   else ok(`文件数 ${vend.length} 与文档一致`)
-  if (identical !== EXPECT.identical) bad(`逐字节一致数应为 ${EXPECT.identical}，实际 ${identical}（同步后请更新文档与 EXPECT）`)
-  else ok(`逐字节一致 ${identical} 个与文档一致`)
+  const byteExact = identical - artifactNormalized.length
+  if (identical !== EXPECT.identical) bad(`一致数应为 ${EXPECT.identical}（真逐字节 ${byteExact} + 归一化 ${artifactNormalized.length}），实际 ${identical}（同步后请更新文档与 EXPECT）`)
+  else ok(`一致 ${identical} 个（真逐字节 ${byteExact} + 归一化 ${artifactNormalized.length}）与文档一致`)
 
   if (upstreamOnly.length) bad(`上游有、vendor 缺：${upstreamOnly.join(', ')}（同步漏拷）`)
   if (vendorOnly.length) bad(`vendor 有、上游没有：${vendorOnly.join(', ')}（快照被别的动作污染过）`)
+  // 归一化只该命中那 1 个构建产物；多于 1 个说明白名单被滥用，逐个人工看。
+  if (artifactNormalized.length > 1) bad(`靠归一化才算一致的构建产物应最多 1 个，实际 ${artifactNormalized.length}：${artifactNormalized.join(', ')}（检查 BUILD_ARTIFACTS）`)
+  else if (artifactNormalized.length === 1) ok(`其中 1 个靠归一化 esbuild 变量名才算一致：${artifactNormalized[0]}`)
 
   // `differing` 里是相对 `lib/` 的路径；补丁表按仓库路径写（`lib/xxx`），比较时归一。
   const PATCH_REL = new Set(PATCH_FILES.map((f) => f.replace(/^lib\//, '')))
@@ -116,15 +228,39 @@ function main() {
   const missing = [...PATCH_REL].filter((f) => !differing.includes(f)).sort()
   if (missing.length) bad(`这些补丁**不在**差异里，说明被同步覆盖了：${missing.join(', ')}`)
   if (extra.length) bad(`这些文件与上游不同，但不在补丁表里（手改或污染）：${extra.join(', ')}`)
-  if (!missing.length && !extra.length) ok(`差异集合恰好等于补丁表（${PATCH_FILES.length} 个文件 / 6 类）`)
+  if (!missing.length && !extra.length) ok(`差异集合恰好等于补丁表（${PATCH_FILES.length} 个文件 / 6 类）${artifactNormalized.length ? `；另有 ${artifactNormalized.length} 个构建产物靠归一化算一致` : ''}`)
+
+  // ⚠️⚠️ 上面只核「这 11 个文件**与上游不同**」，不核「**怎么**不同」（2026-11-10 对抗审查 P1-4）。
+  // 实测把 `jet-hub-rpc.js` 的 `closeProvider ? true : 'keep'` 改回 `closeProvider`、
+  // 或给 `leveldb-sstable.js` 加一行注释，上面那条照样绿 —— 而这是本脚本**唯一**该抓
+  // 却又抓不到的一类（补丁被人手改）。逐个核 sha256。
+  const hashDrift = PATCH_FILES.filter((f) => {
+    const want = PATCH_SHA256[f]
+    if (want === undefined) return false
+    // ⚠️ 文件**整个缺失**时 `sha256()` 会抛 ENOENT，把前面所有 `bad()` 全冲掉
+    //    （2026-11-10 对抗审查 P2-1）—— 而那正是「补丁被同步覆盖」最该给诊断的
+    //    形态。缺文件已由上面 `上游有、vendor 缺` 那条报，这里跳过。
+    let got
+    try { got = sha256(path.join(VENDOR, f)) } catch { return false }
+    return got !== want
+  })
+  const hashMissing = PATCH_FILES.filter((f) => PATCH_SHA256[f] === undefined)
+  if (hashMissing.length) bad(`PATCH_SHA256 少了这些文件的期望值：${hashMissing.join(', ')}（跑 --print-hashes 补上）`)
+  if (hashDrift.length) bad(`这些补丁文件的**内容**与期望 sha256 不符（被手改？）：${hashDrift.join(', ')}`)
+  if (!hashMissing.length && !hashDrift.length) ok(`11 个补丁文件的内容 sha256 全部与期望一致`)
 
   // ── 2. .map 数量与体积 ─────────────────────────────────────────────
   console.log('· 2  source map')
   const maps = vend.filter((f) => f.endsWith('.map'))
   const mapBytes = maps.reduce((n, f) => n + fs.statSync(path.join(VENDOR, 'lib', f)).size, 0)
   const mapMiB = (mapBytes / 1024 / 1024).toFixed(2)
-  ok(`lib/*.map ${maps.length} 个 / ${mapMiB} MiB（文档写 584 个 / 约 4.00 MiB）`)
   const upMaps = ups.filter((f) => f.endsWith('.map'))
+  // 文档写死的两个数（docs/vendor.md「564 个 .map / 约 3.91 MiB」那一节）——
+  // 原来只 `ok()` 打印、从不判定，2026-11-10 对抗审查 P3-10 指出「文档说核」名不副实。
+  if (maps.length !== EXPECT.maps) bad(`lib/*.map 应为 ${EXPECT.maps} 个，实际 ${maps.length}（同步后请更新文档与 EXPECT）`)
+  else ok(`lib/*.map ${maps.length} 个（文档 ${EXPECT.maps} 个）`)
+  if (mapMiB !== EXPECT.mapMiB) bad(`lib/*.map 应为 ${EXPECT.mapMiB} MiB，实际 ${mapMiB} MiB（同步后请更新文档与 EXPECT）`)
+  else ok(`lib/*.map ${mapMiB} MiB（文档约 ${EXPECT.mapMiB} MiB）`)
   if (maps.length !== upMaps.length) bad(`.map 数量与上游不同：${maps.length} vs ${upMaps.length}`)
 
   // ── 3. locale/ 与 package.json ──────────────────────────────────────
@@ -160,7 +296,7 @@ function main() {
     console.log('\n同步/修复口径见 docs/vendor.md 的「版本怎么升」。')
     process.exit(1)
   }
-  console.log(`\n✓ vendor/ 与上游 ${upstream} 完全一致：${identical} 个逐字节相同 + ${PATCH_FILES.length} 个补丁文件，无污染、无漏打。`)
+  console.log(`\n✓ vendor/ 与上游 ${upstream} 完全一致：${identical} 个一致（真逐字节 ${identical - artifactNormalized.length} + 归一化 ${artifactNormalized.length}）+ ${PATCH_FILES.length} 个补丁文件，无污染、无漏打。`)
 }
 
 main()

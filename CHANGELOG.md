@@ -11,22 +11,43 @@
 
 ## 1.0.0（未发布）
 
-- `chore(vendor)`: **新增 `scripts/verify-vendor.mjs`，把「1170 个文件 / 1159 个逐字节一致 /
-  11 个补丁」这条快照基线变成一条可执行命令**。原来 `docs/vendor.md` 的「怎么自己核一遍」
+- `fix(vendor)`: **`verify-vendor.mjs` 的「逐字节一致 1159」在本机必然失败**（2026-11-10 复核
+  发现）。脚本把 `identical` 硬编码成 1159，但本仓 `package.json` 声明 `esbuild ^0.24.0`，
+  而 `lib/client/jet-hub.js` 由 `plugin-src/client/build.mjs` 用 esbuild 打包、`__export`
+  的变量名取入口 basename（`entryPoints: [index.js]`）—— 0.24 给 `client_exports`，上游作者
+  用的更新版本给 `index_exports`，**差 3 字节**。⇒ 任何人按文档重建都会得到 **1158**，
+  而脚本把 `client/jet-hub.js` 归进「手改或污染」并 exit 1 —— **一条必然误报的基线等于没有**。
+    不是「整份文件豁免」—— 那会**把真手改一起吞掉**（2026-11-10 一审实测：改 1 个字符仍
+    exit 0、还打印「无污染」）。正确做法是**归一化后仍要求逐字节相等**：把这个变量名
+    抹平成 `EXPORTS` 再比 —— 干净快照仍算「一致」（1159 成立）；**另外单独钉「两种拼写恰
+    有一个出现 3 次、另一个 0 次」**，因为混合拼写（3 处里改 1 处）归一化后仍相等，而那是
+    `ReferenceError`（插件完全无法加载）。
+  `docs/vendor.md` 的「它做四件事」同步补这句说明。
+
+- `chore(snapshot)`: **`page/models.js` 重跑**（894 → **979** 个模型 / 28 → **29** 家，含
+  `jet-hub-marvis/main-auto`）。上一版 PR 里写「需要加载了新 vendor 的宿主在跑，所以没硬跑」——
+  但宿主早已重启（`:18500` 的 `magpie-bun` 是 22:25 起的，`/__meta` 报 29 家、`fullCatalogAt`
+  就是当天），理由不成立。重跑后 `tests/t-new-account.mjs` 的 `SNAPSHOT_MISSING` 白名单
+  **三条全部如约变红**（`magicrew` / `magicrewintl` 的凭据已恢复、`marvis` 也有目录了），
+  按那个反向锚点的设计清空 —— 这条白名单的用途就是「能拿到时必须删掉」，留着等于永久
+  掩盖真缺失。
+
+- `chore(vendor)`: **新增 `scripts/verify-vendor.mjs`，把「1170 个文件 / 1159 个与上游逐字节一致 / 11 个补丁」
+  这条快照基线变成一条可执行命令**。原来 `docs/vendor.md` 的「怎么自己核一遍」
   只有一堆 shell，而临时目录一清就说不清「这 11 个差异到底是补丁还是被人手改过」——
   这条基线是整份快照**唯一**可复核的地方。现在四件事一次核完：① `lib/` 逐文件 sha256，
-  文件数与一致数必须对上文档；② 差异集合必须**恰好等于**补丁表那 11 个文件 —— 少一个
+  文件数与一致数必须对上文档；② 差异集合必须**恰好等于**补丁表那 11 个文件，**且每个补丁文件的 sha256 指纹必须与 `PATCH_SHA256` 一致**（否则「补丁被人手改」看不见；有意改补丁时跑 `--print-hashes` 更新那 11 行）—— 少一个
   说明补丁被同步覆盖（静默故障），多一个说明快照被污染；③ `lib/*.map` 584 个 / 4.00 MiB、
   `locale/` 2 个逐字节一致；④ `vendor/package.json` 版本号与上游同提交一致，并打出依赖树
   （换机漏依赖的表现是「控制台打不开」）。两条变异（把补丁文件换回上游原样 / 手改一个
   非补丁文件）都实测退出码 1。
 
-- `test(vendor)`: **新增 `tests/t-vendor-patches.mjs`（14 条断言），把「同步会把补丁整片覆盖」
+- `test(vendor)`: **新增 `tests/t-vendor-patches.mjs`（13 条断言），把「同步会把补丁整片覆盖」
   里最静默的两类钉成断言**。`vendor/` 那 11 个补丁文件在「版本怎么升」第 2 步会被整片
   覆盖，而其中两类**没有任何测试**（`docs/vendor.md` 原来只承认 gemini 一条）：
   ① gemini 的两个默认 OAuth client 常量必须「拆成两段」—— 恢复成整串明文时本地一切
   正常，**只有 `git push` 那一刻被 push protection 拒**，所以判据刻意用**源码形态**
-  （`.js` 单引号 / `.d.ts` 双引号各一条）加「拼出来的长度 73 / 35」，**不写死值** ——
+  （`.js` 单引号 / `.d.ts` 双引号各一条）加「拼出来的长度 73 / 35」**再加 sha256 指纹**，
   把整串 client id 写进断言等于把这条补丁要躲的东西原样搬回来；② `lib/types.d.ts` 的
   两处 `closeProvider?: boolean`，以及两个 magicrew `.d.ts` 的声明
   （`CDP_CREDENTIAL_EXPRESSION: string`、`leveldbTextFor(…, hostname?: string)`、
