@@ -3207,11 +3207,9 @@ export function makePlugin(dshProvider) {
  * 把地址栏整条粘进问 ② 的答案 ⇒ `authorize(inputs)` 里 `exchangeCode` 兑换、
  * `account.create {mode:'magpie-import'}` 落库。
  *
- * guid / state 在问 ② 生成后存进 `marvisPendingPlans`（authorize 与 ask 在同一个
- * 插件宿主进程里先后执行，按 provider id 取回；重开一轮问答会覆盖旧的）。
+ * guid / state 无需跨问答保存：authorize 直接从粘回的地址里取回显值，兑换时
+ * 新生成 guid —— 插件宿主重启也不会让用户粘好的地址作废。
  */
-const marvisPendingPlans = new Map()
-
 function marvisOauthMethod(dshProvider, container, log) {
   const name = NAMES[dshProvider] ?? dshProvider
   return {
@@ -3236,7 +3234,6 @@ function marvisOauthMethod(dshProvider, container, log) {
       if (inputs?.marvis_paste === undefined) {
         const loginType = inputs.marvis_login_type === '2' ? '2' : '1'
         const plan = marvisSignInPlan(loginType)
-        marvisPendingPlans.set(dshProvider, plan)
         log?.(`[marvis] 登录页已生成（${loginType === '2' ? '微信' : 'QQ'}）：${plan.url}`)
         return {
           type: 'text',
@@ -3248,15 +3245,22 @@ function marvisOauthMethod(dshProvider, container, log) {
       return null
     },
     async authorize(inputs = {}) {
-      const plan = marvisPendingPlans.get(dshProvider)
-      marvisPendingPlans.delete(dshProvider)
-      if (plan === undefined) {
-        throw new Error('没有找到这次的 Marvis 登录会话（guid 已失效）：请重新点一次「新建账号」')
-      }
-      const code = marvisCodeOf(inputs?.marvis_paste)
+      // ⚠️ 刻意**不**依赖 ask② 预存的会话：插件宿主一重启（夜间自动更新等）Map
+      // 就空了，用户粘回来的地址不该因此作废。兑换所需的三件套都能自足 ——
+      // code / state 从粘回的地址里取（QQ / 微信会原样回显 authorize 时的值），
+      // guid 用兑换时新生成的（vendor 的 loginViaBrowser 也是每次登录新 guid，
+      // 凭据本来就绑在兑换时的那个 guid 上）。
+      const raw = marvisTextOf(inputs?.marvis_paste).trim()
+      const code = marvisCodeOf(raw)
       if (code === '') {
         throw new Error('没在这段文本里找到授权码：请把登录后那个页面的整条地址栏粘过来')
       }
+      const loginType = inputs?.marvis_login_type === '2' ? '2' : '1'
+      const plan = marvisSignInPlan(loginType)
+      // state 优先取地址里的回显值 —— 那正是 authorize 时发出去的那个；
+      // 用户只粘裸 code 时退回本地生成的同款（QQ：小数字符串；微信：guid 本身）。
+      const echoed = /[?&#]state=([^&#\s]+)/.exec(raw)
+      if (echoed !== null) plan.state = decodeURIComponent(echoed[1])
       // 容器可能还没起；这里能等的是「用户已粘完」之后的机械步骤，预算与
       // 别家同口径（12 + 20 + 45 < 60 秒的 authorize 硬上限很紧，但兑换与建号
       // 实测都在秒级，与超级麦吉「现实最坏」同一算法）。
@@ -3266,11 +3270,11 @@ function marvisOauthMethod(dshProvider, container, log) {
         throw new Error('本体没有可用的 Marvis 登录服务（容器没起来？），请重新点一次「新建账号」')
       }
       const credential = await withDeadline(
-        auth.exchangeCode({ code, loginType: plan.loginType, guid: plan.guid, state: plan.state }),
+        auth.exchangeCode({ code, loginType, guid: plan.guid, state: plan.state }),
         20_000,
         'Marvis 授权码兑换',
       )
-      log?.(`[marvis] 授权码已兑换成凭据（${plan.loginType === '2' ? '微信' : 'QQ'}，openid ${String(credential.openid).slice(0, 8)}…）`)
+      log?.(`[marvis] 授权码已兑换成凭据（${loginType === '2' ? '微信' : 'QQ'}，openid ${String(credential.openid).slice(0, 8)}…）`)
 
       // 形状必须与 `importCredentialFromMagpie()` 逐字对上：`access`/`refresh` 为非空
       // 字符串、`metadata.openid` + `metadata.guid` 必填、`loginType` 是 `'1'`/`'2'`、
@@ -3282,7 +3286,7 @@ function marvisOauthMethod(dshProvider, container, log) {
         metadata: {
           openid: credential.openid,
           guid: credential.guid ?? plan.guid,
-          loginType: credential.login_type ?? plan.loginType,
+          loginType: credential.login_type ?? loginType,
           ...(typeof credential.nickname === 'string' ? { nickname: credential.nickname } : {}),
         },
         ...(Number.isFinite(expires) ? { expires } : {}),
