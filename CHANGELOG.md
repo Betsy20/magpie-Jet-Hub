@@ -55,9 +55,11 @@
     `startNewAccountSmart` 去掉了 marvis 分流 —— 现在 29 家里只有超级麦吉两站要试多种 mode。
   - **`account.create` 的两条 marvis 腿仍都以 `req.mode` 为条件**（`magpie-import` / `browser`），
     不带 `mode` 会一路落到 `unknown provider: marvis` —— 本插件只走 `magpie-import`。
-  - **QQ / 微信二选一做成 provider 开关 `marvis_wechat`**（默认关 = QQ）：两家凭据不通用，
-    重试解决不了「用户就没绑过 QQ」。**不能**做成 oauth 方法的 `ask()` ——
-    `tests/t-new-account.mjs` 钉着「有 oauth 方法的 provider 必须 `m.ask === undefined`」。
+  - **QQ / 微信各占一个新建方法**（`marvisOauthMethods()`）：面板先弹「用哪种方式登录」，
+    用户当场挑 QQ 授权或微信扫码。两家凭据不通用（`login_type` 不同、续期端点不认另一边
+    的 refresh），让用户自己选，比猜一个默认值再让他去开关里改更不会选错。
+    **不能**做成 oauth 方法的 `ask()` —— `tests/t-new-account.mjs` 钉着「有 oauth 方法的
+    provider 必须 `m.ask === undefined`」；多个方法不需要 magpie 侧任何改动。
   - **模型目录只有一条**（`main-auto`，展示名 DeepSeek V4.1 Flash）：上游实测 9 个远端
     目录端点全 404，目录就是 vendor 里的静态常量，真实 id `deepseek-v4-1-flash-261017`
     不能直传。`contextWindow` 声明 1_000_000、收图，刻意不声明 `maxTokens`

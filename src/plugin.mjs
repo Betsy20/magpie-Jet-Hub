@@ -2619,17 +2619,6 @@ export function makePlugin(dshProvider) {
             description: '关掉后，过期且 refreshable=false 的账号也会参与选号（会 502）。',
             default: true,
           },
-          // 只有腾讯 Marvis 读这个开关。声明在全局表里是因为 `auth.options` 是
-          // 插件级的（magpie 每个 provider 一份 auth，但键要各自认识）—— 对别家
-          // 它是个不会被读的装饰项，所以只在 Marvis 那家给出来。
-          ...(dshProvider === 'marvis'
-            ? [{
-              key: 'marvis_wechat',
-              label: 'Marvis 用微信登录（默认 QQ）',
-              description: '开：微信扫码新建账号；关：QQ 授权。两边的凭据不通用，登录过哪边就选哪边。',
-              default: false,
-            }]
-            : []),
         ],
 
         /**
@@ -2781,12 +2770,13 @@ export function makePlugin(dshProvider) {
            */
           ...(NO_NEW_ACCOUNT.has(dshProvider)
             ? []
-            : [{
+            : dshProvider === 'marvis'
+              // 腾讯 Marvis 给两条腿（QQ / 微信），各一个方法：面板上直接是两个可点的
+              // 选项，不用先去开关里选。两条腿的凭据不通用，所以必须让用户当场挑。
+              ? marvisOauthMethods(dshProvider, container, log)
+              : [{
               type: 'oauth',
-              // Marvis 那条腿不碰浏览器（见 `marvisSignIn()`），说「在浏览器里新建」会误导。
-              label: dshProvider === 'marvis'
-                ? `扫一次码新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`
-                : `在浏览器里新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`,
+              label: `在浏览器里新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`,
 
               /**
                * 起一次登录流程，把登录页交给 magpie 打开。
@@ -2812,30 +2802,6 @@ export function makePlugin(dshProvider) {
                 // 30 秒 + `MAGICREW_PROFILE_TIMEOUT_MS` 6 秒 ⇒ 最坏约 36 秒），`browser` 腿
                 // 起完后台任务**立刻**返回（不等用户登录）⇒ 现实最坏约 12 + 36 ≈ 48 秒，仍在闸内。
                 await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
-
-                // 腾讯 Marvis 走另一条通道：**不**让本体去开浏览器。
-                //
-                // 上游的 marvis 登录是「vendor 自己拉一个 Chromium、用 CDP 在
-                // `marvis_oauth` 请求发出的**前一刻**截下来」。这要求跑插件的机器
-                // 上有一个 headful Chromium（`vendor/lib/chromium-session.js` 实测
-                // `--headless=new` 恒 F001）—— 在只有 sshd 的服务器上根本不存在，
-                // 于是报「找不到可用的浏览器」。
-                //
-                // 但授权页地址是**纯函数**算出来的（`authorizeUrlOf`：QQ 是
-                // graph.qq.com、微信是 open.weixin.qq.com，`state` 由我们造），
-                // 而且 `exchangeCode` 的失败次序是「先校参数、后兑 code」
-                // （不带 `Ual-Access-Guid` 头一律 `-109 RC_PARAMS_INVALID`，
-                // 2026-11-10 实测），所以浏览器真发那次回调也不会把 code 烧掉 ——
-                // 只要我们能拿到那条 URL 上的 `code`，就能在 Node 侧带着 guid 兑换。
-                //
-                // 宿主本来就支持这种形状：`authorize()` 返回 `mode: 'code'` 时，
-                // 它会显示登录链接 + 一个粘贴框，把用户粘回来的文本作为
-                // `callback(text)` 的唯一入参（`internal/provider/pluginsignin_paste.go`；
-                // `magpie` 里装的那 8 个社区登录插件（名字都带 `-auth`）全这么写）。
-                // 于是这里把 Marvis 的登录整个交给那条通道，一台没有浏览器的机器也能建号。
-                if (dshProvider === 'marvis') {
-                  return marvisSignIn(container, log, optionOn('marvis_wechat') ? '2' : '1')
-                }
 
                 const { accountId, loginUrl, reused, incognitoOpened } = await startNewAccountSmart(
                   container,
@@ -3215,6 +3181,36 @@ export function makePlugin(dshProvider) {
       _internal: { container, dshProvider, toUpstreamModel, toMagpieCheckin, toMagpieUsage },
     }
   }
+}
+
+/**
+ * 腾讯 Marvis 的两个新建方法：QQ 授权 / 微信扫码。
+ *
+ * 为什么是两个方法而不是一个开关：两条腿的凭据不通用（`login_type` 不同、续期端点也不认
+ * 另一边的 refresh），让用户在面板上当场挑，比先去开关里改配置再回来点更不会选错。
+ * magpie 看到一个 provider 有多个方法时会先弹「How do you sign in to <name>?」，
+ * 选完才走对应流程 —— 这正是想要的效果。
+ *
+ * 两者都不碰本机浏览器：`authorize()` 里只调一次 `marvisSignIn()`，它返回
+ * `mode: 'code'`（登录链接 + 粘贴框）。细节见 `marvisSignIn()` 上面那段注释。
+ */
+function marvisOauthMethods(dshProvider, container, log) {
+  const name = NAMES[dshProvider] ?? dshProvider
+  const method = (loginType, label) => ({
+    type: 'oauth',
+    label,
+    async authorize() {
+      // 与别家同一条预算：容器可能还没起（第一次点「新建」），先等它；
+      // 12 秒上限 + 之后的兑换都在 magpie 给 `authorize()` 的 1 分钟硬超时里。
+      await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+      return marvisSignIn(container, log, loginType)
+    },
+  })
+
+  return [
+    method('1', `用 QQ 授权新建一个 ${name} 账号（授权后自动接入）`),
+    method('2', `用微信扫码新建一个 ${name} 账号（授权后自动接入）`),
+  ]
 }
 
 /**
