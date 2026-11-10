@@ -11,6 +11,32 @@
 
 ## 1.0.0（未发布）
 
+- `feat(vendor)`: **同步上游到 `1d12f80`，接入腾讯 Marvis（家数 28 → 29）**。
+  `vendor/lib` 1138 → **1170** 文件（+32：`marvis-*` 8 个源文件各自的 `.js` / `.d.ts` / `.map`），
+  逐字节一致 1127 → **1159**（补丁仍是 11 个文件 / 6 类）。上游这 13 个提交里对我们
+  **零影响**的几个源文件（`magicrew-*` / `leveldb-sstable` / `backup` / `gemini-oauth`）
+  直接沿用已打补丁的版本，只有 `types.ts` / `jet-hub-rpc.ts` 需要手工重打。
+
+  上游这一版的重点：
+  - **腾讯 Marvis**（QQ / 微信 OAuth + `auto` 槽位 + 钱包额度）。它**没有**模型目录
+    端点（9 条候选全 404），目录只能静态兜底，且只有一个 `main-auto` 槽位 ——
+    真实模型 id（`deepseek-v4-1-flash-261017`）不能直传，上游回 400「无效模型id」。
+  - 「严格手动顺序」开关（`strictManualOrder.getEnabled` / `setEnabled`）。它回答的是
+    「拖拽排序到底算不算数」：关着时走余额分档的渠道会**盖过**卡片顺序 —— 那正是
+    「拖拽时灵时不灵」这条报障的根。**按供应商存**，所以接在账号页而不是设置页。
+  - qoder 企业账号额度在 `orgResourcePackage` 里（补解析 + 三个边界）。
+  - 页头按钮搬进侧边栏底部操作行 + 「设置」弹窗 + 供应商开关。
+
+  同步点（加/减 provider 时必须一起改的地方全部同步到 29）：`src/plugin.mjs` 的
+  `DSH_PROVIDERS` / `NAMES` / `FALLBACK_MODELS`、`index.mjs` 的具名工厂、
+  `src/icons.mjs`（Marvis 自绘：品牌蓝 + 对话气泡里一颗星）、`scripts/snapshot-models.mjs`
+  的 `NAMES`、`console/console.js` 的「严格手动顺序」开关、`tests/t-plugin.mjs` 的
+  `EXPECTED_PROVIDER_COUNT`、`tests/t-new-account.mjs` 的两处 `=== 29` 与
+  `SNAPSHOT_MISSING`（Marvis 本机没凭据 ⇒ 快照里没有它）、`tests/t-rpc-cover.mjs` 的
+  `EXPECTED_RPC_METHOD_COUNT` 91 → **93**（控制台接 65 → **67**）。
+
+  全量 **30 通过 / 0 失败 / 0 跳过**。
+
 - `fix(vendor)`: **修掉 `lib/magicrew-browser-login.d.ts` 的 `CDP_CREDENTIAL_EXPRESSION` 声明失配**
   （2026-11-08 gitee 重审 P2-4）。上游源码是 `` `JSON.stringify({...})` ``（只读 `localStorage`），
   本仓补丁早就换成了读 IndexedDB 的 **async IIFE**，但 `.d.ts` 仍停在旧值 ⇒ 声明的字面量类型

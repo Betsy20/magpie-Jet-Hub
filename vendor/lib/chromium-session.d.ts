@@ -494,12 +494,47 @@ export declare function buildLinuxSkipTaskbarArgs(windowId: string): string[];
  * @returns 属于该 pid 的窗口 id（形如 `0x0320000a`）；解析不到就返回空数组。
  */
 export declare function parseWmctrlList(output: string, pid: number): string[];
+/**
+ * 一条 CDP **事件**（没有 `id` 的消息，如 `Fetch.requestPaused`）。
+ *
+ * ⚠ **页面级事件必须按 `sessionId` 过滤**：`Target.attachToTarget
+ * { flatten: true }` 之后，所有页面的事件都会从**同一条** WebSocket
+ * 上冒出来，多条腿（多个登录流程、多个 tab）共用一条连接时，
+ * 不过滤就会把别人的 `requestId` 当成自己的去 fulfill。
+ */
+export interface CdpEvent {
+    method: string;
+    params: Record<string, unknown>;
+    sessionId?: string;
+}
+export type CdpEventListener = (event: CdpEvent) => void;
 /** 极简 CDP 客户端（用 Node 内置 WebSocket，**零第三方依赖**）。 */
 export declare class CdpConnection {
     private readonly ws;
     private nextId;
     private readonly pending;
+    /** 事件订阅者（有序集合；退订即删除）。 */
+    private readonly listeners;
     constructor(ws: WebSocket);
+    /**
+     * 订阅 CDP 事件（无 `id` 的消息）。
+     *
+     * @returns 退订函数（**幂等**：重复调用不抛错）。
+     *
+     * ⚠ **订阅者抛错必须被吞掉**（见 {@link dispatch}）：这里挂在
+     * `ws.addEventListener('message')` 的回调里，抛出去就是未捕获异常。
+     * 在浏览器登录这种「用户正等着」的路径上，那等于整个流程静默卡死
+     * —— 比明确失败更难排查。
+     */
+    subscribe(listener: CdpEventListener): () => void;
+    /**
+     * 把一条事件分发给所有订阅者。
+     *
+     * ⚠ 遍历的是**副本**：订阅者在回调里退订（很常见，比如「拿到就退」）
+     * 不会让 `Set` 在迭代中被改动。单个订阅者抛错只影响它自己 ——
+     * 一条事件分发不完不得让整条 WebSocket 的连接循环停摆。
+     */
+    private dispatch;
     /**
      * 发送一条 CDP 命令并等结果。
      *

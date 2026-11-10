@@ -7,7 +7,7 @@
 | 项 | 值 |
 |---|---|
 | 上游源码仓库 | [`iJetLi/deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)（**主仓**；GitHub 上的 [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) 是镜像，落后在 `5042cec`） |
-| 代码对应 commit | `498a76eaab1a038935a70c46b03e2c0c0b323a5a` |
+| 代码对应 commit | `1d12f80e14bde6c73e86aa7f5eef6257d6fe0d0b` |
 | 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交） |
 | 许可 | MIT，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](../vendor/LICENSE) |
 
@@ -17,7 +17,7 @@
 
 ```bash
 git clone https://gitee.com/iJetLi/deepseek-harness-codearts /tmp/up
-cd /tmp/up && git checkout 498a76e && rm -rf lib && npm install
+cd /tmp/up && git checkout 1d12f80 && rm -rf lib && npm install
 cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 ```
 
@@ -39,7 +39,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 与上游构建产物的差异
 
-`lib/` 共 1138 个文件，其中 **1127 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 11 个（6 类改动；`lib/gemini-oauth.*`、`lib/backup.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的三处改动落在 `lib/magicrew-browser-login.js` + `.d.ts`（两类）、`lib/magicrew-local-browser.js` + `.d.ts`、`lib/leveldb-sstable.js` 上）：
+`lib/` 共 1170 个文件，其中 **1159 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 11 个（6 类改动；`lib/gemini-oauth.*`、`lib/backup.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的三处改动落在 `lib/magicrew-browser-login.js` + `.d.ts`（两类）、`lib/magicrew-local-browser.js` + `.d.ts`、`lib/leveldb-sstable.js` 上）：
 
 | 差异 | 原因 |
 |---|---|
@@ -71,7 +71,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ```bash
 git clone https://gitee.com/iJetLi/deepseek-harness-codearts /tmp/up2
-cd /tmp/up2 && git checkout 498a76e && rm -rf lib && npm install
+cd /tmp/up2 && git checkout 1d12f80 && rm -rf lib && npm install
 diff -r /tmp/up2/lib /path/to/magpie-Jet-Hub/vendor/lib
 # 逐文件哈希核（比 diff -r 更严，能看出换行 / 编码差异）：
 cd /tmp/up2/lib && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up2/a.txt
@@ -81,14 +81,14 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 
 注意：`diff` 应该**只**列出上表那 11 个文件。多出任何一个都说明快照被别的动作污染过。
 
-`vendor/` 里有 568 个 `.map`（source map，约 3.91 MiB）运行时用不到，留着是为了与上游构建产物尽量逐字节一致、方便 diff 校验。要在意仓库体积可以删，不影响运行。
+`vendor/` 里有 584 个 `.map`（source map，约 4.00 MiB）运行时用不到，留着是为了与上游构建产物尽量逐字节一致、方便 diff 校验。要在意仓库体积可以删，不影响运行。
 
 ⚠️ **`lib/types.d.ts.map` 是有意保持上游原样的（2026-11-08 决策，不是漏改）。** `types.d.ts`
 打了 `closeProvider` 补丁（多 8 行）而 `.map` 没重生成，于是编辑器里 `types.d.ts` 的跳转
 行号在补丁点之后偏 8 行（同理，`lib/magicrew-local-browser.d.ts` 也改了、`.d.ts.map` 同样没重生成 —— 理由完全相同）。不重生成的三条理由：① 运行时用不到（上一条）；② 它没有
 `sourcesContent` 字段，重生成必须拿上游 `src/types.ts` 重跑 `tsc` —— 本仓库做不到，而手改
 `mappings` 的 VLQ 编码一旦改错只会让跳转更乱，且**没有任何测试能发现**；③ 保持逐字节一致
-才能让上面那条 `diff` 校验维持「**1128 个一致**」这个可复核的基线（1138 − 10）。这个偏差
+才能让上面那条 `diff` 校验维持「**1159 个一致**」这个可复核的基线（1170 − 11）。这个偏差
 **只影响 `types.d.ts`、`magicrew-local-browser.d.ts` 与 `magicrew-browser-login.d.ts` 三个文件的编辑器跳转**（后两者同样只有
 `.d.ts` 改了、`.d.ts.map` 没重生成 —— 经 `grep -c sourcesContent` 确认两份 `.map` 都没有
 `sourcesContent`，② 那条理由对它逐字成立），不影响编译或运行时行为（本仓库不编译类型

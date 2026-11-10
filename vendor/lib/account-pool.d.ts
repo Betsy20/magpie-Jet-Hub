@@ -300,6 +300,17 @@ export declare class AccountPool {
      */
     private sessionBalanceCache;
     /**
+     * 「严格手动顺序」开关表的进程内副本（{@link StrictManualOrderMap}）。
+     *
+     * 缺键语义是**关闭**（= 升级前行为：先按积分到期档位、档内才看手动顺序）。
+     *
+     * ⚠️ 方向取决于「能不能接受静默的行为反转」而不是「哪个更像缺陷」：把默认写成
+     * 开启，等于让所有老用户升级后**在不知情的前提下**改变选号策略（余额分档不再
+     * 生效 ⇒ 永久积分可能被提前消耗、临期积分可能放过期）。默认关闭时最坏结果只是
+     * 「用户仍需要显式开一次开关」，那是可见、可逆的。
+     */
+    private strictManualOrderCache;
+    /**
      * 「面板入口」的进程内副本：Jet Hub 的唯一入口位置（两个取值互斥）。
      *
      * 缺键语义是 `'sidebar'`「仅侧栏」（与 {@link nativeWebSearchCache} 同一方向）：
@@ -705,6 +716,26 @@ export declare class AccountPool {
      * 逐字节同路径（`getAvailableAccount`），不经过 session 排序。
      */
     setSessionBalanceEnabled(enabled: boolean): Promise<void>;
+    /**
+     * 该 provider 是否开启了「严格手动顺序」。
+     *
+     * **开** = 拖拽顺序是**唯一**的优先级判据：选号器不再按积分到期档位重排先后
+     *（「锁定永久积分」这道门照旧生效 —— 只剩永久积分的账号依然不可用）；
+     * **关**（缺键 / 老文档）= 升级前行为：余额分档优先、档内才看手动顺序。
+     *
+     * ⚠️ 调用方（`credential-resolver.ts` 的分档编排）**必须每次现读**，不能缓存
+     * 返回值：用户在面板上随时可能切换。
+     *
+     * ⚠️ 缺键语义是**关闭**，见 {@link strictManualOrderCache} 的说明。
+     */
+    strictManualOrder(provider: string): boolean;
+    /**
+     * 打开/关闭某 provider 的「严格手动顺序」并落盘。
+     *
+     * ⚠️ 与 {@link setProviderClosed} 同款：走同一条写队列（`queueStoreSave`），
+     * 不能自己 `store.save(...)` —— 那会与账号/黑名单的写入乱序覆盖。
+     */
+    setStrictManualOrder(provider: string, enabled: boolean): Promise<void>;
     /**
      * 「面板入口」的当前取值：Jet Hub 的唯一入口位置。
      *

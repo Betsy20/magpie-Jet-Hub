@@ -118,7 +118,7 @@ function candidates() {
  * 本插件实际注册成 magpie provider 的那些 id。
  *
  * ⚠️ 宿主 `/__meta` 给的是**本体全部** provider 的模型目录（含 `aggregate` /
- * `jet-hub-auto` 两个路由组），但插件只注册其中 28 家真渠道。快照必须跟着插件走，
+ * `jet-hub-auto` 两个路由组），但插件只注册其中 29 家真渠道。快照必须跟着插件走，
  * 否则页面上会列出 `jet-hub-aggregate/…` 这种复制出去 404 的 id。
  * 白名单直接取 `src/plugin.mjs` 的 `DSH_PROVIDERS`（不抄一份），`idOf` 也复用它的
  * —— 那边改了这里自动跟着变。
@@ -166,6 +166,7 @@ const NAMES = {
   'jet-hub-loomy':         ['Loomy (讯飞)', '讯飞 Loomy'],
   'jet-hub-magicrew':      ['超级麦吉 (MagiCrew)', '超级麦吉（MagiCrew）'],
   'jet-hub-magicrewintl':  ['MagiCrew (国际版)', 'MagiCrew 国际站（与国内站账号体系隔离）'],
+  'jet-hub-marvis':         ['腾讯 Marvis', '腾讯 Marvis（QQ / 微信 OAuth 登录）'],
   'jet-hub-minimax':       ['MiniMax Code (中国版)', 'MiniMax Code 国内站'],
   'jet-hub-minimaxintl':   ['MiniMax Code (国际版)', 'MiniMax Code 国际版'],
   'jet-hub-modelscope':    ['ModelScope (魔搭)', '魔搭社区'],

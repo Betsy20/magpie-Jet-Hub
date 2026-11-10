@@ -1537,6 +1537,43 @@ async function badgeSave(btn) {
 
 /* ═══════════════════ 设置 ═══════════════════ */
 
+/**
+ * 「严格手动顺序」是**按供应商**存的（上游 `pool.strictManualOrder(provider)`，
+ * 见 `vendor/lib/jet-hub-rpc.js` 的 `strictManualOrder.getEnabled`）。
+ *
+ * 它回答的是「拖拽排序到底算不算数」：关着的时候，走余额分档的渠道会**盖过**
+ * 卡片顺序（这就是「拖拽时灵时不灵」那条报障的根）。所以开关必须放在账号页
+ * —— 和「当前是哪一家」绑在一起，而不是设置页那种全局项。
+ */
+async function loadStrictOrder(provider) {
+  const el = $('#accStrict')
+  if (!el || !provider) return
+  try {
+    const v = await rpc('strictManualOrder.getEnabled', { provider })
+    // 期间用户可能已经切走 —— 别把上一家的值盖到新渠道上。
+    if ($('#accProvider').value !== provider) return
+    el.checked = v?.enabled === true
+    el.disabled = false
+  } catch {
+    // 问不出来就置灰：让用户看到「这一家没有这个能力」，而不是一个点了没反应的开关。
+    el.checked = false
+    el.disabled = true
+  }
+}
+
+async function saveStrictOrder(enabled) {
+  const provider = $('#accProvider').value
+  if (!provider) return
+  try {
+    await rpc('strictManualOrder.setEnabled', { provider, enabled })
+    say('#accMsg', `严格手动顺序已${enabled ? '开启' : '关闭'}（${provider}）`, 'ok')
+  } catch (e) {
+    say('#accMsg', String(e.message ?? e), 'err')
+    // 落盘失败就把开关拨回去，别让界面停在「已开启」的假状态。
+    await loadStrictOrder(provider)
+  }
+}
+
 async function loadSettings() {
   try {
     const [ns, pe, xff, sb] = await Promise.all([
@@ -1807,6 +1844,8 @@ function setProvider(id, { silent = false } = {}) {
   const p = META.providers.find((x) => x.id === id)
   $('#accProviderName').textContent = p ? p.name || p.id : id
   syncProxyButtons()
+  // 严格手动顺序是**按供应商**存的 ⇒ 切一家就要重读一次（否则开关会停在上家的值）。
+  loadStrictOrder(id)
   if (!silent && changed) loadAccounts()
 }
 
@@ -1869,6 +1908,8 @@ async function boot() {
   $('#accList').addEventListener('click', onAccAction)
   $('#accRetestAll').addEventListener('click', (e) => accBulk(e.currentTarget, 'account.retestAll'))
   $('#accResetAll').addEventListener('click', (e) => accBulk(e.currentTarget, 'account.resetAll'))
+  // 「严格手动顺序」按供应商存 —— 切换账号页时重新读（见 loadStrictOrder 的注释）。
+  $('#accStrict').addEventListener('change', (e) => saveStrictOrder(e.target.checked))
   $('#accAnon').addEventListener('click', (e) => addAnonymousChannel(e.currentTarget))
   $('#accProxy').addEventListener('click', () => {
     try {

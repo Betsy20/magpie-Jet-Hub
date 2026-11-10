@@ -183,6 +183,16 @@ export interface ResolverPool<TCredential = unknown> {
      * `DSH_ZCODE_SESSION_BALANCE`（默认开）—— 只为单测替身保留。
      */
     sessionBalanceEnabled?(): boolean;
+    /**
+     * 「严格手动顺序」开关（可选能力；真实 `AccountPool` 已实现）。
+     *
+     * **开** = 拖拽序是唯一优先级判据（档位只当可用性判据）；
+     * **关 / 未实现** = 既有语义（余额分档优先、档内看手动顺序）。
+     *
+     * ⚠️ 每次选号**现读**（面板可随时切换）。未实现时按**关闭**处理：结构化替身
+     * 与单测 stub 不该因为「这个可选方法不存在」而被动获得新行为。
+     */
+    strictManualOrder?(provider: string): boolean;
 }
 /** 注入的共享设施。 */
 export interface CredentialResolverDeps<TCredential = unknown> {

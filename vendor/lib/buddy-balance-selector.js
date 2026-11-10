@@ -36,7 +36,7 @@
  * 里面不含「按 now 现算」的成分，所以它没有这个问题 —— 不是漏改。
  */
 import { fetchCreditBalance } from './credits.js';
-import { buddyExpiringWindowDays, buddyBalanceTier, BUDDY_BALANCE_TIER, buddyTierUsable, rankBuddyAccountsByBalance, splitBuddyCreditsByExpiry, } from './buddy-balance-rank.js';
+import { buddyExpiringWindowDays, buddyBalanceTier, BUDDY_BALANCE_TIER, buddyTierUsable, rankBuddyAccountsByBalance, rankBuddyAccountsByManualOrder, splitBuddyCreditsByExpiry, } from './buddy-balance-rank.js';
 /** 余额缓存 TTL（毫秒），与 Loomy 同值。 */
 export const BUDDY_BALANCE_CACHE_TTL_MS = 60_000;
 /**
@@ -219,6 +219,12 @@ export class BuddyBalanceSelector {
      * 排序规则见 `rankBuddyAccountsByBalance`：
      * 有快到期积分 → 只剩永久 → 无余额/查不到。**档内保持传入顺序**（= 手动顺序）。
      *
+     * ⚠️ **`options.strictManualOrder === true` 时改用
+     * `rankBuddyAccountsByManualOrder`**（见 `JetHubState.strictManualOrder`）：
+     * 先后完全按用户的拖拽序，档位退化为「可用 / 不可用」判据。此时
+     * `expiring` 与 `permanent` 两种账号**同权**，不再「临期优先」—— 但
+     * `none`（查不到 / 锁定态下只剩永久）照旧沉底，故「锁定永久积分」语义不变。
+     *
      * ⚠️ **锁定永久积分时（`allowPermanent: false`）**：只剩永久积分的账号落入
      * `none` 档（不可用）。若**全部候选都不可用**，返回 `ok: false` 并带上原因 ——
      * 调用方据此报明确错误，而不是硬着头皮消耗永久积分。
@@ -238,7 +244,10 @@ export class BuddyBalanceSelector {
         // 并发查余额：账号数通常个位数，并发比串行快得多。
         const balances = await Promise.all(candidates.map((c) => this.balanceOf(c)));
         const byId = new Map(candidates.map((c, i) => [c.id, { account: c, balance: balances[i] }]));
-        const ranked = rankBuddyAccountsByBalance(balances, options);
+        const ranked = options.strictManualOrder === true
+            // 严格手动顺序：档位只当「可用 / 不可用」判据，先后完全按用户的拖拽序。
+            ? rankBuddyAccountsByManualOrder(balances, options)
+            : rankBuddyAccountsByBalance(balances, options);
         const first = ranked[0];
         if (first === undefined) {
             return { ok: false, reason: noAccountReason(balances) };
@@ -364,7 +373,13 @@ export async function pickBuddyAccount(selector, candidates, options) {
     let reason = candidates.length === 0 ? { kind: 'no-candidates' } : undefined;
     // 循环上界取候选数：每次迭代至少排除一个账号，故必然终止。
     for (let remaining = candidates; remaining.length > 0;) {
-        const picked = await selector.select(remaining, { ...options.tierOptions, allowPermanent });
+        const picked = await selector.select(remaining, {
+            ...options.tierOptions,
+            allowPermanent,
+            // ⚠️ 每次迭代都带上：降级分支会把 `allowPermanent` 翻真，而本项与它无关，
+            //    不能因为走了降级就把「严格手动顺序」丢掉（那会让用户开了开关却偶发失效）。
+            ...(options.strictManualOrder === true ? { strictManualOrder: true } : {}),
+        });
         if (!picked.ok) {
             /**
              * ⚠️⚠️ **「余额查不到」≠「没有可用积分」，锁定时必须降级放行**（2026-11-04 真机报障）。
