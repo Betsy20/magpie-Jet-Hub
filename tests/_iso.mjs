@@ -48,9 +48,10 @@
 // 为什么可以写在 `import` 之后：`import` 只做 `byId` Map 构建与契约校验，
 // 不起容器；这些环境变量与 `options.home` 都是在 `container._start()` /
 // `containerFor()` 里**惰性读**的，此刻设置一定早于任何一次 `start()`。
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, openSync, closeSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 /**
  * 建一个一次性隔离沙箱并设置环境变量。
@@ -148,4 +149,70 @@ export function live() {
  */
 export function skipLive(what) {
   console.log(`  SKIP-LIVE 跳过真实环境断言：${what}（要跑设 JET_HUB_LIVE=1，会碰真实账号）`)
+}
+
+/**
+ * 跑一个独立的 node 子进程，捕获合并后的 stdout+stderr 与退出码。
+ *
+ * ⚠ 为什么不用 `encoding: 'utf8'` 的管道 stdio（`spawnSync` 的默认）：
+ * 受限环境（Windows AppLocker / 容器 / 企业策略 / DSH 沙箱）**禁止创建管道**，
+ * `spawnSync` 直接给出 `error.code === 'EPERM'`、`status === null`、`stdout` 与
+ * `stderr` 全空 —— 调用方只看到一个**空的**失败原因，看起来像被测代码坏了。
+ *
+ * 2026-11-11 实测：`tests/t-seed-auth.mjs` 与 `tests/t-import-backup.mjs` 在
+ * DSH 沙箱下就是这种表现，`scripts/test-all.mjs` 打印的失败尾部**一片空白**
+ * （`✗ --dry-run 失败:` 后面什么都没有），两个用例各失败一次、无从下手。
+ *
+ * `scripts/test-all.mjs` 早就踩过同一个坑并改用 fd 重定向（见那里的注释），
+ * 但这两个测试没跟上。现在统一收到这里：退出码语义不变、两条流都拿得到、
+ * 受限环境里也能跑，并且 `error` 一并回传，让调用方能打印**真实**原因。
+ *
+ * @param {string[]} args 传给 node 的参数（脚本路径 + 该脚本自己的 argv）
+ * @param {{ env?: object, cwd?: string, timeout?: number }} [opts]
+ * @returns {{ status: number|null, out: string, error: NodeJS.ErrnoException|null }}
+ */
+export function runNode(args, { env = {}, cwd = process.cwd(), timeout = 60_000 } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'jet-hub-cap-'))
+  const capPath = join(dir, 'out.log')
+  const fd = openSync(capPath, 'w')
+  let r
+  try {
+    r = spawnSync(process.execPath, args, {
+      cwd,
+      // 不用 'pipe'（受限环境里 EPERM），也不用 'inherit'（拿不到内容）。
+      // 两条流指向同一个 fd，写进文件的顺序就是真实产生顺序。
+      stdio: ['ignore', fd, fd],
+      timeout,
+      env: { ...process.env, ...env },
+    })
+  } finally {
+    closeSync(fd)
+  }
+  let out = ''
+  try {
+    out = readFileSync(capPath, 'utf8')
+  } catch {}
+  try {
+    rmSync(dir, { recursive: true, force: true })
+  } catch {}
+  return { status: r.status, out, error: r.error ?? null }
+}
+
+/**
+ * 把 `runNode()` 的结果拍成一句「到底怎么失败的」，供断言消息直接拼接。
+ *
+ * 退出码与错误码**必须分开说**：`status === null` + `error.code === 'EPERM'`
+ * 是「环境不给跑」，不是「被测代码错了」—— 两者的处置完全不同（前者去查沙箱，
+ * 后者去查实现）。原来两者都打印成空字符串，等于把环境问题伪装成代码问题。
+ */
+export function describeFailure(r) {
+  if (r.error) {
+    const code = r.error.code ?? r.error.name ?? 'UNKNOWN'
+    // 这种位置出现 EPERM 几乎总是「沙箱禁管道」，不是文件 ACL。直接点名，
+    // 省得下一个人去查权限 —— 而 runNode() 本身已经避开了这个坑。
+    const hint = code === 'EPERM' ? '（受限环境禁止子进程管道；runNode() 应已避开，检查是否有人退回 spawnSync 默认 stdio）' : ''
+    return `子进程未能启动（${code}: ${r.error.message}）${hint}`
+  }
+  if (r.status === null) return '子进程被信号终止（status 为 null）'
+  return `退出码 ${r.status}`
 }

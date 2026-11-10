@@ -11,6 +11,42 @@
 
 ## 1.0.0（未发布）
 
+- `fix(test)`: **两条用例在受限沙箱下静默失败，而失败信息是一片空白**。
+  `tests/t-seed-auth.mjs` 与 `tests/t-import-backup.mjs` 都用
+  `spawnSync(process.execPath, [script, …], { encoding: 'utf8' })` —— `encoding` 是
+  **管道模式**的选项，等价于 `stdio: 'pipe'`。受限环境（Windows AppLocker / 容器 /
+  企业策略 / DSH 沙箱）**禁止创建管道**，`spawnSync` 直接给出
+  `error.code === 'EPERM'`、`status === null`，`stdout` 与 `stderr` 全空。
+  于是 `scripts/test-all.mjs` 打印的失败尾部是「`✗ --dry-run 失败:`」后面
+  **什么都没有**（`t-import-backup` 是 12 行「实际退出码 null：」），重试仍失败、
+  却给不出任何线索 —— 看起来像被测脚本坏了，实际是被测环境不给跑。
+  **为什么这条特别难查**：本机与 CI 都不限制管道，两边全绿，只有换环境才暴露。
+    不是「某台机器的特例」—— 任何把 DSH 跑在受限沙箱里的人都撞得上。
+  `scripts/test-all.mjs` 早就踩过同一个坑并改用 fd 重定向（见那里的注释），
+  这两个测试没跟上。现在把这件事收进 `tests/_iso.mjs`：
+  - 新增 `runNode(args, opts)` —— fd 重定向抓合并输出，退出码语义不变、两条流都拿得到、
+    受限环境里也能跑，并**回传 `error`**；
+  - 新增 `describeFailure(r)` —— 把「子进程压根没启动（EPERM / ENOENT）」与
+    「跑完了但退出码非 0」**分开说**，两者的处置完全不同（前者去查沙箱，后者去查实现）；
+  - 两个测试改用它，39 处断言消息一处没动（`run()` 在 `out` 为空时兜底补原因）。
+
+- `test(spawn)`: **新增 `tests/t-spawn-stdio.mjs`（3 条判据），把上面那条缺陷钉死**。
+  这是「只有换环境才暴露」的静默故障，必须用机器守：① 每个
+  `spawnSync(` / `execFileSync(` / `execSync(` 调用**必须**显式传 `stdio`（不传就是默认管道）；
+  ② `stdio` 不许是 `'pipe'`，也不许是含 `'pipe'` 的数组；③ 不许写 `encoding` ——
+  那个选项只对管道模式有意义，出现就说明有人把 fd 重定向改回了旧写法。扫 `tests/` +
+  `scripts/` + `src/` 的全部调用点（`scripts/import-backup.mjs` 的 `stdio: 'inherit'`
+  是合法写法，收敛后由本用例一并守住）。
+  **三条变异实测都变红**：改回 `encoding: 'utf8'` / 显式写 `'pipe'` / 干脆删掉 `stdio`。
+  ⚠ 第二条变异抓出一个真缺陷：初版只拿「涂空后的源码」判，而 `'pipe'` 的**内容**已被
+  涂成空格 ⇒ 显式写管道**绿着通过**。现在括号配对用涂空副本、取实参回原始源码（两者等长）。
+
+- `chore(pkg)`: **补上 `scripts` 标准入口**。原来 `package.json` 一个 `scripts` 都没有，
+  `npm test` 直接报缺脚本 —— 而来这个仓库的人第一件事就是跑测试。现在转发到
+  `scripts/` 里真正的那条：`test` / `test:all` / `verify:vendor` / `snapshot` / `console`。
+  ⚠ `files` 白名单里没有 `scripts/` 与 `tests/`，所以这几个入口只对**从源码 clone**
+  的目录有效（发布出去的插件包里不需要测试）；`docs/testing.md` 里一并写明了。
+
 - `test(page)`: **新增 `tests/t-page-contract.mjs`（36 条断言），把侧栏页「静默失效」的
   几类钉死**。侧栏页跑在 magpie 的窗口沙箱里（CSP `connect-src 'none'` + opaque origin），
   任何网络调用都**不报错、只哑掉** —— 用户看到的是「这个页面坏了」，而这条链路原来

@@ -19,9 +19,9 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
 import { pbkdf2Sync, randomBytes, createCipheriv } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { runNode, describeFailure } from './_iso.mjs'
 import { parseRefs } from '../src/credentials.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
@@ -93,12 +93,13 @@ function hasLegacyDisabled(pool) {
 const readRefs = (home) => parseRefs(fs.readFileSync(path.join(home, '.credentials.yaml'), 'utf8'))
 
 function run(args, env = {}) {
-  const r = spawnSync(process.execPath, [script, ...args], {
-    encoding: 'utf8',
-    timeout: 60_000,
-    env: { ...process.env, ...env },
-  })
-  return { code: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
+  // ⚠ 不用 `spawnSync(..., { encoding: 'utf8' })` 的管道 stdio：受限沙箱禁止建管道，
+  // 直接 EPERM、status=null、两条流全空。本文件 39 处断言消息都是
+  // 「实际退出码 ${code}：${out}」，子进程没启动时消息就退化成一句「：」后面的空白
+  // —— 看起来像被测脚本坏了，实际是环境。`runNode()` 用 fd 重定向，沙箱里也能跑；
+  // 真启动失败时再把原因兜底写进 `out`，39 处消息一处都不用改。
+  const r = runNode([script, ...args], { env })
+  return { code: r.status, out: r.out || (r.status === 0 ? '' : describeFailure(r)) }
 }
 
 // ---- 1. --list / --dry-run 不写盘 ------------------------------------------

@@ -1,10 +1,10 @@
 // seed-auth 的纯逻辑回归：多账号摊平、稳定后缀、路由组文案、不碰别人的键。
 // 全程在临时目录里跑，不碰真实 ~/.config/magpie 与 ~/.dsh。
-import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { runNode, describeFailure } from './_iso.mjs'
 import { PROVIDER_IDS } from '../src/plugin.mjs'
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
@@ -39,11 +39,14 @@ try {
   const beforeText = fs.readFileSync(authPath, 'utf8')
   const beforeMtime = fs.statSync(authPath).mtimeMs
 
-  const env = { ...process.env, JET_HUB_AUTH_PATH: authPath }
-  const r = spawnSync(process.execPath, [script, '--dry-run', statePath], { encoding: 'utf8', timeout: 60_000, env })
-  const out = (r.stdout || '') + (r.stderr || '')
+  const env = { JET_HUB_AUTH_PATH: authPath }
+  // ⚠ 不用 `spawnSync(..., { encoding: 'utf8' })` 的管道 stdio：受限沙箱（AppLocker /
+  // 容器 / DSH 沙箱）禁止建管道，直接 EPERM、status=null、两条流全空 —— 失败信息
+  // 变成一句空话。`runNode()` 用 fd 重定向，退出码语义不变且沙箱里也能跑。
+  const r = runNode([script, '--dry-run', statePath], { env })
+  const out = r.out
   if (r.status !== 0) {
-    console.log('✗ --dry-run 失败:\n' + out)
+    console.log(`✗ --dry-run 失败：${describeFailure(r)}\n${out}`)
     process.exitCode = 1
   } else {
     const problems = []

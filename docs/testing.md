@@ -5,7 +5,16 @@
 ```bash
 node scripts/test-all.mjs        # 全部不需要环境的单测，退出码即结论
 node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网关 3425 与 web 3456 都在）
+
+npm test                         # 等价于第一条
+npm run test:all                 # 等价于第二条
 ```
+
+> `package.json` 里只放**转发**的脚本（`test` / `test:all` / `verify:vendor` /
+> `snapshot` / `console`），真正的逻辑都在 `scripts/` 里 —— 直接用 `node` 跑
+> 与 `npm test` 完全等价，CI 用的是前者（不依赖 npm 的生命周期）。
+> ⚠ `files` 白名单里**没有** `scripts/` 与 `tests/`，所以 `npm test` 只对
+> 从源码 clone 的目录有效；发布出去的插件包里跑不了（也不需要）。
 
 汇总行会标出哪些用例有「真实资源断言未跑」，例如
 
@@ -57,6 +66,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-page-contract.mjs` | 侧栏页（`page/`）的结构性契约：沙箱里**不许有网络 API**（`fetch` / XHR / WebSocket / `EventSource` / `eval` / `new Function`，`connect-src 'none'` 下全是静默死代码）、HTML 无内联 `on*=`、`data-tab` 与 `data-panel` 一一对应、`data-copy` 目标存在、四种 `data-snippet` 各有**专属**实现（只判「非空 + 带网关」会被「落回 curl 分支」骗过）、控制台地址**优先取快照**（缺快照才退 18500） |
 | `t-error-shape.mjs` | 错误出口三件套：不支持的路径回 **501**（不是 404，否则 magpie 只搁置模型、换个同样坏的端点重试）、`errorResponse` 抛错也带 code、上游 404/503 原样透传、`jsonResponse` 形状 |
 | `t-hub-cors.mjs` | 控制台跨站防线：只认实际绑定的那一个端口、只认 `http`、`Host` 必须回环（挡 DNS rebinding）、跨站 Origin 与 `null`、跨站导航 403、写操作连 `same-site` 也拒、多值 `Sec-Fetch-Site` 绕不过；同源不误伤，被拦的请求不进 handler |
+| `t-spawn-stdio.mjs` | 子进程 stdio 守卫：`spawnSync` / `execFileSync` / `execSync` **一律不许**用默认管道（受限沙箱禁管道 ⇒ EPERM、`status=null`、两条流全空，失败信息退化成一片空白），且不许写只对管道有效的 `encoding`；扫 `tests/` + `scripts/` + `src/` 全部调用点 |
 
 **ENV（要真环境，`--all` 才跑）**
 

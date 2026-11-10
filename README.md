@@ -331,7 +331,14 @@ magpie 的 auth 契约允许插件声明开关，用户在「供应商 → 高�
 ```bash
 node scripts/test-all.mjs        # 全部不需要环境的单测（退出码即结论）
 node scripts/test-all.mjs --all  # 连环境的一起跑（要 magpie 网关 3425 与 web 3456 都在）
+
+npm test                         # 等价于第一条（package.json 里的转发脚本）
+npm run test:all                 # 等价于第二条
 ```
+
+> 两条路完全等价 —— `package.json` 的 `scripts` 只是转发到 `scripts/`，逻辑不重复。
+> ⚠ 发布出去的插件包不含 `scripts/` 与 `tests/`（`files` 白名单），所以这两个入口
+> 只对**从源码 clone** 的目录有效。
 
 `scripts/test-all.mjs` 用**跑它的那个 node**（内部是 `process.execPath`）。要模拟宿主环境时改用 magpie 自带的 bun。
 逐项说明、分层规则与 `MAGPIE_WEB_KEY` 的用法见 [docs/testing.md](docs/testing.md)。
@@ -376,7 +383,7 @@ page/                  侧栏页（只读三标签，跑在 magpie 沙箱 iframe
 console/               本地控制台（完整功能）
 scripts/               snapshot-models / verify-vendor / seed-auth / import-backup / test-all /
                        gen-model-prices / run-console / shot-console.cjs / shot-usage.cjs
-tests/                 33 个 UNIT + 2 个 ENV 的 t-*.mjs，加 ui-check.cjs / t-gateway.py（公共桩 _iso.mjs）
+tests/                 34 个 UNIT + 2 个 ENV 的 t-*.mjs，加 ui-check.cjs / t-gateway.py（公共桩 _iso.mjs）
 docs/                  截图、vendor.md、testing.md
 ```
 
