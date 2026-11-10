@@ -121,6 +121,7 @@ export const DSH_PROVIDERS = [
   'loomy',
   'magicrew',
   'magicrewintl',
+  'marvis',
   'minimax',
   'minimaxintl',
   'modelscope',
@@ -157,6 +158,7 @@ const NAMES = {
   magicrew: '超级麦吉 (MagiCrew)',
   // 上游 `displayName` 就叫 `MagiCrew`；加「（国际版）」是为了在列表里与国内站区分。
   magicrewintl: 'MagiCrew (国际版)',
+  marvis: '腾讯 Marvis',
   minimax: 'MiniMax Code (中国版)',
   minimaxintl: 'MiniMax Code (国际版)',
   modelscope: 'ModelScope (魔搭)',
@@ -232,6 +234,11 @@ const FALLBACK_MODELS = {
   'baizhi/deepseek-v4-flash': { name: '百智云 · DeepSeek V4 Flash' },
   'monkeycode/monkeycode-basic/deepseek-flash': { name: 'MonkeyCode · DeepSeek Flash (basic)' },
   'monkeycodeintl/monkeycode-basic/deepseek-flash': { name: 'MonkeyCode 国际 · DeepSeek Flash (basic)' },
+  // 2026-11-10 并入腾讯 Marvis。它**没有**远端模型目录（9 个目录端点全 404），
+  // 目录就是 vendor 里那条静态常量（`vendor/lib/marvis-product.js` 的
+  // `MARVIS_FALLBACK_MODELS`），所以这条 id 不会随上游变、也不会出现在
+  // `page/models.js` 快照里（快照是历史产物，见 t-new-account 的白名单）。
+  'marvis/main-auto': { name: 'Marvis · DeepSeek V4.1 Flash' },
 }
 
 /** DSH 家目录（凭据所在处）。可用插件 options 的 `home` 覆盖。 */
@@ -1158,13 +1165,19 @@ async function withRpcDeadline(container, method, payload, ms, what) {
  * `refreshable: false`）再返回 `loginUrl`，登录成功后由后台流程回填昵称与
  * 有效期。所以这里返回的 `accountId` 此时还只是个占位，不能当成「已登录」。
  */
-async function startNewAccount(container, provider, log, mode) {
+async function startNewAccount(container, provider, log, mode, extra) {
   // 只有超级麦吉两站要带 `mode`（见下方 `MAGICREW_CREATE_MODES` 的说明），
-  // 其余 22 家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
+  // 其余各家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
+  //
+  // 腾讯 Marvis 是第二个要带 `mode` 的家，而且要**多带一个** `marvisLoginType`
+  // （`'1'` = QQ、`'2'` = 微信，见 `authorize()` 里 `marvis_wechat` 那个开关）。
+  // 它也是本函数唯一用 `extra` 的家 —— 别的家多传字段同样会被本体忽略，但同样没必要冒险。
+  const payload = mode === undefined ? { provider } : { provider, mode }
+  if (extra !== undefined) Object.assign(payload, extra)
   const v = await withRpcDeadline(
     container,
     'account.create',
-    mode === undefined ? { provider } : { provider, mode },
+    payload,
     CREATE_TIMEOUT_MS,
     'account.create',
   )
@@ -1219,7 +1232,10 @@ async function startNewAccount(container, provider, log, mode) {
 /**
  * 起一个登录流程，按 provider 决定要不要按顺序试多种 `mode`。
  *
- * 除超级麦吉两站外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
+ * 腾讯 Marvis 是第三种形状：单次调用、但**必须**带 `mode: 'browser'`（另有
+ * `marvisLoginType`），见下面那条分支的注释。
+ *
+ * 除超级麦吉两站与 Marvis 外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
  * 超级麦吉两站两条腿都失败时，**报第一条腿（`browser`）的错误**，并把其余腿的
  * 原因附在括号里 —— 用户点的是「新建」，先看到那条腿为什么不行才定位得到问题。
  *
@@ -1228,7 +1244,19 @@ async function startNewAccount(container, provider, log, mode) {
  * 被拒」：那两条发生在 vendor 的后台任务里（`mode: 'browser'` 是「先返回、后开窗」），
  * 只会变成 `login.poll` 的终态，根本不在本函数的 errors 数组里。
  */
-async function startNewAccountSmart(container, provider, log) {
+async function startNewAccountSmart(container, provider, log, extra) {
+  // 腾讯 Marvis 只有**一条**腿，但必须带 `mode: 'browser'`：上游 `account.create`
+  // 里 marvis 的两个分支都以 `req.mode` 为条件（`'magpie-import'` / `'browser'`），
+  // 不带 mode 会一路落到末尾的 `unknown provider: marvis`。`browser` 腿在 vendor
+  // 自己开的窗里登录、**立刻**回 `{ accountId, loginUrl: '' }`，靠 `login.poll`
+  // 的 `magicrewBrowserLoginInFlight` 收口 —— 所以它既不能当 `reused` 收口，
+  // 也不需要像超级麦吉那样有第二条腿可退（另一种登录方式是 QQ/微信二选一，
+  // 由 `marvis_wechat` 开关决定，不是重试）。
+  //
+  // 这段故意用字面量 `'browser'` 而不是常量：`tests/t-magicrew-modes.mjs` 把本函数
+  // 整段丢进 `new Function('startNewAccount','MAGICREW_CREATE_MODES', …)` 求值，
+  // 段内引用任何**别的**模块级常量都会在那份求值里 `ReferenceError`。
+  if (provider === 'marvis') return startNewAccount(container, provider, log, 'browser', extra)
   if (provider !== 'magicrew' && provider !== 'magicrewintl') return startNewAccount(container, provider, log)
 
   const errors = []
@@ -2597,6 +2625,17 @@ export function makePlugin(dshProvider) {
             description: '关掉后，过期且 refreshable=false 的账号也会参与选号（会 502）。',
             default: true,
           },
+          // 只有腾讯 Marvis 读这个开关。声明在全局表里是因为 `auth.options` 是
+          // 插件级的（magpie 每个 provider 一份 auth，但键要各自认识）—— 对别家
+          // 它是个不会被读的装饰项，所以只在 Marvis 那家给出来。
+          ...(dshProvider === 'marvis'
+            ? [{
+              key: 'marvis_wechat',
+              label: 'Marvis 用微信登录（默认 QQ）',
+              description: '开：微信扫码新建账号；关：QQ 授权。两边的凭据不通用，登录过哪边就选哪边。',
+              default: false,
+            }]
+            : []),
         ],
 
         /**
@@ -2780,6 +2819,12 @@ export function makePlugin(dshProvider) {
                   container,
                   dshProvider,
                   log,
+                  // 只有 Marvis 读这个：QQ（`'1'`，默认）还是微信（`'2'`）扫码。
+                  // 上游判据是 `req.marvisLoginType === '2' ? '2' : '1'`，两家凭据不通用，
+                  // 所以做成开关而不是「先试 QQ 再试微信」—— 重试解决不了「用户就没绑过 QQ」。
+                  dshProvider === 'marvis'
+                    ? { marvisLoginType: optionOn('marvis_wechat') ? '2' : '1' }
+                    : undefined,
                 )
 
                 return {

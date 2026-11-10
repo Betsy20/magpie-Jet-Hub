@@ -429,12 +429,14 @@ async function loadAccounts() {
     // 代价是积分列先显示「—」再跳成数字，但列表本身立刻可操作。
     renderAccounts(provider)
     syncProxyButtons()
+    syncStrictOrderToggle()
     say('#accMsg', `${ACC.length} 个账号`, 'ok')
     const nextBal = await loadBalances(provider)
     if ($('#accProvider').value !== provider) return
     BAL = nextBal
     renderAccounts(provider)
     syncProxyButtons()
+    syncStrictOrderToggle()
     // 「查不到」与「旧数据」是两件事，别混成一个数：
     // 查不到 = 这次没有任何读数；旧数据 = 有读数但可能是上一轮的。
     const noBal = ACC.filter((a) => !BAL.has(a.id) || BAL.get(a.id)?.error).length
@@ -1138,12 +1140,68 @@ const PROXY_CHANNELS = {
  */
 const ONBOARDING_PROVIDERS = new Set(['loomy', 'raccoon', 'magicrew', 'magicrewintl'])
 
+/**
+ * 走「余额到期分档」选号的渠道：这些渠道的选号器**先按积分到期档位排序、档内才看
+ * 手动顺序**，卡片序号徽标（「按顺序选号」）对它们只有开了「严格手动顺序」才字面为真。
+ * 其余渠道是纯池内手动序 —— 拖拽序本来就是绝对优先级，开关对它们没有意义。
+ *
+ * ⚠️ 必须与 `vendor/lib/provider-registry.js:1221` 的 `BALANCE_TIERED_PROVIDERS`
+ * 一一对应（上游 2026-11-09 从 `src/index.ts` 每一处 balance 装配逐条清点得出，
+ * 其 `strict-manual-order-wiring` 测试盯着双向差集）。加新供应商时**两处一起改**
+ * （vendor 表 + 这里）。
+ */
+const BALANCE_TIERED_PROVIDERS = new Set([
+  'buddy', 'workbuddy', 'lobsterai', 'qoder', 'qodercn', 'trae', 'loomy',
+  'minimax', 'minimaxintl', 'autoclaw', 'autoclawintl', 'magicrew', 'magicrewintl', 'astudio',
+])
+
 function syncProxyButtons() {
   const provider = $('#accProvider').value
   const anon = $('#accAnon')
   if (anon) anon.hidden = provider !== 'opencode'
   const px = $('#accProxy')
   if (px) px.hidden = !PROXY_CHANNELS[provider]
+  // 「严格手动顺序」只对分档渠道渲染 —— 与 `#accAnon` / `#accProxy` 同一套隐藏约定。
+  const sw = $('#accStrictWrap')
+  if (sw) sw.hidden = !BALANCE_TIERED_PROVIDERS.has(provider)
+}
+
+/**
+ * 把「严格手动顺序」开关的勾选态与本体对齐（本体选号路径**每次现读**这份开关，
+ * 这里只负责显示；`vendor/lib/jet-hub-rpc.js` 的 `strictManualOrder.getEnabled`）。
+ *
+ * 读失败**不打断**账号列表：勾选态缺失只影响这一枚小开关的显示，
+ * 不能让它盖掉 `account.list` 的错误（`loadAccounts` 的错误语义优先）。
+ */
+async function syncStrictOrderToggle() {
+  const provider = $('#accProvider').value
+  const box = $('#accStrictOrder')
+  if (!box || !BALANCE_TIERED_PROVIDERS.has(provider)) return
+  try {
+    const v = await rpc('strictManualOrder.getEnabled', { provider })
+    // 两次 await 之间用户可能已经切走 —— 与 `loadAccounts` 同一条守卫。
+    if ($('#accProvider').value !== provider) return
+    box.checked = v?.enabled === true
+  } catch {
+    /* 显示层尽力而为：读不到就保持当前勾选态，不报错（见上）。 */
+  }
+}
+
+/** 开关写回：以后端**落盘后回读**的值为准，不做乐观更新（与 `setDisabledMany` 同取向）。 */
+async function onStrictOrderToggle(e) {
+  const provider = $('#accProvider').value
+  const box = e.currentTarget
+  const want = box.checked
+  try {
+    const v = await rpc('strictManualOrder.setEnabled', { provider, enabled: want })
+    box.checked = v?.enabled === true
+    say('#accMsg', v?.enabled
+      ? '已开：选号完全按序号进行，余额档位只判可用性（锁定永久积分照旧生效）'
+      : '已关：先按积分到期档位、档内再按序号（升级前行为）', 'ok')
+  } catch (err) {
+    box.checked = !want
+    say('#accMsg', String(err.message ?? err), 'err')
+  }
 }
 
 /** 当前代理弹窗里的 accountId：下拉优先，其次手填框。 */
@@ -1968,6 +2026,7 @@ async function boot() {
       say('#accMsg', String(e.message ?? e), 'err')
     }
   })
+  $('#accStrictOrder').addEventListener('change', onStrictOrderToggle)
 
   // 出口代理弹窗
   $('#pxTest').addEventListener('click', (e) => proxyTest(e.currentTarget))

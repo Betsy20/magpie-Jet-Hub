@@ -237,7 +237,9 @@ console.log(`  其中共享实现体的标签: ${fallThrough.length ? fallThroug
 // 总数锚点：上面三条解析链任何一条「少认几个」时，下面的相对判据（并发、覆盖、无重叠）
 // 可能依然全绿 —— 实测把单方法改道整段退回是 90 个仍绿、删掉一个裸名 case 是 89 个仍绿。
 // 所以这里钉死总数；上游加减方法时必须同步这个常量（它同时是「解析没退化成空」的兜底）。
-const EXPECTED_RPC_METHOD_COUNT = 91
+// 91 → 93（2026-11-10 同步上游 3812738f：新增 strictManualOrder.getEnabled / setEnabled，
+// 控制台已按 14 家分档渠道接线 —— 见 console.js 的 BALANCE_TIERED_PROVIDERS）。
+const EXPECTED_RPC_METHOD_COUNT = 93
 ok(methods.length === EXPECTED_RPC_METHOD_COUNT,
   `本体可调度方法总数应为 ${EXPECTED_RPC_METHOD_COUNT}，实际 ${methods.length}（上游加减方法时必须同步这个常量）`)
 // baizhi.startSession 不走 `startsWith` 前缀，是单独一条 `if (method === '…')`；

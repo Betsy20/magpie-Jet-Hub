@@ -6,18 +6,37 @@
 
 | 项 | 值 |
 |---|---|
-| 上游源码仓库 | [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) |
-| 代码对应 commit | `498a76eaab1a038935a70c46b03e2c0c0b323a5a` |
-| 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交） |
+| 上游源码仓库 | [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub)（Gitee 镜像：[`iJetLi/deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)，同一历史同一 commit，2026-11-10 起实测可从镜像取） |
+| 代码对应 commit | `6ad2e241a08c1204999a730dcfb212c9602929c5`（2026-11-10，`docs: 修正 README「走余额分档 14 家」`，即当前 master 头） |
+| 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交；三任 pin 都是它，上游一直在 rc 上叠提交、没发版） |
 | 许可 | MIT，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](../vendor/LICENSE) |
+
+> **2026-11-10 二次同步（追到 master 头 `6ad2e241`，并**并入** Marvis）**：上一轮
+> （同日早些时候）有意停在 `3812738f`，理由是「其后的 master 只有腾讯 Marvis 一项新
+> 功能、magpie 用不到」。这一轮把那个理由推翻了：Marvis 是**真渠道**
+> （`channel: true`，有账号池、有钱包额度、有 `account.create`），magpie 侧接一下就能用。
+> 本次相对 `3812738f` 带入两块：
+> ① **腾讯 Marvis provider**（`5aad869 → 1d12f80` 三个提交：QQ / 微信两条扫码腿、
+> auto 槽位、钱包额度）；② 若干渠道的文档与 README 修正（`1a647fea` / `810f2206` /
+> `75501d7d` / `6ad2e241`）—— 纯文档，不进 `lib/`。
+>
+> Marvis 在插件侧的注册见根 CHANGELOG；它在 `lib/` 里是 **32 个新文件**
+> （`lib/marvis*.js|.d.ts|.js.map|.d.ts.map`，8 个模块），没有删改任何原有文件。
+> 除这 32 个新文件之外，上游还改了 **41 个既有文件**（`lib/jet-hub-rpc.js` /
+> `lib/jet-hub-store.js` / `lib/provider-registry.js` / `lib/provider-credits.js` /
+> `lib/canonical-models.js` 等，均含 `.d.ts` 与 `.map`）。这 41 个里本仓改了 1 个
+> （`lib/jet-hub-rpc.js`，就是下面那张表的 `closeProvider` 补丁），其余 40 个照上游原样。
+> 所以「与上游逐字节一致」的基线从 1128/1138 变成 **1160/1170**
+> —— 分子分母都 +32，多出来的差异仍是那 10 个补丁文件。
 
 **为什么不用 npm 包**：npm 上的版本（最新 `2.14.261103`）落后于仓库 `master` —— 文件数更少（缺 `cap-pow.*` 等）、且大量文件内容不同，而本仓库要的是「渠道最全」的那一版。这一版是从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
 
-取法：
+取法（2026-11-10 实测：git clone 常断，走 Gitee 归档包 + npmmirror 装依赖更稳）：
 
 ```bash
-git clone https://github.com/iJetLi/dsh-providers-hub /tmp/up
-cd /tmp/up && git checkout 498a76e && rm -rf lib && npm install
+curl -sL -o /tmp/up.tgz "https://gitee.com/iJetLi/deepseek-harness-codearts/repository/archive/6ad2e241a0.tar.gz"
+mkdir -p /tmp/up && tar xzf /tmp/up.tgz -C /tmp/up --strip-components=1
+cd /tmp/up && rm -rf lib && npm install --registry=https://registry.npmmirror.com
 cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 ```
 
@@ -39,7 +58,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 与上游构建产物的差异
 
-`lib/` 共 1138 个文件，其中 **1128 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 10 个（6 类改动；`lib/gemini-oauth.*`、`lib/backup.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的改动落在 `lib/magicrew-browser-login.js`（两类）、`lib/magicrew-local-browser.js` 与它的 `.d.ts`、`lib/leveldb-sstable.js` 上）：
+`lib/` 共 1170 个文件，其中 **1160 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 10 个（6 类改动；`lib/gemini-oauth.*`、`lib/backup.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的改动落在 `lib/magicrew-browser-login.js`（两类）、`lib/magicrew-local-browser.js` 与它的 `.d.ts`、`lib/leveldb-sstable.js` 上）：
 
 | 差异 | 原因 |
 |---|---|
@@ -69,8 +88,9 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 ## 怎么自己核一遍
 
 ```bash
-git clone https://github.com/iJetLi/dsh-providers-hub /tmp/up2
-cd /tmp/up2 && git checkout 498a76e && rm -rf lib && npm install
+curl -sL -o /tmp/up2.tgz "https://gitee.com/iJetLi/deepseek-harness-codearts/repository/archive/6ad2e241a0.tar.gz"
+mkdir -p /tmp/up2 && tar xzf /tmp/up2.tgz -C /tmp/up2 --strip-components=1
+cd /tmp/up2 && rm -rf lib && npm install --registry=https://registry.npmmirror.com
 diff -r /tmp/up2/lib /path/to/magpie-Jet-Hub/vendor/lib
 # 逐文件哈希核（比 diff -r 更严，能看出换行 / 编码差异）：
 cd /tmp/up2/lib && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up2/a.txt
@@ -87,7 +107,7 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 行号在补丁点之后偏 8 行（同理，`lib/magicrew-local-browser.d.ts` 也改了、`.d.ts.map` 同样没重生成 —— 理由完全相同）。不重生成的三条理由：① 运行时用不到（上一条）；② 它没有
 `sourcesContent` 字段，重生成必须拿上游 `src/types.ts` 重跑 `tsc` —— 本仓库做不到，而手改
 `mappings` 的 VLQ 编码一旦改错只会让跳转更乱，且**没有任何测试能发现**；③ 保持逐字节一致
-才能让上面那条 `diff` 校验维持「**1128 个一致**」这个可复核的基线（1138 − 10）。这个偏差
+才能让上面那条 `diff` 校验维持「**1160 个一致**」这个可复核的基线（1170 − 10）。这个偏差
 **只影响 `types.d.ts` 与 `magicrew-local-browser.d.ts` 两个文件的编辑器跳转**（后者同样只有
 `.d.ts` 改了、`.d.ts.map` 没重生成 —— 经 `grep -c sourcesContent` 确认两份 `.map` 都没有
 `sourcesContent`，② 那条理由对它逐字成立），不影响编译或运行时行为（本仓库不编译类型
@@ -101,7 +121,19 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 1. 重新 clone / 构建上游，替换 `lib/`、`locale/`、`package.json`、`LICENSE`
 2. 把上面那 **6 类**改动重新应用（gemini 常量拆分、magicrew 的 IndexedDB 读取与临时 profile 回收（含 `lib/leveldb-sstable.js` 的 WAL 分片重组）、`lib/backup.js` 的 `keepDisabledModels`、`lib/jet-hub-rpc.js` 的「黑名单覆盖全量即补设供应商关闭意图」、`lib/types.d.ts` 的 `RpcModelSetDisabledManyRequest.closeProvider`）
    ⚠️ 除 gemini 外的 5 类都有测试盯着（`t-backup-keep` / `t-magicrew-creds` / `t-rpc-cover` 第 8 节），漏打的直接红；`gemini` 那条没有测试（值相等，只能人工核），`types.d.ts` 的类型只能在 `tsc` 里体现（本仓库不编译类型声明）
-3. 加/减 provider 时：`src/plugin.mjs` 的 `DSH_PROVIDERS` + `NAMES` + `FALLBACK_MODELS`、`index.mjs` 的具名工厂、`src/icons.mjs`、`scripts/snapshot-models.mjs` 的 `NAMES`、`tests/t-plugin.mjs` 的 `EXPECTED_PROVIDER_COUNT`、`tests/t-new-account.mjs` 的两处 `=== N`
+3. 加/减 provider 时（**2026-11-10 加 Marvis 实测踩过的 8 处**）：
+   - `src/plugin.mjs` 的 `DSH_PROVIDERS` + `NAMES` + `FALLBACK_MODELS`
+   - `index.mjs` 的具名工厂（漏一个加载即 throw）
+   - `src/icons.mjs` 的 `PROVIDER_SVG`（少一家 `t-options` 的「每家一个图标」即红）
+   - `console/icons.js`（控制台那份 base64 表，无生成脚本，手工从上游
+     `plugin-src/client/provider-icons.js` 提取）
+   - `scripts/snapshot-models.mjs` 的 `NAMES`
+   - `tests/t-plugin.mjs` 的 `EXPECTED_PROVIDER_COUNT`
+   - `tests/t-new-account.mjs` 的两处 `=== N`、`SNAPSHOT_MISSING` 白名单
+     （新家的兜底模型还没进 `page/models.js` 快照时必须登记，并写清原因）
+   - 若新家要带 `mode` / 其它 `account.create` 字段：`startNewAccount` 的 payload、
+     `startNewAccountSmart` 的分流（**不能**在段内引用新的模块级常量 ——
+     `tests/t-magicrew-modes.mjs` 会把那段丢进 `new Function` 求值）
 4. 跑 `node scripts/test-all.mjs` 与 `node scripts/snapshot-models.mjs`（后者需要有一个加载了**新** vendor 的宿主在跑；magpie 不热重载插件，旧宿主还在时用 `JET_HUB_META_PORT=<新容器端口>` 指定）
 
 ## LICENSE 的关系

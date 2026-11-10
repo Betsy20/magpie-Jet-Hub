@@ -69,8 +69,20 @@ export const AUTO_CHOICE_TTL_MS = 60_000;
  *
  * 其余 provider（qoder / trae / cline / …）结构上留好接口但不接入：它们没有跨账号
  * 的到期余额探测端点，接进来只能算成 Infinity 永远垫底，不如先不放。
+ *
+ * ⚠️ `marvis` 2026-11-10 集成审计 Minor 4 补入：它的钱包就是跨账号的到期余额
+ * 探测端点（`aggregate-expiry.ts` 的 `marvisExpiry`），完全满足本表的纳入
+ * 标准。不接入时它**永不**被 auto 选中，而日志里一个字都没有 —— 用户只会
+ * 发现「auto 从来不用那个有 1000 万额度的号」。
  */
-export const AUTO_PROVIDERS = ['codearts', 'loomy', 'zcode', 'buddy', 'workbuddy'];
+export const AUTO_PROVIDERS = [
+    'codearts',
+    'loomy',
+    'zcode',
+    'buddy',
+    'workbuddy',
+    'marvis',
+];
 /** auto 适配器对外只挂一个模型；真实能力在选型后从目标 provider 借用。 */
 const AUTO_MODEL_INFO = {
     provider: AUTO_PROVIDER,

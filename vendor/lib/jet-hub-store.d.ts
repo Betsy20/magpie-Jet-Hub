@@ -101,6 +101,14 @@ export type AggregateOrderMode = 'expiry' | 'manual';
 /** 各 provider 的「锁定永久积分」开关：provider id → 已锁定。 */
 export type PermanentLockMap = Record<string, boolean>;
 /**
+ * 各 provider 的「严格手动顺序」开关：provider id → 已开启。
+ *
+ * ⚠️ **只记录已开启的**（缺键 = 走余额分档的升级前行为），与
+ * {@link PermanentLockMap} 同一种稀疏表约定 —— 这样老文档读到空表时的语义
+ * 天然就是「一个都没开」。
+ */
+export type StrictManualOrderMap = Record<string, boolean>;
+/**
  * Jet Hub 的**唯一**入口位置。
  *
  * 两个取值严格互斥，任一时刻只有一个入口存在（见 {@link JetHubState.panelEntry}）。
@@ -216,6 +224,30 @@ export interface JetHubState {
      * —— 没有任何不可逆后果。缺键语义为**启用**（2026-10-30 用户要求的默认）。
      */
     sessionBalanceEnabled?: boolean;
+    /**
+     * 「严格手动顺序」开关表（{@link StrictManualOrderMap}）：
+     * provider id → 是否**完全**按用户拖拽的顺序取号。
+     *
+     * 语义：**开** = 拖拽顺序是**唯一**的优先级判据（余额分档只保留「锁定永久
+     * 积分」这道门 —— 只剩永久积分的号照旧不可用；档位不再重排先后）；
+     * **关**（缺键，= 升级前行为）= 余额分档优先、档内才看手动顺序。
+     *
+     * ## 为什么需要它（真实报障）
+     *
+     * 面板文案与序号徽标一直写「拖动卡片调整排序，按顺序选号」「序号 = 自动选号
+     * 优先级」，而**当过余额分档的渠道**（buddy 系 / TRAE / Qoder / MiniMax /
+     * AutoClaw / Magicrew / AStudio / Loomy）实际执行的是「先按积分到期档位排序，
+     * 档内才看手动顺序」。于是用户把某号拖到首位、只要它不再持有临期积分
+     *（或余额接口抖了一下），请求就会**静默**落到别的号上 —— 用户侧的表现正是
+     *「拖拽时灵时不灵」。
+     *
+     * ⚠️ 与 `sessionBalanceEnabled` 同级、**可以**住在这里：老版本代码整体重写
+     * `state.json` 时会丢掉本键 ⇒ 回到「档位优先」的升级前行为，用户再开一次即可
+     *（可逆、且方向保守：不会静默烧掉任何东西）。
+     *
+     * 缺键语义为**关闭**：老用户升级后行为与升级前**逐字节一致**。
+     */
+    strictManualOrder?: StrictManualOrderMap;
     /**
      * 「面板入口」：Jet Hub 的**唯一**入口位置（{@link PanelEntry}）。
      *
@@ -380,6 +412,7 @@ export declare const jetHubSchema: Schema<Schemastery.ObjectS<NoInfer<{
     gatewayAllowLan: Schema<boolean, boolean, "defined">;
     nativeWebSearchEnabled: Schema<boolean, boolean, "defined">;
     sessionBalanceEnabled: Schema<boolean, boolean, "defined">;
+    strictManualOrder: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
     panelEntry: Schema<string, string, "plain">;
     providerOrder: Schema<string[], string[], "defined">;
     minimaxXff: Schema<string, string, "defined">;
@@ -392,6 +425,7 @@ export declare const jetHubSchema: Schema<Schemastery.ObjectS<NoInfer<{
     gatewayAllowLan: Schema<boolean, boolean, "defined">;
     nativeWebSearchEnabled: Schema<boolean, boolean, "defined">;
     sessionBalanceEnabled: Schema<boolean, boolean, "defined">;
+    strictManualOrder: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
     panelEntry: Schema<string, string, "plain">;
     providerOrder: Schema<string[], string[], "defined">;
     minimaxXff: Schema<string, string, "defined">;
@@ -442,6 +476,21 @@ export declare function sanitizeNativeWebSearchEnabled(raw: unknown): boolean;
  * 不是用户意图。
  */
 export declare function sanitizeSessionBalanceEnabled(raw: unknown): boolean;
+/**
+ * 归一化「严格手动顺序」开关表（{@link JetHubState.strictManualOrder}）。
+ *
+ * 判据与 {@link sanitizeProviderClosed} **逐字同构**：只有**显式 `true`** 才算开启
+ * （`false` / `1` / `'true'` / `null` 都不算）。
+ *
+ * ⚠️ 为什么不能宽松接受 truthy：`'false'` 是**非空字符串**、truthy ⇒ 会被判成
+ * 「用户开启了严格手动顺序」，而这正是个**行为变更**的开关（关掉余额分档）。
+ * 脏数据把它打开，用户就会看到一个自己从没开过的行为变化，且没有任何入口能
+ * 告诉他「这是被脏数据打开的」。
+ *
+ * ⚠️ 反向也**不能**把非 `true` 一律清成「关闭」以外的东西：缺键 / 畸形输入
+ *（含数组 —— `typeof [] === 'object'`）一律退化为空表 = 升级前行为。
+ */
+export declare function sanitizeStrictManualOrder(raw: unknown): StrictManualOrderMap;
 /**
  * 归一化「面板入口」（{@link JetHubState.panelEntry}）。
  *

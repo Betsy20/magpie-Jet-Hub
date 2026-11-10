@@ -92,4 +92,33 @@ export function rankLoomyAccountsByBalance(accounts, options = {}) {
         .sort((a, b) => (a.tier - b.tier) || (a.index - b.index))
         .map((entry) => entry.account);
 }
+/**
+ * 「严格手动顺序」版的候选排序：**档位只当可用性判据，不当先后判据**。
+ *
+ * 与 buddy 那份 {@link rankBuddyAccountsByManualOrder} 逐格同构（两家刻意分开
+ * 实现，理由见文件头「为什么本文件不共用）：判据不同、`none` 的构成也不同。
+ *
+ * | | 默认（`rankLoomyAccountsByBalance`） | 严格手动顺序 |
+ * |---|---|---|
+ * | 先后由谁决定 | 先按档位，**档内**才看手动顺序 | 一律按手动顺序 |
+ * | 档位还剩什么用 | 决定谁先 | **只决定「谁还可用」**（`none` 沉底） |
+ *
+ * ⚠️ `none` 沉底**必须保留**：锁定永久积分后「只剩永久积分」的账号就是 `none`，
+ * 若严格模式把它当普通候选排在最前，锁了永久积分的用户照样会被烧永久积分。
+ *
+ * @param accounts - 待排序账号（顺序即手动优先级）。
+ * @param options - 与 {@link rankLoomyAccountsByBalance} 同义。
+ * @returns **新数组**（不修改入参）。
+ */
+export function rankLoomyAccountsByManualOrder(accounts, options = {}) {
+    return accounts
+        .map((account, index) => ({
+        account,
+        index,
+        // ⚠️ 只保留「可用 / 不可用」这一层，**不保留三档的先后**。
+        unusable: loomyTierUsable(loomyBalanceTier(account, options)) ? 0 : 1,
+    }))
+        .sort((a, b) => (a.unusable - b.unusable) || (a.index - b.index))
+        .map((entry) => entry.account);
+}
 //# sourceMappingURL=loomy-balance-rank.js.map

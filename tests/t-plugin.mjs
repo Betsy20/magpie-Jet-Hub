@@ -171,7 +171,7 @@ for (const [key, want] of [
    * 下面这个常量是**绝对**判据：加减 provider 必须显式改它，改的那一刻至少得想一下
    * 到底是在加家还是掉家。
    */
-  const EXPECTED_PROVIDER_COUNT = 28
+  const EXPECTED_PROVIDER_COUNT = 29
   if (PROVIDER_IDS.length !== EXPECTED_PROVIDER_COUNT) {
     problems.push(
       `provider 家数应为 ${EXPECTED_PROVIDER_COUNT}，实际 ${PROVIDER_IDS.length}（加减 provider 时必须同步这个常量）`,

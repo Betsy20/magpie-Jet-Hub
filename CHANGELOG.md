@@ -33,6 +33,73 @@
   - 新增 `tests/t-baseline-store.mjs` 锁持久化契约（水位跨天存活 / 每日基线按天失效 /
     老文件缺 `kind` 兼容）；`t-usage.mjs` 扩到 10 组分母断言。两处均做过反证（改坏代码必红）。
 
+- `feat(marvis)`: **接入腾讯 Marvis**（2026-11-10）。上游 `5aad869 → 1d12f80` 引入的新渠道，
+  这次连 vendor 一起追到 master 头 `6ad2e241` 并把它注册成第 **29** 家 magpie provider。
+  - **两条扫码腿**：上游 `account.create` 里 marvis 的两个分支都以 `req.mode` 为条件
+    （`magpie-import` / `browser`），**不带 `mode` 会一路落到 `unknown provider: marvis`**。
+    本插件只走 `browser`：vendor 自己开窗、立刻回 `{ accountId, loginUrl: '' }`，
+    `login.poll` 经 `magicrewBrowserLoginInFlight` 收口（与超级麦吉的 browser 腿同形，
+    所以 `startNewAccount` 那条「空 URL + mode=browser ⇒ reused: false」的分支正好复用）。
+  - **QQ / 微信二选一做成 provider 开关 `marvis_wechat`**（默认关 = QQ）：两家凭据不通用，
+    重试解决不了「用户就没绑过 QQ」。**不能**做成 oauth 方法的 `ask()` ——
+    `tests/t-new-account.mjs` 钉着「有 oauth 方法的 provider 必须 `m.ask === undefined`」。
+  - **模型目录只有一条**（`main-auto`，展示名 DeepSeek V4.1 Flash）：上游实测 9 个远端
+    目录端点全 404，目录就是 vendor 里的静态常量，真实 id `deepseek-v4-1-flash-261017`
+    不能直传。`contextWindow` 声明 1_000_000、收图，刻意不声明 `maxTokens`
+    （32k/65k/131k/1M 都返 200，上游不校验上界）。
+  - **凭据 / 额度**：`MARVIS_ACCOUNT_DEFAULT` 前缀；钱包走 `/v3/marvis_get_wallet`
+    （只有余额、无到期时间 ⇒ `expiryUnknown`）；续期走 `/marvis_client_login/marvis_refresh_token`
+    （refresh_token 一次性轮换、可能回空串 ⇒ vendor 侧保留旧值）。
+    **推理腿绝不能带 `Ual-Access-Signature`**（带了会 403 伪装成 401），业务腿 `/v3/*` 必须带 ——
+    这些都在 vendor 的 marvis 模块里，插件层不碰 HTTP。
+  - 本轮插件层 8 处接线：`DSH_PROVIDERS` / `NAMES`（`腾讯 Marvis`）/ `FALLBACK_MODELS`
+    （`marvis/main-auto`）/ `index.mjs` 具名工厂 / `src/icons.mjs`（上游只有占位图：蓝底白 M）/
+    `console/icons.js`（29 → 30 条）/ `scripts/snapshot-models.mjs` 的 `NAMES` /
+    `startNewAccount(Smart)` 的 `mode` + `marvisLoginType` 透传。
+  - 测试侧：`EXPECTED_PROVIDER_COUNT` 28 → 29、两处 `NAMES` 计数 28 → 29、
+    `SNAPSHOT_MISSING` 加 `jet-hub-marvis`（目录是 vendor 静态常量、本轮未重跑快照）。
+
+- `feat(vendor)`: **同步上游到 `6ad2e241`（master 头）**（自上次 pin `3812738f` 起 **7 个提交**；2026-11-10）。
+  上一轮（同日早些时候）有意停在 `3812738f`，理由是「其后的 master 只有腾讯 Marvis 一项新功能、
+  magpie 用不到」—— **这条理由被推翻了**：Marvis 是真渠道（`channel: true`、有账号池、
+  有钱包额度、有 `account.create`），接一下就能用。本次带入两块：腾讯 Marvis provider
+  （见上一条 feat(marvis)），以及 4 个纯文档提交（README 渠道表 18 → 29、
+  `docs/agent-notes/providers-marvis.md`，不进 `lib/`）。
+  `vendor/lib` 从 1138 → **1170** 个文件（新增 32 个 `lib/marvis*` 文件，无删除），
+  上游另改 41 个既有文件（`jet-hub-rpc.js` / `jet-hub-store.js` / `provider-registry.js` /
+  `provider-credits.js` / `canonical-models.js` 等）。10 个补丁文件全部重打到位
+  （`jet-hub-rpc.js` 与 `types.d.ts` 按语义移植，其余 8 个上游源码未动、原样保留），
+  与上游 `6ad2e241` 原版构建逐字节比对：**恰差 10 个补丁文件**，`locale/` /
+  `package.json` / `LICENSE` 三者上游无变化（`package.json` 只多一条 `test:e2e:marvis`
+  脚本，本仓没取 —— vendored 快照不跑它自己的测试）。
+
+- `feat(vendor)`: **同步上游到 `3812738f`**（自上次 pin `498a76e` 起 **10 个提交**；2026-11-10）。
+  本次带入三块：
+  - **Qoder 企业资源包解析**：企业账号（`userType=enterprise`）的额度在 `orgResourcePackage`
+    而非个人积分桶，含 cap 兜底 / 到期未知 / available 三个边界修正 —— 纯 vendor 侧修复，
+    插件层零改动。
+  - **「严格手动顺序」开关**（默认关 = 升级前行为逐字节一致）：修「拖拽/序号排序时灵时不灵」——
+    分档渠道的选号器先按积分到期档位、档内才看手动顺序，卡片序号对它们只是一半真话。
+  - **PR #52 的 DSH 宿主 UI**（页头按钮搬侧边栏 / 设置弹窗 / 供应商开关）：改的是 `lib/client/`
+    bundle，magpie 有自己的控制台、不执行那份代码，纯随快照带入的 inert 代码。
+  `vendor/lib` 仍是 1138 个文件；10 个补丁文件全部重打到位（其中 `jet-hub-rpc.js` 与
+  `types.d.ts` 上游有真改动，补丁按语义移植；其余 8 个上游源码未动、补丁版原样保留），
+  与上游 3812738f 原版构建逐字节比对：**恰差 10 个补丁文件**，locale/package.json/LICENSE
+  三者上游无变化。取源改走 Gitee 镜像归档包（`iJetLi/deepseek-harness-codearts`，与 GitHub
+  同历史同 commit）—— git clone 常断，见 `docs/vendor.md` 的取法。
+
+- `feat(console)`: **账号面板新增「严格按手动顺序选号」开关**（接上行的 vendor 开关）。
+  账号卡片一直写着「序号 = 自动选号优先级」，但对 14 家走余额到期分档的渠道
+  （buddy / workbuddy / lobsterai / qoder / qodercn / trae / loomy / minimax / minimaxintl /
+  autoclaw / autoclawintl / magicrew / magicrewintl / astudio）实际执行的是「先按档位、档内
+  才看序号」，用户把某号拖到首位、只要它不再持有临期积分，请求就**静默**落到别的号上。
+  开关挂在账号面板操作条（仅这 14 家渲染，`BALANCE_TIERED_PROVIDERS` 必须与
+  `vendor/lib/provider-registry.js:1221` 一一对应）：**开** = 序号是唯一优先级判据
+  （档位只判可用性，「锁定永久积分」照旧生效）；**关**（缺省）= 升级前行为。写回以后端
+  落盘后回读的值为准，不做乐观更新；读取失败不打断账号列表（显示层尽力而为）。
+  `tests/t-rpc-cover.mjs` 总数锚点 91 → 93（`strictManualOrder.getEnabled/setEnabled`），
+  两方法计入控制台已接（65 → 67）。
+
 - `feat(vendor)`: **同步上游到 `498a76e`**（自上次 pin `5042cec` 起 **7 个提交**）。
   `vendor/lib` 仍是 1138 个文件，逐字节一致数按实际 diff 是 **1128**（1138 − 10）；6 类改动不变，
   补丁文件实际是 **10 个** —— 此前文档写 9 个，漏了承载 magicrew IndexedDB 读取与 WAL 分片重组的

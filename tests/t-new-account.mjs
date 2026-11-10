@@ -51,7 +51,7 @@ process.env.JET_HUB_NO_AUTH_SYNC = '1'
 // 所以自己设一遍。
 process.env.JET_HUB_NO_ADDR_FILE = '1'
 
-// 第 7 节会 `import('index.mjs')` 并逐个调 28 个工厂 —— 工厂里 `containerFor()`
+// 第 7 节会 `import('index.mjs')` 并逐个调 29 个工厂 —— 工厂里 `containerFor()`
 // 拿不到 `options.home` 时**回退 `homedir()`**（`src/plugin.mjs` 的 `resolveHome`），
 // 然后 `warmUp()` 在后台真把容器起起来，`_start()` 会写
 // `~/.dsh/cache/models-dev.json` 之类。实测落盘时刻在第 2548ms，而本文件 985ms
@@ -1048,11 +1048,11 @@ console.log('\noauth 方法形状：')
     //    那种只会在运行时 404。
     const extra = DP.filter((k) => !vendorSet.has(k))
     ok(extra.length === 0, `插件里这些 provider 在 vendor 里不存在：${extra.join(', ') || '无'}`)
-    // ③ `NAMES` 必须覆盖全部 28 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
+    // ③ `NAMES` 必须覆盖全部 29 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
     //    （当年 `DSH_PROVIDERS` 还含路由组时漏过一次：25 项对 24 键 `NAMES`）。
     //    这里对账的是「键齐全且有非空文案」，不校验文案内容。
     //    `NAMES` 和 `NO_NEW_ACCOUNT` 一样没从 `src/plugin.mjs` 导出（`index.mjs` 的
-    //    导出契约只允许 28 个工厂），所以同样从源码文本里解析。
+    //    导出契约只允许 29 个工厂），所以同样从源码文本里解析。
     const pluginSrc = fs.readFileSync(path.join(ROOT, 'src', 'plugin.mjs'), 'utf8')
       .split(String.fromCharCode(13, 10)).join(String.fromCharCode(10))
     const namesStart = pluginSrc.indexOf('const NAMES = {')
@@ -1068,7 +1068,7 @@ console.log('\noauth 方法形状：')
       const noName = DP.filter((p) => !named.has(p))
       ok(noName.length === 0, `NAMES 缺这些 provider 的显示名：${noName.join(', ') || '无'}`)
     }
-    // ④ `FALLBACK_MODELS` 必须 28 家各至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
+    // ④ `FALLBACK_MODELS` 必须 29 家各至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
     //    的唯一兜底（`currentModels()` 的第 3 档）。漏一家 = 那家第一次启动在 magpie
     //    里一个模型都看不到，且没有任何报错。此前这张表长期只有 16 条、且缺 magicrew。
     const fbStart = pluginSrc.indexOf('const FALLBACK_MODELS = {')
@@ -1112,6 +1112,13 @@ console.log('\noauth 方法形状：')
         // 那时下面那条反向锚点会红、提醒删掉这两条。
         ['jet-hub-magicrew', '凭据失效 + 新 vendor 不再回退静态表'],
         ['jet-hub-magicrewintl', '凭据失效 + 新 vendor 不再回退静态表'],
+        // 2026-11-10 并入腾讯 Marvis：它的模型目录**没有远端接口**（上游实测 9 个
+        // 目录端点全 404），目录就是 vendor 里的静态常量 `main-auto` 一条
+        // （`vendor/lib/marvis-product.js` 的 `MARVIS_FALLBACK_MODELS`）。
+        // 快照脚本靠真容器 `model.list` 拉，能拉到，但快照文件是历史产物 ——
+        // 等下一次重跑快照它就会出现在 `page/models.js` 里，届时下面那条反向
+        // 锚点会红、提醒删掉这一条。
+        ['jet-hub-marvis', '目录是 vendor 静态常量（远端目录端点全 404），本轮未重跑快照'],
       ])
       const expectProvs = [...new Set(fbIds.map((id) => `jet-hub-${id.split('/')[0]}`))]
       ok(expectProvs.length >= 20, `FALLBACK 应覆盖 20+ 家，实际 ${expectProvs.length}`)
@@ -1157,8 +1164,8 @@ console.log('\noauth 方法形状：')
         const body = snapNamesSrc.slice(from, to)
         for (const m of body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)) snapNames.set(m[1], m[2])
       }
-      ok(pluginNames.size === 28, `src/plugin.mjs 的 NAMES 应正好 28 家，实际 ${pluginNames.size}`)
-      ok(snapNames.size === 28, `scripts/snapshot-models.mjs 的 NAMES 应正好 28 家，实际 ${snapNames.size}`)
+      ok(pluginNames.size === 29, `src/plugin.mjs 的 NAMES 应正好 29 家，实际 ${pluginNames.size}`)
+      ok(snapNames.size === 29, `scripts/snapshot-models.mjs 的 NAMES 应正好 29 家，实际 ${snapNames.size}`)
       const nameDrift = []
       for (const [dsh, want] of pluginNames) {
         const magpieId = dsh === 'jet-hub-auto' ? 'jet-hub' : `jet-hub-${dsh}`

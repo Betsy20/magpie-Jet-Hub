@@ -1313,6 +1313,8 @@ export class CdpConnection {
     ws;
     nextId = 0;
     pending = new Map();
+    /** 事件订阅者（有序集合；退订即删除）。 */
+    listeners = new Set();
     constructor(ws) {
         this.ws = ws;
         ws.addEventListener('message', (event) => {
@@ -1323,8 +1325,19 @@ export class CdpConnection {
             catch {
                 return;
             }
-            if (message.id === undefined)
+            // 事件（无 id）走订阅者；命令响应（有 id）走 pending。
+            // 顺序不能反过来：响应一旦被当成事件分发给订阅者，订阅者可能
+            // 对 `params` 做解构而抛错（虽然被吞掉，但白跑一次）。
+            if (message.id === undefined) {
+                if (typeof message.method === 'string') {
+                    this.dispatch({
+                        method: message.method,
+                        params: (message.params ?? {}),
+                        ...(message.sessionId === undefined ? {} : { sessionId: message.sessionId }),
+                    });
+                }
                 return;
+            }
             const slot = this.pending.get(message.id);
             if (slot === undefined)
                 return;
@@ -1334,6 +1347,39 @@ export class CdpConnection {
             else
                 slot.resolve(message.result);
         });
+    }
+    /**
+     * 订阅 CDP 事件（无 `id` 的消息）。
+     *
+     * @returns 退订函数（**幂等**：重复调用不抛错）。
+     *
+     * ⚠ **订阅者抛错必须被吞掉**（见 {@link dispatch}）：这里挂在
+     * `ws.addEventListener('message')` 的回调里，抛出去就是未捕获异常。
+     * 在浏览器登录这种「用户正等着」的路径上，那等于整个流程静默卡死
+     * —— 比明确失败更难排查。
+     */
+    subscribe(listener) {
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+    /**
+     * 把一条事件分发给所有订阅者。
+     *
+     * ⚠ 遍历的是**副本**：订阅者在回调里退订（很常见，比如「拿到就退」）
+     * 不会让 `Set` 在迭代中被改动。单个订阅者抛错只影响它自己 ——
+     * 一条事件分发不完不得让整条 WebSocket 的连接循环停摆。
+     */
+    dispatch(event) {
+        for (const listener of [...this.listeners]) {
+            try {
+                listener(event);
+            }
+            catch {
+                // 订阅者自己的错误由它自己记日志；这里只保证循环继续。
+            }
+        }
     }
     /**
      * 发送一条 CDP 命令并等结果。

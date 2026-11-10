@@ -282,9 +282,12 @@ export declare const QODER_PLAN_PACKAGE = "\u5957\u9910\u989D\u5EA6";
  * 返回 `null` 表示**查不到**（网络失败 / 401 / 响应形状非法），
  * 与「余额为 0」严格区分 —— 失败时 UI 应显示原因而不是 0。
  *
- * 企业版账号（`displayMode === 'enterprise'`）返回 `null`：
- * 那种模式不提供额度数字，只给一个外部链接（`enterpriseUsage.detailUrl`），
- * 报 0 会误导用户以为没额度。
+ * 企业版账号有**两种互不重叠的形态**，别混为一谈：
+ * - `displayMode === 'enterprise'`：那种模式不提供额度数字，只给一个外部链接
+ *   （`enterpriseUsage.detailUrl`），报 0 会误导用户以为没额度 ⇒ 返回 `null`；
+ * - `userType === 'enterprise'`（2026-11-09 实测）：`displayMode` 仍是 `'qoder'`，
+ *   额度数字在 `qoderUsage.orgResourcePackage`，由 `parseQoderUsage` 正常解析，
+ *   **不**落本函数的企业分支。
  */
 export declare function fetchQoderCreditBalance(credential: QoderCredential, product: QoderProduct, fetcher?: typeof fetch): Promise<CreditBalance | null>;
 /** {@link fetchQoderBalanceDetailed} 的可选项。 */
@@ -324,6 +327,10 @@ export interface QoderBalanceOptions {
  * 2. **HTTP 层**：401/403 = 凭据；其它非 2xx = 服务端（带状态码）。
  * 3. **形状层**：非 JSON / 非对象 / 缺 `qoderUsage` / 一个包都没解析出来。
  * 4. **企业版**：`displayMode === 'enterprise'` ⇒ 上游本就不给数字（不是故障）。
+ *    ⚠️ 与 `userType === 'enterprise'`（额度在 `orgResourcePackage`、
+ *    `displayMode` 仍是 `'qoder'`）**不是同一形态** —— 后者由
+ *    `parseQoderUsage` 正常解析，不会走到这里的企业分支。
+ *
  *
  * @returns 成功时 `{ balance }`；失败时 `{ balance: null, error }`。
  *   ⚠️ 永远返回 `balance` 字段（共享骨架靠 `balance` 判定成败，

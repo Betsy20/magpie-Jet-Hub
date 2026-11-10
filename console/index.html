@@ -95,6 +95,12 @@
           <button id="accAnon" hidden>加匿名通道</button>
           <!-- 出口代理只对四家可用（gemini / qoder / minimaxintl / opencode）；别的 provider 下隐藏 -->
           <button id="accProxy" hidden>出口代理…</button>
+          <!-- 「严格手动顺序」只对走余额到期分档的 14 家渠道渲染（console.js 的
+               BALANCE_TIERED_PROVIDERS）：这些渠道先按积分到期档位、档内才看卡片序号，
+               开了它序号才是字面意义的选号优先级。缺省（关）＝ 升级前行为。 -->
+          <label id="accStrictWrap" hidden title="开：选号完全按卡片序号，余额档位只判可用性（锁定永久积分照旧生效）。关：先按积分到期档位、档内再按序号（默认）。">
+            <input type="checkbox" id="accStrictOrder"> 严格按手动顺序选号
+          </label>
           <span id="accMsg" class="msg"></span>
         </div>
         <div class="bar">
