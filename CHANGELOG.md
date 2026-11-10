@@ -35,11 +35,26 @@
 
 - `feat(marvis)`: **接入腾讯 Marvis**（2026-11-10）。上游 `5aad869 → 1d12f80` 引入的新渠道，
   这次连 vendor 一起追到 master 头 `6ad2e241` 并把它注册成第 **29** 家 magpie provider。
-  - **两条扫码腿**：上游 `account.create` 里 marvis 的两个分支都以 `req.mode` 为条件
-    （`magpie-import` / `browser`），**不带 `mode` 会一路落到 `unknown provider: marvis`**。
-    本插件只走 `browser`：vendor 自己开窗、立刻回 `{ accountId, loginUrl: '' }`，
-    `login.poll` 经 `magicrewBrowserLoginInFlight` 收口（与超级麦吉的 browser 腿同形，
-    所以 `startNewAccount` 那条「空 URL + mode=browser ⇒ reused: false」的分支正好复用）。
+  - **登录不碰本机浏览器**：上游 marvis 的登录是「自己拉一个 Chromium，用 CDP 在
+    `marvis_oauth` 请求发出**前一刻** `Fetch.fulfillRequest` 截下来」，前提是机器上有
+    headful Chromium + X display（`--headless=new` 与 `chrome-headless-shell` 实测恒
+    `F001`）。只有 sshd 的服务器上这个前提永远不成立 —— 用户点「新建账号」只收到
+    「Marvis 找不到可用的浏览器」（2026-11-10 报障）。
+    现在改走宿主自带的 `mode: 'code'` 通道（`internal/provider/pluginsignin_paste.go`；
+    `/opt/magpie` 里 8 个社区登录插件全这么写）：`authorize()` 用 `authorizeUrlOf()`
+    纯函数算出授权页地址返回给 magpie，由宿主显示「登录链接 + 粘贴框」，用户把登录后
+    那个页面的**整条地址栏**（或只 code 那串）粘回来，`callback(pasted)` 里
+    `marvisCodeOf()` 抠出 code、带 `Ual-Access-Guid` 调 `container.ctx.get('marvisAuth').exchangeCode()`
+    兑换凭据，再拼成 `importCredentialFromMagpie()` 认的形状交给
+    `account.create { mode: 'magpie-import', magpieCredential }` 落库（同一条腿、同一套
+    openid 判重、同一套写池写凭据，宿主侧零改动）。
+    能这么做的依据是三条实测：授权页地址是纯函数；`exchangeCode` **先校参数后兑 code**
+    （不带 guid 头一律 `-109 RC_PARAMS_INVALID`，故浏览器那次跳转不烧 code，我们再兑一次仍有效）；
+    宿主对 `mode: 'code'` 就是这么用的。
+    **删掉了原来那条 `mode: 'browser'` 腿**：`startNewAccount` 去掉了 `extra` 形参、
+    `startNewAccountSmart` 去掉了 marvis 分流 —— 现在 29 家里只有超级麦吉两站要试多种 mode。
+  - **`account.create` 的两条 marvis 腿仍都以 `req.mode` 为条件**（`magpie-import` / `browser`），
+    不带 `mode` 会一路落到 `unknown provider: marvis` —— 本插件只走 `magpie-import`。
   - **QQ / 微信二选一做成 provider 开关 `marvis_wechat`**（默认关 = QQ）：两家凭据不通用，
     重试解决不了「用户就没绑过 QQ」。**不能**做成 oauth 方法的 `ask()` ——
     `tests/t-new-account.mjs` 钉着「有 oauth 方法的 provider 必须 `m.ask === undefined`」。
@@ -54,8 +69,7 @@
     这些都在 vendor 的 marvis 模块里，插件层不碰 HTTP。
   - 本轮插件层 8 处接线：`DSH_PROVIDERS` / `NAMES`（`腾讯 Marvis`）/ `FALLBACK_MODELS`
     （`marvis/main-auto`）/ `index.mjs` 具名工厂 / `src/icons.mjs`（上游只有占位图：蓝底白 M）/
-    `console/icons.js`（29 → 30 条）/ `scripts/snapshot-models.mjs` 的 `NAMES` /
-    `startNewAccount(Smart)` 的 `mode` + `marvisLoginType` 透传。
+    `console/icons.js`（29 → 30 条）/ `scripts/snapshot-models.mjs` 的 `NAMES` / oauth 方法的 `mode: 'code'` 分支。
   - 测试侧：`EXPECTED_PROVIDER_COUNT` 28 → 29、两处 `NAMES` 计数 28 → 29、
     `SNAPSHOT_MISSING` 加 `jet-hub-marvis`（目录是 vendor 静态常量、本轮未重跑快照）。
 
