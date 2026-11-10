@@ -3222,8 +3222,24 @@ function marvisOauthMethods(dshProvider, container, log) {
  * JSON（或微信那句「抱歉，出错了」）。用户真正能复制的是**地址栏整条 URL**，
  * 所以这里两种都认：整条地址、半截 query、以及裸 code。
  */
+function marvisTextOf(pasted) {
+  // 宿主传什么形状没写在文档里：社区插件那边收的是裸字符串，但宿主自己
+  // 也可能把粘贴框原样包成 `{url}` / `{code}` / `{text}`。全都兜住，
+  // 免得「粘了却认不出来」这种事再发生在用户身上。
+  if (typeof pasted === 'string') return pasted
+  if (pasted === undefined || pasted === null) return ''
+  if (typeof pasted === 'object') {
+    for (const key of ['url', 'code', 'text', 'value', 'input', 'callbackUrl']) {
+      const v = pasted[key]
+      if (typeof v === 'string' && v.trim() !== '') return v
+    }
+    return ''
+  }
+  return String(pasted)
+}
+
 function marvisCodeOf(pasted) {
-  const text = String(pasted ?? '').trim()
+  const text = marvisTextOf(pasted).trim()
   if (text === '') return ''
   // 整条地址或半截 query：`...?login_type=QC&code=XXXX&state=0.123`
   const m = /[?&#]code=([^&#\s]+)/.exec(text)
