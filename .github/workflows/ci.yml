@@ -5,7 +5,7 @@ name: ci
 #
 # 为什么只跑 `test-all.mjs`（不带 --all）：
 #   `--all` 那几条要 magpie 在跑（3425 网关、3456 web、真凭据），CI 上没有这些，
-#   它们会以「跳过」收场；`test-all.mjs` 不带 --all 时只跑 31 个 node 单测，
+#   它们会以「跳过」收场；`test-all.mjs` 不带 --all 时只跑 32 个 node 单测，
 #   全部 `process.execPath`，不碰网络也不碰用户的 ~/.config/magpie。
 #
 # 为什么 ubuntu 之外还要 windows：
