@@ -110,7 +110,7 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 行号在补丁点之后偏 8 行（同理，`lib/magicrew-local-browser.d.ts` 也改了、`.d.ts.map` 同样没重生成 —— 理由完全相同）。不重生成的三条理由：① 运行时用不到（上一条）；② 它没有
 `sourcesContent` 字段，重生成必须拿上游 `src/types.ts` 重跑 `tsc` —— 本仓库做不到，而手改
 `mappings` 的 VLQ 编码一旦改错只会让跳转更乱，且**没有任何测试能发现**；③ 保持逐字节一致
-才能让上面那条 `diff` 校验维持「**1158 个一致**」这个可复核的基线（1170 − 11 补丁 − 1 构建产物）。这个偏差
+才能让上面那条 `diff` 校验维持「**1159 个一致**」这个可复核的基线（1170 − 11 补丁；`client/jet-hub.js` 靠归一化 esbuild 变量名算一致）。这个偏差
 **只影响 `types.d.ts`、`magicrew-local-browser.d.ts` 与 `magicrew-browser-login.d.ts` 三个文件的编辑器跳转**（后两者同样只有
 `.d.ts` 改了、`.d.ts.map` 没重生成 —— 经 `grep -c sourcesContent` 确认两份 `.map` 都没有
 `sourcesContent`，② 那条理由对它逐字成立），不影响编译或运行时行为（本仓库不编译类型
