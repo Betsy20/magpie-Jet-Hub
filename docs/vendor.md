@@ -69,9 +69,26 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 怎么自己核一遍
 
+一条命令（推荐；出口码即结论）：
+
 ```bash
 git clone https://gitee.com/iJetLi/deepseek-harness-codearts /tmp/up2
 cd /tmp/up2 && git checkout 1d12f80 && rm -rf lib && npm install
+cd /path/to/magpie-Jet-Hub && node scripts/verify-vendor.mjs /tmp/up2
+```
+
+它做四件事，任何一条不符就退出码 1 并逐条点名：
+
+1. `lib/` 逐文件 sha256：**文件数 1170、逐字节一致 1159** 必须与上面那张表对得上；
+2. 差异集合必须**恰好等于**补丁表那 11 个文件 —— 少一个 = 补丁被同步覆盖（静默故障），
+   多一个 = 快照被别的动作污染过；
+3. `lib/*.map` 584 个 / 约 4.00 MiB、`locale/` 2 个逐字节一致；
+4. `vendor/package.json` 的版本号与上游同一次提交一致（并打出依赖树，换机漏依赖就
+   表现成「控制台打不开」）。
+
+手动核法（脚本不可用时）：
+
+```bash
 diff -r /tmp/up2/lib /path/to/magpie-Jet-Hub/vendor/lib
 # 逐文件哈希核（比 diff -r 更严，能看出换行 / 编码差异）：
 cd /tmp/up2/lib && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up2/a.txt

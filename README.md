@@ -374,7 +374,7 @@ src/
 vendor/                上游本体（MIT，见 docs/vendor.md）
 page/                  侧栏页（只读三标签，跑在 magpie 沙箱 iframe）
 console/               本地控制台（完整功能）
-scripts/               snapshot-models / seed-auth / import-backup / test-all /
+scripts/               snapshot-models / verify-vendor / seed-auth / import-backup / test-all /
                        gen-model-prices / run-console / shot-console.cjs / shot-usage.cjs
 tests/                 31 个 UNIT + 2 个 ENV 的 t-*.mjs，加 ui-check.cjs / t-gateway.py（公共桩 _iso.mjs）
 docs/                  截图、vendor.md、testing.md
