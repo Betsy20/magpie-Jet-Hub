@@ -67,7 +67,7 @@ try {
       console.log('✗ ' + problems.join('；'))
       process.exitCode = 1
     } else {
-      console.log('✓ seed-auth 逻辑正确（dry-run 不改文件、28 个 id 齐全、无路由组占位）')
+      console.log('✓ seed-auth 逻辑正确（dry-run 不改文件、29 个 id 齐全、无路由组占位）')
     }
   }
 } finally {

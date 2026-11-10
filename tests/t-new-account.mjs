@@ -51,7 +51,7 @@ process.env.JET_HUB_NO_AUTH_SYNC = '1'
 // 所以自己设一遍。
 process.env.JET_HUB_NO_ADDR_FILE = '1'
 
-// 第 7 节会 `import('index.mjs')` 并逐个调 28 个工厂 —— 工厂里 `containerFor()`
+// 第 7 节会 `import('index.mjs')` 并逐个调 29 个工厂 —— 工厂里 `containerFor()`
 // 拿不到 `options.home` 时**回退 `homedir()`**（`src/plugin.mjs` 的 `resolveHome`），
 // 然后 `warmUp()` 在后台真把容器起起来，`_start()` 会写
 // `~/.dsh/cache/models-dev.json` 之类。实测落盘时刻在第 2548ms，而本文件 985ms
@@ -904,7 +904,7 @@ console.log('\noauth 方法形状：')
     //    （当年 `DSH_PROVIDERS` 还含路由组时漏过一次：25 项对 24 键 `NAMES`）。
     //    这里对账的是「键齐全且有非空文案」，不校验文案内容。
     //    `NAMES` 和 `NO_NEW_ACCOUNT` 一样没从 `src/plugin.mjs` 导出（`index.mjs` 的
-    //    导出契约只允许 28 个工厂），所以同样从源码文本里解析。
+    //    导出契约只允许 29 个工厂），所以同样从源码文本里解析。
     const pluginSrc = fs.readFileSync(path.join(ROOT, 'src', 'plugin.mjs'), 'utf8')
       .split(String.fromCharCode(13, 10)).join(String.fromCharCode(10))
     const namesStart = pluginSrc.indexOf('const NAMES = {')

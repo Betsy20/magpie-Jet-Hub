@@ -117,7 +117,7 @@ console.log('\nmodelEntry 的 cost：')
   ok(half?.cost !== undefined && half.cost.input === 1, '只有 input 有价时仍要发 cost')
 }
 
-/* ── 3. 全量目录那条腿：真跑 28 个工厂 ── */
+/* ── 3. 全量目录那条腿：真跑 29 个工厂 ── */
 console.log('\n接进 provider.models()（全量目录）：')
 {
   const fs = await import('node:fs')

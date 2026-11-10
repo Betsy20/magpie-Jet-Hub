@@ -5,7 +5,7 @@ import { DSH_PROVIDERS, outputLimit } from '../src/plugin.mjs'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-// ⚠️ 本文件调 28 个工厂会**真起容器**（`warmUp()` 后台跑），所以必须隔离：
+// ⚠️ 本文件调 29 个工厂会**真起容器**（`warmUp()` 后台跑），所以必须隔离：
 // 不隔离的话 `resolveHome(undefined)` 会退回 `homedir()`，把本体的 `DSH_HOME`
 // 直指用户真实凭据目录 —— 实测跑一次本文件，`~/.dsh/.credentials.yaml` 与
 // `jet-hub/state.json` 两个文件的哈希都变了（4 个 cline 账号的 access_token

@@ -35,7 +35,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-checkin.mjs` | 一键领积分 |
 | `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 29 家图标（`data:image`、≤1MB、互不相同） |
 | `t-attachments.mjs` | 附件服务（内容寻址、去重、上限） |
-| `t-plugin.mjs` | 28 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
+| `t-plugin.mjs` | 29 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
 | `t-models-nowait.mjs` | `models()` 不阻塞（计时判 > 5 秒即失败，进程额外撑 45 秒） |
 | `t-seed-auth.mjs` | 账号摊平进 `plugin-auth.json`（占位键、不碰别人的键、回读校验） |
 | `t-auth-sync.mjs` | 启动时自动对齐 `plugin-auth.json`：摊平规则、只清本插件旧记录、别人的 oauth 登录态一条不删、幂等不重写、文件不存在能创建 |
@@ -52,6 +52,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-model-efforts.mjs` | 推理档位：`variants` 键列表、私有档位名翻规范名、能力字段不粘滞 |
 | `t-model-prices.mjs` | 用量费用的目录价：价格表格式、`cost` 形状、**表里没有就不发**、真挂到 `provider.models()` 上 |
 | `t-rpc-cover.mjs` | 控制台接了本体哪些 RPC、哪些明确交给 magpie 或弃用 |
+| `t-vendor-patches.mjs` | `vendor/` 的本地补丁还在不在：gemini 两个默认 client 常量**拆成两段**（含 `.d.ts`）且拼出来长度不变、`types.d.ts` 两处 `closeProvider`、magicrew 两个 `.d.ts` 的声明与实现对齐（同步整片覆盖时这几处都是静默丢） |
 | `t-error-shape.mjs` | 错误出口三件套：不支持的路径回 **501**（不是 404，否则 magpie 只搁置模型、换个同样坏的端点重试）、`errorResponse` 抛错也带 code、上游 404/503 原样透传、`jsonResponse` 形状 |
 | `t-hub-cors.mjs` | 控制台跨站防线：只认实际绑定的那一个端口、只认 `http`、`Host` 必须回环（挡 DNS rebinding）、跨站 Origin 与 `null`、跨站导航 403、写操作连 `same-site` 也拒、多值 `Sec-Fetch-Site` 绕不过；同源不误伤，被拦的请求不进 handler |
 

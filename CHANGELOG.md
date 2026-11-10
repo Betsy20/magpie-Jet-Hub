@@ -11,6 +11,32 @@
 
 ## 1.0.0（未发布）
 
+- `test(vendor)`: **新增 `tests/t-vendor-patches.mjs`（14 条断言），把「同步会把补丁整片覆盖」
+  里最静默的两类钉成断言**。`vendor/` 那 11 个补丁文件在「版本怎么升」第 2 步会被整片
+  覆盖，而其中两类**没有任何测试**（`docs/vendor.md` 原来只承认 gemini 一条）：
+  ① gemini 的两个默认 OAuth client 常量必须「拆成两段」—— 恢复成整串明文时本地一切
+  正常，**只有 `git push` 那一刻被 push protection 拒**，所以判据刻意用**源码形态**
+  （`.js` 单引号 / `.d.ts` 双引号各一条）加「拼出来的长度 73 / 35」，**不写死值** ——
+  把整串 client id 写进断言等于把这条补丁要躲的东西原样搬回来；② `lib/types.d.ts` 的
+  两处 `closeProvider?: boolean`，以及两个 magicrew `.d.ts` 的声明
+  （`CDP_CREDENTIAL_EXPRESSION: string`、`leveldbTextFor(…, hostname?: string)`、
+  `idbCredentialsIn`）必须跟实现对齐 —— 2026-11-08 P2-4 就是「实现改了、声明没跟上」
+  的复发面。三条变异（改回明文 / 少一个参数 / 删空目录守卫）都实测变红。
+
+- `fix(test)`: **`t-rpc-cover` 第 8 节的「全关即意图」判据补上空目录守卫**。原来那条正则
+  只钉 `catalog.complete`，把 `catalog.ids.length > 0` 删掉照样全绿 —— 而空目录下
+  `every()` **恒真**，正是「关一个模型就关掉整个供应商」那个缺陷的入口。现在整段
+  `complete && ids.length > 0 && ids.every(…)` 一起钉，删任意一项立刻红。
+
+- `docs(vendor)`: **npm 口径与「6 类」的定义一起对齐**。① `npm view deepseek-harness-codearts version`
+  现在是 `2.21.261109`（不是文档里写的 `2.14.261103`），`lib/` **1138** 个文件；与
+  vendor 的 1170 个比，少的 32 个正是 `marvis-*`，两边都有的文件里 **79 个不同** =
+  11 个本仓补丁 + 68 个上游在 npm 发布之后又往前走的提交（`package.json` 的
+  `upstream.version` / `upstream.note` 一并更新）。② 「6 类」原来只在两处各写一半
+  （表格按行铺、正文按逗号列，数出来是 5 项），现在 ①–⑥ 逐类点名并与顶部差异表
+  一一对应；「哪几类有测试盯着」那半句也按新用例重写（唯一没有自动断言的是
+  「`.d.ts.map` 不重生成」—— 它只影响编辑器跳转行号，按基线人工核）。
+
 - `feat(vendor)`: **同步上游到 `1d12f80`，接入腾讯 Marvis（家数 28 → 29）**。
   `vendor/lib` 1138 → **1170** 文件（+32：`marvis-*` 8 个源文件各自的 `.js` / `.d.ts` / `.map`），
   逐字节一致 1127 → **1159**（补丁仍是 11 个文件 / 6 类）。上游这 13 个提交里对我们
@@ -35,7 +61,7 @@
   `SNAPSHOT_MISSING`（Marvis 本机没凭据 ⇒ 快照里没有它）、`tests/t-rpc-cover.mjs` 的
   `EXPECTED_RPC_METHOD_COUNT` 91 → **93**（控制台接 65 → **67**）。
 
-  全量 **30 通过 / 0 失败 / 0 跳过**。
+  全量 **31 通过 / 0 失败 / 0 跳过**（新增 `t-vendor-patches` 一条）。
 
 - `fix(vendor)`: **修掉 `lib/magicrew-browser-login.d.ts` 的 `CDP_CREDENTIAL_EXPRESSION` 声明失配**
   （2026-11-08 gitee 重审 P2-4）。上游源码是 `` `JSON.stringify({...})` ``（只读 `localStorage`），

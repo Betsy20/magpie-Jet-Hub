@@ -10,7 +10,7 @@
  *
  * magpie 宿主 `servers(mod)` 会取模块导出的**每一个函数**，`auths()` 再按
  * `hooks.auth.provider` 建映射 —— 所以一个插件包导出 N 个插件工厂，就能注册
- * N 个 provider id。本文件对本体里**除两个路由组之外**的 28 个 provider 各生成一个工厂。
+ * N 个 provider id。本文件对本体里**除两个路由组之外**的 29 个 provider 各生成一个工厂。
  *
  * ## 架构
  *
@@ -19,7 +19,7 @@
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
- *   └─ …（28 个）                     ┘
+ *   └─ …（29 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
  *             └─ 直连本体 llm：ctx.llm.stream()（src/llm-bridge.mjs）
  *                  └─ 各 provider 的真实上游
@@ -29,8 +29,8 @@
  * `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以
  * `container.forward()` 在进程内就完成了整件事 —— 不占端口、不需要 apiKey。
  *
- * ⚠️ 容器**必须模块级共享**：28 个插件工厂各自 new 一个容器的话，会拉起 28 个
- * cordis（28 份账号池 + 28 份模型目录），冷启动直接炸。
+ * ⚠️ 容器**必须模块级共享**：29 个插件工厂各自 new 一个容器的话，会拉起 29 个
+ * cordis（29 份账号池 + 29 份模型目录），冷启动直接炸。
  *
  * ## 凭据从哪来
  *
@@ -463,7 +463,7 @@ function modelEntry(id, def, meta, price) {
 
 // ---- 共享容器与模型缓存 -------------------------------------------------------
 
-/** 模块级单例：28 个 provider 共用同一个容器。 */
+/** 模块级单例：29 个 provider 共用同一个容器。 */
 let shared = null
 
 /**
@@ -1005,7 +1005,7 @@ async function withRpcDeadline(container, method, payload, ms, what) {
  */
 async function startNewAccount(container, provider, log, mode) {
   // 只有超级麦吉两站要带 `mode`（见下方 `MAGICREW_CREATE_MODES` 的说明），
-  // 其余 22 家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
+  // 其余 24 家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
   const v = await withRpcDeadline(
     container,
     'account.create',
@@ -2507,5 +2507,5 @@ export function makePlugin(dshProvider) {
   }
 }
 
-/** 全部 28 个工厂（`index.mjs` 逐个具名导出）。 */
+/** 全部 29 个工厂（`index.mjs` 逐个具名导出）。 */
 export const PLUGINS = DSH_PROVIDERS.map((p) => [idOf(p), makePlugin(p)])

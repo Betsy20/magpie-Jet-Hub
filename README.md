@@ -31,12 +31,12 @@
 
 ## 架构
 
-magpie 的一个插件包可以注册多个供应商：宿主取模块导出的**每一个函数**当插件工厂，本包的 `index.mjs` 正好导出 28 个 `JetHub*Plugin`。
+magpie 的一个插件包可以注册多个供应商：宿主取模块导出的**每一个函数**当插件工厂，本包的 `index.mjs` 正好导出 29 个 `JetHub*Plugin`。
 
 ```
 magpie 网关（默认 3425，JET_HUB_USER_GATEWAY 可覆盖）
   ├─ jet-hub-codearts   ┐
-  ├─ jet-hub-workbuddy  │ 28 个 provider id
+  ├─ jet-hub-workbuddy  │ 29 个 provider id
   ├─ jet-hub-qoder      ├─ 全部共用同一个容器实例
   └─ …                  ┘
        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
@@ -47,7 +47,7 @@ magpie 网关（默认 3425，JET_HUB_USER_GATEWAY 可覆盖）
 两个要点：
 
 - **没有内嵌 HTTP 网关**。本体自己会开一个 OpenAI 兼容网关，但那层只是 `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以 `container.forward()` 进程内就完成整件事 —— 不占端口、不需要 apiKey。
-- **容器必须模块级共享**。28 个工厂各自 new 一个容器会拉起 28 份账号池和模型目录，冷启动直接炸。
+- **容器必须模块级共享**。29 个工厂各自 new 一个容器会拉起 29 份账号池和模型目录，冷启动直接炸。
 
 ## 安装
 
@@ -358,9 +358,9 @@ node scripts/test-all.mjs --all  # 连环境的一起跑（要 magpie 网关 342
 ## 目录结构
 
 ```
-index.mjs              只导出 28 个插件工厂（宿主遍历全部导出）
+index.mjs              只导出 29 个插件工厂（宿主遍历全部导出）
 src/
-  plugin.mjs           28 个工厂、auth 契约（methods / loader / usage / checkin）
+  plugin.mjs           29 个工厂、auth 契约（methods / loader / usage / checkin）
   container.mjs        内嵌 cordis 容器、直连转发、选号钉住、死号过滤
   llm-bridge.mjs       进程内直连本体 ctx.llm
   credentials.mjs      ~/.dsh/.credentials.yaml ⇄ 容器 credentials 服务
@@ -376,7 +376,7 @@ page/                  侧栏页（只读三标签，跑在 magpie 沙箱 iframe
 console/               本地控制台（完整功能）
 scripts/               snapshot-models / seed-auth / import-backup / test-all /
                        gen-model-prices / run-console / shot-console.cjs / shot-usage.cjs
-tests/                 30 个 UNIT + 2 个 ENV 的 t-*.mjs，加 ui-check.cjs / t-gateway.py（公共桩 _iso.mjs）
+tests/                 31 个 UNIT + 2 个 ENV 的 t-*.mjs，加 ui-check.cjs / t-gateway.py（公共桩 _iso.mjs）
 docs/                  截图、vendor.md、testing.md
 ```
 

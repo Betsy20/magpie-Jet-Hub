@@ -636,7 +636,7 @@ const SMS_PROVIDERS = new Set(['loomy', 'autoclaw'])
  * 登录成功后 `finishLogin` 会把 nickname 换成真实昵称、refreshable 置真、
  * 补上 expiresAt —— 三条一起变，所以三条一起判。
  *
- * 昵称判据有两个可接受值：**等于 id**（15 家），或命中
+ * 昵称判据有两个可接受值：**等于 id**（`vendor/lib/jet-hub-rpc.js` 与 `vendor/lib/accio-auth.js:525` 里的占位写法），或命中
  * `PLACEHOLDER_NICKNAMES`（autoclaw 的 `'AutoClaw (登录中...)'`）。
  *
  * 宁可漏删也不误删：`removeAccount` 会连带 `credentials.unset`，不可逆。
@@ -648,8 +648,8 @@ const PLACEHOLDER_MAX_AGE_MS = 10 * 60 * 1000
 /**
  * 占位条目的昵称白名单 —— 除「昵称就等于 id」之外的写法。
  *
- * 15 家走 `nickname: id`（`vendor/lib/jet-hub-rpc.js` 里 14 处
- * `nickname: id` + `vendor/lib/accio-auth.js:525` 一处），但 autoclaw 的短信
+ * 占位账号写的是 `nickname: id`（`vendor/lib/jet-hub-rpc.js` 与
+ * `vendor/lib/accio-auth.js:525` 都有），但 autoclaw 的短信
  * 登录路径写的是**固定文案**（`vendor/lib/jet-hub-rpc.js` 的
  * `nickname: 'AutoClaw (登录中...)'`）—— 只按「昵称 === id」判会把它判成 `'no'`，
  * 于是用户点「添加账号」→ 选 autoclaw → 直接关掉，那条 `AutoClaw (登录中...)`
@@ -1039,7 +1039,7 @@ const PROXY_CHANNELS = {
  *
  * ⚠️ 必须与 `vendor/lib/provider-onboarding.js` 的实现表一一对应 —— 目前只有
  * 四家：`loomy`（:63）、`raccoon`（:108）、`magicrew`（:176）、`magicrewintl`
- * （:185）。其余 24 家走 `vendor/lib/jet-hub-rpc.js:6393-6394` 的
+ * （:185）。其余 25 家走 `vendor/lib/jet-hub-rpc.js:6393-6394` 的
  * `unsupported provider` 分支，渲染出来的按钮点了必报 bad-request。
  *
  * ⚠️ 加新供应商时**两处一起改**（实现表 + 这里），否则要么按钮缺失、

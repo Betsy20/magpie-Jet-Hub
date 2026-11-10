@@ -2,7 +2,7 @@
   "name": "magpie-jet-hub",
   "version": "1.0.0",
   "type": "module",
-  "description": "把 deepseek-harness-codearts 插件本体（28 个 provider 的路由中枢）原样装进 magpie：内嵌 cordis 容器运行本体，复用其账号池、静默续期、积分选号与本地 OpenAI 兼容网关，凭据直接共用 DSH 的 .credentials.yaml，不依赖 DSH 进程",
+  "description": "把 deepseek-harness-codearts 插件本体（29 个 provider 的路由中枢）原样装进 magpie：内嵌 cordis 容器运行本体，复用其账号池、静默续期、积分选号与本地 OpenAI 兼容网关，凭据直接共用 DSH 的 .credentials.yaml，不依赖 DSH 进程",
   "main": "./index.mjs",
   "exports": {
     ".": "./index.mjs"
@@ -62,8 +62,8 @@
       "dsh-providers-hub",
       "dsh-codearts-auth"
     ],
-    "version": "2.14.261103",
-    "note": "vendor/ 是上游源码 commit 1d12f80e14bde6c73e86aa7f5eef6257d6fe0d0b 的构建产物（npm install 触发 tsc + copy-assets + client/build + sync-bootstrap-lib）。npm 最新 2.14.261103 仍落后于仓库 master（文件更少、大量内容不同）；vendor 不含 README.md / cordis.patch.yml；lib/ 共 1170 个文件，其中 1159 个与上游逐字节一致，11 个是本仓补丁（6 类）；gemini-oauth.* 两个常量拆成两段拼接（值相等）。详见 docs/vendor.md"
+    "version": "2.21.261109",
+    "note": "vendor/ 是上游源码 commit 1d12f80e14bde6c73e86aa7f5eef6257d6fe0d0b 的构建产物（npm install 触发 tsc + copy-assets + client/build + sync-bootstrap-lib）。npm 最新 2.21.261109 仍落后于仓库 master：lib 1138 个文件 vs vendor 1170（少的 32 个是 marvis-* 8 个模块），两边都有的文件里 79 个不同 = 11 个本仓补丁 + 68 个上游新提交；vendor 不含 README.md / cordis.patch.yml；lib/ 共 1170 个文件，其中 1159 个与上游逐字节一致，11 个是本仓补丁（6 类）；gemini-oauth.* 两个常量拆成两段拼接（值相等）。详见 docs/vendor.md"
   },
   "magpie": {
     "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiIgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkpldCBIdWIiPgogIDxyZWN0IHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgcng9IjciIGZpbGw9IiM1YjNkZjUiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIzLjIiIGZpbGw9IiNmZmYiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjcuNCIgcj0iMi4yIiBmaWxsPSIjYzliY2ZmIi8+CiAgPGNpcmNsZSBjeD0iMjQuNiIgY3k9IjExLjciIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjI0LjYiIGN5PSIyMC4zIiByPSIyLjIiIGZpbGw9IiNjOWJjZmYiLz4KICA8Y2lyY2xlIGN4PSIxNiIgY3k9IjI0LjYiIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjcuNCIgY3k9IjIwLjMiIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxjaXJjbGUgY3g9IjcuNCIgY3k9IjExLjciIHI9IjIuMiIgZmlsbD0iI2M5YmNmZiIvPgogIDxnIHN0cm9rZT0iI2M5YmNmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgb3BhY2l0eT0iMC44NSI+CiAgICA8cGF0aCBkPSJNMTYgMTAuNnYyLjRNMTguOCAxMi4ybDEuOS0xLjFNMTguOCAxOS44bDEuOSAxLjFNMTYgMjEuNHYyLjRNMTMuMiAxOS44bC0xLjkgMS4xTTEzLjIgMTIuMmwtMS45LTEuMSIvPgogIDwvZz4KPC9zdmc+Cg==",
