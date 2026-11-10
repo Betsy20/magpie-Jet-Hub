@@ -78,12 +78,12 @@ const PATCH_SHA256 = {
 /**
  * 文档里写死的两个数（docs/vendor.md「与上游构建产物的差异」）。
  *
- * ⚠️ `identical` 是**上游作者构建环境**下的数。`lib/client/jet-hub.js` 由
- * `plugin-src/client/build.mjs` 用 esbuild 打包，产物里 `__export` 的变量名取入口
- * basename（`entryPoints: [index.js]` ⇒ `index_exports`）。本仓 `package.json`
- * 声明 `esbuild ^0.24.0`，0.24 给的是 `client_exports` —— 与上游那份差 3 字节。
- * ⇒ 本机重建会得到 **1158** 而不是 1159，差的就是这一个构建产物（见
- * `BUILD_ARTIFACTS`）。判据据此扣除，不把它当成「污染」。
+ * ⚠ `identical` 是「**归一化后**算一致」的数（**1159**），不是真逐字节（**1158**）：
+ * `lib/client/jet-hub.js` 由 esbuild 打包，`__export` 的变量名取入口 basename ——
+ * 本仓 `package.json` 的 `esbuild ^0.24.0` 给 `client_exports`、上游作者用的 0.25.x
+ * 给 `index_exports`，差 3 字节。见 `BUILD_ARTIFACTS` / `normalizeExports`：
+ * **归一化后仍要求逐字节相等**（不是整份文件豁免），所以干净快照算「一致」、
+ * 手改任何一位都会进 `differing` 判污染。
  */
 const EXPECT = { libFiles: 1170, identical: 1159, localeFiles: 2, maps: 584, mapMiB: '4.00' }
 
@@ -110,6 +110,23 @@ const EXPECT = { libFiles: 1170, identical: 1159, localeFiles: 2, maps: 584, map
  */
 const BUILD_ARTIFACTS = new Set(['client/jet-hub.js'])
 const normalizeExports = (buf) => buf.toString('latin1').replace(/\b(?:client|index)_exports\b/g, 'EXPORTS')
+
+/**
+ * `lib/client/jet-hub.js` 里 `__export` 变量名的**拼写一致性**。
+ *
+ * ⚠️⚠️ 光做归一化比较**不够**（2026-11-10 对抗审查 P1-1）：文件里 3 处出现这个标识符
+ * （`var X_exports = {}` / `__export(X_exports, …)` / `module.exports = __toCommonJS(X_exports)`）。
+ * 把其中**任意 1 处**改成另一种拼写，归一化后仍是 3 个 `EXPORTS`、**逐位相等 ⇒ 绿**，
+ * 而 vm 实测那是 `ReferenceError`（`var` 声明与 `__export` 用了不同标识符）—— 插件完全
+ * 无法加载。8 种拼写组合里 6 种是这种破的。
+ *
+ * ⇒ 单独钉「两种拼写**恰有一个出现 3 次、另一个 0 次**」。这比「整份文件豁免」严格，
+ * 也不受 esbuild 版本影响（0.24 给 `client_exports`、0.25 给 `index_exports`，都是 3/0）。
+ */
+const exportsSpellings = (buf) => {
+  const s = buf.toString('latin1')
+  return { index: (s.match(/\bindex_exports\b/g) ?? []).length, client: (s.match(/\bclient_exports\b/g) ?? []).length }
+}
 
 const sha256 = (p) => createHash('sha256').update(fs.readFileSync(p)).digest('hex')
 
@@ -173,6 +190,16 @@ function main() {
     // ⚠️ 只对 BUILD_ARTIFACTS 里的文件做归一化重比 —— 干净快照仍算「一致」；
     //    真手改（任何字符）归一化后仍不相等 ⇒ 进 differing 判污染。
     if (BUILD_ARTIFACTS.has(rel) && normalizeExports(a) === normalizeExports(b)) {
+      // ⚠️⚠️ 归一化只能证明「抹平拼写后相等」，**证明不了拼写本身一致**（P1-1）。
+      //     把 3 处里任意 1 处换成另一种拼写，归一化后仍相等 —— 而那是 ReferenceError。
+      const sp = exportsSpellings(b)
+      const consistent = (sp.index === 3 && sp.client === 0) || (sp.client === 3 && sp.index === 0)
+      if (!consistent) {
+        bad(`lib/client/jet-hub.js 的 __export 变量名**混合拼写**（index_exports=${sp.index} / client_exports=${sp.client}）`
+          + ` —— 必须是 3/0 或 0/3；混合会让模块 ReferenceError（插件完全无法加载）`)
+        differing.push(rel)
+        continue
+      }
       identical += 1
       artifactNormalized.push(rel)
       continue
@@ -185,8 +212,9 @@ function main() {
 
   if (vend.length !== EXPECT.libFiles) bad(`vendor/lib 文件数应为 ${EXPECT.libFiles}，实际 ${vend.length}（同步后请更新文档与 EXPECT）`)
   else ok(`文件数 ${vend.length} 与文档一致`)
-  if (identical !== EXPECT.identical) bad(`逐字节一致数应为 ${EXPECT.identical}，实际 ${identical}（同步后请更新文档与 EXPECT）`)
-  else ok(`逐字节一致 ${identical} 个与文档一致`)
+  const byteExact = identical - artifactNormalized.length
+  if (identical !== EXPECT.identical) bad(`一致数应为 ${EXPECT.identical}（真逐字节 ${byteExact} + 归一化 ${artifactNormalized.length}），实际 ${identical}（同步后请更新文档与 EXPECT）`)
+  else ok(`一致 ${identical} 个（真逐字节 ${byteExact} + 归一化 ${artifactNormalized.length}）与文档一致`)
 
   if (upstreamOnly.length) bad(`上游有、vendor 缺：${upstreamOnly.join(', ')}（同步漏拷）`)
   if (vendorOnly.length) bad(`vendor 有、上游没有：${vendorOnly.join(', ')}（快照被别的动作污染过）`)
@@ -208,7 +236,13 @@ function main() {
   // 却又抓不到的一类（补丁被人手改）。逐个核 sha256。
   const hashDrift = PATCH_FILES.filter((f) => {
     const want = PATCH_SHA256[f]
-    return want !== undefined && sha256(path.join(VENDOR, f)) !== want
+    if (want === undefined) return false
+    // ⚠️ 文件**整个缺失**时 `sha256()` 会抛 ENOENT，把前面所有 `bad()` 全冲掉
+    //    （2026-11-10 对抗审查 P2-1）—— 而那正是「补丁被同步覆盖」最该给诊断的
+    //    形态。缺文件已由上面 `上游有、vendor 缺` 那条报，这里跳过。
+    let got
+    try { got = sha256(path.join(VENDOR, f)) } catch { return false }
+    return got !== want
   })
   const hashMissing = PATCH_FILES.filter((f) => PATCH_SHA256[f] === undefined)
   if (hashMissing.length) bad(`PATCH_SHA256 少了这些文件的期望值：${hashMissing.join(', ')}（跑 --print-hashes 补上）`)
@@ -262,7 +296,7 @@ function main() {
     console.log('\n同步/修复口径见 docs/vendor.md 的「版本怎么升」。')
     process.exit(1)
   }
-  console.log(`\n✓ vendor/ 与上游 ${upstream} 完全一致：${identical} 个逐字节相同 + ${PATCH_FILES.length} 个补丁文件，无污染、无漏打。`)
+  console.log(`\n✓ vendor/ 与上游 ${upstream} 完全一致：${identical} 个一致（真逐字节 ${identical - artifactNormalized.length} + 归一化 ${artifactNormalized.length}）+ ${PATCH_FILES.length} 个补丁文件，无污染、无漏打。`)
 }
 
 main()

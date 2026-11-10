@@ -39,7 +39,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 与上游构建产物的差异
 
-`lib/` 共 1170 个文件，其中 **1159 个与上游逐字节一致**；`locale/` 2 个全部一致。剩下 11 个（6 类改动；`lib/gemini-oauth.*`、`lib/backup.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的三处改动落在 `lib/magicrew-browser-login.js` + `.d.ts`（两类）、`lib/magicrew-local-browser.js` + `.d.ts`、`lib/leveldb-sstable.js` 上）：
+`lib/` 共 1170 个文件，其中 **1159 个与上游逐字节一致**（按下面「取法」自己 `git clone` + `npm install` 构建时）；`locale/` 2 个全部一致。⚠️ 若改成拿 **npm 包**来比（上游作者用 esbuild 0.25.x 构建），`lib/client/jet-hub.js` 会差 3 字节 —— 那时是「真逐字节 **1158** + 归一化 **1** = 一致 **1159**」，见下节。剩下 11 个（6 类改动；`lib/gemini-oauth.*`、`lib/backup.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的三处改动落在 `lib/magicrew-browser-login.js` + `.d.ts`（两类）、`lib/magicrew-local-browser.js` + `.d.ts`、`lib/leveldb-sstable.js` 上）：
 
 | 差异 | 原因 |
 |---|---|
@@ -79,11 +79,14 @@ cd /path/to/magpie-Jet-Hub && node scripts/verify-vendor.mjs /tmp/up2
 
 它做四件事，任何一条不符就退出码 1 并逐条点名：
 
-1. `lib/` 逐文件 sha256：**文件数 1170、逐字节一致 1159** 必须与上面那张表对得上
-   （⚠ `lib/client/jet-hub.js` 由 esbuild 打包，`__export` 的变量名取入口 basename ——
-   本仓 `package.json` 声明的 `esbuild ^0.24.0` 给 `client_exports`，而上游作者构建快照
+1. `lib/` 逐文件 sha256：**文件数 1170**、**一致 1159** 必须与上面那张表对得上
+   （⚠ 自己构建时这 1159 就是真逐字节；拿 **npm 包**比时是 1158 + 1 个靠归一化算一致。
+   `lib/client/jet-hub.js` 由 esbuild 打包，`__export` 的变量名取入口 basename ——
+   本仓 `package.json` 声明的 `esbuild ^0.24.0` 给 `client_exports`，而上游作者发 npm 包
    用的 0.25.x 给 `index_exports`，**差 3 字节**。这**不是**补丁也不是污染：脚本把这个
-   变量名抹平成 `EXPORTS` 再比，干净快照仍算「一致」（1159 成立），手改任何一位都会红）；
+   变量名抹平成 `EXPORTS` 再比，干净快照仍算「一致」（1159 成立）；**另外单独钉「两种
+   拼写恰有一个出现 3 次、另一个 0 次」** —— 混合拼写（3 处里改 1 处）归一化后仍相等，
+   而那是 `ReferenceError`（插件完全无法加载），2026-11-10 对抗审查 P1-1）；
 2. 差异集合必须**恰好等于**补丁表那 11 个文件 —— 少一个 = 补丁被同步覆盖（静默故障），
    多一个 = 快照被别的动作污染过。**每个补丁文件还核 sha256 指纹**（`PATCH_SHA256`），
    所以「补丁文件被人手改」也抓得到 —— 有意改补丁时跑 `--print-hashes` 更新那 11 行；
@@ -101,7 +104,7 @@ cd /path/to/magpie-Jet-Hub/vendor/lib && find . -type f -exec sha256sum {} + | s
 diff /tmp/up2/a.txt /tmp/up2/b.txt
 ```
 
-注意：`diff` 应该**只**列出上表那 11 个文件（外加 `lib/client/jet-hub.js` —— 它是 esbuild 产物，随工具链版本漂移，见上）。多出任何一个都说明快照被别的动作污染过。
+注意：`diff` 应该**只**列出上表那 11 个文件；拿 **npm 包**比会多列出 `lib/client/jet-hub.js`（esbuild 产物，随工具链版本漂移，见上）。多出任何一个都说明快照被别的动作污染过。
 
 `vendor/` 里有 584 个 `.map`（source map，约 4.00 MiB）运行时用不到，留着是为了与上游构建产物尽量逐字节一致、方便 diff 校验。要在意仓库体积可以删，不影响运行。
 
@@ -110,7 +113,7 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 行号在补丁点之后偏 8 行（同理，`lib/magicrew-local-browser.d.ts` 也改了、`.d.ts.map` 同样没重生成 —— 理由完全相同）。不重生成的三条理由：① 运行时用不到（上一条）；② 它没有
 `sourcesContent` 字段，重生成必须拿上游 `src/types.ts` 重跑 `tsc` —— 本仓库做不到，而手改
 `mappings` 的 VLQ 编码一旦改错只会让跳转更乱，且**没有任何测试能发现**；③ 保持逐字节一致
-才能让上面那条 `diff` 校验维持「**1159 个一致**」这个可复核的基线（1170 − 11 补丁；`client/jet-hub.js` 靠归一化 esbuild 变量名算一致）。这个偏差
+才能让上面那条 `diff` 校验维持「**1159 个一致**」这个可复核的基线（1170 − 11 补丁；拿 npm 包比时 `diff -r` 会多列 1 个 `client/jet-hub.js`，脚本归一化后仍是 1159）。这个偏差
 **只影响 `types.d.ts`、`magicrew-local-browser.d.ts` 与 `magicrew-browser-login.d.ts` 三个文件的编辑器跳转**（后两者同样只有
 `.d.ts` 改了、`.d.ts.map` 没重生成 —— 经 `grep -c sourcesContent` 确认两份 `.map` 都没有
 `sourcesContent`，② 那条理由对它逐字成立），不影响编译或运行时行为（本仓库不编译类型
