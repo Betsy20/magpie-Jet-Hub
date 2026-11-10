@@ -1001,6 +1001,42 @@ export const PROVIDER_REGISTRY = Object.freeze([
         channel: true,
     },
     {
+        // 腾讯 Marvis（2026-11-09 接入）。
+        //
+        // ## 为什么只有一条模型
+        // 上游**没有模型目录端点**（累计试过 9 条候选路径，全 404 / 400），模型列表
+        // 只能静态兜底。槽位里只有 `main-auto` 是用户要的（服务端自动路由），实测
+        // 落到 `deepseek-v4-1-flash-261017`；`deepseek-v4-pro-external` / `hy3-*` /
+        // `claude-*` / `gpt-5.4` / `hunyuan-*` 本账号无授权（400 无效模型 id）或
+        // 不在用户选择范围内 ⇒ **目录只列一条**。
+        // ⚠️ 真实模型 id（`deepseek-v4-1-flash-261017`）**不能直传**：上游回
+        //    `400 {"code":4130001,"msg":"客户端AI业务错误: 无效模型id"}`，
+        //    只有槽位名可作 `model` 上行 —— 归一逻辑见 `normalizeMarvisModelId`。
+        //
+        // ## 能力登记的依据
+        // · `balance: true`：`POST /v3/marvis_get_wallet` 实测 200，
+        //   `{total_tokens:"10000000", used_tokens:"0", frozen_tokens:"0", …}`
+        //   （**字符串数字**，且**没有任何日期字段** ⇒ 包里只能标 `expiryUnknown`）。
+        // · 省略 `dailyCheckin`：**没有**签到端点。省略的语义就是「后端无可调用
+        //   端点」，与「忘了写」不同 —— 一键签到会把它记成 inactive 而不是 failed。
+        // · 省略 `creditPackages`：余额是单一口袋 + 可选「冻结中」子量，没有任何
+        //   到期批次 ⇒ 名单型展示只会凭空造日期。
+        // · 省略 `rateLimit`（= true）：请求级换号**真的**会写 `modelRateLimits`
+        //   （429 / 额度耗尽 / 风控三条都调 `markLimited`）⇒ 限流按钮必须有。
+        // · 省略 `accountTest`：探活要真发一次推理（消耗真实 token 配额）。
+        // · 省略 `permanentLock` / `usesExpiryWindow`：上游不给任何到期时间，
+        //   两者都以「包带到期时间」为前提。
+        id: 'marvis',
+        label: '腾讯 Marvis',
+        displayName: '腾讯 Marvis',
+        logoClass: 'marvis',
+        credits: { balance: true },
+        // ⚠️ 必须 `llm-<id>`（老契约 DSH ≤0.1.6 的 namespace）。
+        settingsNamespace: 'llm-marvis',
+        // ⚠️ `channel: true`：它持有账号与凭据，是普通渠道；`false` 只留给 `aggregate`。
+        channel: true,
+    },
+    {
         // Magicrew（超级麦吉国内站，2026-10-29 接入）。
         // ⚠️ 位置要求（用户明确）：**排在 aggregate 之前 = 倒数第二**。
         //    守因为未自定义 `providerOrder` 时，左栏完全按本表的**声明序**渲染
@@ -1190,5 +1226,52 @@ export function creditCapabilitiesOf() {
         });
     }
     return out;
+}
+/**
+ * **会做「余额到期分档」的渠道**（`id` 全集的唯一真源）。
+ *
+ * ## 为什么需要这张表
+ *
+ * 这些渠道的选号器走 `pickBuddyAccount` / `rankBuddyAccountsByBalance`
+ *（或 Loomy 那份同构实现）：**先按积分到期档位排序，档内才看用户拖拽的顺序**。
+ * 其余渠道（codearts / raccoon / cline / gemini …）是纯池内手动序 ——
+ * 拖拽对它们是**绝对**的优先级。
+ *
+ * 这个差别对用户是**不可见**的，而它正是「拖拽时灵时不灵」这条报障的根源：
+ * 面板文案「按顺序选号」在分档渠道上只是一半真话。
+ * ⇒ 面板据此决定要不要渲染「严格手动顺序」开关，以及要不要补一句说明。
+ *
+ * ## ⚠️ 它必须与真实装配一致
+ *
+ * 来源是 `src/index.ts` 里**每一处** `balance: { kind: 'buddy' | 'loomy' }`
+ * 的 `product`（2026-11-09 逐处清点）。加渠道时**必须同步**，
+ * `tests/unit/strict-manual-order-wiring.spec.ts` 会扫描 `src/index.ts`
+ * 的真实装配做**双向差集**（表多一条 / 少一条都变红），并逐条核对
+ * `isBalanceTieredProvider` —— 漏一家**不会**静默少一个开关。
+ *
+ * ⚠️ **`officeace` 刻意不在表里**：它的分档只发生在**锁定永久积分**时
+ *（`officeace-lock.ts` 的 `permanentLocked() === false` 分支直接走
+ * `resolveUnlocked()`，与手动顺序逐字节同路径）。给它渲染开关会承诺一个
+ * 解锁态下不存在的排序语义。
+ */
+export const BALANCE_TIERED_PROVIDERS = Object.freeze([
+    'buddy',
+    'workbuddy',
+    'lobsterai',
+    'qoder',
+    'qodercn',
+    'trae',
+    'loomy',
+    'minimax',
+    'minimaxintl',
+    'autoclaw',
+    'autoclawintl',
+    'magicrew',
+    'magicrewintl',
+    'astudio',
+]);
+/** 该渠道的选号是否会先按余额到期档位排序（见 {@link BALANCE_TIERED_PROVIDERS}）。 */
+export function isBalanceTieredProvider(provider) {
+    return BALANCE_TIERED_PROVIDERS.includes(provider);
 }
 //# sourceMappingURL=provider-registry.js.map

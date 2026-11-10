@@ -250,6 +250,9 @@ export function createCredentialResolver(deps, config) {
                 allowPermanent,
                 resolveCredential: config.readCredential,
                 degradeOnUnknown: plan.degradeLockedWhenUnknown === true,
+                // ⚠️ **每次现读**（面板可随时切换），且**未实现时视为关闭** ——
+                //    单测替身与结构化 stub 不实现它时必须走既有语义（`=== true` 判据）。
+                strictManualOrder: deps.pool.strictManualOrder?.(providerId) === true,
             });
             if (picked.kind === 'account') {
                 if (plan.reportPickedAccount !== false)
@@ -297,7 +300,10 @@ export function createCredentialResolver(deps, config) {
             const candidates = candidatesOf(deps.pool, providerId, modelId);
             const allowPermanent = !deps.pool.permanentLocked(providerId);
             if (candidates.length > 0) {
-                const picked = await plan.selector.select(candidates, { allowPermanent });
+                const picked = await plan.selector.select(candidates, {
+                    allowPermanent,
+                    ...(deps.pool.strictManualOrder?.(providerId) === true ? { strictManualOrder: true } : {}),
+                });
                 if (picked.ok) {
                     const credential = await config.readCredential(picked.account.credentialRef);
                     // ⚠️ 凭据不可用**不换号**（与 buddy 协议的关键差异）：loomy 的分档

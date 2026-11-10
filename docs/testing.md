@@ -33,7 +33,7 @@ node scripts/test-all.mjs --all  # 连需要环境的一起跑（要 magpie 网�
 | `t-cred-alive.mjs` | 凭据还在不在：真容器判路径推导与五种情形（ref 在 / ref 不在 / 文件缺失放行 / 结构不认识放行 / 有 refs 段但段内为空不放行），以及 `ask()` 与 `authorize()` 的接线方向 |
 | `t-usage.mjs` | 用量换算、积分包合并与到期日排序；第 7 节是「凭据不在了」的文案 + 一段直接 import `vendor/lib/jet-hub-rpc.js` 的行为锁（删 `product` 判空守卫会红） |
 | `t-checkin.mjs` | 一键领积分 |
-| `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 28 家图标（`data:image`、≤1MB、互不相同） |
+| `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 29 家图标（`data:image`、≤1MB、互不相同） |
 | `t-attachments.mjs` | 附件服务（内容寻址、去重、上限） |
 | `t-plugin.mjs` | 28 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
 | `t-models-nowait.mjs` | `models()` 不阻塞（计时判 > 5 秒即失败，进程额外撑 45 秒） |

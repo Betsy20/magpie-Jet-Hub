@@ -45,6 +45,7 @@ import type { QiniuAuth } from './qiniu-auth.js';
 import type { MonkeycodeAuth } from './monkeycode-auth.js';
 import { type AstudioAuth } from './astudio-auth.js';
 import { type MagicrewAuth } from './magicrew-auth.js';
+import { type MarvisAuth } from './marvis-auth.js';
 import type { CodelyAuth } from './codely-auth-service.js';
 import type { BuddyCredential } from './buddy.js';
 import { type CheckinStatus, type ClaimOutcome, type CreditBalance } from './credits.js';
@@ -728,6 +729,15 @@ export interface JetHubAuths {
      *    `tests/unit/credits-balance-self-heal.spec.ts` 的 `SELF_HEAL_EXEMPT` 记录理由。
      */
     readonly baizhi: BaizhiAuth;
+    /**
+     * 腾讯 Marvis（`marvis`，2026-11-09）—— **本 fork 独有**。
+     *
+     * ⚠️ 值是 `MarvisAuth` **Service 实例**（与 modelscope / qiniu 同款）。
+     * ⚠️ 它**有**真实 refresh 端点（`POST /marvis_client_login/marvis_refresh_token`）
+     *    ⇒ **必须**登记进 `SELF_HEAL_REFRESHABLE_PROVIDERS`（漏了症状是积分行
+     *    恒「未登录」而上游其实只需一次 refresh，且日志零字 —— issue IKKHL5）。
+     */
+    readonly marvis: MarvisAuth;
 }
 /**
  * 按 provider id 取 auth 实例。

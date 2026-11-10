@@ -237,7 +237,7 @@ console.log(`  其中共享实现体的标签: ${fallThrough.length ? fallThroug
 // 总数锚点：上面三条解析链任何一条「少认几个」时，下面的相对判据（并发、覆盖、无重叠）
 // 可能依然全绿 —— 实测把单方法改道整段退回是 90 个仍绿、删掉一个裸名 case 是 89 个仍绿。
 // 所以这里钉死总数；上游加减方法时必须同步这个常量（它同时是「解析没退化成空」的兜底）。
-const EXPECTED_RPC_METHOD_COUNT = 91
+const EXPECTED_RPC_METHOD_COUNT = 93
 ok(methods.length === EXPECTED_RPC_METHOD_COUNT,
   `本体可调度方法总数应为 ${EXPECTED_RPC_METHOD_COUNT}，实际 ${methods.length}（上游加减方法时必须同步这个常量）`)
 // baizhi.startSession 不走 `startsWith` 前缀，是单独一条 `if (method === '…')`；
@@ -324,7 +324,7 @@ function resolveArg(arg, atLine) {
       //    不是调用点传进来的字面量。若让它参与回溯，那么**任何** `rpc(method)` 形式的
       //    调用点都会被展开成「全体 rpc 调用点字面量的并集」—— 一个隐形的万能通配，
       //    能把覆盖率虚抬到 100%。2026-10-28 实测：这个通配把 console.js:20 的定义行
-      //    抬成 65 个方法。真正的转发形参（如 `accBulk(btn, method)`）照旧生效。
+      //    抬成 67 个方法。真正的转发形参（如 `accBulk(btn, method)`）照旧生效。
       if (sig[1] === 'rpc') continue
       isParam = true
       const fname = sig[1]
@@ -425,7 +425,7 @@ for (let i = 0; i < consoleLines.length; i++) {
     //    所以这条守卫从来没触发过，定义行被当成一个「调用点」，其实参 `method`
     //    又被下面的形参回溯展开成「全体调用点字面量的并集」，等于往统计里塞了
     //    一张万能通配。实测证据：加 viaParam 打印后，console/console.js:20 报出
-    //    65 个方法名、经 rpc+accBulk。现在按「切片以 function 结尾」判。
+    //    67 个方法名、经 rpc+accBulk。现在按「切片以 function 结尾」判。
     if (/(?:async\s+)?function\s+$/.test(l.slice(0, m.index))) continue
     rpcCallSites.push({ line: i + 1, arg: m[1], ...resolveArg(m[1], i + 1) })
   }

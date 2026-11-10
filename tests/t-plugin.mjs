@@ -18,8 +18,8 @@ const iso = isolate()
 
 // 能力链路断言（下面的「必须带 limit.context」）要有判别力：上下文窗口只能来自
 // 「上游全量目录 + 能力元数据」这条腿，写死的兜底条目里没有它。隔离 home 里一开
-// 始没有缓存，不种的话 `pickModels` 会退回 `fallbackFor()`，那 28 家就全是 0 ——
-// 断言红了只说明没数据，不说明链路断了。这里种一份最小目录（28 家各一个模型，
+// 始没有缓存，不种的话 `pickModels` 会退回 `fallbackFor()`，那 29 家就全是 0 ——
+// 断言红了只说明没数据，不说明链路断了。这里种一份最小目录（29 家各一个模型，
 // meta 给真实窗口），让断言真的在验 meta → limit.context 这一段。
 {
   const dir = join(iso.root, '.config', 'magpie')
@@ -82,7 +82,7 @@ for (const [name, fn] of fns) {
       // ⚠️ 逐家不判死：codely 上游只声明模态、不声明 context（实测），那家全 0
       // 是上游事实。所以只把「一家都没有」当失败 —— 那才是能力链路整体断了。
       const withContext = rows.filter((m) => (m?.limit?.context ?? 0) > 0).length
-      // 隔离环境里 28 家的种子都写了 meta.context，所以只要有一家的模型没带上
+      // 隔离环境里 29 家的种子都写了 meta.context，所以只要有一家的模型没带上
       // limit.context 就是 absorbMeta → modelEntry 这条链路断了。别退化成「全部缺
       // 才算红」—— 只坏一家（往往正是用户最常用那家）时那条判据不成立，等于假绿。
       if (rows.length > 0 && withContext !== rows.length) noContext.push(name)
@@ -171,7 +171,7 @@ for (const [key, want] of [
    * 下面这个常量是**绝对**判据：加减 provider 必须显式改它，改的那一刻至少得想一下
    * 到底是在加家还是掉家。
    */
-  const EXPECTED_PROVIDER_COUNT = 28
+  const EXPECTED_PROVIDER_COUNT = 29
   if (PROVIDER_IDS.length !== EXPECTED_PROVIDER_COUNT) {
     problems.push(
       `provider 家数应为 ${EXPECTED_PROVIDER_COUNT}，实际 ${PROVIDER_IDS.length}（加减 provider 时必须同步这个常量）`,

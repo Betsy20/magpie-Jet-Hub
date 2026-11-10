@@ -941,7 +941,7 @@ export class FileCredentialProvider extends Service {
    * `未找到要更新的 ref`。那条错误把 `account.create` 整个打断：账号占位留在池里、
    * 凭据没落地、`login.poll` 永远 `done:false` ⇒ magpie 侧状态卡在 waiting。
    *
-   * 受害面不止 magicrew：28 家的 `account.create` 全都走
+   * 受害面不止 magicrew：29 家的 `account.create` 全都走
    * `credentials.set(credentialRef(refName), …)` 写新 ref（`vendor/lib/*-auth.js` 里 20+ 处），
    * 任何「本机第一次登录这家」都会炸。
    *

@@ -120,6 +120,7 @@ export const DSH_PROVIDERS = [
   'loomy',
   'magicrew',
   'magicrewintl',
+  'marvis',
   'minimax',
   'minimaxintl',
   'modelscope',
@@ -156,6 +157,8 @@ const NAMES = {
   magicrew: '超级麦吉 (MagiCrew)',
   // 上游 `displayName` 就叫 `MagiCrew`；加「（国际版）」是为了在列表里与国内站区分。
   magicrewintl: 'MagiCrew (国际版)',
+  // 2026-11-09 上游新增（腾讯 Marvis）。上游 `label` / `displayName` 都是「腾讯 Marvis」。
+  marvis: '腾讯 Marvis',
   minimax: 'MiniMax Code (中国版)',
   minimaxintl: 'MiniMax Code (国际版)',
   modelscope: 'ModelScope (魔搭)',
@@ -224,6 +227,10 @@ const FALLBACK_MODELS = {
   'codely/codely-flash': { name: 'Codely · Flash' },
   'magicrew/deepseek-v4.1-flash': { name: 'Magicrew · DeepSeek V4.1 Flash' },
   'magicrewintl/deepseek-v4.1-flash': { name: 'MagiCrew 国际 · DeepSeek V4.1 Flash' },
+  // 2026-11-09 上游新增（腾讯 Marvis）。上游**没有**模型目录端点（9 条候选全 404），
+  // 目录只能静态兜底，且只有 `main-auto` 一个槽位（服务端自动路由）。真实模型 id
+  // （`deepseek-v4-1-flash-261017`）不能直传 —— 上游回 400「无效模型id」。
+  'marvis/main-auto': { name: 'Marvis · Auto' },
   'qiniu/qwen3-max': { name: 'Qiniu · Qwen3 Max' },
   // 2026-11-04 上游新增三家。百智云目录走远端（45 条）+ 内置兜底；MonkeyCode
   // 两站的网关 `GET /v1/models` 恒 405，目录**只能是**内置常量，故这里的 id
@@ -508,7 +515,7 @@ function containerFor(options, log) {
 }
 
 /**
- * 把 28 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
+ * 把 29 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
  *
  * 给 `syncAuthQuietly()` 用：它要的是「全量账号」，而 `account.list` 必须按
  * provider 逐家问。失败一律当「这家没有账号」——未登录的渠道本来就该失败，
@@ -812,7 +819,7 @@ function creditsTable() {
  *
  * 为什么要在插件侧也判一次：magpie 的签到开关**只看插件有没有声明 `auth.checkin`**
  * （宿主 `host.js` 的 `checkin: typeof a.auth.checkin === "function"`，Go 侧
- * `Provider.Checkin` 再决定 Settings 里显不显示）。给 28 家都声明，就等于给
+ * `Provider.Checkin` 再决定 Settings 里显不显示）。给 29 家都声明，就等于给
  * 「后端根本没有签到接口」的 9 家也画了一个开关 —— 用户点了只能看到失败，
  * 而那是**能力缺失**，不是故障（2026-11-01 用户报「部分供应商签到失败」的根因）。
  *

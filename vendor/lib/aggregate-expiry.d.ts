@@ -45,6 +45,8 @@ import type { TraeProduct } from './trae-product.js';
 import type { TraeCredential } from './trae.js';
 import { MODELSCOPE } from './modelscope-product.js';
 import type { ModelscopeCredential } from './modelscope.js';
+import { MARVIS } from './marvis-product.js';
+import type { MarvisCredential } from './marvis.js';
 import { AUTOCLAW } from './autoclaw-product.js';
 import type { AutoclawCredential } from './autoclaw.js';
 import type { AccioCredential } from './accio.js';
@@ -454,6 +456,23 @@ cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
  * **不是** `fetchBalance` 的 `null`。
  */
 export declare function modelscopeExpiry(credential: ModelscopeCredential, product: typeof MODELSCOPE, 
+/** 共享读数入口（见 {@link buddyExpiry} 的同名参数）。 */
+cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
+/**
+ * 腾讯 Marvis（2026-11-09）：**本 fork 独有**。
+ *
+ * ## 判据
+ * 钱包只给 `total_tokens` / `used_tokens` / `frozen_tokens` / `avail_tokens`，
+ * **没有任何日期字段** ⇒ 与 modelscope 同一条红线：
+ * · 有 `active && remaining > 0` 的包 ⇒ `NEVER`（可路由）；
+ * · 否则 `UNUSABLE`（**不得**编造「每日 0 点重置」—— 那是 Qoder / Magicrew
+ *   那类**真给了** `cycleEndTime` 的家才有的结论）。
+ *
+ * ⚠️ 上游 README 写「每日 1000 万计费 token」，但那是**计费口径**（缓存读 ×0、
+ *    输入输出 ×0.5），钱包里的 `total_tokens` 是同一个 10_000_000 的**显示口径**
+ *    ⇒ 不能用「剩余 / 每日额度」反推日期（本仓红线：绝不编造日期）。
+ */
+export declare function marvisExpiry(credential: MarvisCredential, product: typeof MARVIS, 
 /** 共享读数入口（见 {@link buddyExpiry} 的同名参数）。 */
 cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
 /**

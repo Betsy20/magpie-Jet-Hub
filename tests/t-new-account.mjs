@@ -900,7 +900,7 @@ console.log('\noauth 方法形状：')
     //    那种只会在运行时 404。
     const extra = DP.filter((k) => !vendorSet.has(k))
     ok(extra.length === 0, `插件里这些 provider 在 vendor 里不存在：${extra.join(', ') || '无'}`)
-    // ③ `NAMES` 必须覆盖全部 28 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
+    // ③ `NAMES` 必须覆盖全部 29 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
     //    （当年 `DSH_PROVIDERS` 还含路由组时漏过一次：25 项对 24 键 `NAMES`）。
     //    这里对账的是「键齐全且有非空文案」，不校验文案内容。
     //    `NAMES` 和 `NO_NEW_ACCOUNT` 一样没从 `src/plugin.mjs` 导出（`index.mjs` 的
@@ -920,7 +920,7 @@ console.log('\noauth 方法形状：')
       const noName = DP.filter((p) => !named.has(p))
       ok(noName.length === 0, `NAMES 缺这些 provider 的显示名：${noName.join(', ') || '无'}`)
     }
-    // ④ `FALLBACK_MODELS` 必须 28 家各至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
+    // ④ `FALLBACK_MODELS` 必须 29 家各至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
     //    的唯一兜底（`currentModels()` 的第 3 档）。漏一家 = 那家第一次启动在 magpie
     //    里一个模型都看不到，且没有任何报错。此前这张表长期只有 16 条、且缺 magicrew。
     const fbStart = pluginSrc.indexOf('const FALLBACK_MODELS = {')
@@ -964,6 +964,10 @@ console.log('\noauth 方法形状：')
         // 那时下面那条反向锚点会红、提醒删掉这两条。
         ['jet-hub-magicrew', '凭据失效 + 新 vendor 不再回退静态表'],
         ['jet-hub-magicrewintl', '凭据失效 + 新 vendor 不再回退静态表'],
+        // 2026-11-10 同步上游 `1d12f80` 新增腾讯 Marvis：本机没有 QQ / 微信 OAuth
+        // 凭据 ⇒ 拿不到任何账号 ⇒ 快照里没有它。凭据登录后重跑快照即会出现，
+        // 那时下面那条反向锚点会红、提醒删掉这一条。
+        ['jet-hub-marvis', '本机没有 Marvis 的 QQ / 微信 OAuth 凭据'],
       ])
       const expectProvs = [...new Set(fbIds.map((id) => `jet-hub-${id.split('/')[0]}`))]
       ok(expectProvs.length >= 20, `FALLBACK 应覆盖 20+ 家，实际 ${expectProvs.length}`)
@@ -1009,8 +1013,8 @@ console.log('\noauth 方法形状：')
         const body = snapNamesSrc.slice(from, to)
         for (const m of body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)) snapNames.set(m[1], m[2])
       }
-      ok(pluginNames.size === 28, `src/plugin.mjs 的 NAMES 应正好 28 家，实际 ${pluginNames.size}`)
-      ok(snapNames.size === 28, `scripts/snapshot-models.mjs 的 NAMES 应正好 28 家，实际 ${snapNames.size}`)
+      ok(pluginNames.size === 29, `src/plugin.mjs 的 NAMES 应正好 29 家，实际 ${pluginNames.size}`)
+      ok(snapNames.size === 29, `scripts/snapshot-models.mjs 的 NAMES 应正好 29 家，实际 ${snapNames.size}`)
       const nameDrift = []
       for (const [dsh, want] of pluginNames) {
         const magpieId = dsh === 'jet-hub-auto' ? 'jet-hub' : `jet-hub-${dsh}`

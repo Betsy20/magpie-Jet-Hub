@@ -20,7 +20,7 @@
  * 但**停用/启用的变化不经缓存**（那由 `AccountPool` 的 `enabled` 过滤实时决定）。
  */
 import { fetchLoomyCreditDetail } from './loomy-credits.js';
-import { loomyBalanceTier, loomyTierUsable, rankLoomyAccountsByBalance, } from './loomy-balance-rank.js';
+import { loomyBalanceTier, loomyTierUsable, rankLoomyAccountsByBalance, rankLoomyAccountsByManualOrder, } from './loomy-balance-rank.js';
 /** 余额缓存 TTL（毫秒）。用户指定 60 秒。 */
 export const LOOMY_BALANCE_CACHE_TTL_MS = 60_000;
 /**
@@ -147,7 +147,11 @@ export class LoomyBalanceSelector {
         // 并发查余额：账号数通常个位数，并发比串行快得多。
         const balances = await Promise.all(candidates.map((c) => this.balanceOf(c)));
         const byId = new Map(candidates.map((c, i) => [c.id, { account: c, balance: balances[i] }]));
-        const ranked = rankLoomyAccountsByBalance(balances.map((b) => ({ ...b, id: b.id })), options);
+        // ⚠️ 严格手动顺序时改用 `rankLoomyAccountsByManualOrder`：先后完全按用户的
+        //    拖拽序，档位退化为「可用 / 不可用」判据（= 与 buddy 那份同一条纪律）。
+        const ranked = (options.strictManualOrder === true
+            ? rankLoomyAccountsByManualOrder
+            : rankLoomyAccountsByBalance)(balances.map((b) => ({ ...b, id: b.id })), options);
         const first = ranked[0];
         if (first === undefined) {
             return { ok: false, reason: this.noAccountReason(balances) };

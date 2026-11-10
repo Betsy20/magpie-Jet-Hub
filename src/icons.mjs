@@ -135,6 +135,17 @@ const MONKEYCODE = mark(
 )
 
 /**
+ * 腾讯 Marvis（`marvis`，2026-11-09 上游新增）：没有公开的矢量标识（LobeHub 也没
+ * 收录），按品牌蓝 + 「对话气泡里一颗星」自绘 —— Marvis 是腾讯的 AI 助手产品线，
+ * 星是这类助手最通用的形态。
+ */
+const MARVIS = mark(
+  '#0052d9',
+  '<path d="M20 15h24a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H31l-9 8v-8h-2a4 4 0 0 1-4-4V19a4 4 0 0 1 4-4z" fill="none" stroke="#fff" stroke-width="3.2" stroke-linejoin="round"/>' +
+    '<path d="M32 23l2.2 5.6 5.6 2.2-5.6 2.2L32 38.6l-2.2-5.6-5.6-2.2 5.6-2.2z" fill="#fff"/>',
+)
+
+/**
  * WorkBuddy 官方彩色图标（LobeHub 图标库的 `workbuddy-color.svg`，和 magpie 供应商
  * 列表里那张 WorkBuddy PNG 同图：圆角渐变底 + 黄色小球）。
  * 图形自带底与渐变，所以不再套 `badge()`；宽高固定成 24，不用 `1em`（`<img>` 里
@@ -199,6 +210,8 @@ const PROVIDER_SVG = {
   // 国际站与国内站是同一家的两张站点，品牌图一样会让「每家图标互不相同」的断言失败，
   // 所以国际站套一圈虚线地球环（与 autoclawintl / qodercn 同一手法）。
   magicrewintl: withIntl(`data:image/png;base64,${MAGICREW_PNG_BASE64}`),
+  // 腾讯 Marvis（2026-11-09 上游新增）
+  marvis: MARVIS,
   // 七牛云：官网 favicon，见 src/site-icons.mjs
   qiniu: `data:image/png;base64,${QINIU_PNG_BASE64}`,
   minimax: badge(MINIMAX),
