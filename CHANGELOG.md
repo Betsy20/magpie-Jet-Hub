@@ -11,6 +11,20 @@
 
 ## 1.0.0（未发布）
 
+- `test(page)`: **新增 `tests/t-page-contract.mjs`（36 条断言），把侧栏页「静默失效」的
+  几类钉死**。侧栏页跑在 magpie 的窗口沙箱里（CSP `connect-src 'none'` + opaque origin），
+  任何网络调用都**不报错、只哑掉** —— 用户看到的是「这个页面坏了」，而这条链路原来
+  **一条自动化断言都没有**（`ui-check.cjs` 要真跑 magpie web，不进单测）。六类判据：
+  ① `page.js` 里不许有 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` /
+  `eval` / `new Function`；② `index.html` 无内联 `on*=`；③ `data-tab` 与
+  `data-panel` 集合相等（对不上时点标签什么都不发生）；④ 每个 `data-copy="#id"` 的目标
+  真的存在；⑤ 四种 `data-snippet` 各有**专属**实现 —— ⚠ 只判「非空 + 带网关」会被
+  「删掉分支后落回 curl 默认分支」骗过（本文件第一版就是这样，变异实测发现的），所以每种
+  语言再钉一个独有标记、并断言四项两两不同；⑥ 控制台地址**优先取快照**
+  `JET_HUB_CATALOG.console`（缺快照才退 18500，非 http 不认），`otherHosts` 只报
+  别的宿主。五条变异（加 fetch / 改 data-tab / 删 node 分支 / 改 conUrl / 加内联 onclick）
+  都实测变红。
+
 - `test(console)`: **新增 `tests/t-console-strict-order.mjs`（36 条断言），把「严格手动顺序」
   开关的契约钉死**。这个开关是同步 `1d12f80` 时接进来的，回答的是「拖拽排序到底算不算数」
   —— **关着**的时候走余额分档的渠道会**盖过**卡片顺序，正是「拖拽时灵时不灵」那条报障的根，
