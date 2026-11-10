@@ -79,9 +79,14 @@ cd /path/to/magpie-Jet-Hub && node scripts/verify-vendor.mjs /tmp/up2
 
 它做四件事，任何一条不符就退出码 1 并逐条点名：
 
-1. `lib/` 逐文件 sha256：**文件数 1170、逐字节一致 1159** 必须与上面那张表对得上；
+1. `lib/` 逐文件 sha256：**文件数 1170、逐字节一致 1159** 必须与上面那张表对得上
+   （⚠️ 本机用 `package.json` 声明的 `esbuild ^0.24.0` 重建会得到 **1158** —— 差的是
+   `lib/client/jet-hub.js` 的 3 字节：`build.mjs` 用 `entryPoints: [index.js]`，esbuild
+   给 `__export` 生成的变量名取入口 basename，0.24 给 `client_exports`、上游作者用的更新
+   版本给 `index_exports`。**这是工具链差异，不是补丁也不是污染**，脚本已把它从「一致数」
+   里扣除并在输出里点名；）；
 2. 差异集合必须**恰好等于**补丁表那 11 个文件 —— 少一个 = 补丁被同步覆盖（静默故障），
-   多一个 = 快照被别的动作污染过；
+   多一个 = 快照被别的动作污染过（`client/jet-hub.js` 除外，见上一条）；
 3. `lib/*.map` 584 个 / 约 4.00 MiB、`locale/` 2 个逐字节一致；
 4. `vendor/package.json` 的版本号与上游同一次提交一致（并打出依赖树，换机漏依赖就
    表现成「控制台打不开」）。

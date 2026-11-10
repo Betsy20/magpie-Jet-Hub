@@ -1,11 +1,11 @@
 // 自动生成：node scripts/snapshot-models.mjs —— 别手改。
-// 快照时间 2026-11-05T07:13:47.929Z｜数据源 宿主 :18500/__meta（上游全量）｜控制台 http://127.0.0.1:18500/
+// 快照时间 2026-11-10T15:54:31.420Z｜数据源 宿主 :18500/__meta（上游全量）｜控制台 http://127.0.0.1:18500/
 window.JET_HUB_CATALOG = {
-  "generatedAt": "2026-11-05T07:13:47.929Z",
-  "catalogAt": "2026-11-05T07:10:43.502Z",
+  "generatedAt": "2026-11-10T15:54:31.420Z",
+  "catalogAt": "2026-11-10T15:54:02.335Z",
   "gateway": "http://127.0.0.1:3425",
   "source": "宿主 :18500/__meta（上游全量）",
-  "total": 894,
+  "total": 979,
   "models": [
     "jet-hub-accio/deepseek-v4-1-flash",
     "jet-hub-accio/deepseek-v4-pro",
@@ -283,6 +283,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/meta-llama/llama-4-maverick",
     "jet-hub-cline/meta-llama/llama-4-scout",
     "jet-hub-cline/meta-llama/llama-guard-4-12b",
+    "jet-hub-cline/meta/muse-ember",
     "jet-hub-cline/meta/muse-glimmer-30b",
     "jet-hub-cline/meta/muse-spark-1.1",
     "jet-hub-cline/meta/muse-spark-1.2",
@@ -622,7 +623,63 @@ window.JET_HUB_CATALOG = {
     "jet-hub-loomy/mimo-v2.5",
     "jet-hub-loomy/qwen-3.8-max",
     "jet-hub-loomy/qwen3.8-flash",
+    "jet-hub-loomy/spark-x",
     "jet-hub-loomy/spark-x2.6",
+    "jet-hub-magicrew/deepseek-v4-flash",
+    "jet-hub-magicrew/deepseek-v4.1-flash",
+    "jet-hub-magicrew/doubao-seed-2.0-code",
+    "jet-hub-magicrew/doubao-seed-2.0-lite",
+    "jet-hub-magicrew/doubao-seed-2.0-pro",
+    "jet-hub-magicrew/glm-4.5",
+    "jet-hub-magicrew/glm-4.6",
+    "jet-hub-magicrew/glm-4.7",
+    "jet-hub-magicrew/glm-5",
+    "jet-hub-magicrew/glm-5-turbo",
+    "jet-hub-magicrew/glm-5.1",
+    "jet-hub-magicrew/glm-5.3",
+    "jet-hub-magicrew/glm-5.3-flash",
+    "jet-hub-magicrew/kimi-k3.1-pro",
+    "jet-hub-magicrew/mimo-v2.6-flash",
+    "jet-hub-magicrew/mimo-v2.6-pro",
+    "jet-hub-magicrew/minimax-m2.1",
+    "jet-hub-magicrew/minimax-m2.5",
+    "jet-hub-magicrew/minimax-m2.7",
+    "jet-hub-magicrew/minimax-m3",
+    "jet-hub-magicrew/minimax-m3.1-flash",
+    "jet-hub-magicrew/qwen-3.8-flash",
+    "jet-hub-magicrew/qwen3.5-flash",
+    "jet-hub-magicrew/qwen3.5-plus",
+    "jet-hub-magicrew/qwen3.6-plus",
+    "jet-hub-magicrew/qwen3.7-plus",
+    "jet-hub-magicrew/qwen3.8-max",
+    "jet-hub-magicrewintl/deepseek-v4-flash",
+    "jet-hub-magicrewintl/deepseek-v4.1-flash",
+    "jet-hub-magicrewintl/doubao-seed-2.0-code",
+    "jet-hub-magicrewintl/doubao-seed-2.0-lite",
+    "jet-hub-magicrewintl/doubao-seed-2.0-pro",
+    "jet-hub-magicrewintl/glm-4.5",
+    "jet-hub-magicrewintl/glm-4.6",
+    "jet-hub-magicrewintl/glm-4.7",
+    "jet-hub-magicrewintl/glm-5",
+    "jet-hub-magicrewintl/glm-5-turbo",
+    "jet-hub-magicrewintl/glm-5.1",
+    "jet-hub-magicrewintl/glm-5.3",
+    "jet-hub-magicrewintl/glm-5.3-flash",
+    "jet-hub-magicrewintl/kimi-k3.1-pro",
+    "jet-hub-magicrewintl/mimo-v2.6-flash",
+    "jet-hub-magicrewintl/mimo-v2.6-pro",
+    "jet-hub-magicrewintl/minimax-m2.1",
+    "jet-hub-magicrewintl/minimax-m2.5",
+    "jet-hub-magicrewintl/minimax-m2.7",
+    "jet-hub-magicrewintl/minimax-m3",
+    "jet-hub-magicrewintl/minimax-m3.1-flash",
+    "jet-hub-magicrewintl/qwen-3.8-flash",
+    "jet-hub-magicrewintl/qwen3.5-flash",
+    "jet-hub-magicrewintl/qwen3.5-plus",
+    "jet-hub-magicrewintl/qwen3.6-plus",
+    "jet-hub-magicrewintl/qwen3.7-plus",
+    "jet-hub-magicrewintl/qwen3.8-max",
+    "jet-hub-marvis/main-auto",
     "jet-hub-minimax/MiniMax-M2.7",
     "jet-hub-minimax/MiniMax-M2.7-highspeed",
     "jet-hub-minimax/MiniMax-M3",
@@ -631,6 +688,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-minimaxintl/MiniMax-M2.7-highspeed",
     "jet-hub-minimaxintl/MiniMax-M3",
     "jet-hub-minimaxintl/MiniMax-M3.1-Flash-Preview",
+    "jet-hub-modelscope/ACE-Step/acestep-v15-xl-sft",
     "jet-hub-modelscope/MedAIBase/AntAngelMed",
     "jet-hub-modelscope/MiniMax/MiniMax-M1-80k",
     "jet-hub-modelscope/MiniMax/MiniMax-M3",
@@ -808,21 +866,29 @@ window.JET_HUB_CATALOG = {
     "jet-hub-qoder/kmodel",
     "jet-hub-qoder/kmodel_latest",
     "jet-hub-qoder/mmodel",
+    "jet-hub-qoder/performance",
     "jet-hub-qoder/qfmodel",
+    "jet-hub-qoder/qmodel",
     "jet-hub-qoder/qmodel_38max",
+    "jet-hub-qoder/qmodel_latest",
     "jet-hub-qoder/smodel",
     "jet-hub-qoder/ultimate",
     "jet-hub-qodercn/auto",
     "jet-hub-qodercn/dfmodel",
     "jet-hub-qodercn/dmodel",
     "jet-hub-qodercn/gfmodel",
+    "jet-hub-qodercn/gm51model",
     "jet-hub-qodercn/gmodel",
     "jet-hub-qodercn/jmodel",
     "jet-hub-qodercn/kmodel",
     "jet-hub-qodercn/kmodel_latest",
     "jet-hub-qodercn/mmodel",
+    "jet-hub-qodercn/q37fmodel",
     "jet-hub-qodercn/qfmodel",
+    "jet-hub-qodercn/qmodel",
     "jet-hub-qodercn/qmodel_38max",
+    "jet-hub-qodercn/qmodel_latest",
+    "jet-hub-raccoon/sn-deepseek-v4-1-flash",
     "jet-hub-raccoon/sn-deepseek-v4-1-flash-1017",
     "jet-hub-raccoon/sn-glm-5-3",
     "jet-hub-raccoon/sn-glm-5-3-flash",
@@ -830,6 +896,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-raccoon/sn-sensenova-6-8-flash",
     "jet-hub-raccoon/sn-sensenova-6-8-flash-lite",
     "jet-hub-trae/DeepSeek-V4-Flash",
+    "jet-hub-trae/DeepSeek-V4-Flash-Official",
     "jet-hub-trae/DeepSeek-V4-Pro",
     "jet-hub-trae/DeepSeek-V4-Pro-Official",
     "jet-hub-trae/Doubao-Seed-2.0-Code",
@@ -837,20 +904,35 @@ window.JET_HUB_CATALOG = {
     "jet-hub-trae/Doubao-Seed-2.1-Turbo",
     "jet-hub-trae/Doubao-Seed-Code",
     "jet-hub-trae/Doubao-Seed-Evolving",
+    "jet-hub-trae/aquila",
     "jet-hub-trae/code-review-judge",
+    "jet-hub-trae/custom_model_1M",
+    "jet-hub-trae/custom_model_1M_text",
+    "jet-hub-trae/custom_model_claude",
+    "jet-hub-trae/custom_model_deepseek_chat",
+    "jet-hub-trae/custom_model_deepseek_reasoner",
+    "jet-hub-trae/custom_model_deepseek_v4",
+    "jet-hub-trae/custom_model_gemini",
+    "jet-hub-trae/custom_model_gpt-5",
+    "jet-hub-trae/custom_model_kimi",
+    "jet-hub-trae/custom_model_no-fc",
+    "jet-hub-trae/custom_model_placeholder",
     "jet-hub-trae/deepseek-V3",
     "jet-hub-trae/deepseek-V3.1",
     "jet-hub-trae/deepseek-v4.1-flash",
     "jet-hub-trae/doubao-2.0-mini",
     "jet-hub-trae/glm-4.7",
     "jet-hub-trae/glm-5",
+    "jet-hub-trae/glm-5-turbo",
     "jet-hub-trae/glm-5.1",
+    "jet-hub-trae/glm-5.2",
     "jet-hub-trae/glm-5.3",
     "jet-hub-trae/glm-5.3-flash",
     "jet-hub-trae/glm-5.3-flashx",
     "jet-hub-trae/glm-5v-turbo",
     "jet-hub-trae/kimi-k2.5",
     "jet-hub-trae/kimi-k2.6",
+    "jet-hub-trae/kimi-k2.7-code",
     "jet-hub-trae/kimi-k3",
     "jet-hub-trae/kimi-k3.1-pro",
     "jet-hub-trae/mimo-v2.6-flash",
@@ -861,8 +943,11 @@ window.JET_HUB_CATALOG = {
     "jet-hub-trae/multimodal_image_kimi-k2.5",
     "jet-hub-trae/qwen-3.5",
     "jet-hub-trae/qwen-3.6-plus",
+    "jet-hub-trae/qwen-3.7-plus",
     "jet-hub-trae/qwen3.8-flash",
     "jet-hub-trae/qwen3.8-max",
+    "jet-hub-trae/sagitta",
+    "jet-hub-trae/seed-code-pro-0430",
     "jet-hub-trae/step-5-preview",
     "jet-hub-workbuddy/balanced-model",
     "jet-hub-workbuddy/deep-model",
@@ -1356,49 +1441,49 @@ window.JET_HUB_CATALOG = {
     "jet-hub-buddy/deepseek-v3-2-volc": {
       "id": "jet-hub-buddy/deepseek-v3-2-volc",
       "upstream": "buddy/deepseek-v3-2-volc",
-      "name": "DeepSeek-V3.2 · x0.29",
+      "name": "deepseek-v3-2-volc",
       "disabled": true
     },
     "jet-hub-buddy/deepseek-v4-flash": {
       "id": "jet-hub-buddy/deepseek-v4-flash",
       "upstream": "buddy/deepseek-v4-flash",
-      "name": "Deepseek-V4-Flash · x0.17",
+      "name": "Deepseek-V4-Flash",
       "disabled": true
     },
     "jet-hub-buddy/deepseek-v4-pro": {
       "id": "jet-hub-buddy/deepseek-v4-pro",
       "upstream": "buddy/deepseek-v4-pro",
-      "name": "DeepSeek-V4-Pro · x0.51",
+      "name": "Deepseek-V4-Pro",
       "disabled": true
     },
     "jet-hub-buddy/deepseek-v4.1-flash": {
       "id": "jet-hub-buddy/deepseek-v4.1-flash",
       "upstream": "buddy/deepseek-v4.1-flash",
-      "name": "DeepSeek-V4.1-Flash · x0.11",
+      "name": "Deepseek-V4.1-Flash",
       "disabled": true
     },
     "jet-hub-buddy/glm-4.6": {
       "id": "jet-hub-buddy/glm-4.6",
       "upstream": "buddy/glm-4.6",
-      "name": "GLM-4.6 · x0.23",
+      "name": "glm-4.6",
       "disabled": true
     },
     "jet-hub-buddy/glm-4.6v": {
       "id": "jet-hub-buddy/glm-4.6v",
       "upstream": "buddy/glm-4.6v",
-      "name": "GLM-4.6V · x0.11",
+      "name": "glm-4.6v",
       "disabled": true
     },
     "jet-hub-buddy/glm-4.7": {
       "id": "jet-hub-buddy/glm-4.7",
       "upstream": "buddy/glm-4.7",
-      "name": "GLM-4.7 · x0.23",
+      "name": "glm-4.7",
       "disabled": true
     },
     "jet-hub-buddy/glm-5.0": {
       "id": "jet-hub-buddy/glm-5.0",
       "upstream": "buddy/glm-5.0",
-      "name": "GLM-5.0 · x0.80",
+      "name": "glm-5.0",
       "disabled": true
     },
     "jet-hub-buddy/glm-5.1": {
@@ -1410,19 +1495,19 @@ window.JET_HUB_CATALOG = {
     "jet-hub-buddy/glm-5.2": {
       "id": "jet-hub-buddy/glm-5.2",
       "upstream": "buddy/glm-5.2",
-      "name": "GLM-5.2 · x0.79",
+      "name": "GLM-5.2",
       "disabled": true
     },
     "jet-hub-buddy/glm-5.3": {
       "id": "jet-hub-buddy/glm-5.3",
       "upstream": "buddy/glm-5.3",
-      "name": "GLM-5.3 · x0.69",
+      "name": "GLM-5.3",
       "disabled": true
     },
     "jet-hub-buddy/glm-5.3-flash": {
       "id": "jet-hub-buddy/glm-5.3-flash",
       "upstream": "buddy/glm-5.3-flash",
-      "name": "GLM-5.3-Flash · x0.08",
+      "name": "GLM-5.3-Flash",
       "disabled": true
     },
     "jet-hub-buddy/glm-5v-turbo": {
@@ -1434,61 +1519,61 @@ window.JET_HUB_CATALOG = {
     "jet-hub-buddy/hunyuan-2.0-thinking": {
       "id": "jet-hub-buddy/hunyuan-2.0-thinking",
       "upstream": "buddy/hunyuan-2.0-thinking",
-      "name": "Hunyuan-2.0-Thinking · x0.04",
+      "name": "hunyuan-2.0-thinking",
       "disabled": true
     },
     "jet-hub-buddy/hunyuan-chat": {
       "id": "jet-hub-buddy/hunyuan-chat",
       "upstream": "buddy/hunyuan-chat",
-      "name": "Hunyuan-Turbos",
+      "name": "hunyuan-chat",
       "disabled": true
     },
     "jet-hub-buddy/hy3": {
       "id": "jet-hub-buddy/hy3",
       "upstream": "buddy/hy3",
-      "name": "Hy3 · x0.00→免费",
+      "name": "Hy3",
       "disabled": true
     },
     "jet-hub-buddy/hy3-x": {
       "id": "jet-hub-buddy/hy3-x",
       "upstream": "buddy/hy3-x",
-      "name": "Hy3 · x0.05 X",
+      "name": "Hy3 · X",
       "disabled": true
     },
     "jet-hub-buddy/hy4-preview": {
       "id": "jet-hub-buddy/hy4-preview",
       "upstream": "buddy/hy4-preview",
-      "name": "Hy4 Preview",
+      "name": "Hy4 preview",
       "disabled": true
     },
     "jet-hub-buddy/hy4-preview-x": {
       "id": "jet-hub-buddy/hy4-preview-x",
       "upstream": "buddy/hy4-preview-x",
-      "name": "Hy4 preview · x0.29",
+      "name": "hy4-preview-x",
       "disabled": true
     },
     "jet-hub-buddy/hy4free": {
       "id": "jet-hub-buddy/hy4free",
       "upstream": "buddy/hy4free",
-      "name": "Hy4 · x0.00→免费 FREE",
+      "name": "hy4free",
       "disabled": true
     },
     "jet-hub-buddy/hy4std": {
       "id": "jet-hub-buddy/hy4std",
       "upstream": "buddy/hy4std",
-      "name": "Hy4 · x0.29 STD",
+      "name": "hy4std",
       "disabled": true
     },
     "jet-hub-buddy/kimi-k2-thinking": {
       "id": "jet-hub-buddy/kimi-k2-thinking",
       "upstream": "buddy/kimi-k2-thinking",
-      "name": "Kimi-K2-Thinking · x0.54",
+      "name": "kimi-k2-thinking",
       "disabled": true
     },
     "jet-hub-buddy/kimi-k2.5": {
       "id": "jet-hub-buddy/kimi-k2.5",
       "upstream": "buddy/kimi-k2.5",
-      "name": "Kimi-K2.5 · x0.45",
+      "name": "kimi-k2.5",
       "disabled": true
     },
     "jet-hub-buddy/kimi-k2.6": {
@@ -1506,31 +1591,31 @@ window.JET_HUB_CATALOG = {
     "jet-hub-buddy/kimi-k2.8-preview": {
       "id": "jet-hub-buddy/kimi-k2.8-preview",
       "upstream": "buddy/kimi-k2.8-preview",
-      "name": "Kimi-K2.8-Preview · x0.77",
+      "name": "Kimi-K2.8-Preview",
       "disabled": true
     },
     "jet-hub-buddy/kimi-k3-1": {
       "id": "jet-hub-buddy/kimi-k3-1",
       "upstream": "buddy/kimi-k3-1",
-      "name": "Kimi-K3 · x1.62",
+      "name": "Kimi-K3-1",
       "disabled": true
     },
     "jet-hub-buddy/kimi-k3.1-pro": {
       "id": "jet-hub-buddy/kimi-k3.1-pro",
       "upstream": "buddy/kimi-k3.1-pro",
-      "name": "Kimi-K3.1-Pro · x0.97",
+      "name": "kimi-k3.1-pro",
       "disabled": true
     },
     "jet-hub-buddy/mimo-v2.6-pro": {
       "id": "jet-hub-buddy/mimo-v2.6-pro",
       "upstream": "buddy/mimo-v2.6-pro",
-      "name": "Xiaomi MiMo-V2.6-Pro · x0.13",
+      "name": "mimo-v2.6-pro",
       "disabled": true
     },
     "jet-hub-buddy/minimax-m2.5": {
       "id": "jet-hub-buddy/minimax-m2.5",
       "upstream": "buddy/minimax-m2.5",
-      "name": "MiniMax-M2.5 · x0.18",
+      "name": "minimax-m2.5",
       "disabled": true
     },
     "jet-hub-buddy/minimax-m3": {
@@ -1542,235 +1627,235 @@ window.JET_HUB_CATALOG = {
     "jet-hub-buddy/minimax-m3.1-flash": {
       "id": "jet-hub-buddy/minimax-m3.1-flash",
       "upstream": "buddy/minimax-m3.1-flash",
-      "name": "MiniMax-M3.1-Flash · x0.08",
+      "name": "minimax-m3.1-flash",
       "disabled": true
     },
     "jet-hub-buddy/space-bunny": {
       "id": "jet-hub-buddy/space-bunny",
       "upstream": "buddy/space-bunny",
-      "name": "Space-Bunny · x0.08",
+      "name": "space-bunny",
       "disabled": true
     },
     "jet-hub-buddy/step-5-preview": {
       "id": "jet-hub-buddy/step-5-preview",
       "upstream": "buddy/step-5-preview",
-      "name": "Step-5-Preview · x0.33",
+      "name": "step-5-preview",
       "disabled": true
     },
     "jet-hub-cline/@preset/cline-mistral-k5-20261023-large4-zdr-r1": {
       "id": "jet-hub-cline/@preset/cline-mistral-k5-20261023-large4-zdr-r1",
       "upstream": "cline/@preset/cline-mistral-k5-20261023-large4-zdr-r1",
-      "name": "Cline Mistral K5 20261023 Large4 Zdr R1",
+      "name": "@preset/cline-mistral-k5-20261023-large4-zdr-r1",
       "disabled": true
     },
     "jet-hub-cline/@preset/cline-new27-20261022-gpt61sol-azure-r1": {
       "id": "jet-hub-cline/@preset/cline-new27-20261022-gpt61sol-azure-r1",
       "upstream": "cline/@preset/cline-new27-20261022-gpt61sol-azure-r1",
-      "name": "Cline New27 20261022 Gpt61sol Azure R1",
+      "name": "@preset/cline-new27-20261022-gpt61sol-azure-r1",
       "disabled": true
     },
     "jet-hub-cline/@preset/cline-new27-20261022-nemotron35vl-coreweave-r1": {
       "id": "jet-hub-cline/@preset/cline-new27-20261022-nemotron35vl-coreweave-r1",
       "upstream": "cline/@preset/cline-new27-20261022-nemotron35vl-coreweave-r1",
-      "name": "Cline New27 20261022 Nemotron35vl Coreweave R1",
+      "name": "@preset/cline-new27-20261022-nemotron35vl-coreweave-r1",
       "disabled": true
     },
     "jet-hub-cline/@preset/cline-new27-20261022-opus55-vertex-global-r1": {
       "id": "jet-hub-cline/@preset/cline-new27-20261022-opus55-vertex-global-r1",
       "upstream": "cline/@preset/cline-new27-20261022-opus55-vertex-global-r1",
-      "name": "Cline New27 20261022 Opus55 Vertex Global R1",
+      "name": "@preset/cline-new27-20261022-opus55-vertex-global-r1",
       "disabled": true
     },
     "jet-hub-cline/@preset/cline-new27-20261022-sonnet55-vertex-global-r1": {
       "id": "jet-hub-cline/@preset/cline-new27-20261022-sonnet55-vertex-global-r1",
       "upstream": "cline/@preset/cline-new27-20261022-sonnet55-vertex-global-r1",
-      "name": "Cline New27 20261022 Sonnet55 Vertex Global R1",
+      "name": "@preset/cline-new27-20261022-sonnet55-vertex-global-r1",
       "disabled": true
     },
     "jet-hub-cline/aion-labs/aion-2.0": {
       "id": "jet-hub-cline/aion-labs/aion-2.0",
       "upstream": "cline/aion-labs/aion-2.0",
-      "name": "Aion 2.0",
+      "name": "aion-labs/aion-2.0",
       "disabled": true
     },
     "jet-hub-cline/aion-labs/aion-3.0": {
       "id": "jet-hub-cline/aion-labs/aion-3.0",
       "upstream": "cline/aion-labs/aion-3.0",
-      "name": "Aion 3.0",
+      "name": "aion-labs/aion-3.0",
       "disabled": true
     },
     "jet-hub-cline/aion-labs/aion-3.0-mini": {
       "id": "jet-hub-cline/aion-labs/aion-3.0-mini",
       "upstream": "cline/aion-labs/aion-3.0-mini",
-      "name": "Aion 3.0 Mini",
+      "name": "aion-labs/aion-3.0-mini",
       "disabled": true
     },
     "jet-hub-cline/aion-labs/aion-3.5": {
       "id": "jet-hub-cline/aion-labs/aion-3.5",
       "upstream": "cline/aion-labs/aion-3.5",
-      "name": "Aion 3.5",
+      "name": "aion-labs/aion-3.5",
       "disabled": true
     },
     "jet-hub-cline/aion-labs/aion-3.5-mini": {
       "id": "jet-hub-cline/aion-labs/aion-3.5-mini",
       "upstream": "cline/aion-labs/aion-3.5-mini",
-      "name": "Aion 3.5 Mini",
+      "name": "aion-labs/aion-3.5-mini",
       "disabled": true
     },
     "jet-hub-cline/aion-labs/aion-rp-llama-3.1-8b": {
       "id": "jet-hub-cline/aion-labs/aion-rp-llama-3.1-8b",
       "upstream": "cline/aion-labs/aion-rp-llama-3.1-8b",
-      "name": "Aion Rp Llama 3.1 8b",
+      "name": "aion-labs/aion-rp-llama-3.1-8b",
       "disabled": true
     },
     "jet-hub-cline/amazon/nova-2-lite-v1": {
       "id": "jet-hub-cline/amazon/nova-2-lite-v1",
       "upstream": "cline/amazon/nova-2-lite-v1",
-      "name": "Nova 2 Lite V1",
+      "name": "amazon/nova-2-lite-v1",
       "disabled": true
     },
     "jet-hub-cline/amazon/nova-lite-v1": {
       "id": "jet-hub-cline/amazon/nova-lite-v1",
       "upstream": "cline/amazon/nova-lite-v1",
-      "name": "Nova Lite V1",
+      "name": "amazon/nova-lite-v1",
       "disabled": true
     },
     "jet-hub-cline/amazon/nova-micro-v1": {
       "id": "jet-hub-cline/amazon/nova-micro-v1",
       "upstream": "cline/amazon/nova-micro-v1",
-      "name": "Nova Micro V1",
+      "name": "amazon/nova-micro-v1",
       "disabled": true
     },
     "jet-hub-cline/amazon/nova-premier-v1": {
       "id": "jet-hub-cline/amazon/nova-premier-v1",
       "upstream": "cline/amazon/nova-premier-v1",
-      "name": "Nova Premier V1",
+      "name": "amazon/nova-premier-v1",
       "disabled": true
     },
     "jet-hub-cline/amazon/nova-pro-v1": {
       "id": "jet-hub-cline/amazon/nova-pro-v1",
       "upstream": "cline/amazon/nova-pro-v1",
-      "name": "Nova Pro V1",
+      "name": "amazon/nova-pro-v1",
       "disabled": true
     },
     "jet-hub-cline/anthracite-org/magnum-v4-72b": {
       "id": "jet-hub-cline/anthracite-org/magnum-v4-72b",
       "upstream": "cline/anthracite-org/magnum-v4-72b",
-      "name": "Magnum V4 72b",
+      "name": "anthracite-org/magnum-v4-72b",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-fable-5": {
       "id": "jet-hub-cline/anthropic/claude-fable-5",
       "upstream": "cline/anthropic/claude-fable-5",
-      "name": "Claude Fable 5",
+      "name": "anthropic/claude-fable-5",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-fable-5.1": {
       "id": "jet-hub-cline/anthropic/claude-fable-5.1",
       "upstream": "cline/anthropic/claude-fable-5.1",
-      "name": "Claude Fable 5.1",
+      "name": "anthropic/claude-fable-5.1",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-fable-5.1:batch": {
       "id": "jet-hub-cline/anthropic/claude-fable-5.1:batch",
       "upstream": "cline/anthropic/claude-fable-5.1:batch",
-      "name": "Claude Fable 5.1:Batch",
+      "name": "anthropic/claude-fable-5.1:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-fable-5:batch": {
       "id": "jet-hub-cline/anthropic/claude-fable-5:batch",
       "upstream": "cline/anthropic/claude-fable-5:batch",
-      "name": "Claude Fable 5:Batch",
+      "name": "anthropic/claude-fable-5:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-haiku-4.5": {
       "id": "jet-hub-cline/anthropic/claude-haiku-4.5",
       "upstream": "cline/anthropic/claude-haiku-4.5",
-      "name": "Claude Haiku 4.5",
+      "name": "anthropic/claude-haiku-4.5",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-haiku-4.5:batch": {
       "id": "jet-hub-cline/anthropic/claude-haiku-4.5:batch",
       "upstream": "cline/anthropic/claude-haiku-4.5:batch",
-      "name": "Claude Haiku 4.5:Batch",
+      "name": "anthropic/claude-haiku-4.5:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-haiku-5.5": {
       "id": "jet-hub-cline/anthropic/claude-haiku-5.5",
       "upstream": "cline/anthropic/claude-haiku-5.5",
-      "name": "Claude Haiku 5.5",
+      "name": "anthropic/claude-haiku-5.5",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-haiku-5.5:batch": {
       "id": "jet-hub-cline/anthropic/claude-haiku-5.5:batch",
       "upstream": "cline/anthropic/claude-haiku-5.5:batch",
-      "name": "Claude Haiku 5.5:Batch",
+      "name": "anthropic/claude-haiku-5.5:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.1": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.1",
       "upstream": "cline/anthropic/claude-opus-4.1",
-      "name": "Claude Opus 4.1",
+      "name": "anthropic/claude-opus-4.1",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.1:batch": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.1:batch",
       "upstream": "cline/anthropic/claude-opus-4.1:batch",
-      "name": "Claude Opus 4.1:Batch",
+      "name": "anthropic/claude-opus-4.1:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.5": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.5",
       "upstream": "cline/anthropic/claude-opus-4.5",
-      "name": "Claude Opus 4.5",
+      "name": "anthropic/claude-opus-4.5",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.5:batch": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.5:batch",
       "upstream": "cline/anthropic/claude-opus-4.5:batch",
-      "name": "Claude Opus 4.5:Batch",
+      "name": "anthropic/claude-opus-4.5:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.6": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.6",
       "upstream": "cline/anthropic/claude-opus-4.6",
-      "name": "Claude Opus 4.6",
+      "name": "anthropic/claude-opus-4.6",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.6:batch": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.6:batch",
       "upstream": "cline/anthropic/claude-opus-4.6:batch",
-      "name": "Claude Opus 4.6:Batch",
+      "name": "anthropic/claude-opus-4.6:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.7": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.7",
       "upstream": "cline/anthropic/claude-opus-4.7",
-      "name": "Claude Opus 4.7",
+      "name": "anthropic/claude-opus-4.7",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.7:batch": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.7:batch",
       "upstream": "cline/anthropic/claude-opus-4.7:batch",
-      "name": "Claude Opus 4.7:Batch",
+      "name": "anthropic/claude-opus-4.7:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.8": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.8",
       "upstream": "cline/anthropic/claude-opus-4.8",
-      "name": "Claude Opus 4.8",
+      "name": "anthropic/claude-opus-4.8",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-4.8:batch": {
       "id": "jet-hub-cline/anthropic/claude-opus-4.8:batch",
       "upstream": "cline/anthropic/claude-opus-4.8:batch",
-      "name": "Claude Opus 4.8:Batch",
+      "name": "anthropic/claude-opus-4.8:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-5": {
       "id": "jet-hub-cline/anthropic/claude-opus-5",
       "upstream": "cline/anthropic/claude-opus-5",
-      "name": "Claude Opus 5",
+      "name": "anthropic/claude-opus-5",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-5.5": {
@@ -1782,43 +1867,43 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/anthropic/claude-opus-5.5:batch": {
       "id": "jet-hub-cline/anthropic/claude-opus-5.5:batch",
       "upstream": "cline/anthropic/claude-opus-5.5:batch",
-      "name": "Claude Opus 5.5:Batch",
+      "name": "anthropic/claude-opus-5.5:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-opus-5:batch": {
       "id": "jet-hub-cline/anthropic/claude-opus-5:batch",
       "upstream": "cline/anthropic/claude-opus-5:batch",
-      "name": "Claude Opus 5:Batch",
+      "name": "anthropic/claude-opus-5:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-sonnet-4.5": {
       "id": "jet-hub-cline/anthropic/claude-sonnet-4.5",
       "upstream": "cline/anthropic/claude-sonnet-4.5",
-      "name": "Claude Sonnet 4.5",
+      "name": "anthropic/claude-sonnet-4.5",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-sonnet-4.5:batch": {
       "id": "jet-hub-cline/anthropic/claude-sonnet-4.5:batch",
       "upstream": "cline/anthropic/claude-sonnet-4.5:batch",
-      "name": "Claude Sonnet 4.5:Batch",
+      "name": "anthropic/claude-sonnet-4.5:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-sonnet-4.6": {
       "id": "jet-hub-cline/anthropic/claude-sonnet-4.6",
       "upstream": "cline/anthropic/claude-sonnet-4.6",
-      "name": "Claude Sonnet 4.6",
+      "name": "anthropic/claude-sonnet-4.6",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-sonnet-4.6:batch": {
       "id": "jet-hub-cline/anthropic/claude-sonnet-4.6:batch",
       "upstream": "cline/anthropic/claude-sonnet-4.6:batch",
-      "name": "Claude Sonnet 4.6:Batch",
+      "name": "anthropic/claude-sonnet-4.6:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-sonnet-5": {
       "id": "jet-hub-cline/anthropic/claude-sonnet-5",
       "upstream": "cline/anthropic/claude-sonnet-5",
-      "name": "Claude Sonnet 5",
+      "name": "anthropic/claude-sonnet-5",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-sonnet-5.5": {
@@ -1830,55 +1915,55 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/anthropic/claude-sonnet-5.5:batch": {
       "id": "jet-hub-cline/anthropic/claude-sonnet-5.5:batch",
       "upstream": "cline/anthropic/claude-sonnet-5.5:batch",
-      "name": "Claude Sonnet 5.5:Batch",
+      "name": "anthropic/claude-sonnet-5.5:batch",
       "disabled": true
     },
     "jet-hub-cline/anthropic/claude-sonnet-5:batch": {
       "id": "jet-hub-cline/anthropic/claude-sonnet-5:batch",
       "upstream": "cline/anthropic/claude-sonnet-5:batch",
-      "name": "Claude Sonnet 5:Batch",
+      "name": "anthropic/claude-sonnet-5:batch",
       "disabled": true
     },
     "jet-hub-cline/bytedance-seed/seed-1.6": {
       "id": "jet-hub-cline/bytedance-seed/seed-1.6",
       "upstream": "cline/bytedance-seed/seed-1.6",
-      "name": "Seed 1.6",
+      "name": "bytedance-seed/seed-1.6",
       "disabled": true
     },
     "jet-hub-cline/bytedance-seed/seed-1.6-flash": {
       "id": "jet-hub-cline/bytedance-seed/seed-1.6-flash",
       "upstream": "cline/bytedance-seed/seed-1.6-flash",
-      "name": "Seed 1.6 Flash",
+      "name": "bytedance-seed/seed-1.6-flash",
       "disabled": true
     },
     "jet-hub-cline/bytedance-seed/seed-2-1-turbo": {
       "id": "jet-hub-cline/bytedance-seed/seed-2-1-turbo",
       "upstream": "cline/bytedance-seed/seed-2-1-turbo",
-      "name": "Seed 2 1 Turbo",
+      "name": "bytedance-seed/seed-2-1-turbo",
       "disabled": true
     },
     "jet-hub-cline/bytedance-seed/seed-2.0-code": {
       "id": "jet-hub-cline/bytedance-seed/seed-2.0-code",
       "upstream": "cline/bytedance-seed/seed-2.0-code",
-      "name": "Seed 2.0 Code",
+      "name": "bytedance-seed/seed-2.0-code",
       "disabled": true
     },
     "jet-hub-cline/bytedance-seed/seed-2.0-lite": {
       "id": "jet-hub-cline/bytedance-seed/seed-2.0-lite",
       "upstream": "cline/bytedance-seed/seed-2.0-lite",
-      "name": "Seed 2.0 Lite",
+      "name": "bytedance-seed/seed-2.0-lite",
       "disabled": true
     },
     "jet-hub-cline/bytedance-seed/seed-2.0-mini": {
       "id": "jet-hub-cline/bytedance-seed/seed-2.0-mini",
       "upstream": "cline/bytedance-seed/seed-2.0-mini",
-      "name": "Seed 2.0 Mini",
+      "name": "bytedance-seed/seed-2.0-mini",
       "disabled": true
     },
     "jet-hub-cline/bytedance/ui-tars-1.5-7b": {
       "id": "jet-hub-cline/bytedance/ui-tars-1.5-7b",
       "upstream": "cline/bytedance/ui-tars-1.5-7b",
-      "name": "Ui Tars 1.5 7b",
+      "name": "bytedance/ui-tars-1.5-7b",
       "disabled": true
     },
     "jet-hub-cline/cline-free/nemotron-3.5-super-vl": {
@@ -2022,319 +2107,319 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/cognitivecomputations/dolphin-mistral-24b-venice-edition": {
       "id": "jet-hub-cline/cognitivecomputations/dolphin-mistral-24b-venice-edition",
       "upstream": "cline/cognitivecomputations/dolphin-mistral-24b-venice-edition",
-      "name": "Dolphin Mistral 24b Venice Edition",
+      "name": "cognitivecomputations/dolphin-mistral-24b-venice-edition",
       "disabled": true
     },
     "jet-hub-cline/cohere/command-a": {
       "id": "jet-hub-cline/cohere/command-a",
       "upstream": "cline/cohere/command-a",
-      "name": "Command A",
+      "name": "cohere/command-a",
       "disabled": true
     },
     "jet-hub-cline/cohere/command-a-plus": {
       "id": "jet-hub-cline/cohere/command-a-plus",
       "upstream": "cline/cohere/command-a-plus",
-      "name": "Command A Plus",
+      "name": "cohere/command-a-plus",
       "disabled": true
     },
     "jet-hub-cline/cohere/command-r-08-2024": {
       "id": "jet-hub-cline/cohere/command-r-08-2024",
       "upstream": "cline/cohere/command-r-08-2024",
-      "name": "Command R 08 2024",
+      "name": "cohere/command-r-08-2024",
       "disabled": true
     },
     "jet-hub-cline/cohere/command-r-plus-08-2024": {
       "id": "jet-hub-cline/cohere/command-r-plus-08-2024",
       "upstream": "cline/cohere/command-r-plus-08-2024",
-      "name": "Command R Plus 08 2024",
+      "name": "cohere/command-r-plus-08-2024",
       "disabled": true
     },
     "jet-hub-cline/cohere/command-r7b-12-2024": {
       "id": "jet-hub-cline/cohere/command-r7b-12-2024",
       "upstream": "cline/cohere/command-r7b-12-2024",
-      "name": "Command R7b 12 2024",
+      "name": "cohere/command-r7b-12-2024",
       "disabled": true
     },
     "jet-hub-cline/cohere/north-mini-code:free": {
       "id": "jet-hub-cline/cohere/north-mini-code:free",
       "upstream": "cline/cohere/north-mini-code:free",
-      "name": "North Mini Code · 免费",
+      "name": "cohere/north-mini-code:free",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-chat": {
       "id": "jet-hub-cline/deepseek/deepseek-chat",
       "upstream": "cline/deepseek/deepseek-chat",
-      "name": "Deepseek Chat",
+      "name": "deepseek/deepseek-chat",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-chat-v3-0324": {
       "id": "jet-hub-cline/deepseek/deepseek-chat-v3-0324",
       "upstream": "cline/deepseek/deepseek-chat-v3-0324",
-      "name": "Deepseek Chat V3 0324",
+      "name": "deepseek/deepseek-chat-v3-0324",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-chat-v3.1": {
       "id": "jet-hub-cline/deepseek/deepseek-chat-v3.1",
       "upstream": "cline/deepseek/deepseek-chat-v3.1",
-      "name": "Deepseek Chat V3.1",
+      "name": "deepseek/deepseek-chat-v3.1",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-r1-0528": {
       "id": "jet-hub-cline/deepseek/deepseek-r1-0528",
       "upstream": "cline/deepseek/deepseek-r1-0528",
-      "name": "Deepseek R1 0528",
+      "name": "deepseek/deepseek-r1-0528",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v3.1-terminus": {
       "id": "jet-hub-cline/deepseek/deepseek-v3.1-terminus",
       "upstream": "cline/deepseek/deepseek-v3.1-terminus",
-      "name": "Deepseek V3.1 Terminus",
+      "name": "deepseek/deepseek-v3.1-terminus",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v3.2": {
       "id": "jet-hub-cline/deepseek/deepseek-v3.2",
       "upstream": "cline/deepseek/deepseek-v3.2",
-      "name": "Deepseek V3.2",
+      "name": "deepseek/deepseek-v3.2",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v3.2-exp": {
       "id": "jet-hub-cline/deepseek/deepseek-v3.2-exp",
       "upstream": "cline/deepseek/deepseek-v3.2-exp",
-      "name": "Deepseek V3.2 Exp",
+      "name": "deepseek/deepseek-v3.2-exp",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4-flash": {
       "id": "jet-hub-cline/deepseek/deepseek-v4-flash",
       "upstream": "cline/deepseek/deepseek-v4-flash",
-      "name": "Deepseek V4 Flash",
+      "name": "deepseek/deepseek-v4-flash",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4-flash-0731": {
       "id": "jet-hub-cline/deepseek/deepseek-v4-flash-0731",
       "upstream": "cline/deepseek/deepseek-v4-flash-0731",
-      "name": "Deepseek V4 Flash 0731",
+      "name": "deepseek/deepseek-v4-flash-0731",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4-flash-vision-exp": {
       "id": "jet-hub-cline/deepseek/deepseek-v4-flash-vision-exp",
       "upstream": "cline/deepseek/deepseek-v4-flash-vision-exp",
-      "name": "Deepseek V4 Flash Vision Exp",
+      "name": "deepseek/deepseek-v4-flash-vision-exp",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4-pro": {
       "id": "jet-hub-cline/deepseek/deepseek-v4-pro",
       "upstream": "cline/deepseek/deepseek-v4-pro",
-      "name": "Deepseek V4 Pro",
+      "name": "deepseek/deepseek-v4-pro",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4-pro-0813": {
       "id": "jet-hub-cline/deepseek/deepseek-v4-pro-0813",
       "upstream": "cline/deepseek/deepseek-v4-pro-0813",
-      "name": "Deepseek V4 Pro 0813",
+      "name": "deepseek/deepseek-v4-pro-0813",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4.1-flash": {
       "id": "jet-hub-cline/deepseek/deepseek-v4.1-flash",
       "upstream": "cline/deepseek/deepseek-v4.1-flash",
-      "name": "Deepseek V4.1 Flash",
+      "name": "deepseek/deepseek-v4.1-flash",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4.1-flash-1017": {
       "id": "jet-hub-cline/deepseek/deepseek-v4.1-flash-1017",
       "upstream": "cline/deepseek/deepseek-v4.1-flash-1017",
-      "name": "Deepseek V4.1 Flash 1017",
+      "name": "deepseek/deepseek-v4.1-flash-1017",
       "disabled": true
     },
     "jet-hub-cline/deepseek/deepseek-v4.1-flash:batch": {
       "id": "jet-hub-cline/deepseek/deepseek-v4.1-flash:batch",
       "upstream": "cline/deepseek/deepseek-v4.1-flash:batch",
-      "name": "Deepseek V4.1 Flash:Batch",
+      "name": "deepseek/deepseek-v4.1-flash:batch",
       "disabled": true
     },
     "jet-hub-cline/dots-studio/dots-3-note-preview:free": {
       "id": "jet-hub-cline/dots-studio/dots-3-note-preview:free",
       "upstream": "cline/dots-studio/dots-3-note-preview:free",
-      "name": "Dots 3 Note Preview · 免费",
+      "name": "dots-studio/dots-3-note-preview:free",
       "disabled": true
     },
     "jet-hub-cline/elorian/glimpse": {
       "id": "jet-hub-cline/elorian/glimpse",
       "upstream": "cline/elorian/glimpse",
-      "name": "Glimpse",
+      "name": "elorian/glimpse",
       "disabled": true
     },
     "jet-hub-cline/fireworks/ember-1": {
       "id": "jet-hub-cline/fireworks/ember-1",
       "upstream": "cline/fireworks/ember-1",
-      "name": "Ember 1",
+      "name": "fireworks/ember-1",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-2.5-flash": {
       "id": "jet-hub-cline/google/gemini-2.5-flash",
       "upstream": "cline/google/gemini-2.5-flash",
-      "name": "Gemini 2.5 Flash",
+      "name": "google/gemini-2.5-flash",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-2.5-flash-image": {
       "id": "jet-hub-cline/google/gemini-2.5-flash-image",
       "upstream": "cline/google/gemini-2.5-flash-image",
-      "name": "Gemini 2.5 Flash Image",
+      "name": "google/gemini-2.5-flash-image",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-2.5-flash-lite": {
       "id": "jet-hub-cline/google/gemini-2.5-flash-lite",
       "upstream": "cline/google/gemini-2.5-flash-lite",
-      "name": "Gemini 2.5 Flash Lite",
+      "name": "google/gemini-2.5-flash-lite",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-2.5-pro": {
       "id": "jet-hub-cline/google/gemini-2.5-pro",
       "upstream": "cline/google/gemini-2.5-pro",
-      "name": "Gemini 2.5 Pro",
+      "name": "google/gemini-2.5-pro",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-2.5-pro-preview": {
       "id": "jet-hub-cline/google/gemini-2.5-pro-preview",
       "upstream": "cline/google/gemini-2.5-pro-preview",
-      "name": "Gemini 2.5 Pro Preview",
+      "name": "google/gemini-2.5-pro-preview",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3-flash-preview": {
       "id": "jet-hub-cline/google/gemini-3-flash-preview",
       "upstream": "cline/google/gemini-3-flash-preview",
-      "name": "Gemini 3 Flash Preview",
+      "name": "google/gemini-3-flash-preview",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3-flash-preview:batch": {
       "id": "jet-hub-cline/google/gemini-3-flash-preview:batch",
       "upstream": "cline/google/gemini-3-flash-preview:batch",
-      "name": "Gemini 3 Flash Preview:Batch",
+      "name": "google/gemini-3-flash-preview:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3-pro-image": {
       "id": "jet-hub-cline/google/gemini-3-pro-image",
       "upstream": "cline/google/gemini-3-pro-image",
-      "name": "Gemini 3 Pro Image",
+      "name": "google/gemini-3-pro-image",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3-pro-image-preview": {
       "id": "jet-hub-cline/google/gemini-3-pro-image-preview",
       "upstream": "cline/google/gemini-3-pro-image-preview",
-      "name": "Gemini 3 Pro Image Preview",
+      "name": "google/gemini-3-pro-image-preview",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-flash-image": {
       "id": "jet-hub-cline/google/gemini-3.1-flash-image",
       "upstream": "cline/google/gemini-3.1-flash-image",
-      "name": "Gemini 3.1 Flash Image",
+      "name": "google/gemini-3.1-flash-image",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-flash-image-preview": {
       "id": "jet-hub-cline/google/gemini-3.1-flash-image-preview",
       "upstream": "cline/google/gemini-3.1-flash-image-preview",
-      "name": "Gemini 3.1 Flash Image Preview",
+      "name": "google/gemini-3.1-flash-image-preview",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-flash-lite": {
       "id": "jet-hub-cline/google/gemini-3.1-flash-lite",
       "upstream": "cline/google/gemini-3.1-flash-lite",
-      "name": "Gemini 3.1 Flash Lite",
+      "name": "google/gemini-3.1-flash-lite",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-flash-lite-image": {
       "id": "jet-hub-cline/google/gemini-3.1-flash-lite-image",
       "upstream": "cline/google/gemini-3.1-flash-lite-image",
-      "name": "Gemini 3.1 Flash Lite Image",
+      "name": "google/gemini-3.1-flash-lite-image",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-flash-lite-preview": {
       "id": "jet-hub-cline/google/gemini-3.1-flash-lite-preview",
       "upstream": "cline/google/gemini-3.1-flash-lite-preview",
-      "name": "Gemini 3.1 Flash Lite Preview",
+      "name": "google/gemini-3.1-flash-lite-preview",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-flash-lite:batch": {
       "id": "jet-hub-cline/google/gemini-3.1-flash-lite:batch",
       "upstream": "cline/google/gemini-3.1-flash-lite:batch",
-      "name": "Gemini 3.1 Flash Lite:Batch",
+      "name": "google/gemini-3.1-flash-lite:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-pro-preview": {
       "id": "jet-hub-cline/google/gemini-3.1-pro-preview",
       "upstream": "cline/google/gemini-3.1-pro-preview",
-      "name": "Gemini 3.1 Pro Preview",
+      "name": "google/gemini-3.1-pro-preview",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-pro-preview-customtools": {
       "id": "jet-hub-cline/google/gemini-3.1-pro-preview-customtools",
       "upstream": "cline/google/gemini-3.1-pro-preview-customtools",
-      "name": "Gemini 3.1 Pro Preview Customtools",
+      "name": "google/gemini-3.1-pro-preview-customtools",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.1-pro-preview:batch": {
       "id": "jet-hub-cline/google/gemini-3.1-pro-preview:batch",
       "upstream": "cline/google/gemini-3.1-pro-preview:batch",
-      "name": "Gemini 3.1 Pro Preview:Batch",
+      "name": "google/gemini-3.1-pro-preview:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.5-flash": {
       "id": "jet-hub-cline/google/gemini-3.5-flash",
       "upstream": "cline/google/gemini-3.5-flash",
-      "name": "Gemini 3.5 Flash",
+      "name": "google/gemini-3.5-flash",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.5-flash-lite": {
       "id": "jet-hub-cline/google/gemini-3.5-flash-lite",
       "upstream": "cline/google/gemini-3.5-flash-lite",
-      "name": "Gemini 3.5 Flash Lite",
+      "name": "google/gemini-3.5-flash-lite",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.5-flash-lite:batch": {
       "id": "jet-hub-cline/google/gemini-3.5-flash-lite:batch",
       "upstream": "cline/google/gemini-3.5-flash-lite:batch",
-      "name": "Gemini 3.5 Flash Lite:Batch",
+      "name": "google/gemini-3.5-flash-lite:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.5-flash:batch": {
       "id": "jet-hub-cline/google/gemini-3.5-flash:batch",
       "upstream": "cline/google/gemini-3.5-flash:batch",
-      "name": "Gemini 3.5 Flash:Batch",
+      "name": "google/gemini-3.5-flash:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.6-flash": {
       "id": "jet-hub-cline/google/gemini-3.6-flash",
       "upstream": "cline/google/gemini-3.6-flash",
-      "name": "Gemini 3.6 Flash",
+      "name": "google/gemini-3.6-flash",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.6-flash:batch": {
       "id": "jet-hub-cline/google/gemini-3.6-flash:batch",
       "upstream": "cline/google/gemini-3.6-flash:batch",
-      "name": "Gemini 3.6 Flash:Batch",
+      "name": "google/gemini-3.6-flash:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.7-flash": {
       "id": "jet-hub-cline/google/gemini-3.7-flash",
       "upstream": "cline/google/gemini-3.7-flash",
-      "name": "Gemini 3.7 Flash",
+      "name": "google/gemini-3.7-flash",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.7-flash:batch": {
       "id": "jet-hub-cline/google/gemini-3.7-flash:batch",
       "upstream": "cline/google/gemini-3.7-flash:batch",
-      "name": "Gemini 3.7 Flash:Batch",
+      "name": "google/gemini-3.7-flash:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.8-flash": {
       "id": "jet-hub-cline/google/gemini-3.8-flash",
       "upstream": "cline/google/gemini-3.8-flash",
-      "name": "Gemini 3.8 Flash",
+      "name": "google/gemini-3.8-flash",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-3.8-flash:batch": {
       "id": "jet-hub-cline/google/gemini-3.8-flash:batch",
       "upstream": "cline/google/gemini-3.8-flash:batch",
-      "name": "Gemini 3.8 Flash:Batch",
+      "name": "google/gemini-3.8-flash:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-4-argon": {
@@ -2346,499 +2431,505 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/google/gemini-4-argon:batch": {
       "id": "jet-hub-cline/google/gemini-4-argon:batch",
       "upstream": "cline/google/gemini-4-argon:batch",
-      "name": "Gemini 4 Argon:Batch",
+      "name": "google/gemini-4-argon:batch",
       "disabled": true
     },
     "jet-hub-cline/google/gemini-nano-banana-2.1": {
       "id": "jet-hub-cline/google/gemini-nano-banana-2.1",
       "upstream": "cline/google/gemini-nano-banana-2.1",
-      "name": "Gemini Nano Banana 2.1",
+      "name": "google/gemini-nano-banana-2.1",
       "disabled": true
     },
     "jet-hub-cline/google/gemma-2-27b-it": {
       "id": "jet-hub-cline/google/gemma-2-27b-it",
       "upstream": "cline/google/gemma-2-27b-it",
-      "name": "Gemma 2 27b It",
+      "name": "google/gemma-2-27b-it",
       "disabled": true
     },
     "jet-hub-cline/google/gemma-3-12b-it": {
       "id": "jet-hub-cline/google/gemma-3-12b-it",
       "upstream": "cline/google/gemma-3-12b-it",
-      "name": "Gemma 3 12b It",
+      "name": "google/gemma-3-12b-it",
       "disabled": true
     },
     "jet-hub-cline/google/gemma-3-27b-it": {
       "id": "jet-hub-cline/google/gemma-3-27b-it",
       "upstream": "cline/google/gemma-3-27b-it",
-      "name": "Gemma 3 27b It",
+      "name": "google/gemma-3-27b-it",
       "disabled": true
     },
     "jet-hub-cline/google/gemma-3-4b-it": {
       "id": "jet-hub-cline/google/gemma-3-4b-it",
       "upstream": "cline/google/gemma-3-4b-it",
-      "name": "Gemma 3 4b It",
+      "name": "google/gemma-3-4b-it",
       "disabled": true
     },
     "jet-hub-cline/google/gemma-4-26b-a4b-it": {
       "id": "jet-hub-cline/google/gemma-4-26b-a4b-it",
       "upstream": "cline/google/gemma-4-26b-a4b-it",
-      "name": "Gemma 4 26b A4b It",
+      "name": "google/gemma-4-26b-a4b-it",
       "disabled": true
     },
     "jet-hub-cline/google/gemma-4-26b-a4b-it:free": {
       "id": "jet-hub-cline/google/gemma-4-26b-a4b-it:free",
       "upstream": "cline/google/gemma-4-26b-a4b-it:free",
-      "name": "Gemma 4 26b A4b It · 免费",
+      "name": "google/gemma-4-26b-a4b-it:free",
       "disabled": true
     },
     "jet-hub-cline/google/gemma-4-31b-it": {
       "id": "jet-hub-cline/google/gemma-4-31b-it",
       "upstream": "cline/google/gemma-4-31b-it",
-      "name": "Gemma 4 31b It",
+      "name": "google/gemma-4-31b-it",
       "disabled": true
     },
     "jet-hub-cline/google/gemma-4-31b-it:free": {
       "id": "jet-hub-cline/google/gemma-4-31b-it:free",
       "upstream": "cline/google/gemma-4-31b-it:free",
-      "name": "Gemma 4 31b It · 免费",
+      "name": "google/gemma-4-31b-it:free",
       "disabled": true
     },
     "jet-hub-cline/google/lyria-3-clip-preview": {
       "id": "jet-hub-cline/google/lyria-3-clip-preview",
       "upstream": "cline/google/lyria-3-clip-preview",
-      "name": "Lyria 3 Clip Preview",
+      "name": "google/lyria-3-clip-preview",
       "disabled": true
     },
     "jet-hub-cline/google/lyria-3-pro-preview": {
       "id": "jet-hub-cline/google/lyria-3-pro-preview",
       "upstream": "cline/google/lyria-3-pro-preview",
-      "name": "Lyria 3 Pro Preview",
+      "name": "google/lyria-3-pro-preview",
       "disabled": true
     },
     "jet-hub-cline/gryphe/mythomax-l2-13b": {
       "id": "jet-hub-cline/gryphe/mythomax-l2-13b",
       "upstream": "cline/gryphe/mythomax-l2-13b",
-      "name": "Mythomax L2 13b",
+      "name": "gryphe/mythomax-l2-13b",
       "disabled": true
     },
     "jet-hub-cline/ibm-granite/granite-4.2-8b": {
       "id": "jet-hub-cline/ibm-granite/granite-4.2-8b",
       "upstream": "cline/ibm-granite/granite-4.2-8b",
-      "name": "Granite 4.2 8b",
+      "name": "ibm-granite/granite-4.2-8b",
       "disabled": true
     },
     "jet-hub-cline/inception/mercury-2": {
       "id": "jet-hub-cline/inception/mercury-2",
       "upstream": "cline/inception/mercury-2",
-      "name": "Mercury 2",
+      "name": "inception/mercury-2",
       "disabled": true
     },
     "jet-hub-cline/inception/mercury-2.5": {
       "id": "jet-hub-cline/inception/mercury-2.5",
       "upstream": "cline/inception/mercury-2.5",
-      "name": "Mercury 2.5",
+      "name": "inception/mercury-2.5",
       "disabled": true
     },
     "jet-hub-cline/inception/mercury-3": {
       "id": "jet-hub-cline/inception/mercury-3",
       "upstream": "cline/inception/mercury-3",
-      "name": "Mercury 3",
+      "name": "inception/mercury-3",
       "disabled": true
     },
     "jet-hub-cline/inclusionai/ling-3.0-flash": {
       "id": "jet-hub-cline/inclusionai/ling-3.0-flash",
       "upstream": "cline/inclusionai/ling-3.0-flash",
-      "name": "Ling 3.0 Flash",
+      "name": "inclusionai/ling-3.0-flash",
       "disabled": true
     },
     "jet-hub-cline/inclusionai/ling-3.0-flash-vl": {
       "id": "jet-hub-cline/inclusionai/ling-3.0-flash-vl",
       "upstream": "cline/inclusionai/ling-3.0-flash-vl",
-      "name": "Ling 3.0 Flash Vl",
+      "name": "inclusionai/ling-3.0-flash-vl",
       "disabled": true
     },
     "jet-hub-cline/inclusionai/ling-3.0-tiny": {
       "id": "jet-hub-cline/inclusionai/ling-3.0-tiny",
       "upstream": "cline/inclusionai/ling-3.0-tiny",
-      "name": "Ling 3.0 Tiny",
-      "disabled": false
+      "name": "inclusionai/ling-3.0-tiny",
+      "disabled": true
     },
     "jet-hub-cline/inclusionai/ling-3.1-flash": {
       "id": "jet-hub-cline/inclusionai/ling-3.1-flash",
       "upstream": "cline/inclusionai/ling-3.1-flash",
-      "name": "Ling 3.1 Flash",
+      "name": "inclusionai/ling-3.1-flash",
       "disabled": true
     },
     "jet-hub-cline/inference-net/schematron-v2-small": {
       "id": "jet-hub-cline/inference-net/schematron-v2-small",
       "upstream": "cline/inference-net/schematron-v2-small",
-      "name": "Schematron V2 Small",
+      "name": "inference-net/schematron-v2-small",
       "disabled": true
     },
     "jet-hub-cline/inference-net/schematron-v2-turbo": {
       "id": "jet-hub-cline/inference-net/schematron-v2-turbo",
       "upstream": "cline/inference-net/schematron-v2-turbo",
-      "name": "Schematron V2 Turbo",
+      "name": "inference-net/schematron-v2-turbo",
       "disabled": true
     },
     "jet-hub-cline/liquid/lfm-2.5-2.6b": {
       "id": "jet-hub-cline/liquid/lfm-2.5-2.6b",
       "upstream": "cline/liquid/lfm-2.5-2.6b",
-      "name": "Lfm 2.5 2.6b",
+      "name": "liquid/lfm-2.5-2.6b",
       "disabled": true
     },
     "jet-hub-cline/liquid/lfm-2.5-2.6b:free": {
       "id": "jet-hub-cline/liquid/lfm-2.5-2.6b:free",
       "upstream": "cline/liquid/lfm-2.5-2.6b:free",
-      "name": "Lfm 2.5 2.6b · 免费",
+      "name": "liquid/lfm-2.5-2.6b:free",
       "disabled": true
     },
     "jet-hub-cline/liquid/lfm-2.5-24b-a2b": {
       "id": "jet-hub-cline/liquid/lfm-2.5-24b-a2b",
       "upstream": "cline/liquid/lfm-2.5-24b-a2b",
-      "name": "Lfm 2.5 24b A2b",
+      "name": "liquid/lfm-2.5-24b-a2b",
       "disabled": true
     },
     "jet-hub-cline/mancer/weaver": {
       "id": "jet-hub-cline/mancer/weaver",
       "upstream": "cline/mancer/weaver",
-      "name": "Weaver",
+      "name": "mancer/weaver",
       "disabled": true
     },
     "jet-hub-cline/meituan/longcat-2.0": {
       "id": "jet-hub-cline/meituan/longcat-2.0",
       "upstream": "cline/meituan/longcat-2.0",
-      "name": "Longcat 2.0",
+      "name": "meituan/longcat-2.0",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-3.1-70b-instruct": {
       "id": "jet-hub-cline/meta-llama/llama-3.1-70b-instruct",
       "upstream": "cline/meta-llama/llama-3.1-70b-instruct",
-      "name": "Llama 3.1 70b Instruct",
+      "name": "meta-llama/llama-3.1-70b-instruct",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-3.1-8b-instruct": {
       "id": "jet-hub-cline/meta-llama/llama-3.1-8b-instruct",
       "upstream": "cline/meta-llama/llama-3.1-8b-instruct",
-      "name": "Llama 3.1 8b Instruct",
+      "name": "meta-llama/llama-3.1-8b-instruct",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-3.2-1b-instruct": {
       "id": "jet-hub-cline/meta-llama/llama-3.2-1b-instruct",
       "upstream": "cline/meta-llama/llama-3.2-1b-instruct",
-      "name": "Llama 3.2 1b Instruct",
+      "name": "meta-llama/llama-3.2-1b-instruct",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-3.2-3b-instruct": {
       "id": "jet-hub-cline/meta-llama/llama-3.2-3b-instruct",
       "upstream": "cline/meta-llama/llama-3.2-3b-instruct",
-      "name": "Llama 3.2 3b Instruct",
+      "name": "meta-llama/llama-3.2-3b-instruct",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-3.3-70b-instruct": {
       "id": "jet-hub-cline/meta-llama/llama-3.3-70b-instruct",
       "upstream": "cline/meta-llama/llama-3.3-70b-instruct",
-      "name": "Llama 3.3 70b Instruct",
+      "name": "meta-llama/llama-3.3-70b-instruct",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-4-maverick": {
       "id": "jet-hub-cline/meta-llama/llama-4-maverick",
       "upstream": "cline/meta-llama/llama-4-maverick",
-      "name": "Llama 4 Maverick",
+      "name": "meta-llama/llama-4-maverick",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-4-scout": {
       "id": "jet-hub-cline/meta-llama/llama-4-scout",
       "upstream": "cline/meta-llama/llama-4-scout",
-      "name": "Llama 4 Scout",
+      "name": "meta-llama/llama-4-scout",
       "disabled": true
     },
     "jet-hub-cline/meta-llama/llama-guard-4-12b": {
       "id": "jet-hub-cline/meta-llama/llama-guard-4-12b",
       "upstream": "cline/meta-llama/llama-guard-4-12b",
-      "name": "Llama Guard 4 12b",
+      "name": "meta-llama/llama-guard-4-12b",
+      "disabled": true
+    },
+    "jet-hub-cline/meta/muse-ember": {
+      "id": "jet-hub-cline/meta/muse-ember",
+      "upstream": "cline/meta/muse-ember",
+      "name": "muse-ember",
       "disabled": true
     },
     "jet-hub-cline/meta/muse-glimmer-30b": {
       "id": "jet-hub-cline/meta/muse-glimmer-30b",
       "upstream": "cline/meta/muse-glimmer-30b",
-      "name": "Muse Glimmer 30b",
+      "name": "meta/muse-glimmer-30b",
       "disabled": true
     },
     "jet-hub-cline/meta/muse-spark-1.1": {
       "id": "jet-hub-cline/meta/muse-spark-1.1",
       "upstream": "cline/meta/muse-spark-1.1",
-      "name": "Muse Spark 1.1",
+      "name": "meta/muse-spark-1.1",
       "disabled": true
     },
     "jet-hub-cline/meta/muse-spark-1.2": {
       "id": "jet-hub-cline/meta/muse-spark-1.2",
       "upstream": "cline/meta/muse-spark-1.2",
-      "name": "Muse Spark 1.2",
+      "name": "meta/muse-spark-1.2",
       "disabled": true
     },
     "jet-hub-cline/meta/muse-spark-1.2-contributor": {
       "id": "jet-hub-cline/meta/muse-spark-1.2-contributor",
       "upstream": "cline/meta/muse-spark-1.2-contributor",
-      "name": "Muse Spark 1.2 Contributor",
+      "name": "meta/muse-spark-1.2-contributor",
       "disabled": true
     },
     "jet-hub-cline/meta/muse-spark-1.3": {
       "id": "jet-hub-cline/meta/muse-spark-1.3",
       "upstream": "cline/meta/muse-spark-1.3",
-      "name": "Muse Spark 1.3",
+      "name": "meta/muse-spark-1.3",
       "disabled": true
     },
     "jet-hub-cline/meta/muse-spark-1.3-contributor": {
       "id": "jet-hub-cline/meta/muse-spark-1.3-contributor",
       "upstream": "cline/meta/muse-spark-1.3-contributor",
-      "name": "Muse Spark 1.3 Contributor",
+      "name": "meta/muse-spark-1.3-contributor",
       "disabled": true
     },
     "jet-hub-cline/meta/muse-spark-open": {
       "id": "jet-hub-cline/meta/muse-spark-open",
       "upstream": "cline/meta/muse-spark-open",
-      "name": "Muse Spark Open",
+      "name": "meta/muse-spark-open",
       "disabled": true
     },
     "jet-hub-cline/meta/muse-wonder": {
       "id": "jet-hub-cline/meta/muse-wonder",
       "upstream": "cline/meta/muse-wonder",
-      "name": "Muse Wonder",
+      "name": "meta/muse-wonder",
       "disabled": true
     },
     "jet-hub-cline/microsoft/phi-4": {
       "id": "jet-hub-cline/microsoft/phi-4",
       "upstream": "cline/microsoft/phi-4",
-      "name": "Phi 4",
+      "name": "microsoft/phi-4",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-01": {
       "id": "jet-hub-cline/minimax/minimax-01",
       "upstream": "cline/minimax/minimax-01",
-      "name": "Minimax 01",
+      "name": "minimax/minimax-01",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-m1": {
       "id": "jet-hub-cline/minimax/minimax-m1",
       "upstream": "cline/minimax/minimax-m1",
-      "name": "Minimax M1",
+      "name": "minimax/minimax-m1",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-m2": {
       "id": "jet-hub-cline/minimax/minimax-m2",
       "upstream": "cline/minimax/minimax-m2",
-      "name": "Minimax M2",
+      "name": "minimax/minimax-m2",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-m2-her": {
       "id": "jet-hub-cline/minimax/minimax-m2-her",
       "upstream": "cline/minimax/minimax-m2-her",
-      "name": "Minimax M2 Her",
+      "name": "minimax/minimax-m2-her",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-m2.1": {
       "id": "jet-hub-cline/minimax/minimax-m2.1",
       "upstream": "cline/minimax/minimax-m2.1",
-      "name": "Minimax M2.1",
+      "name": "minimax/minimax-m2.1",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-m2.5": {
       "id": "jet-hub-cline/minimax/minimax-m2.5",
       "upstream": "cline/minimax/minimax-m2.5",
-      "name": "Minimax M2.5",
+      "name": "minimax/minimax-m2.5",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-m2.7": {
       "id": "jet-hub-cline/minimax/minimax-m2.7",
       "upstream": "cline/minimax/minimax-m2.7",
-      "name": "Minimax M2.7",
+      "name": "minimax/minimax-m2.7",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-m3": {
       "id": "jet-hub-cline/minimax/minimax-m3",
       "upstream": "cline/minimax/minimax-m3",
-      "name": "Minimax M3",
+      "name": "minimax/minimax-m3",
       "disabled": true
     },
     "jet-hub-cline/minimax/minimax-m3.1-flash": {
       "id": "jet-hub-cline/minimax/minimax-m3.1-flash",
       "upstream": "cline/minimax/minimax-m3.1-flash",
-      "name": "Minimax M3.1 Flash",
+      "name": "minimax/minimax-m3.1-flash",
       "disabled": true
     },
     "jet-hub-cline/mistralai/codestral-2508": {
       "id": "jet-hub-cline/mistralai/codestral-2508",
       "upstream": "cline/mistralai/codestral-2508",
-      "name": "Codestral 2508",
+      "name": "mistralai/codestral-2508",
       "disabled": true
     },
     "jet-hub-cline/mistralai/devstral-2512": {
       "id": "jet-hub-cline/mistralai/devstral-2512",
       "upstream": "cline/mistralai/devstral-2512",
-      "name": "Devstral 2512",
+      "name": "mistralai/devstral-2512",
       "disabled": true
     },
     "jet-hub-cline/mistralai/ministral-14b-2512": {
       "id": "jet-hub-cline/mistralai/ministral-14b-2512",
       "upstream": "cline/mistralai/ministral-14b-2512",
-      "name": "Ministral 14b 2512",
+      "name": "mistralai/ministral-14b-2512",
       "disabled": true
     },
     "jet-hub-cline/mistralai/ministral-3b-2512": {
       "id": "jet-hub-cline/mistralai/ministral-3b-2512",
       "upstream": "cline/mistralai/ministral-3b-2512",
-      "name": "Ministral 3b 2512",
+      "name": "mistralai/ministral-3b-2512",
       "disabled": true
     },
     "jet-hub-cline/mistralai/ministral-8b-2512": {
       "id": "jet-hub-cline/mistralai/ministral-8b-2512",
       "upstream": "cline/mistralai/ministral-8b-2512",
-      "name": "Ministral 8b 2512",
+      "name": "mistralai/ministral-8b-2512",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-large": {
       "id": "jet-hub-cline/mistralai/mistral-large",
       "upstream": "cline/mistralai/mistral-large",
-      "name": "Mistral Large",
+      "name": "mistralai/mistral-large",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-large-2407": {
       "id": "jet-hub-cline/mistralai/mistral-large-2407",
       "upstream": "cline/mistralai/mistral-large-2407",
-      "name": "Mistral Large 2407",
+      "name": "mistralai/mistral-large-2407",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-large-2512": {
       "id": "jet-hub-cline/mistralai/mistral-large-2512",
       "upstream": "cline/mistralai/mistral-large-2512",
-      "name": "Mistral Large 2512",
+      "name": "mistralai/mistral-large-2512",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-large-4-0": {
       "id": "jet-hub-cline/mistralai/mistral-large-4-0",
       "upstream": "cline/mistralai/mistral-large-4-0",
-      "name": "Mistral Large 4 0",
+      "name": "mistralai/mistral-large-4-0",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-medium-3": {
       "id": "jet-hub-cline/mistralai/mistral-medium-3",
       "upstream": "cline/mistralai/mistral-medium-3",
-      "name": "Mistral Medium 3",
+      "name": "mistralai/mistral-medium-3",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-medium-3-5": {
       "id": "jet-hub-cline/mistralai/mistral-medium-3-5",
       "upstream": "cline/mistralai/mistral-medium-3-5",
-      "name": "Mistral Medium 3 5",
+      "name": "mistralai/mistral-medium-3-5",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-medium-3-5:batch": {
       "id": "jet-hub-cline/mistralai/mistral-medium-3-5:batch",
       "upstream": "cline/mistralai/mistral-medium-3-5:batch",
-      "name": "Mistral Medium 3 5:Batch",
+      "name": "mistralai/mistral-medium-3-5:batch",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-medium-3.1": {
       "id": "jet-hub-cline/mistralai/mistral-medium-3.1",
       "upstream": "cline/mistralai/mistral-medium-3.1",
-      "name": "Mistral Medium 3.1",
+      "name": "mistralai/mistral-medium-3.1",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-nemo": {
       "id": "jet-hub-cline/mistralai/mistral-nemo",
       "upstream": "cline/mistralai/mistral-nemo",
-      "name": "Mistral Nemo",
+      "name": "mistralai/mistral-nemo",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-saba": {
       "id": "jet-hub-cline/mistralai/mistral-saba",
       "upstream": "cline/mistralai/mistral-saba",
-      "name": "Mistral Saba",
+      "name": "mistralai/mistral-saba",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-small-24b-instruct-2501": {
       "id": "jet-hub-cline/mistralai/mistral-small-24b-instruct-2501",
       "upstream": "cline/mistralai/mistral-small-24b-instruct-2501",
-      "name": "Mistral Small 24b Instruct 2501",
+      "name": "mistralai/mistral-small-24b-instruct-2501",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-small-2603": {
       "id": "jet-hub-cline/mistralai/mistral-small-2603",
       "upstream": "cline/mistralai/mistral-small-2603",
-      "name": "Mistral Small 2603",
+      "name": "mistralai/mistral-small-2603",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-small-3.1-24b-instruct": {
       "id": "jet-hub-cline/mistralai/mistral-small-3.1-24b-instruct",
       "upstream": "cline/mistralai/mistral-small-3.1-24b-instruct",
-      "name": "Mistral Small 3.1 24b Instruct",
+      "name": "mistralai/mistral-small-3.1-24b-instruct",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mistral-small-3.2-24b-instruct": {
       "id": "jet-hub-cline/mistralai/mistral-small-3.2-24b-instruct",
       "upstream": "cline/mistralai/mistral-small-3.2-24b-instruct",
-      "name": "Mistral Small 3.2 24b Instruct",
+      "name": "mistralai/mistral-small-3.2-24b-instruct",
       "disabled": true
     },
     "jet-hub-cline/mistralai/mixtral-8x22b-instruct": {
       "id": "jet-hub-cline/mistralai/mixtral-8x22b-instruct",
       "upstream": "cline/mistralai/mixtral-8x22b-instruct",
-      "name": "Mixtral 8x22b Instruct",
+      "name": "mistralai/mixtral-8x22b-instruct",
       "disabled": true
     },
     "jet-hub-cline/mistralai/voxtral-small-24b-2507": {
       "id": "jet-hub-cline/mistralai/voxtral-small-24b-2507",
       "upstream": "cline/mistralai/voxtral-small-24b-2507",
-      "name": "Voxtral Small 24b 2507",
+      "name": "mistralai/voxtral-small-24b-2507",
       "disabled": true
     },
     "jet-hub-cline/moondream/moondream3-preview": {
       "id": "jet-hub-cline/moondream/moondream3-preview",
       "upstream": "cline/moondream/moondream3-preview",
-      "name": "Moondream3 Preview",
+      "name": "moondream/moondream3-preview",
       "disabled": true
     },
     "jet-hub-cline/moondream/moondream3.1-9b-a2b": {
       "id": "jet-hub-cline/moondream/moondream3.1-9b-a2b",
       "upstream": "cline/moondream/moondream3.1-9b-a2b",
-      "name": "Moondream3.1 9b A2b",
+      "name": "moondream/moondream3.1-9b-a2b",
       "disabled": true
     },
     "jet-hub-cline/moonshotai/kimi-k2": {
       "id": "jet-hub-cline/moonshotai/kimi-k2",
       "upstream": "cline/moonshotai/kimi-k2",
-      "name": "Kimi K2",
+      "name": "moonshotai/kimi-k2",
       "disabled": true
     },
     "jet-hub-cline/moonshotai/kimi-k2-0905": {
       "id": "jet-hub-cline/moonshotai/kimi-k2-0905",
       "upstream": "cline/moonshotai/kimi-k2-0905",
-      "name": "Kimi K2 0905",
+      "name": "moonshotai/kimi-k2-0905",
       "disabled": true
     },
     "jet-hub-cline/moonshotai/kimi-k2-thinking": {
       "id": "jet-hub-cline/moonshotai/kimi-k2-thinking",
       "upstream": "cline/moonshotai/kimi-k2-thinking",
-      "name": "Kimi K2 Thinking",
+      "name": "moonshotai/kimi-k2-thinking",
       "disabled": true
     },
     "jet-hub-cline/moonshotai/kimi-k2.5": {
       "id": "jet-hub-cline/moonshotai/kimi-k2.5",
       "upstream": "cline/moonshotai/kimi-k2.5",
-      "name": "Kimi K2.5",
+      "name": "moonshotai/kimi-k2.5",
       "disabled": true
     },
     "jet-hub-cline/moonshotai/kimi-k2.6": {
       "id": "jet-hub-cline/moonshotai/kimi-k2.6",
       "upstream": "cline/moonshotai/kimi-k2.6",
-      "name": "Kimi K2.6",
+      "name": "moonshotai/kimi-k2.6",
       "disabled": true
     },
     "jet-hub-cline/moonshotai/kimi-k2.7-code": {
       "id": "jet-hub-cline/moonshotai/kimi-k2.7-code",
       "upstream": "cline/moonshotai/kimi-k2.7-code",
-      "name": "Kimi K2.7 Code",
+      "name": "moonshotai/kimi-k2.7-code",
       "disabled": true
     },
     "jet-hub-cline/moonshotai/kimi-k3": {
@@ -2850,91 +2941,91 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/moonshotai/kimi-k3.1-pro": {
       "id": "jet-hub-cline/moonshotai/kimi-k3.1-pro",
       "upstream": "cline/moonshotai/kimi-k3.1-pro",
-      "name": "Kimi K3.1 Pro",
+      "name": "moonshotai/kimi-k3.1-pro",
       "disabled": true
     },
     "jet-hub-cline/moonshotai/kimi-k3:batch": {
       "id": "jet-hub-cline/moonshotai/kimi-k3:batch",
       "upstream": "cline/moonshotai/kimi-k3:batch",
-      "name": "Kimi K3:Batch",
+      "name": "moonshotai/kimi-k3:batch",
       "disabled": true
     },
     "jet-hub-cline/morph/morph-v3-fast": {
       "id": "jet-hub-cline/morph/morph-v3-fast",
       "upstream": "cline/morph/morph-v3-fast",
-      "name": "Morph V3 Fast",
+      "name": "morph/morph-v3-fast",
       "disabled": true
     },
     "jet-hub-cline/morph/morph-v3-large": {
       "id": "jet-hub-cline/morph/morph-v3-large",
       "upstream": "cline/morph/morph-v3-large",
-      "name": "Morph V3 Large",
+      "name": "morph/morph-v3-large",
       "disabled": true
     },
     "jet-hub-cline/nex-agi/nex-n2.5-mini": {
       "id": "jet-hub-cline/nex-agi/nex-n2.5-mini",
       "upstream": "cline/nex-agi/nex-n2.5-mini",
-      "name": "Nex N2.5 Mini",
+      "name": "nex-agi/nex-n2.5-mini",
       "disabled": true
     },
     "jet-hub-cline/nex-agi/nex-n2.5-pro": {
       "id": "jet-hub-cline/nex-agi/nex-n2.5-pro",
       "upstream": "cline/nex-agi/nex-n2.5-pro",
-      "name": "Nex N2.5 Pro",
+      "name": "nex-agi/nex-n2.5-pro",
       "disabled": true
     },
     "jet-hub-cline/nousresearch/hermes-4-405b": {
       "id": "jet-hub-cline/nousresearch/hermes-4-405b",
       "upstream": "cline/nousresearch/hermes-4-405b",
-      "name": "Hermes 4 405b",
+      "name": "nousresearch/hermes-4-405b",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3-nano-30b-a3b": {
       "id": "jet-hub-cline/nvidia/nemotron-3-nano-30b-a3b",
       "upstream": "cline/nvidia/nemotron-3-nano-30b-a3b",
-      "name": "Nemotron 3 Nano 30b A3b",
+      "name": "nvidia/nemotron-3-nano-30b-a3b",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
       "id": "jet-hub-cline/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "upstream": "cline/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-      "name": "Nemotron 3 Nano Omni 30b A3b Reasoning · 免费",
+      "name": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3-super-120b-a12b": {
       "id": "jet-hub-cline/nvidia/nemotron-3-super-120b-a12b",
       "upstream": "cline/nvidia/nemotron-3-super-120b-a12b",
-      "name": "Nemotron 3 Super 120b A12b",
+      "name": "nvidia/nemotron-3-super-120b-a12b",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3-ultra-550b-a55b": {
       "id": "jet-hub-cline/nvidia/nemotron-3-ultra-550b-a55b",
       "upstream": "cline/nvidia/nemotron-3-ultra-550b-a55b",
-      "name": "Nemotron 3 Ultra 550b A55b",
+      "name": "nvidia/nemotron-3-ultra-550b-a55b",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3-ultra-550b-a55b:free": {
       "id": "jet-hub-cline/nvidia/nemotron-3-ultra-550b-a55b:free",
       "upstream": "cline/nvidia/nemotron-3-ultra-550b-a55b:free",
-      "name": "Nemotron 3 Ultra 550b A55b · 免费",
+      "name": "nvidia/nemotron-3-ultra-550b-a55b:free",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3.5-content-safety": {
       "id": "jet-hub-cline/nvidia/nemotron-3.5-content-safety",
       "upstream": "cline/nvidia/nemotron-3.5-content-safety",
-      "name": "Nemotron 3.5 Content Safety",
+      "name": "nvidia/nemotron-3.5-content-safety",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3.5-content-safety:free": {
       "id": "jet-hub-cline/nvidia/nemotron-3.5-content-safety:free",
       "upstream": "cline/nvidia/nemotron-3.5-content-safety:free",
-      "name": "Nemotron 3.5 Content Safety · 免费",
+      "name": "nvidia/nemotron-3.5-content-safety:free",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3.5-lightning": {
       "id": "jet-hub-cline/nvidia/nemotron-3.5-lightning",
       "upstream": "cline/nvidia/nemotron-3.5-lightning",
-      "name": "Nemotron 3.5 Lightning",
+      "name": "nvidia/nemotron-3.5-lightning",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3.5-lightning-free": {
@@ -2946,301 +3037,301 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/nvidia/nemotron-3.5-lightning:free": {
       "id": "jet-hub-cline/nvidia/nemotron-3.5-lightning:free",
       "upstream": "cline/nvidia/nemotron-3.5-lightning:free",
-      "name": "Nemotron 3.5 Lightning · 免费",
+      "name": "nvidia/nemotron-3.5-lightning:free",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3.5-super-vl": {
       "id": "jet-hub-cline/nvidia/nemotron-3.5-super-vl",
       "upstream": "cline/nvidia/nemotron-3.5-super-vl",
-      "name": "Nemotron 3.5 Super Vl",
+      "name": "nvidia/nemotron-3.5-super-vl",
       "disabled": true
     },
     "jet-hub-cline/nvidia/nemotron-3.5-super-vl:free": {
       "id": "jet-hub-cline/nvidia/nemotron-3.5-super-vl:free",
       "upstream": "cline/nvidia/nemotron-3.5-super-vl:free",
-      "name": "Nemotron 3.5 Super Vl · 免费",
+      "name": "nvidia/nemotron-3.5-super-vl:free",
       "disabled": true
     },
     "jet-hub-cline/nvidia/switchyard": {
       "id": "jet-hub-cline/nvidia/switchyard",
       "upstream": "cline/nvidia/switchyard",
-      "name": "Switchyard",
+      "name": "nvidia/switchyard",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-3.5-turbo-0613": {
       "id": "jet-hub-cline/openai/gpt-3.5-turbo-0613",
       "upstream": "cline/openai/gpt-3.5-turbo-0613",
-      "name": "Gpt 3.5 Turbo 0613",
+      "name": "openai/gpt-3.5-turbo-0613",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-3.5-turbo-16k": {
       "id": "jet-hub-cline/openai/gpt-3.5-turbo-16k",
       "upstream": "cline/openai/gpt-3.5-turbo-16k",
-      "name": "Gpt 3.5 Turbo 16k",
+      "name": "openai/gpt-3.5-turbo-16k",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4": {
       "id": "jet-hub-cline/openai/gpt-4",
       "upstream": "cline/openai/gpt-4",
-      "name": "Gpt 4",
+      "name": "openai/gpt-4",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4.1": {
       "id": "jet-hub-cline/openai/gpt-4.1",
       "upstream": "cline/openai/gpt-4.1",
-      "name": "Gpt 4.1",
+      "name": "openai/gpt-4.1",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4.1-mini": {
       "id": "jet-hub-cline/openai/gpt-4.1-mini",
       "upstream": "cline/openai/gpt-4.1-mini",
-      "name": "Gpt 4.1 Mini",
+      "name": "openai/gpt-4.1-mini",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4.1-nano": {
       "id": "jet-hub-cline/openai/gpt-4.1-nano",
       "upstream": "cline/openai/gpt-4.1-nano",
-      "name": "Gpt 4.1 Nano",
+      "name": "openai/gpt-4.1-nano",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4o": {
       "id": "jet-hub-cline/openai/gpt-4o",
       "upstream": "cline/openai/gpt-4o",
-      "name": "Gpt 4o",
+      "name": "openai/gpt-4o",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4o-2024-05-13": {
       "id": "jet-hub-cline/openai/gpt-4o-2024-05-13",
       "upstream": "cline/openai/gpt-4o-2024-05-13",
-      "name": "Gpt 4o 2024 05 13",
+      "name": "openai/gpt-4o-2024-05-13",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4o-2024-08-06": {
       "id": "jet-hub-cline/openai/gpt-4o-2024-08-06",
       "upstream": "cline/openai/gpt-4o-2024-08-06",
-      "name": "Gpt 4o 2024 08 06",
+      "name": "openai/gpt-4o-2024-08-06",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4o-2024-11-20": {
       "id": "jet-hub-cline/openai/gpt-4o-2024-11-20",
       "upstream": "cline/openai/gpt-4o-2024-11-20",
-      "name": "Gpt 4o 2024 11 20",
+      "name": "openai/gpt-4o-2024-11-20",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4o-mini": {
       "id": "jet-hub-cline/openai/gpt-4o-mini",
       "upstream": "cline/openai/gpt-4o-mini",
-      "name": "Gpt 4o Mini",
+      "name": "openai/gpt-4o-mini",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-4o-mini-2024-07-18": {
       "id": "jet-hub-cline/openai/gpt-4o-mini-2024-07-18",
       "upstream": "cline/openai/gpt-4o-mini-2024-07-18",
-      "name": "Gpt 4o Mini 2024 07 18",
+      "name": "openai/gpt-4o-mini-2024-07-18",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5": {
       "id": "jet-hub-cline/openai/gpt-5",
       "upstream": "cline/openai/gpt-5",
-      "name": "Gpt 5",
+      "name": "openai/gpt-5",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5-image": {
       "id": "jet-hub-cline/openai/gpt-5-image",
       "upstream": "cline/openai/gpt-5-image",
-      "name": "Gpt 5 Image",
+      "name": "openai/gpt-5-image",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5-image-mini": {
       "id": "jet-hub-cline/openai/gpt-5-image-mini",
       "upstream": "cline/openai/gpt-5-image-mini",
-      "name": "Gpt 5 Image Mini",
+      "name": "openai/gpt-5-image-mini",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5-mini": {
       "id": "jet-hub-cline/openai/gpt-5-mini",
       "upstream": "cline/openai/gpt-5-mini",
-      "name": "Gpt 5 Mini",
+      "name": "openai/gpt-5-mini",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5-nano": {
       "id": "jet-hub-cline/openai/gpt-5-nano",
       "upstream": "cline/openai/gpt-5-nano",
-      "name": "Gpt 5 Nano",
+      "name": "openai/gpt-5-nano",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5-nano:batch": {
       "id": "jet-hub-cline/openai/gpt-5-nano:batch",
       "upstream": "cline/openai/gpt-5-nano:batch",
-      "name": "Gpt 5 Nano:Batch",
+      "name": "openai/gpt-5-nano:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5-pro": {
       "id": "jet-hub-cline/openai/gpt-5-pro",
       "upstream": "cline/openai/gpt-5-pro",
-      "name": "Gpt 5 Pro",
+      "name": "openai/gpt-5-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.1": {
       "id": "jet-hub-cline/openai/gpt-5.1",
       "upstream": "cline/openai/gpt-5.1",
-      "name": "Gpt 5.1",
+      "name": "openai/gpt-5.1",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.1-codex": {
       "id": "jet-hub-cline/openai/gpt-5.1-codex",
       "upstream": "cline/openai/gpt-5.1-codex",
-      "name": "Gpt 5.1 Codex",
+      "name": "openai/gpt-5.1-codex",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.1-codex-max": {
       "id": "jet-hub-cline/openai/gpt-5.1-codex-max",
       "upstream": "cline/openai/gpt-5.1-codex-max",
-      "name": "Gpt 5.1 Codex Max",
+      "name": "openai/gpt-5.1-codex-max",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.1-codex-mini": {
       "id": "jet-hub-cline/openai/gpt-5.1-codex-mini",
       "upstream": "cline/openai/gpt-5.1-codex-mini",
-      "name": "Gpt 5.1 Codex Mini",
+      "name": "openai/gpt-5.1-codex-mini",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.2": {
       "id": "jet-hub-cline/openai/gpt-5.2",
       "upstream": "cline/openai/gpt-5.2",
-      "name": "Gpt 5.2",
+      "name": "openai/gpt-5.2",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.2-codex": {
       "id": "jet-hub-cline/openai/gpt-5.2-codex",
       "upstream": "cline/openai/gpt-5.2-codex",
-      "name": "Gpt 5.2 Codex",
+      "name": "openai/gpt-5.2-codex",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.2-pro": {
       "id": "jet-hub-cline/openai/gpt-5.2-pro",
       "upstream": "cline/openai/gpt-5.2-pro",
-      "name": "Gpt 5.2 Pro",
+      "name": "openai/gpt-5.2-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.3-codex": {
       "id": "jet-hub-cline/openai/gpt-5.3-codex",
       "upstream": "cline/openai/gpt-5.3-codex",
-      "name": "Gpt 5.3 Codex",
+      "name": "openai/gpt-5.3-codex",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.4": {
       "id": "jet-hub-cline/openai/gpt-5.4",
       "upstream": "cline/openai/gpt-5.4",
-      "name": "Gpt 5.4",
+      "name": "openai/gpt-5.4",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.4-image-2": {
       "id": "jet-hub-cline/openai/gpt-5.4-image-2",
       "upstream": "cline/openai/gpt-5.4-image-2",
-      "name": "Gpt 5.4 Image 2",
+      "name": "openai/gpt-5.4-image-2",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.4-mini": {
       "id": "jet-hub-cline/openai/gpt-5.4-mini",
       "upstream": "cline/openai/gpt-5.4-mini",
-      "name": "Gpt 5.4 Mini",
+      "name": "openai/gpt-5.4-mini",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.4-nano": {
       "id": "jet-hub-cline/openai/gpt-5.4-nano",
       "upstream": "cline/openai/gpt-5.4-nano",
-      "name": "Gpt 5.4 Nano",
+      "name": "openai/gpt-5.4-nano",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.4-pro": {
       "id": "jet-hub-cline/openai/gpt-5.4-pro",
       "upstream": "cline/openai/gpt-5.4-pro",
-      "name": "Gpt 5.4 Pro",
+      "name": "openai/gpt-5.4-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.5": {
       "id": "jet-hub-cline/openai/gpt-5.5",
       "upstream": "cline/openai/gpt-5.5",
-      "name": "Gpt 5.5",
+      "name": "openai/gpt-5.5",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.5-pro": {
       "id": "jet-hub-cline/openai/gpt-5.5-pro",
       "upstream": "cline/openai/gpt-5.5-pro",
-      "name": "Gpt 5.5 Pro",
+      "name": "openai/gpt-5.5-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-luna": {
       "id": "jet-hub-cline/openai/gpt-5.6-luna",
       "upstream": "cline/openai/gpt-5.6-luna",
-      "name": "Gpt 5.6 Luna",
+      "name": "openai/gpt-5.6-luna",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-luna-pro": {
       "id": "jet-hub-cline/openai/gpt-5.6-luna-pro",
       "upstream": "cline/openai/gpt-5.6-luna-pro",
-      "name": "Gpt 5.6 Luna Pro",
+      "name": "openai/gpt-5.6-luna-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-luna-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-5.6-luna-pro:batch",
       "upstream": "cline/openai/gpt-5.6-luna-pro:batch",
-      "name": "Gpt 5.6 Luna Pro:Batch",
+      "name": "openai/gpt-5.6-luna-pro:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-luna:batch": {
       "id": "jet-hub-cline/openai/gpt-5.6-luna:batch",
       "upstream": "cline/openai/gpt-5.6-luna:batch",
-      "name": "Gpt 5.6 Luna:Batch",
+      "name": "openai/gpt-5.6-luna:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-sol": {
       "id": "jet-hub-cline/openai/gpt-5.6-sol",
       "upstream": "cline/openai/gpt-5.6-sol",
-      "name": "Gpt 5.6 Sol",
+      "name": "openai/gpt-5.6-sol",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-sol-pro": {
       "id": "jet-hub-cline/openai/gpt-5.6-sol-pro",
       "upstream": "cline/openai/gpt-5.6-sol-pro",
-      "name": "Gpt 5.6 Sol Pro",
+      "name": "openai/gpt-5.6-sol-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-sol-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-5.6-sol-pro:batch",
       "upstream": "cline/openai/gpt-5.6-sol-pro:batch",
-      "name": "Gpt 5.6 Sol Pro:Batch",
+      "name": "openai/gpt-5.6-sol-pro:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-sol:batch": {
       "id": "jet-hub-cline/openai/gpt-5.6-sol:batch",
       "upstream": "cline/openai/gpt-5.6-sol:batch",
-      "name": "Gpt 5.6 Sol:Batch",
+      "name": "openai/gpt-5.6-sol:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-terra": {
       "id": "jet-hub-cline/openai/gpt-5.6-terra",
       "upstream": "cline/openai/gpt-5.6-terra",
-      "name": "Gpt 5.6 Terra",
+      "name": "openai/gpt-5.6-terra",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-terra-pro": {
       "id": "jet-hub-cline/openai/gpt-5.6-terra-pro",
       "upstream": "cline/openai/gpt-5.6-terra-pro",
-      "name": "Gpt 5.6 Terra Pro",
+      "name": "openai/gpt-5.6-terra-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-terra-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-5.6-terra-pro:batch",
       "upstream": "cline/openai/gpt-5.6-terra-pro:batch",
-      "name": "Gpt 5.6 Terra Pro:Batch",
+      "name": "openai/gpt-5.6-terra-pro:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-5.6-terra:batch": {
       "id": "jet-hub-cline/openai/gpt-5.6-terra:batch",
       "upstream": "cline/openai/gpt-5.6-terra:batch",
-      "name": "Gpt 5.6 Terra:Batch",
+      "name": "openai/gpt-5.6-terra:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-astra": {
@@ -3252,67 +3343,67 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/openai/gpt-6-astra-pro": {
       "id": "jet-hub-cline/openai/gpt-6-astra-pro",
       "upstream": "cline/openai/gpt-6-astra-pro",
-      "name": "Gpt 6 Astra Pro",
+      "name": "openai/gpt-6-astra-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-astra-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-6-astra-pro:batch",
       "upstream": "cline/openai/gpt-6-astra-pro:batch",
-      "name": "Gpt 6 Astra Pro:Batch",
+      "name": "openai/gpt-6-astra-pro:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-astra:batch": {
       "id": "jet-hub-cline/openai/gpt-6-astra:batch",
       "upstream": "cline/openai/gpt-6-astra:batch",
-      "name": "Gpt 6 Astra:Batch",
+      "name": "openai/gpt-6-astra:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-luna": {
       "id": "jet-hub-cline/openai/gpt-6-luna",
       "upstream": "cline/openai/gpt-6-luna",
-      "name": "Gpt 6 Luna",
+      "name": "openai/gpt-6-luna",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-luna-pro": {
       "id": "jet-hub-cline/openai/gpt-6-luna-pro",
       "upstream": "cline/openai/gpt-6-luna-pro",
-      "name": "Gpt 6 Luna Pro",
+      "name": "openai/gpt-6-luna-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-luna-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-6-luna-pro:batch",
       "upstream": "cline/openai/gpt-6-luna-pro:batch",
-      "name": "Gpt 6 Luna Pro:Batch",
+      "name": "openai/gpt-6-luna-pro:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-luna:batch": {
       "id": "jet-hub-cline/openai/gpt-6-luna:batch",
       "upstream": "cline/openai/gpt-6-luna:batch",
-      "name": "Gpt 6 Luna:Batch",
+      "name": "openai/gpt-6-luna:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-sol": {
       "id": "jet-hub-cline/openai/gpt-6-sol",
       "upstream": "cline/openai/gpt-6-sol",
-      "name": "Gpt 6 Sol",
+      "name": "openai/gpt-6-sol",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-sol-pro": {
       "id": "jet-hub-cline/openai/gpt-6-sol-pro",
       "upstream": "cline/openai/gpt-6-sol-pro",
-      "name": "Gpt 6 Sol Pro",
+      "name": "openai/gpt-6-sol-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-sol-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-6-sol-pro:batch",
       "upstream": "cline/openai/gpt-6-sol-pro:batch",
-      "name": "Gpt 6 Sol Pro:Batch",
+      "name": "openai/gpt-6-sol-pro:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6-sol:batch": {
       "id": "jet-hub-cline/openai/gpt-6-sol:batch",
       "upstream": "cline/openai/gpt-6-sol:batch",
-      "name": "Gpt 6 Sol:Batch",
+      "name": "openai/gpt-6-sol:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6.1-sol": {
@@ -3324,1015 +3415,1015 @@ window.JET_HUB_CATALOG = {
     "jet-hub-cline/openai/gpt-6.1-sol-pro": {
       "id": "jet-hub-cline/openai/gpt-6.1-sol-pro",
       "upstream": "cline/openai/gpt-6.1-sol-pro",
-      "name": "Gpt 6.1 Sol Pro",
+      "name": "openai/gpt-6.1-sol-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6.1-sol-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-6.1-sol-pro:batch",
       "upstream": "cline/openai/gpt-6.1-sol-pro:batch",
-      "name": "Gpt 6.1 Sol Pro:Batch",
+      "name": "openai/gpt-6.1-sol-pro:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6.1-sol:batch": {
       "id": "jet-hub-cline/openai/gpt-6.1-sol:batch",
       "upstream": "cline/openai/gpt-6.1-sol:batch",
-      "name": "Gpt 6.1 Sol:Batch",
+      "name": "openai/gpt-6.1-sol:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6.1-terra": {
       "id": "jet-hub-cline/openai/gpt-6.1-terra",
       "upstream": "cline/openai/gpt-6.1-terra",
-      "name": "Gpt 6.1 Terra",
+      "name": "openai/gpt-6.1-terra",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6.1-terra-pro": {
       "id": "jet-hub-cline/openai/gpt-6.1-terra-pro",
       "upstream": "cline/openai/gpt-6.1-terra-pro",
-      "name": "Gpt 6.1 Terra Pro",
+      "name": "openai/gpt-6.1-terra-pro",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6.1-terra-pro:batch": {
       "id": "jet-hub-cline/openai/gpt-6.1-terra-pro:batch",
       "upstream": "cline/openai/gpt-6.1-terra-pro:batch",
-      "name": "Gpt 6.1 Terra Pro:Batch",
+      "name": "openai/gpt-6.1-terra-pro:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-6.1-terra:batch": {
       "id": "jet-hub-cline/openai/gpt-6.1-terra:batch",
       "upstream": "cline/openai/gpt-6.1-terra:batch",
-      "name": "Gpt 6.1 Terra:Batch",
+      "name": "openai/gpt-6.1-terra:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-audio": {
       "id": "jet-hub-cline/openai/gpt-audio",
       "upstream": "cline/openai/gpt-audio",
-      "name": "Gpt Audio",
+      "name": "openai/gpt-audio",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-audio-mini": {
       "id": "jet-hub-cline/openai/gpt-audio-mini",
       "upstream": "cline/openai/gpt-audio-mini",
-      "name": "Gpt Audio Mini",
+      "name": "openai/gpt-audio-mini",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-chat-latest": {
       "id": "jet-hub-cline/openai/gpt-chat-latest",
       "upstream": "cline/openai/gpt-chat-latest",
-      "name": "Gpt Chat Latest",
+      "name": "openai/gpt-chat-latest",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-oss-120b": {
       "id": "jet-hub-cline/openai/gpt-oss-120b",
       "upstream": "cline/openai/gpt-oss-120b",
-      "name": "Gpt Oss 120b",
+      "name": "openai/gpt-oss-120b",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-oss-120b:batch": {
       "id": "jet-hub-cline/openai/gpt-oss-120b:batch",
       "upstream": "cline/openai/gpt-oss-120b:batch",
-      "name": "Gpt Oss 120b:Batch",
+      "name": "openai/gpt-oss-120b:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-oss-20b": {
       "id": "jet-hub-cline/openai/gpt-oss-20b",
       "upstream": "cline/openai/gpt-oss-20b",
-      "name": "Gpt Oss 20b",
+      "name": "openai/gpt-oss-20b",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-oss-20b:batch": {
       "id": "jet-hub-cline/openai/gpt-oss-20b:batch",
       "upstream": "cline/openai/gpt-oss-20b:batch",
-      "name": "Gpt Oss 20b:Batch",
+      "name": "openai/gpt-oss-20b:batch",
       "disabled": true
     },
     "jet-hub-cline/openai/gpt-oss-safeguard-20b": {
       "id": "jet-hub-cline/openai/gpt-oss-safeguard-20b",
       "upstream": "cline/openai/gpt-oss-safeguard-20b",
-      "name": "Gpt Oss Safeguard 20b",
+      "name": "openai/gpt-oss-safeguard-20b",
       "disabled": true
     },
     "jet-hub-cline/openai/o3": {
       "id": "jet-hub-cline/openai/o3",
       "upstream": "cline/openai/o3",
-      "name": "O3",
+      "name": "openai/o3",
       "disabled": true
     },
     "jet-hub-cline/openai/o3-pro": {
       "id": "jet-hub-cline/openai/o3-pro",
       "upstream": "cline/openai/o3-pro",
-      "name": "O3 Pro",
+      "name": "openai/o3-pro",
       "disabled": true
     },
     "jet-hub-cline/openrouter/auto": {
       "id": "jet-hub-cline/openrouter/auto",
       "upstream": "cline/openrouter/auto",
-      "name": "Auto",
+      "name": "openrouter/auto",
       "disabled": true
     },
     "jet-hub-cline/openrouter/auto-beta": {
       "id": "jet-hub-cline/openrouter/auto-beta",
       "upstream": "cline/openrouter/auto-beta",
-      "name": "Auto Beta",
+      "name": "openrouter/auto-beta",
       "disabled": true
     },
     "jet-hub-cline/openrouter/bodybuilder": {
       "id": "jet-hub-cline/openrouter/bodybuilder",
       "upstream": "cline/openrouter/bodybuilder",
-      "name": "Bodybuilder",
+      "name": "openrouter/bodybuilder",
       "disabled": true
     },
     "jet-hub-cline/openrouter/free": {
       "id": "jet-hub-cline/openrouter/free",
       "upstream": "cline/openrouter/free",
-      "name": "Free",
+      "name": "openrouter/free",
       "disabled": true
     },
     "jet-hub-cline/openrouter/fusion": {
       "id": "jet-hub-cline/openrouter/fusion",
       "upstream": "cline/openrouter/fusion",
-      "name": "Fusion",
+      "name": "openrouter/fusion",
       "disabled": true
     },
     "jet-hub-cline/openrouter/pareto-code": {
       "id": "jet-hub-cline/openrouter/pareto-code",
       "upstream": "cline/openrouter/pareto-code",
-      "name": "Pareto Code",
+      "name": "openrouter/pareto-code",
       "disabled": true
     },
     "jet-hub-cline/particle-ai/particle-1": {
       "id": "jet-hub-cline/particle-ai/particle-1",
       "upstream": "cline/particle-ai/particle-1",
-      "name": "Particle 1",
+      "name": "particle-ai/particle-1",
       "disabled": true
     },
     "jet-hub-cline/perceptron/perceptron-mk1": {
       "id": "jet-hub-cline/perceptron/perceptron-mk1",
       "upstream": "cline/perceptron/perceptron-mk1",
-      "name": "Perceptron Mk1",
+      "name": "perceptron/perceptron-mk1",
       "disabled": true
     },
     "jet-hub-cline/perceptron/perceptron-mk1.5": {
       "id": "jet-hub-cline/perceptron/perceptron-mk1.5",
       "upstream": "cline/perceptron/perceptron-mk1.5",
-      "name": "Perceptron Mk1.5",
+      "name": "perceptron/perceptron-mk1.5",
       "disabled": true
     },
     "jet-hub-cline/perplexity/sonar": {
       "id": "jet-hub-cline/perplexity/sonar",
       "upstream": "cline/perplexity/sonar",
-      "name": "Sonar",
+      "name": "perplexity/sonar",
       "disabled": true
     },
     "jet-hub-cline/perplexity/sonar-deep-research": {
       "id": "jet-hub-cline/perplexity/sonar-deep-research",
       "upstream": "cline/perplexity/sonar-deep-research",
-      "name": "Sonar Deep Research",
+      "name": "perplexity/sonar-deep-research",
       "disabled": true
     },
     "jet-hub-cline/perplexity/sonar-pro": {
       "id": "jet-hub-cline/perplexity/sonar-pro",
       "upstream": "cline/perplexity/sonar-pro",
-      "name": "Sonar Pro",
+      "name": "perplexity/sonar-pro",
       "disabled": true
     },
     "jet-hub-cline/perplexity/sonar-pro-search": {
       "id": "jet-hub-cline/perplexity/sonar-pro-search",
       "upstream": "cline/perplexity/sonar-pro-search",
-      "name": "Sonar Pro Search",
+      "name": "perplexity/sonar-pro-search",
       "disabled": true
     },
     "jet-hub-cline/perplexity/sonar-reasoning-pro": {
       "id": "jet-hub-cline/perplexity/sonar-reasoning-pro",
       "upstream": "cline/perplexity/sonar-reasoning-pro",
-      "name": "Sonar Reasoning Pro",
+      "name": "perplexity/sonar-reasoning-pro",
       "disabled": true
     },
     "jet-hub-cline/prism-ml/ternary-bonsai-2-27b": {
       "id": "jet-hub-cline/prism-ml/ternary-bonsai-2-27b",
       "upstream": "cline/prism-ml/ternary-bonsai-2-27b",
-      "name": "Ternary Bonsai 2 27b",
+      "name": "prism-ml/ternary-bonsai-2-27b",
       "disabled": true
     },
     "jet-hub-cline/prism-ml/ternary-bonsai-2-9b": {
       "id": "jet-hub-cline/prism-ml/ternary-bonsai-2-9b",
       "upstream": "cline/prism-ml/ternary-bonsai-2-9b",
-      "name": "Ternary Bonsai 2 9b",
+      "name": "prism-ml/ternary-bonsai-2-9b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen-2.5-72b-instruct": {
       "id": "jet-hub-cline/qwen/qwen-2.5-72b-instruct",
       "upstream": "cline/qwen/qwen-2.5-72b-instruct",
-      "name": "Qwen 2.5 72b Instruct",
+      "name": "qwen/qwen-2.5-72b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen-2.5-7b-instruct": {
       "id": "jet-hub-cline/qwen/qwen-2.5-7b-instruct",
       "upstream": "cline/qwen/qwen-2.5-7b-instruct",
-      "name": "Qwen 2.5 7b Instruct",
+      "name": "qwen/qwen-2.5-7b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen-2.5-coder-32b-instruct": {
       "id": "jet-hub-cline/qwen/qwen-2.5-coder-32b-instruct",
       "upstream": "cline/qwen/qwen-2.5-coder-32b-instruct",
-      "name": "Qwen 2.5 Coder 32b Instruct",
+      "name": "qwen/qwen-2.5-coder-32b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen-plus": {
       "id": "jet-hub-cline/qwen/qwen-plus",
       "upstream": "cline/qwen/qwen-plus",
-      "name": "Qwen Plus",
+      "name": "qwen/qwen-plus",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen2.5-vl-72b-instruct": {
       "id": "jet-hub-cline/qwen/qwen2.5-vl-72b-instruct",
       "upstream": "cline/qwen/qwen2.5-vl-72b-instruct",
-      "name": "Qwen2.5 Vl 72b Instruct",
+      "name": "qwen/qwen2.5-vl-72b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-14b": {
       "id": "jet-hub-cline/qwen/qwen3-14b",
       "upstream": "cline/qwen/qwen3-14b",
-      "name": "Qwen3 14b",
+      "name": "qwen/qwen3-14b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-235b-a22b-2507": {
       "id": "jet-hub-cline/qwen/qwen3-235b-a22b-2507",
       "upstream": "cline/qwen/qwen3-235b-a22b-2507",
-      "name": "Qwen3 235b A22b 2507",
+      "name": "qwen/qwen3-235b-a22b-2507",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-235b-a22b-thinking-2507": {
       "id": "jet-hub-cline/qwen/qwen3-235b-a22b-thinking-2507",
       "upstream": "cline/qwen/qwen3-235b-a22b-thinking-2507",
-      "name": "Qwen3 235b A22b Thinking 2507",
+      "name": "qwen/qwen3-235b-a22b-thinking-2507",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-30b-a3b": {
       "id": "jet-hub-cline/qwen/qwen3-30b-a3b",
       "upstream": "cline/qwen/qwen3-30b-a3b",
-      "name": "Qwen3 30b A3b",
+      "name": "qwen/qwen3-30b-a3b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-30b-a3b-instruct-2507": {
       "id": "jet-hub-cline/qwen/qwen3-30b-a3b-instruct-2507",
       "upstream": "cline/qwen/qwen3-30b-a3b-instruct-2507",
-      "name": "Qwen3 30b A3b Instruct 2507",
+      "name": "qwen/qwen3-30b-a3b-instruct-2507",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-32b": {
       "id": "jet-hub-cline/qwen/qwen3-32b",
       "upstream": "cline/qwen/qwen3-32b",
-      "name": "Qwen3 32b",
+      "name": "qwen/qwen3-32b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-coder": {
       "id": "jet-hub-cline/qwen/qwen3-coder",
       "upstream": "cline/qwen/qwen3-coder",
-      "name": "Qwen3 Coder",
+      "name": "qwen/qwen3-coder",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-coder-30b-a3b-instruct": {
       "id": "jet-hub-cline/qwen/qwen3-coder-30b-a3b-instruct",
       "upstream": "cline/qwen/qwen3-coder-30b-a3b-instruct",
-      "name": "Qwen3 Coder 30b A3b Instruct",
+      "name": "qwen/qwen3-coder-30b-a3b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-coder-flash": {
       "id": "jet-hub-cline/qwen/qwen3-coder-flash",
       "upstream": "cline/qwen/qwen3-coder-flash",
-      "name": "Qwen3 Coder Flash",
+      "name": "qwen/qwen3-coder-flash",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-coder-next": {
       "id": "jet-hub-cline/qwen/qwen3-coder-next",
       "upstream": "cline/qwen/qwen3-coder-next",
-      "name": "Qwen3 Coder Next",
+      "name": "qwen/qwen3-coder-next",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-next-80b-a3b-instruct": {
       "id": "jet-hub-cline/qwen/qwen3-next-80b-a3b-instruct",
       "upstream": "cline/qwen/qwen3-next-80b-a3b-instruct",
-      "name": "Qwen3 Next 80b A3b Instruct",
+      "name": "qwen/qwen3-next-80b-a3b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-vl-235b-a22b-instruct": {
       "id": "jet-hub-cline/qwen/qwen3-vl-235b-a22b-instruct",
       "upstream": "cline/qwen/qwen3-vl-235b-a22b-instruct",
-      "name": "Qwen3 Vl 235b A22b Instruct",
+      "name": "qwen/qwen3-vl-235b-a22b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-vl-30b-a3b-instruct": {
       "id": "jet-hub-cline/qwen/qwen3-vl-30b-a3b-instruct",
       "upstream": "cline/qwen/qwen3-vl-30b-a3b-instruct",
-      "name": "Qwen3 Vl 30b A3b Instruct",
+      "name": "qwen/qwen3-vl-30b-a3b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-vl-30b-a3b-thinking": {
       "id": "jet-hub-cline/qwen/qwen3-vl-30b-a3b-thinking",
       "upstream": "cline/qwen/qwen3-vl-30b-a3b-thinking",
-      "name": "Qwen3 Vl 30b A3b Thinking",
+      "name": "qwen/qwen3-vl-30b-a3b-thinking",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3-vl-8b-instruct": {
       "id": "jet-hub-cline/qwen/qwen3-vl-8b-instruct",
       "upstream": "cline/qwen/qwen3-vl-8b-instruct",
-      "name": "Qwen3 Vl 8b Instruct",
+      "name": "qwen/qwen3-vl-8b-instruct",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.5-122b-a10b": {
       "id": "jet-hub-cline/qwen/qwen3.5-122b-a10b",
       "upstream": "cline/qwen/qwen3.5-122b-a10b",
-      "name": "Qwen3.5 122b A10b",
+      "name": "qwen/qwen3.5-122b-a10b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.5-27b": {
       "id": "jet-hub-cline/qwen/qwen3.5-27b",
       "upstream": "cline/qwen/qwen3.5-27b",
-      "name": "Qwen3.5 27b",
+      "name": "qwen/qwen3.5-27b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.5-35b-a3b": {
       "id": "jet-hub-cline/qwen/qwen3.5-35b-a3b",
       "upstream": "cline/qwen/qwen3.5-35b-a3b",
-      "name": "Qwen3.5 35b A3b",
+      "name": "qwen/qwen3.5-35b-a3b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.5-397b-a17b": {
       "id": "jet-hub-cline/qwen/qwen3.5-397b-a17b",
       "upstream": "cline/qwen/qwen3.5-397b-a17b",
-      "name": "Qwen3.5 397b A17b",
+      "name": "qwen/qwen3.5-397b-a17b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.5-9b": {
       "id": "jet-hub-cline/qwen/qwen3.5-9b",
       "upstream": "cline/qwen/qwen3.5-9b",
-      "name": "Qwen3.5 9b",
+      "name": "qwen/qwen3.5-9b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.5-flash-02-23": {
       "id": "jet-hub-cline/qwen/qwen3.5-flash-02-23",
       "upstream": "cline/qwen/qwen3.5-flash-02-23",
-      "name": "Qwen3.5 Flash 02 23",
+      "name": "qwen/qwen3.5-flash-02-23",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.5-plus-02-15": {
       "id": "jet-hub-cline/qwen/qwen3.5-plus-02-15",
       "upstream": "cline/qwen/qwen3.5-plus-02-15",
-      "name": "Qwen3.5 Plus 02 15",
+      "name": "qwen/qwen3.5-plus-02-15",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.5-plus-20260420": {
       "id": "jet-hub-cline/qwen/qwen3.5-plus-20260420",
       "upstream": "cline/qwen/qwen3.5-plus-20260420",
-      "name": "Qwen3.5 Plus 20260420",
+      "name": "qwen/qwen3.5-plus-20260420",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.6-27b": {
       "id": "jet-hub-cline/qwen/qwen3.6-27b",
       "upstream": "cline/qwen/qwen3.6-27b",
-      "name": "Qwen3.6 27b",
+      "name": "qwen/qwen3.6-27b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.6-35b-a3b": {
       "id": "jet-hub-cline/qwen/qwen3.6-35b-a3b",
       "upstream": "cline/qwen/qwen3.6-35b-a3b",
-      "name": "Qwen3.6 35b A3b",
+      "name": "qwen/qwen3.6-35b-a3b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.6-flash": {
       "id": "jet-hub-cline/qwen/qwen3.6-flash",
       "upstream": "cline/qwen/qwen3.6-flash",
-      "name": "Qwen3.6 Flash",
+      "name": "qwen/qwen3.6-flash",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.6-plus": {
       "id": "jet-hub-cline/qwen/qwen3.6-plus",
       "upstream": "cline/qwen/qwen3.6-plus",
-      "name": "Qwen3.6 Plus",
+      "name": "qwen/qwen3.6-plus",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.7-flash": {
       "id": "jet-hub-cline/qwen/qwen3.7-flash",
       "upstream": "cline/qwen/qwen3.7-flash",
-      "name": "Qwen3.7 Flash",
+      "name": "qwen/qwen3.7-flash",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.7-max": {
       "id": "jet-hub-cline/qwen/qwen3.7-max",
       "upstream": "cline/qwen/qwen3.7-max",
-      "name": "Qwen3.7 Max",
+      "name": "qwen/qwen3.7-max",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.7-plus": {
       "id": "jet-hub-cline/qwen/qwen3.7-plus",
       "upstream": "cline/qwen/qwen3.7-plus",
-      "name": "Qwen3.7 Plus",
+      "name": "qwen/qwen3.7-plus",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.7-plus:batch": {
       "id": "jet-hub-cline/qwen/qwen3.7-plus:batch",
       "upstream": "cline/qwen/qwen3.7-plus:batch",
-      "name": "Qwen3.7 Plus:Batch",
+      "name": "qwen/qwen3.7-plus:batch",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.8-2.4t-a95b": {
       "id": "jet-hub-cline/qwen/qwen3.8-2.4t-a95b",
       "upstream": "cline/qwen/qwen3.8-2.4t-a95b",
-      "name": "Qwen3.8 2.4t A95b",
+      "name": "qwen/qwen3.8-2.4t-a95b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.8-27b": {
       "id": "jet-hub-cline/qwen/qwen3.8-27b",
       "upstream": "cline/qwen/qwen3.8-27b",
-      "name": "Qwen3.8 27b",
+      "name": "qwen/qwen3.8-27b",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.8-flash": {
       "id": "jet-hub-cline/qwen/qwen3.8-flash",
       "upstream": "cline/qwen/qwen3.8-flash",
-      "name": "Qwen3.8 Flash",
+      "name": "qwen/qwen3.8-flash",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.8-max-0902": {
       "id": "jet-hub-cline/qwen/qwen3.8-max-0902",
       "upstream": "cline/qwen/qwen3.8-max-0902",
-      "name": "Qwen3.8 Max 0902",
+      "name": "qwen/qwen3.8-max-0902",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.8-max-prime": {
       "id": "jet-hub-cline/qwen/qwen3.8-max-prime",
       "upstream": "cline/qwen/qwen3.8-max-prime",
-      "name": "Qwen3.8 Max Prime",
+      "name": "qwen/qwen3.8-max-prime",
       "disabled": true
     },
     "jet-hub-cline/qwen/qwen3.8-omni-flash": {
       "id": "jet-hub-cline/qwen/qwen3.8-omni-flash",
       "upstream": "cline/qwen/qwen3.8-omni-flash",
-      "name": "Qwen3.8 Omni Flash",
+      "name": "qwen/qwen3.8-omni-flash",
       "disabled": true
     },
     "jet-hub-cline/recursive/flint-v1.0:free": {
       "id": "jet-hub-cline/recursive/flint-v1.0:free",
       "upstream": "cline/recursive/flint-v1.0:free",
-      "name": "Flint V1.0 · 免费",
+      "name": "recursive/flint-v1.0:free",
       "disabled": true
     },
     "jet-hub-cline/reflection/beam-1.0-501b-a23b": {
       "id": "jet-hub-cline/reflection/beam-1.0-501b-a23b",
       "upstream": "cline/reflection/beam-1.0-501b-a23b",
-      "name": "Beam 1.0 501b A23b",
+      "name": "reflection/beam-1.0-501b-a23b",
       "disabled": true
     },
     "jet-hub-cline/reflection/beam-free": {
       "id": "jet-hub-cline/reflection/beam-free",
       "upstream": "cline/reflection/beam-free",
-      "name": "Beam · 免费",
+      "name": "reflection/beam-free",
       "disabled": true
     },
     "jet-hub-cline/rekaai/reka-edge": {
       "id": "jet-hub-cline/rekaai/reka-edge",
       "upstream": "cline/rekaai/reka-edge",
-      "name": "Reka Edge",
+      "name": "rekaai/reka-edge",
       "disabled": true
     },
     "jet-hub-cline/rekaai/reka-flash-3": {
       "id": "jet-hub-cline/rekaai/reka-flash-3",
       "upstream": "cline/rekaai/reka-flash-3",
-      "name": "Reka Flash 3",
+      "name": "rekaai/reka-flash-3",
       "disabled": true
     },
     "jet-hub-cline/relace/relace-apply-3": {
       "id": "jet-hub-cline/relace/relace-apply-3",
       "upstream": "cline/relace/relace-apply-3",
-      "name": "Relace Apply 3",
+      "name": "relace/relace-apply-3",
       "disabled": true
     },
     "jet-hub-cline/relace/relace-search": {
       "id": "jet-hub-cline/relace/relace-search",
       "upstream": "cline/relace/relace-search",
-      "name": "Relace Search",
+      "name": "relace/relace-search",
       "disabled": true
     },
     "jet-hub-cline/ricursiveai/ripple-65b-preview": {
       "id": "jet-hub-cline/ricursiveai/ripple-65b-preview",
       "upstream": "cline/ricursiveai/ripple-65b-preview",
-      "name": "Ripple 65b Preview",
-      "disabled": false
+      "name": "ricursiveai/ripple-65b-preview",
+      "disabled": true
     },
     "jet-hub-cline/sakana/fugu-max": {
       "id": "jet-hub-cline/sakana/fugu-max",
       "upstream": "cline/sakana/fugu-max",
-      "name": "Fugu Max",
+      "name": "sakana/fugu-max",
       "disabled": true
     },
     "jet-hub-cline/sakana/fugu-ultra": {
       "id": "jet-hub-cline/sakana/fugu-ultra",
       "upstream": "cline/sakana/fugu-ultra",
-      "name": "Fugu Ultra",
+      "name": "sakana/fugu-ultra",
       "disabled": true
     },
     "jet-hub-cline/sakana/fugu-ultra-v2": {
       "id": "jet-hub-cline/sakana/fugu-ultra-v2",
       "upstream": "cline/sakana/fugu-ultra-v2",
-      "name": "Fugu Ultra V2",
+      "name": "sakana/fugu-ultra-v2",
       "disabled": true
     },
     "jet-hub-cline/sakana/sakana-namazu": {
       "id": "jet-hub-cline/sakana/sakana-namazu",
       "upstream": "cline/sakana/sakana-namazu",
-      "name": "Sakana Namazu",
+      "name": "sakana/sakana-namazu",
       "disabled": true
     },
     "jet-hub-cline/sao10k/l3-lunaris-8b": {
       "id": "jet-hub-cline/sao10k/l3-lunaris-8b",
       "upstream": "cline/sao10k/l3-lunaris-8b",
-      "name": "L3 Lunaris 8b",
+      "name": "sao10k/l3-lunaris-8b",
       "disabled": true
     },
     "jet-hub-cline/sao10k/l3.1-euryale-70b": {
       "id": "jet-hub-cline/sao10k/l3.1-euryale-70b",
       "upstream": "cline/sao10k/l3.1-euryale-70b",
-      "name": "L3.1 Euryale 70b",
+      "name": "sao10k/l3.1-euryale-70b",
       "disabled": true
     },
     "jet-hub-cline/scaledown/extract": {
       "id": "jet-hub-cline/scaledown/extract",
       "upstream": "cline/scaledown/extract",
-      "name": "Extract",
+      "name": "scaledown/extract",
       "disabled": true
     },
     "jet-hub-cline/scaledown/summarize": {
       "id": "jet-hub-cline/scaledown/summarize",
       "upstream": "cline/scaledown/summarize",
-      "name": "Summarize",
+      "name": "scaledown/summarize",
       "disabled": true
     },
     "jet-hub-cline/stealth/crouton-alpha": {
       "id": "jet-hub-cline/stealth/crouton-alpha",
       "upstream": "cline/stealth/crouton-alpha",
-      "name": "Crouton Alpha",
+      "name": "stealth/crouton-alpha",
       "disabled": true
     },
     "jet-hub-cline/stepfun/step-3.5-flash": {
       "id": "jet-hub-cline/stepfun/step-3.5-flash",
       "upstream": "cline/stepfun/step-3.5-flash",
-      "name": "Step 3.5 Flash",
+      "name": "stepfun/step-3.5-flash",
       "disabled": true
     },
     "jet-hub-cline/stepfun/step-3.7-flash": {
       "id": "jet-hub-cline/stepfun/step-3.7-flash",
       "upstream": "cline/stepfun/step-3.7-flash",
-      "name": "Step 3.7 Flash",
+      "name": "stepfun/step-3.7-flash",
       "disabled": true
     },
     "jet-hub-cline/stepfun/step-5-preview": {
       "id": "jet-hub-cline/stepfun/step-5-preview",
       "upstream": "cline/stepfun/step-5-preview",
-      "name": "Step 5 Preview",
+      "name": "stepfun/step-5-preview",
       "disabled": true
     },
     "jet-hub-cline/tencent/hunyuan-a13b-instruct": {
       "id": "jet-hub-cline/tencent/hunyuan-a13b-instruct",
       "upstream": "cline/tencent/hunyuan-a13b-instruct",
-      "name": "Hunyuan A13b Instruct",
+      "name": "tencent/hunyuan-a13b-instruct",
       "disabled": true
     },
     "jet-hub-cline/tencent/hy-mt2-1.8b": {
       "id": "jet-hub-cline/tencent/hy-mt2-1.8b",
       "upstream": "cline/tencent/hy-mt2-1.8b",
-      "name": "Hy Mt2 1.8b",
+      "name": "tencent/hy-mt2-1.8b",
       "disabled": true
     },
     "jet-hub-cline/tencent/hy-mt2-30b-a3b": {
       "id": "jet-hub-cline/tencent/hy-mt2-30b-a3b",
       "upstream": "cline/tencent/hy-mt2-30b-a3b",
-      "name": "Hy Mt2 30b A3b",
+      "name": "tencent/hy-mt2-30b-a3b",
       "disabled": true
     },
     "jet-hub-cline/tencent/hy-mt2-7b": {
       "id": "jet-hub-cline/tencent/hy-mt2-7b",
       "upstream": "cline/tencent/hy-mt2-7b",
-      "name": "Hy Mt2 7b",
+      "name": "tencent/hy-mt2-7b",
       "disabled": true
     },
     "jet-hub-cline/tencent/hy3": {
       "id": "jet-hub-cline/tencent/hy3",
       "upstream": "cline/tencent/hy3",
-      "name": "Hy3",
+      "name": "tencent/hy3",
       "disabled": true
     },
     "jet-hub-cline/tencent/hy3-preview": {
       "id": "jet-hub-cline/tencent/hy3-preview",
       "upstream": "cline/tencent/hy3-preview",
-      "name": "Hy3 Preview",
+      "name": "tencent/hy3-preview",
       "disabled": true
     },
     "jet-hub-cline/tencent/hy4": {
       "id": "jet-hub-cline/tencent/hy4",
       "upstream": "cline/tencent/hy4",
-      "name": "Hy4",
+      "name": "tencent/hy4",
       "disabled": true
     },
     "jet-hub-cline/tencent/hy4-preview": {
       "id": "jet-hub-cline/tencent/hy4-preview",
       "upstream": "cline/tencent/hy4-preview",
-      "name": "Hy4 Preview",
+      "name": "tencent/hy4-preview",
       "disabled": true
     },
     "jet-hub-cline/thedrummer/cydonia-24b-v4.1": {
       "id": "jet-hub-cline/thedrummer/cydonia-24b-v4.1",
       "upstream": "cline/thedrummer/cydonia-24b-v4.1",
-      "name": "Cydonia 24b V4.1",
+      "name": "thedrummer/cydonia-24b-v4.1",
       "disabled": true
     },
     "jet-hub-cline/thedrummer/skyfall-36b-v2": {
       "id": "jet-hub-cline/thedrummer/skyfall-36b-v2",
       "upstream": "cline/thedrummer/skyfall-36b-v2",
-      "name": "Skyfall 36b V2",
+      "name": "thedrummer/skyfall-36b-v2",
       "disabled": true
     },
     "jet-hub-cline/thedrummer/unslopnemo-12b": {
       "id": "jet-hub-cline/thedrummer/unslopnemo-12b",
       "upstream": "cline/thedrummer/unslopnemo-12b",
-      "name": "Unslopnemo 12b",
+      "name": "thedrummer/unslopnemo-12b",
       "disabled": true
     },
     "jet-hub-cline/thinkingmachines/inkling": {
       "id": "jet-hub-cline/thinkingmachines/inkling",
       "upstream": "cline/thinkingmachines/inkling",
-      "name": "Inkling",
+      "name": "thinkingmachines/inkling",
       "disabled": true
     },
     "jet-hub-cline/thinkingmachines/inkling-small": {
       "id": "jet-hub-cline/thinkingmachines/inkling-small",
       "upstream": "cline/thinkingmachines/inkling-small",
-      "name": "Inkling Small",
+      "name": "thinkingmachines/inkling-small",
       "disabled": true
     },
     "jet-hub-cline/typesafe/jev-router": {
       "id": "jet-hub-cline/typesafe/jev-router",
       "upstream": "cline/typesafe/jev-router",
-      "name": "Jev Router",
+      "name": "typesafe/jev-router",
       "disabled": true
     },
     "jet-hub-cline/unbiased/pareto-26.10": {
       "id": "jet-hub-cline/unbiased/pareto-26.10",
       "upstream": "cline/unbiased/pareto-26.10",
-      "name": "Pareto 26.10",
+      "name": "unbiased/pareto-26.10",
       "disabled": true
     },
     "jet-hub-cline/unbiased/pareto-26.9": {
       "id": "jet-hub-cline/unbiased/pareto-26.9",
       "upstream": "cline/unbiased/pareto-26.9",
-      "name": "Pareto 26.9",
+      "name": "unbiased/pareto-26.9",
       "disabled": true
     },
     "jet-hub-cline/undi95/remm-slerp-l2-13b": {
       "id": "jet-hub-cline/undi95/remm-slerp-l2-13b",
       "upstream": "cline/undi95/remm-slerp-l2-13b",
-      "name": "Remm Slerp L2 13b",
+      "name": "undi95/remm-slerp-l2-13b",
       "disabled": true
     },
     "jet-hub-cline/upstage/solar-mini4": {
       "id": "jet-hub-cline/upstage/solar-mini4",
       "upstream": "cline/upstage/solar-mini4",
-      "name": "Solar Mini4",
+      "name": "upstage/solar-mini4",
       "disabled": true
     },
     "jet-hub-cline/upstage/solar-pro4": {
       "id": "jet-hub-cline/upstage/solar-pro4",
       "upstream": "cline/upstage/solar-pro4",
-      "name": "Solar Pro4",
+      "name": "upstage/solar-pro4",
       "disabled": true
     },
     "jet-hub-cline/writer/palmyra-x5": {
       "id": "jet-hub-cline/writer/palmyra-x5",
       "upstream": "cline/writer/palmyra-x5",
-      "name": "Palmyra X5",
+      "name": "writer/palmyra-x5",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.20": {
       "id": "jet-hub-cline/x-ai/grok-4.20",
       "upstream": "cline/x-ai/grok-4.20",
-      "name": "Grok 4.20",
+      "name": "x-ai/grok-4.20",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.20-multi-agent": {
       "id": "jet-hub-cline/x-ai/grok-4.20-multi-agent",
       "upstream": "cline/x-ai/grok-4.20-multi-agent",
-      "name": "Grok 4.20 Multi Agent",
+      "name": "x-ai/grok-4.20-multi-agent",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.3": {
       "id": "jet-hub-cline/x-ai/grok-4.3",
       "upstream": "cline/x-ai/grok-4.3",
-      "name": "Grok 4.3",
+      "name": "x-ai/grok-4.3",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.3:batch": {
       "id": "jet-hub-cline/x-ai/grok-4.3:batch",
       "upstream": "cline/x-ai/grok-4.3:batch",
-      "name": "Grok 4.3:Batch",
+      "name": "x-ai/grok-4.3:batch",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.5": {
       "id": "jet-hub-cline/x-ai/grok-4.5",
       "upstream": "cline/x-ai/grok-4.5",
-      "name": "Grok 4.5",
+      "name": "x-ai/grok-4.5",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.6": {
       "id": "jet-hub-cline/x-ai/grok-4.6",
       "upstream": "cline/x-ai/grok-4.6",
-      "name": "Grok 4.6",
+      "name": "x-ai/grok-4.6",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.6:batch": {
       "id": "jet-hub-cline/x-ai/grok-4.6:batch",
       "upstream": "cline/x-ai/grok-4.6:batch",
-      "name": "Grok 4.6:Batch",
+      "name": "x-ai/grok-4.6:batch",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.7": {
       "id": "jet-hub-cline/x-ai/grok-4.7",
       "upstream": "cline/x-ai/grok-4.7",
-      "name": "Grok 4.7",
+      "name": "x-ai/grok-4.7",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-4.7:batch": {
       "id": "jet-hub-cline/x-ai/grok-4.7:batch",
       "upstream": "cline/x-ai/grok-4.7:batch",
-      "name": "Grok 4.7:Batch",
+      "name": "x-ai/grok-4.7:batch",
       "disabled": true
     },
     "jet-hub-cline/x-ai/grok-build-0.1": {
       "id": "jet-hub-cline/x-ai/grok-build-0.1",
       "upstream": "cline/x-ai/grok-build-0.1",
-      "name": "Grok Build 0.1",
+      "name": "x-ai/grok-build-0.1",
       "disabled": true
     },
     "jet-hub-cline/xiaomi/mimo-v2.5": {
       "id": "jet-hub-cline/xiaomi/mimo-v2.5",
       "upstream": "cline/xiaomi/mimo-v2.5",
-      "name": "Mimo V2.5",
+      "name": "xiaomi/mimo-v2.5",
       "disabled": true
     },
     "jet-hub-cline/xiaomi/mimo-v2.5-pro": {
       "id": "jet-hub-cline/xiaomi/mimo-v2.5-pro",
       "upstream": "cline/xiaomi/mimo-v2.5-pro",
-      "name": "Mimo V2.5 Pro",
+      "name": "xiaomi/mimo-v2.5-pro",
       "disabled": true
     },
     "jet-hub-cline/xiaomi/mimo-v2.6-flash": {
       "id": "jet-hub-cline/xiaomi/mimo-v2.6-flash",
       "upstream": "cline/xiaomi/mimo-v2.6-flash",
-      "name": "Mimo V2.6 Flash",
+      "name": "xiaomi/mimo-v2.6-flash",
       "disabled": true
     },
     "jet-hub-cline/xiaomi/mimo-v2.6-pro": {
       "id": "jet-hub-cline/xiaomi/mimo-v2.6-pro",
       "upstream": "cline/xiaomi/mimo-v2.6-pro",
-      "name": "Mimo V2.6 Pro",
+      "name": "xiaomi/mimo-v2.6-pro",
       "disabled": true
     },
     "jet-hub-cline/xiaomi/mimo-v2.6-pro-ultraspeed": {
       "id": "jet-hub-cline/xiaomi/mimo-v2.6-pro-ultraspeed",
       "upstream": "cline/xiaomi/mimo-v2.6-pro-ultraspeed",
-      "name": "Mimo V2.6 Pro Ultraspeed",
+      "name": "xiaomi/mimo-v2.6-pro-ultraspeed",
       "disabled": true
     },
     "jet-hub-cline/xingchen-agi/xing4.0-29b-a4b:free": {
       "id": "jet-hub-cline/xingchen-agi/xing4.0-29b-a4b:free",
       "upstream": "cline/xingchen-agi/xing4.0-29b-a4b:free",
-      "name": "Xing4.0 29b A4b · 免费",
+      "name": "xingchen-agi/xing4.0-29b-a4b:free",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-4.5": {
       "id": "jet-hub-cline/z-ai/glm-4.5",
       "upstream": "cline/z-ai/glm-4.5",
-      "name": "Glm 4.5",
+      "name": "z-ai/glm-4.5",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-4.5-air": {
       "id": "jet-hub-cline/z-ai/glm-4.5-air",
       "upstream": "cline/z-ai/glm-4.5-air",
-      "name": "Glm 4.5 Air",
+      "name": "z-ai/glm-4.5-air",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-4.5v": {
       "id": "jet-hub-cline/z-ai/glm-4.5v",
       "upstream": "cline/z-ai/glm-4.5v",
-      "name": "Glm 4.5v",
+      "name": "z-ai/glm-4.5v",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-4.6": {
       "id": "jet-hub-cline/z-ai/glm-4.6",
       "upstream": "cline/z-ai/glm-4.6",
-      "name": "Glm 4.6",
+      "name": "z-ai/glm-4.6",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-4.6v": {
       "id": "jet-hub-cline/z-ai/glm-4.6v",
       "upstream": "cline/z-ai/glm-4.6v",
-      "name": "Glm 4.6v",
+      "name": "z-ai/glm-4.6v",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-4.7": {
       "id": "jet-hub-cline/z-ai/glm-4.7",
       "upstream": "cline/z-ai/glm-4.7",
-      "name": "Glm 4.7",
+      "name": "z-ai/glm-4.7",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-4.7-flash": {
       "id": "jet-hub-cline/z-ai/glm-4.7-flash",
       "upstream": "cline/z-ai/glm-4.7-flash",
-      "name": "Glm 4.7 Flash",
+      "name": "z-ai/glm-4.7-flash",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5": {
       "id": "jet-hub-cline/z-ai/glm-5",
       "upstream": "cline/z-ai/glm-5",
-      "name": "Glm 5",
+      "name": "z-ai/glm-5",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5-turbo": {
       "id": "jet-hub-cline/z-ai/glm-5-turbo",
       "upstream": "cline/z-ai/glm-5-turbo",
-      "name": "Glm 5 Turbo",
+      "name": "z-ai/glm-5-turbo",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.1": {
       "id": "jet-hub-cline/z-ai/glm-5.1",
       "upstream": "cline/z-ai/glm-5.1",
-      "name": "Glm 5.1",
+      "name": "z-ai/glm-5.1",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.2": {
       "id": "jet-hub-cline/z-ai/glm-5.2",
       "upstream": "cline/z-ai/glm-5.2",
-      "name": "Glm 5.2",
+      "name": "z-ai/glm-5.2",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.3": {
       "id": "jet-hub-cline/z-ai/glm-5.3",
       "upstream": "cline/z-ai/glm-5.3",
-      "name": "Glm 5.3",
+      "name": "z-ai/glm-5.3",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.3-flash": {
       "id": "jet-hub-cline/z-ai/glm-5.3-flash",
       "upstream": "cline/z-ai/glm-5.3-flash",
-      "name": "Glm 5.3 Flash",
+      "name": "z-ai/glm-5.3-flash",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.3-flash:batch": {
       "id": "jet-hub-cline/z-ai/glm-5.3-flash:batch",
       "upstream": "cline/z-ai/glm-5.3-flash:batch",
-      "name": "Glm 5.3 Flash:Batch",
+      "name": "z-ai/glm-5.3-flash:batch",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.3-flashx": {
       "id": "jet-hub-cline/z-ai/glm-5.3-flashx",
       "upstream": "cline/z-ai/glm-5.3-flashx",
-      "name": "Glm 5.3 Flashx",
+      "name": "z-ai/glm-5.3-flashx",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.3-flashx-legal": {
       "id": "jet-hub-cline/z-ai/glm-5.3-flashx-legal",
       "upstream": "cline/z-ai/glm-5.3-flashx-legal",
-      "name": "Glm 5.3 Flashx Legal",
+      "name": "z-ai/glm-5.3-flashx-legal",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.3-prime": {
       "id": "jet-hub-cline/z-ai/glm-5.3-prime",
       "upstream": "cline/z-ai/glm-5.3-prime",
-      "name": "Glm 5.3 Prime",
+      "name": "z-ai/glm-5.3-prime",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5.3:batch": {
       "id": "jet-hub-cline/z-ai/glm-5.3:batch",
       "upstream": "cline/z-ai/glm-5.3:batch",
-      "name": "Glm 5.3:Batch",
+      "name": "z-ai/glm-5.3:batch",
       "disabled": true
     },
     "jet-hub-cline/z-ai/glm-5v-turbo": {
       "id": "jet-hub-cline/z-ai/glm-5v-turbo",
       "upstream": "cline/z-ai/glm-5v-turbo",
-      "name": "Glm 5v Turbo",
+      "name": "z-ai/glm-5v-turbo",
       "disabled": true
     },
     "jet-hub-cline/~anthropic/claude-fable-latest": {
       "id": "jet-hub-cline/~anthropic/claude-fable-latest",
       "upstream": "cline/~anthropic/claude-fable-latest",
-      "name": "Claude Fable Latest",
+      "name": "~anthropic/claude-fable-latest",
       "disabled": true
     },
     "jet-hub-cline/~anthropic/claude-haiku-latest": {
       "id": "jet-hub-cline/~anthropic/claude-haiku-latest",
       "upstream": "cline/~anthropic/claude-haiku-latest",
-      "name": "Claude Haiku Latest",
+      "name": "~anthropic/claude-haiku-latest",
       "disabled": true
     },
     "jet-hub-cline/~anthropic/claude-opus-latest": {
       "id": "jet-hub-cline/~anthropic/claude-opus-latest",
       "upstream": "cline/~anthropic/claude-opus-latest",
-      "name": "Claude Opus Latest",
+      "name": "~anthropic/claude-opus-latest",
       "disabled": true
     },
     "jet-hub-cline/~anthropic/claude-sonnet-latest": {
       "id": "jet-hub-cline/~anthropic/claude-sonnet-latest",
       "upstream": "cline/~anthropic/claude-sonnet-latest",
-      "name": "Claude Sonnet Latest",
+      "name": "~anthropic/claude-sonnet-latest",
       "disabled": true
     },
     "jet-hub-cline/~deepseek/deepseek-flash-latest": {
       "id": "jet-hub-cline/~deepseek/deepseek-flash-latest",
       "upstream": "cline/~deepseek/deepseek-flash-latest",
-      "name": "Deepseek Flash Latest",
+      "name": "~deepseek/deepseek-flash-latest",
       "disabled": true
     },
     "jet-hub-cline/~deepseek/deepseek-pro-latest": {
       "id": "jet-hub-cline/~deepseek/deepseek-pro-latest",
       "upstream": "cline/~deepseek/deepseek-pro-latest",
-      "name": "Deepseek Pro Latest",
+      "name": "~deepseek/deepseek-pro-latest",
       "disabled": true
     },
     "jet-hub-cline/~deepseek/deepseek-v4-flash-latest": {
       "id": "jet-hub-cline/~deepseek/deepseek-v4-flash-latest",
       "upstream": "cline/~deepseek/deepseek-v4-flash-latest",
-      "name": "Deepseek V4 Flash Latest",
+      "name": "~deepseek/deepseek-v4-flash-latest",
       "disabled": true
     },
     "jet-hub-cline/~google/gemini-flash-latest": {
       "id": "jet-hub-cline/~google/gemini-flash-latest",
       "upstream": "cline/~google/gemini-flash-latest",
-      "name": "Gemini Flash Latest",
+      "name": "~google/gemini-flash-latest",
       "disabled": true
     },
     "jet-hub-cline/~google/gemini-pro-latest": {
       "id": "jet-hub-cline/~google/gemini-pro-latest",
       "upstream": "cline/~google/gemini-pro-latest",
-      "name": "Gemini Pro Latest",
+      "name": "~google/gemini-pro-latest",
       "disabled": true
     },
     "jet-hub-cline/~moonshotai/kimi-latest": {
       "id": "jet-hub-cline/~moonshotai/kimi-latest",
       "upstream": "cline/~moonshotai/kimi-latest",
-      "name": "Kimi Latest",
+      "name": "~moonshotai/kimi-latest",
       "disabled": true
     },
     "jet-hub-cline/~openai/gpt-astra-latest": {
       "id": "jet-hub-cline/~openai/gpt-astra-latest",
       "upstream": "cline/~openai/gpt-astra-latest",
-      "name": "Gpt Astra Latest",
+      "name": "~openai/gpt-astra-latest",
       "disabled": true
     },
     "jet-hub-cline/~openai/gpt-luna-latest": {
       "id": "jet-hub-cline/~openai/gpt-luna-latest",
       "upstream": "cline/~openai/gpt-luna-latest",
-      "name": "Gpt Luna Latest",
+      "name": "~openai/gpt-luna-latest",
       "disabled": true
     },
     "jet-hub-cline/~openai/gpt-mini-latest": {
       "id": "jet-hub-cline/~openai/gpt-mini-latest",
       "upstream": "cline/~openai/gpt-mini-latest",
-      "name": "Gpt Mini Latest",
+      "name": "~openai/gpt-mini-latest",
       "disabled": true
     },
     "jet-hub-cline/~openai/gpt-sol-latest": {
       "id": "jet-hub-cline/~openai/gpt-sol-latest",
       "upstream": "cline/~openai/gpt-sol-latest",
-      "name": "Gpt Sol Latest",
+      "name": "~openai/gpt-sol-latest",
       "disabled": true
     },
     "jet-hub-cline/~openai/gpt-terra-latest": {
       "id": "jet-hub-cline/~openai/gpt-terra-latest",
       "upstream": "cline/~openai/gpt-terra-latest",
-      "name": "Gpt Terra Latest",
+      "name": "~openai/gpt-terra-latest",
       "disabled": true
     },
     "jet-hub-cline/~unbiased/pareto-latest": {
       "id": "jet-hub-cline/~unbiased/pareto-latest",
       "upstream": "cline/~unbiased/pareto-latest",
-      "name": "Pareto Latest",
+      "name": "~unbiased/pareto-latest",
       "disabled": true
     },
     "jet-hub-cline/~x-ai/grok-latest": {
       "id": "jet-hub-cline/~x-ai/grok-latest",
       "upstream": "cline/~x-ai/grok-latest",
-      "name": "Grok Latest",
+      "name": "~x-ai/grok-latest",
       "disabled": true
     },
     "jet-hub-cline/~z-ai/glm-flash-latest": {
       "id": "jet-hub-cline/~z-ai/glm-flash-latest",
       "upstream": "cline/~z-ai/glm-flash-latest",
-      "name": "Glm Flash Latest",
+      "name": "~z-ai/glm-flash-latest",
       "disabled": true
     },
     "jet-hub-cline/~z-ai/glm-latest": {
       "id": "jet-hub-cline/~z-ai/glm-latest",
       "upstream": "cline/~z-ai/glm-latest",
-      "name": "Glm Latest",
+      "name": "~z-ai/glm-latest",
       "disabled": true
     },
     "jet-hub-codearts/GLM-5.1": {
@@ -4566,7 +4657,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-loomy/auto": {
       "id": "jet-hub-loomy/auto",
       "upstream": "loomy/auto",
-      "name": "自动 · 均衡",
+      "name": "auto",
       "disabled": true
     },
     "jet-hub-loomy/deepseek-v4-flash-0731": {
@@ -4593,11 +4684,347 @@ window.JET_HUB_CATALOG = {
       "name": "qwen 3.8 flash · x0.8",
       "disabled": true
     },
+    "jet-hub-loomy/spark-x": {
+      "id": "jet-hub-loomy/spark-x",
+      "upstream": "loomy/spark-x",
+      "name": "Spark X2.5 · x0.1",
+      "disabled": true
+    },
     "jet-hub-loomy/spark-x2.6": {
       "id": "jet-hub-loomy/spark-x2.6",
       "upstream": "loomy/spark-x2.6",
-      "name": "Spark-X2.6 正式版(限时免费) · x0.0",
+      "name": "spark-x2.6",
       "disabled": true
+    },
+    "jet-hub-magicrew/deepseek-v4-flash": {
+      "id": "jet-hub-magicrew/deepseek-v4-flash",
+      "upstream": "magicrew/deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrew/deepseek-v4.1-flash": {
+      "id": "jet-hub-magicrew/deepseek-v4.1-flash",
+      "upstream": "magicrew/deepseek-v4.1-flash",
+      "name": "DeepSeek V4.1 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrew/doubao-seed-2.0-code": {
+      "id": "jet-hub-magicrew/doubao-seed-2.0-code",
+      "upstream": "magicrew/doubao-seed-2.0-code",
+      "name": "Seed 2.0 Code",
+      "disabled": true
+    },
+    "jet-hub-magicrew/doubao-seed-2.0-lite": {
+      "id": "jet-hub-magicrew/doubao-seed-2.0-lite",
+      "upstream": "magicrew/doubao-seed-2.0-lite",
+      "name": "Seed 2.0 Lite",
+      "disabled": true
+    },
+    "jet-hub-magicrew/doubao-seed-2.0-pro": {
+      "id": "jet-hub-magicrew/doubao-seed-2.0-pro",
+      "upstream": "magicrew/doubao-seed-2.0-pro",
+      "name": "Seed 2.0 Pro",
+      "disabled": true
+    },
+    "jet-hub-magicrew/glm-4.5": {
+      "id": "jet-hub-magicrew/glm-4.5",
+      "upstream": "magicrew/glm-4.5",
+      "name": "GLM 4.5",
+      "disabled": true
+    },
+    "jet-hub-magicrew/glm-4.6": {
+      "id": "jet-hub-magicrew/glm-4.6",
+      "upstream": "magicrew/glm-4.6",
+      "name": "GLM 4.6",
+      "disabled": true
+    },
+    "jet-hub-magicrew/glm-4.7": {
+      "id": "jet-hub-magicrew/glm-4.7",
+      "upstream": "magicrew/glm-4.7",
+      "name": "GLM 4.7",
+      "disabled": true
+    },
+    "jet-hub-magicrew/glm-5": {
+      "id": "jet-hub-magicrew/glm-5",
+      "upstream": "magicrew/glm-5",
+      "name": "GLM 5",
+      "disabled": true
+    },
+    "jet-hub-magicrew/glm-5-turbo": {
+      "id": "jet-hub-magicrew/glm-5-turbo",
+      "upstream": "magicrew/glm-5-turbo",
+      "name": "GLM 5 Turbo",
+      "disabled": true
+    },
+    "jet-hub-magicrew/glm-5.1": {
+      "id": "jet-hub-magicrew/glm-5.1",
+      "upstream": "magicrew/glm-5.1",
+      "name": "GLM 5.1",
+      "disabled": true
+    },
+    "jet-hub-magicrew/glm-5.3": {
+      "id": "jet-hub-magicrew/glm-5.3",
+      "upstream": "magicrew/glm-5.3",
+      "name": "GLM 5.3",
+      "disabled": true
+    },
+    "jet-hub-magicrew/glm-5.3-flash": {
+      "id": "jet-hub-magicrew/glm-5.3-flash",
+      "upstream": "magicrew/glm-5.3-flash",
+      "name": "GLM 5.3 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrew/kimi-k3.1-pro": {
+      "id": "jet-hub-magicrew/kimi-k3.1-pro",
+      "upstream": "magicrew/kimi-k3.1-pro",
+      "name": "Kimi K3.1 Pro",
+      "disabled": true
+    },
+    "jet-hub-magicrew/mimo-v2.6-flash": {
+      "id": "jet-hub-magicrew/mimo-v2.6-flash",
+      "upstream": "magicrew/mimo-v2.6-flash",
+      "name": "MiMo V2.6 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrew/mimo-v2.6-pro": {
+      "id": "jet-hub-magicrew/mimo-v2.6-pro",
+      "upstream": "magicrew/mimo-v2.6-pro",
+      "name": "MiMo V2.6 Pro",
+      "disabled": true
+    },
+    "jet-hub-magicrew/minimax-m2.1": {
+      "id": "jet-hub-magicrew/minimax-m2.1",
+      "upstream": "magicrew/minimax-m2.1",
+      "name": "MiniMax M2.1",
+      "disabled": true
+    },
+    "jet-hub-magicrew/minimax-m2.5": {
+      "id": "jet-hub-magicrew/minimax-m2.5",
+      "upstream": "magicrew/minimax-m2.5",
+      "name": "MiniMax M2.5",
+      "disabled": true
+    },
+    "jet-hub-magicrew/minimax-m2.7": {
+      "id": "jet-hub-magicrew/minimax-m2.7",
+      "upstream": "magicrew/minimax-m2.7",
+      "name": "MiniMax M2.7",
+      "disabled": true
+    },
+    "jet-hub-magicrew/minimax-m3": {
+      "id": "jet-hub-magicrew/minimax-m3",
+      "upstream": "magicrew/minimax-m3",
+      "name": "MiniMax M3",
+      "disabled": true
+    },
+    "jet-hub-magicrew/minimax-m3.1-flash": {
+      "id": "jet-hub-magicrew/minimax-m3.1-flash",
+      "upstream": "magicrew/minimax-m3.1-flash",
+      "name": "MiniMax M3.1 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrew/qwen-3.8-flash": {
+      "id": "jet-hub-magicrew/qwen-3.8-flash",
+      "upstream": "magicrew/qwen-3.8-flash",
+      "name": "Qwen3.8 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrew/qwen3.5-flash": {
+      "id": "jet-hub-magicrew/qwen3.5-flash",
+      "upstream": "magicrew/qwen3.5-flash",
+      "name": "Qwen3.5 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrew/qwen3.5-plus": {
+      "id": "jet-hub-magicrew/qwen3.5-plus",
+      "upstream": "magicrew/qwen3.5-plus",
+      "name": "Qwen3.5 Plus",
+      "disabled": true
+    },
+    "jet-hub-magicrew/qwen3.6-plus": {
+      "id": "jet-hub-magicrew/qwen3.6-plus",
+      "upstream": "magicrew/qwen3.6-plus",
+      "name": "Qwen3.6 Plus",
+      "disabled": true
+    },
+    "jet-hub-magicrew/qwen3.7-plus": {
+      "id": "jet-hub-magicrew/qwen3.7-plus",
+      "upstream": "magicrew/qwen3.7-plus",
+      "name": "Qwen3.7 Plus",
+      "disabled": true
+    },
+    "jet-hub-magicrew/qwen3.8-max": {
+      "id": "jet-hub-magicrew/qwen3.8-max",
+      "upstream": "magicrew/qwen3.8-max",
+      "name": "Qwen3.8 Max",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/deepseek-v4-flash": {
+      "id": "jet-hub-magicrewintl/deepseek-v4-flash",
+      "upstream": "magicrewintl/deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/deepseek-v4.1-flash": {
+      "id": "jet-hub-magicrewintl/deepseek-v4.1-flash",
+      "upstream": "magicrewintl/deepseek-v4.1-flash",
+      "name": "DeepSeek V4.1 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/doubao-seed-2.0-code": {
+      "id": "jet-hub-magicrewintl/doubao-seed-2.0-code",
+      "upstream": "magicrewintl/doubao-seed-2.0-code",
+      "name": "Seed 2.0 Code",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/doubao-seed-2.0-lite": {
+      "id": "jet-hub-magicrewintl/doubao-seed-2.0-lite",
+      "upstream": "magicrewintl/doubao-seed-2.0-lite",
+      "name": "Seed 2.0 Lite",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/doubao-seed-2.0-pro": {
+      "id": "jet-hub-magicrewintl/doubao-seed-2.0-pro",
+      "upstream": "magicrewintl/doubao-seed-2.0-pro",
+      "name": "Seed 2.0 Pro",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/glm-4.5": {
+      "id": "jet-hub-magicrewintl/glm-4.5",
+      "upstream": "magicrewintl/glm-4.5",
+      "name": "GLM 4.5",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/glm-4.6": {
+      "id": "jet-hub-magicrewintl/glm-4.6",
+      "upstream": "magicrewintl/glm-4.6",
+      "name": "GLM 4.6",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/glm-4.7": {
+      "id": "jet-hub-magicrewintl/glm-4.7",
+      "upstream": "magicrewintl/glm-4.7",
+      "name": "GLM 4.7",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/glm-5": {
+      "id": "jet-hub-magicrewintl/glm-5",
+      "upstream": "magicrewintl/glm-5",
+      "name": "GLM 5",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/glm-5-turbo": {
+      "id": "jet-hub-magicrewintl/glm-5-turbo",
+      "upstream": "magicrewintl/glm-5-turbo",
+      "name": "GLM 5 Turbo",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/glm-5.1": {
+      "id": "jet-hub-magicrewintl/glm-5.1",
+      "upstream": "magicrewintl/glm-5.1",
+      "name": "GLM 5.1",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/glm-5.3": {
+      "id": "jet-hub-magicrewintl/glm-5.3",
+      "upstream": "magicrewintl/glm-5.3",
+      "name": "GLM 5.3",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/glm-5.3-flash": {
+      "id": "jet-hub-magicrewintl/glm-5.3-flash",
+      "upstream": "magicrewintl/glm-5.3-flash",
+      "name": "GLM 5.3 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/kimi-k3.1-pro": {
+      "id": "jet-hub-magicrewintl/kimi-k3.1-pro",
+      "upstream": "magicrewintl/kimi-k3.1-pro",
+      "name": "Kimi K3.1 Pro",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/mimo-v2.6-flash": {
+      "id": "jet-hub-magicrewintl/mimo-v2.6-flash",
+      "upstream": "magicrewintl/mimo-v2.6-flash",
+      "name": "MiMo V2.6 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/mimo-v2.6-pro": {
+      "id": "jet-hub-magicrewintl/mimo-v2.6-pro",
+      "upstream": "magicrewintl/mimo-v2.6-pro",
+      "name": "MiMo V2.6 Pro",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/minimax-m2.1": {
+      "id": "jet-hub-magicrewintl/minimax-m2.1",
+      "upstream": "magicrewintl/minimax-m2.1",
+      "name": "MiniMax M2.1",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/minimax-m2.5": {
+      "id": "jet-hub-magicrewintl/minimax-m2.5",
+      "upstream": "magicrewintl/minimax-m2.5",
+      "name": "MiniMax M2.5",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/minimax-m2.7": {
+      "id": "jet-hub-magicrewintl/minimax-m2.7",
+      "upstream": "magicrewintl/minimax-m2.7",
+      "name": "MiniMax M2.7",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/minimax-m3": {
+      "id": "jet-hub-magicrewintl/minimax-m3",
+      "upstream": "magicrewintl/minimax-m3",
+      "name": "MiniMax M3",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/minimax-m3.1-flash": {
+      "id": "jet-hub-magicrewintl/minimax-m3.1-flash",
+      "upstream": "magicrewintl/minimax-m3.1-flash",
+      "name": "MiniMax M3.1 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/qwen-3.8-flash": {
+      "id": "jet-hub-magicrewintl/qwen-3.8-flash",
+      "upstream": "magicrewintl/qwen-3.8-flash",
+      "name": "Qwen3.8 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/qwen3.5-flash": {
+      "id": "jet-hub-magicrewintl/qwen3.5-flash",
+      "upstream": "magicrewintl/qwen3.5-flash",
+      "name": "Qwen3.5 Flash",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/qwen3.5-plus": {
+      "id": "jet-hub-magicrewintl/qwen3.5-plus",
+      "upstream": "magicrewintl/qwen3.5-plus",
+      "name": "Qwen3.5 Plus",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/qwen3.6-plus": {
+      "id": "jet-hub-magicrewintl/qwen3.6-plus",
+      "upstream": "magicrewintl/qwen3.6-plus",
+      "name": "Qwen3.6 Plus",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/qwen3.7-plus": {
+      "id": "jet-hub-magicrewintl/qwen3.7-plus",
+      "upstream": "magicrewintl/qwen3.7-plus",
+      "name": "Qwen3.7 Plus",
+      "disabled": true
+    },
+    "jet-hub-magicrewintl/qwen3.8-max": {
+      "id": "jet-hub-magicrewintl/qwen3.8-max",
+      "upstream": "magicrewintl/qwen3.8-max",
+      "name": "Qwen3.8 Max",
+      "disabled": true
+    },
+    "jet-hub-marvis/main-auto": {
+      "id": "jet-hub-marvis/main-auto",
+      "upstream": "marvis/main-auto",
+      "name": "DeepSeek V4.1 Flash",
+      "disabled": false
     },
     "jet-hub-minimax/MiniMax-M2.7": {
       "id": "jet-hub-minimax/MiniMax-M2.7",
@@ -4645,6 +5072,12 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-minimaxintl/MiniMax-M3.1-Flash-Preview",
       "upstream": "minimaxintl/MiniMax-M3.1-Flash-Preview",
       "name": "M3.1-Flash-Preview",
+      "disabled": true
+    },
+    "jet-hub-modelscope/ACE-Step/acestep-v15-xl-sft": {
+      "id": "jet-hub-modelscope/ACE-Step/acestep-v15-xl-sft",
+      "upstream": "modelscope/ACE-Step/acestep-v15-xl-sft",
+      "name": "ACE-Step-v15-xl (魔搭)",
       "disabled": true
     },
     "jet-hub-modelscope/MedAIBase/AntAngelMed": {
@@ -4806,7 +5239,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-modelscope/deepseek-ai/DeepSeek-V4.1-Flash": {
       "id": "jet-hub-modelscope/deepseek-ai/DeepSeek-V4.1-Flash",
       "upstream": "modelscope/deepseek-ai/DeepSeek-V4.1-Flash",
-      "name": "DeepSeek-V4.1-Flash (魔搭)",
+      "name": "deepseek-ai/DeepSeek-V4.1-Flash",
       "disabled": true
     },
     "jet-hub-modelscope/deepseek-ai/DeepSeek-V4.1-Flash-1017": {
@@ -4837,7 +5270,7 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-modelscope/moonshotai/Kimi-K3.1-Pro",
       "upstream": "modelscope/moonshotai/Kimi-K3.1-Pro",
       "name": "moonshotai/Kimi-K3.1-Pro",
-      "disabled": false
+      "disabled": true
     },
     "jet-hub-modelscope/nex-agi/Nex-N2.5-Pro": {
       "id": "jet-hub-modelscope/nex-agi/Nex-N2.5-Pro",
@@ -5179,13 +5612,13 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-qiniu/deepseek/deepseek-v4-flash",
       "upstream": "qiniu/deepseek/deepseek-v4-flash",
       "name": "deepseek/deepseek-v4-flash",
-      "disabled": false
+      "disabled": true
     },
     "jet-hub-qiniu/deepseek/deepseek-v4-flash-202605": {
       "id": "jet-hub-qiniu/deepseek/deepseek-v4-flash-202605",
       "upstream": "qiniu/deepseek/deepseek-v4-flash-202605",
       "name": "deepseek/deepseek-v4-flash-202605",
-      "disabled": false
+      "disabled": true
     },
     "jet-hub-qiniu/deepseek/deepseek-v4-flash-20260731": {
       "id": "jet-hub-qiniu/deepseek/deepseek-v4-flash-20260731",
@@ -5203,7 +5636,7 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-qiniu/deepseek/deepseek-v4-pro",
       "upstream": "qiniu/deepseek/deepseek-v4-pro",
       "name": "deepseek/deepseek-v4-pro",
-      "disabled": false
+      "disabled": true
     },
     "jet-hub-qiniu/deepseek/deepseek-v4-pro-0813": {
       "id": "jet-hub-qiniu/deepseek/deepseek-v4-pro-0813",
@@ -5215,7 +5648,7 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-qiniu/deepseek/deepseek-v4-pro-202606",
       "upstream": "qiniu/deepseek/deepseek-v4-pro-202606",
       "name": "deepseek/deepseek-v4-pro-202606",
-      "disabled": false
+      "disabled": true
     },
     "jet-hub-qiniu/deepseek/deepseek-v4.1-flash": {
       "id": "jet-hub-qiniu/deepseek/deepseek-v4.1-flash",
@@ -5581,7 +6014,7 @@ window.JET_HUB_CATALOG = {
       "id": "jet-hub-qiniu/tencent/hy4",
       "upstream": "qiniu/tencent/hy4",
       "name": "tencent/hy4",
-      "disabled": false
+      "disabled": true
     },
     "jet-hub-qiniu/tencent/hy4-preview": {
       "id": "jet-hub-qiniu/tencent/hy4-preview",
@@ -5700,13 +6133,19 @@ window.JET_HUB_CATALOG = {
     "jet-hub-qoder/kmodel_latest": {
       "id": "jet-hub-qoder/kmodel_latest",
       "upstream": "qoder/kmodel_latest",
-      "name": "Kimi-K3.1-Pro · x1",
+      "name": "Kimi-K3 · x1.4",
       "disabled": true
     },
     "jet-hub-qoder/mmodel": {
       "id": "jet-hub-qoder/mmodel",
       "upstream": "qoder/mmodel",
-      "name": "MiniMax-M3.1-Flash · x0.1",
+      "name": "MiniMax-M3 · x0.2",
+      "disabled": true
+    },
+    "jet-hub-qoder/performance": {
+      "id": "jet-hub-qoder/performance",
+      "upstream": "qoder/performance",
+      "name": "Performance · x1.1",
       "disabled": true
     },
     "jet-hub-qoder/qfmodel": {
@@ -5715,10 +6154,22 @@ window.JET_HUB_CATALOG = {
       "name": "Qwen3.8-Flash · 免费",
       "disabled": true
     },
+    "jet-hub-qoder/qmodel": {
+      "id": "jet-hub-qoder/qmodel",
+      "upstream": "qoder/qmodel",
+      "name": "Qwen3.7-Plus · x0.1→x0.04",
+      "disabled": true
+    },
     "jet-hub-qoder/qmodel_38max": {
       "id": "jet-hub-qoder/qmodel_38max",
       "upstream": "qoder/qmodel_38max",
-      "name": "Qwen3.8-Max · x0.5",
+      "name": "Qwen3.8-Max · x0.5→x0.2",
+      "disabled": true
+    },
+    "jet-hub-qoder/qmodel_latest": {
+      "id": "jet-hub-qoder/qmodel_latest",
+      "upstream": "qoder/qmodel_latest",
+      "name": "Qwen3.7-Max · x0.5→x0.1",
       "disabled": true
     },
     "jet-hub-qoder/smodel": {
@@ -5757,6 +6208,12 @@ window.JET_HUB_CATALOG = {
       "name": "GLM-5.3-Flash · x0.1",
       "disabled": true
     },
+    "jet-hub-qodercn/gm51model": {
+      "id": "jet-hub-qodercn/gm51model",
+      "upstream": "qodercn/gm51model",
+      "name": "GLM-5.2 · x0.6",
+      "disabled": true
+    },
     "jet-hub-qodercn/gmodel": {
       "id": "jet-hub-qodercn/gmodel",
       "upstream": "qodercn/gmodel",
@@ -5766,7 +6223,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-qodercn/jmodel": {
       "id": "jet-hub-qodercn/jmodel",
       "upstream": "qodercn/jmodel",
-      "name": "Step-5-Preview · x0.3",
+      "name": "jmodel",
       "disabled": true
     },
     "jet-hub-qodercn/kmodel": {
@@ -5778,13 +6235,19 @@ window.JET_HUB_CATALOG = {
     "jet-hub-qodercn/kmodel_latest": {
       "id": "jet-hub-qodercn/kmodel_latest",
       "upstream": "qodercn/kmodel_latest",
-      "name": "Kimi-K3.1-Pro · x1",
+      "name": "Kimi-K3 · x1.4",
       "disabled": true
     },
     "jet-hub-qodercn/mmodel": {
       "id": "jet-hub-qodercn/mmodel",
       "upstream": "qodercn/mmodel",
-      "name": "MiniMax-M3.1-Flash · x0.1",
+      "name": "MiniMax-M2.7 · x0.2",
+      "disabled": true
+    },
+    "jet-hub-qodercn/q37fmodel": {
+      "id": "jet-hub-qodercn/q37fmodel",
+      "upstream": "qodercn/q37fmodel",
+      "name": "Qwen3.7-Flash · x0.1",
       "disabled": true
     },
     "jet-hub-qodercn/qfmodel": {
@@ -5793,16 +6256,34 @@ window.JET_HUB_CATALOG = {
       "name": "Qwen3.8-Flash · 免费",
       "disabled": true
     },
+    "jet-hub-qodercn/qmodel": {
+      "id": "jet-hub-qodercn/qmodel",
+      "upstream": "qodercn/qmodel",
+      "name": "Qwen3.7-Plus · x0.1→x0.04",
+      "disabled": true
+    },
     "jet-hub-qodercn/qmodel_38max": {
       "id": "jet-hub-qodercn/qmodel_38max",
       "upstream": "qodercn/qmodel_38max",
-      "name": "Qwen3.8-Max · x0.5",
+      "name": "Qwen3.8-Max · x0.5→x0.2",
+      "disabled": true
+    },
+    "jet-hub-qodercn/qmodel_latest": {
+      "id": "jet-hub-qodercn/qmodel_latest",
+      "upstream": "qodercn/qmodel_latest",
+      "name": "Qwen3.7-Max · x0.5→x0.1",
+      "disabled": true
+    },
+    "jet-hub-raccoon/sn-deepseek-v4-1-flash": {
+      "id": "jet-hub-raccoon/sn-deepseek-v4-1-flash",
+      "upstream": "raccoon/sn-deepseek-v4-1-flash",
+      "name": "DeepSeek-V4.1-Flash · x0.25",
       "disabled": true
     },
     "jet-hub-raccoon/sn-deepseek-v4-1-flash-1017": {
       "id": "jet-hub-raccoon/sn-deepseek-v4-1-flash-1017",
       "upstream": "raccoon/sn-deepseek-v4-1-flash-1017",
-      "name": "DeepSeek-V4.1-Flash-1017 · x0.25",
+      "name": "sn-deepseek-v4-1-flash-1017",
       "disabled": true
     },
     "jet-hub-raccoon/sn-glm-5-3": {
@@ -5814,7 +6295,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-raccoon/sn-glm-5-3-flash": {
       "id": "jet-hub-raccoon/sn-glm-5-3-flash",
       "upstream": "raccoon/sn-glm-5-3-flash",
-      "name": "GLM-5-3-Flash · x0.2",
+      "name": "GLM-5-3-Flash · x0.2→x0.1",
       "disabled": true
     },
     "jet-hub-raccoon/sn-kimi-k3": {
@@ -5838,73 +6319,151 @@ window.JET_HUB_CATALOG = {
     "jet-hub-trae/DeepSeek-V4-Flash": {
       "id": "jet-hub-trae/DeepSeek-V4-Flash",
       "upstream": "trae/DeepSeek-V4-Flash",
-      "name": "DeepSeek-V4-Flash · x0.2",
+      "name": "DeepSeek V4 Flash",
+      "disabled": true
+    },
+    "jet-hub-trae/DeepSeek-V4-Flash-Official": {
+      "id": "jet-hub-trae/DeepSeek-V4-Flash-Official",
+      "upstream": "trae/DeepSeek-V4-Flash-Official",
+      "name": "DeepSeek V4 Flash Official",
       "disabled": true
     },
     "jet-hub-trae/DeepSeek-V4-Pro": {
       "id": "jet-hub-trae/DeepSeek-V4-Pro",
       "upstream": "trae/DeepSeek-V4-Pro",
-      "name": "DeepSeek-V4-Pro · x0.72",
+      "name": "DeepSeek V4 Pro",
       "disabled": true
     },
     "jet-hub-trae/DeepSeek-V4-Pro-Official": {
       "id": "jet-hub-trae/DeepSeek-V4-Pro-Official",
       "upstream": "trae/DeepSeek-V4-Pro-Official",
-      "name": "DeepSeek-V4-Pro · x0.72",
+      "name": "DeepSeek-V4-Pro-Official",
       "disabled": true
     },
     "jet-hub-trae/Doubao-Seed-2.0-Code": {
       "id": "jet-hub-trae/Doubao-Seed-2.0-Code",
       "upstream": "trae/Doubao-Seed-2.0-Code",
-      "name": "Doubao-Seed-2.0-Code · x0.39",
+      "name": "Doubao Seed 2.0 Code",
       "disabled": true
     },
     "jet-hub-trae/Doubao-Seed-2.1-Pro": {
       "id": "jet-hub-trae/Doubao-Seed-2.1-Pro",
       "upstream": "trae/Doubao-Seed-2.1-Pro",
-      "name": "Seed-2.1-Pro-0915 · x0.8",
+      "name": "Doubao Seed 2.1 Pro",
       "disabled": true
     },
     "jet-hub-trae/Doubao-Seed-2.1-Turbo": {
       "id": "jet-hub-trae/Doubao-Seed-2.1-Turbo",
       "upstream": "trae/Doubao-Seed-2.1-Turbo",
-      "name": "Seed-2.1-Turbo · x0.4→x0.2",
+      "name": "Doubao Seed 2.1 Turbo",
       "disabled": true
     },
     "jet-hub-trae/Doubao-Seed-Code": {
       "id": "jet-hub-trae/Doubao-Seed-Code",
       "upstream": "trae/Doubao-Seed-Code",
-      "name": "Seed-Code · x0.12→x0.06",
+      "name": "Doubao-Seed-Code",
       "disabled": true
     },
     "jet-hub-trae/Doubao-Seed-Evolving": {
       "id": "jet-hub-trae/Doubao-Seed-Evolving",
       "upstream": "trae/Doubao-Seed-Evolving",
-      "name": "Seed-Evolving · x0.8",
+      "name": "Doubao-Seed-Evolving",
+      "disabled": true
+    },
+    "jet-hub-trae/aquila": {
+      "id": "jet-hub-trae/aquila",
+      "upstream": "trae/aquila",
+      "name": "Aquila",
       "disabled": true
     },
     "jet-hub-trae/code-review-judge": {
       "id": "jet-hub-trae/code-review-judge",
       "upstream": "trae/code-review-judge",
-      "name": "DeepSeek-V3.1-Terminus",
+      "name": "code-review-judge",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_1M": {
+      "id": "jet-hub-trae/custom_model_1M",
+      "upstream": "trae/custom_model_1M",
+      "name": "Custom 1M",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_1M_text": {
+      "id": "jet-hub-trae/custom_model_1M_text",
+      "upstream": "trae/custom_model_1M_text",
+      "name": "Custom 1M Text",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_claude": {
+      "id": "jet-hub-trae/custom_model_claude",
+      "upstream": "trae/custom_model_claude",
+      "name": "Custom Claude",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_deepseek_chat": {
+      "id": "jet-hub-trae/custom_model_deepseek_chat",
+      "upstream": "trae/custom_model_deepseek_chat",
+      "name": "Custom DeepSeek Chat",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_deepseek_reasoner": {
+      "id": "jet-hub-trae/custom_model_deepseek_reasoner",
+      "upstream": "trae/custom_model_deepseek_reasoner",
+      "name": "Custom DeepSeek Reasoner",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_deepseek_v4": {
+      "id": "jet-hub-trae/custom_model_deepseek_v4",
+      "upstream": "trae/custom_model_deepseek_v4",
+      "name": "Custom DeepSeek V4",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_gemini": {
+      "id": "jet-hub-trae/custom_model_gemini",
+      "upstream": "trae/custom_model_gemini",
+      "name": "Custom Gemini",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_gpt-5": {
+      "id": "jet-hub-trae/custom_model_gpt-5",
+      "upstream": "trae/custom_model_gpt-5",
+      "name": "Custom GPT-5",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_kimi": {
+      "id": "jet-hub-trae/custom_model_kimi",
+      "upstream": "trae/custom_model_kimi",
+      "name": "Custom Kimi",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_no-fc": {
+      "id": "jet-hub-trae/custom_model_no-fc",
+      "upstream": "trae/custom_model_no-fc",
+      "name": "Custom No-FC",
+      "disabled": true
+    },
+    "jet-hub-trae/custom_model_placeholder": {
+      "id": "jet-hub-trae/custom_model_placeholder",
+      "upstream": "trae/custom_model_placeholder",
+      "name": "Custom Placeholder",
       "disabled": true
     },
     "jet-hub-trae/deepseek-V3": {
       "id": "jet-hub-trae/deepseek-V3",
       "upstream": "trae/deepseek-V3",
-      "name": "DeepSeek-V3 · x0.25",
+      "name": "deepseek-V3",
       "disabled": true
     },
     "jet-hub-trae/deepseek-V3.1": {
       "id": "jet-hub-trae/deepseek-V3.1",
       "upstream": "trae/deepseek-V3.1",
-      "name": "DeepSeek-V3.1-Terminus · x0.5",
+      "name": "deepseek-V3.1",
       "disabled": true
     },
     "jet-hub-trae/deepseek-v4.1-flash": {
       "id": "jet-hub-trae/deepseek-v4.1-flash",
       "upstream": "trae/deepseek-v4.1-flash",
-      "name": "DeepSeek-V4.1-Flash · x0.12",
+      "name": "deepseek-v4.1-flash",
       "disabled": true
     },
     "jet-hub-trae/doubao-2.0-mini": {
@@ -5916,133 +6475,169 @@ window.JET_HUB_CATALOG = {
     "jet-hub-trae/glm-4.7": {
       "id": "jet-hub-trae/glm-4.7",
       "upstream": "trae/glm-4.7",
-      "name": "GLM-4.7 · x0.38",
+      "name": "glm-4.7",
       "disabled": true
     },
     "jet-hub-trae/glm-5": {
       "id": "jet-hub-trae/glm-5",
       "upstream": "trae/glm-5",
-      "name": "GLM-5 · x0.7",
+      "name": "GLM-5",
+      "disabled": true
+    },
+    "jet-hub-trae/glm-5-turbo": {
+      "id": "jet-hub-trae/glm-5-turbo",
+      "upstream": "trae/glm-5-turbo",
+      "name": "GLM-5 Turbo",
       "disabled": true
     },
     "jet-hub-trae/glm-5.1": {
       "id": "jet-hub-trae/glm-5.1",
       "upstream": "trae/glm-5.1",
-      "name": "GLM-5.1 · x0.83",
+      "name": "glm-5.1",
+      "disabled": true
+    },
+    "jet-hub-trae/glm-5.2": {
+      "id": "jet-hub-trae/glm-5.2",
+      "upstream": "trae/glm-5.2",
+      "name": "GLM-5.2",
       "disabled": true
     },
     "jet-hub-trae/glm-5.3": {
       "id": "jet-hub-trae/glm-5.3",
       "upstream": "trae/glm-5.3",
-      "name": "GLM-5.3 · x0.78",
+      "name": "glm-5.3",
       "disabled": true
     },
     "jet-hub-trae/glm-5.3-flash": {
       "id": "jet-hub-trae/glm-5.3-flash",
       "upstream": "trae/glm-5.3-flash",
-      "name": "GLM-5.3-Flash · x0.08",
+      "name": "glm-5.3-flash",
       "disabled": true
     },
     "jet-hub-trae/glm-5.3-flashx": {
       "id": "jet-hub-trae/glm-5.3-flashx",
       "upstream": "trae/glm-5.3-flashx",
-      "name": "GLM-5.3-FlashX · x0.31",
+      "name": "glm-5.3-flashx",
       "disabled": true
     },
     "jet-hub-trae/glm-5v-turbo": {
       "id": "jet-hub-trae/glm-5v-turbo",
       "upstream": "trae/glm-5v-turbo",
-      "name": "GLM-5V-Turbo · x0.51",
+      "name": "glm-5v-turbo",
       "disabled": true
     },
     "jet-hub-trae/kimi-k2.5": {
       "id": "jet-hub-trae/kimi-k2.5",
       "upstream": "trae/kimi-k2.5",
-      "name": "Kimi-K2.5 · x0.48",
+      "name": "kimi-k2.5",
       "disabled": true
     },
     "jet-hub-trae/kimi-k2.6": {
       "id": "jet-hub-trae/kimi-k2.6",
       "upstream": "trae/kimi-k2.6",
-      "name": "Kimi-K2.6 · x0.75",
+      "name": "Kimi K2.6",
+      "disabled": true
+    },
+    "jet-hub-trae/kimi-k2.7-code": {
+      "id": "jet-hub-trae/kimi-k2.7-code",
+      "upstream": "trae/kimi-k2.7-code",
+      "name": "Kimi K2.7 Code",
       "disabled": true
     },
     "jet-hub-trae/kimi-k3": {
       "id": "jet-hub-trae/kimi-k3",
       "upstream": "trae/kimi-k3",
-      "name": "Kimi-K3 · x1.83",
+      "name": "Kimi K3",
       "disabled": true
     },
     "jet-hub-trae/kimi-k3.1-pro": {
       "id": "jet-hub-trae/kimi-k3.1-pro",
       "upstream": "trae/kimi-k3.1-pro",
-      "name": "Kimi-K3.1-Pro · x1.2",
+      "name": "kimi-k3.1-pro",
       "disabled": true
     },
     "jet-hub-trae/mimo-v2.6-flash": {
       "id": "jet-hub-trae/mimo-v2.6-flash",
       "upstream": "trae/mimo-v2.6-flash",
-      "name": "MiMo-V2.6-Flash · x0.06",
+      "name": "mimo-v2.6-flash",
       "disabled": true
     },
     "jet-hub-trae/mimo-v2.6-pro": {
       "id": "jet-hub-trae/mimo-v2.6-pro",
       "upstream": "trae/mimo-v2.6-pro",
-      "name": "MiMo-V2.6-Pro · x0.15",
+      "name": "mimo-v2.6-pro",
       "disabled": true
     },
     "jet-hub-trae/minimax-m2.7": {
       "id": "jet-hub-trae/minimax-m2.7",
       "upstream": "trae/minimax-m2.7",
-      "name": "MiniMax-M2.7 · x0.27",
+      "name": "minimax-m2.7",
       "disabled": true
     },
     "jet-hub-trae/minimax-m3": {
       "id": "jet-hub-trae/minimax-m3",
       "upstream": "trae/minimax-m3",
-      "name": "MiniMax-M3 · x0.26",
+      "name": "MiniMax M3",
       "disabled": true
     },
     "jet-hub-trae/minimax-m3.1-flash": {
       "id": "jet-hub-trae/minimax-m3.1-flash",
       "upstream": "trae/minimax-m3.1-flash",
-      "name": "MiniMax-M3.1-Flash · x0.09",
+      "name": "minimax-m3.1-flash",
       "disabled": true
     },
     "jet-hub-trae/multimodal_image_kimi-k2.5": {
       "id": "jet-hub-trae/multimodal_image_kimi-k2.5",
       "upstream": "trae/multimodal_image_kimi-k2.5",
-      "name": "Kimi-K2.5 · x0.75",
+      "name": "multimodal_image_kimi-k2.5",
       "disabled": true
     },
     "jet-hub-trae/qwen-3.5": {
       "id": "jet-hub-trae/qwen-3.5",
       "upstream": "trae/qwen-3.5",
-      "name": "Qwen3.5-Plus · x0.26",
+      "name": "qwen-3.5",
       "disabled": true
     },
     "jet-hub-trae/qwen-3.6-plus": {
       "id": "jet-hub-trae/qwen-3.6-plus",
       "upstream": "trae/qwen-3.6-plus",
-      "name": "Qwen3.6-Plus · x0.26",
+      "name": "qwen-3.6-plus",
+      "disabled": true
+    },
+    "jet-hub-trae/qwen-3.7-plus": {
+      "id": "jet-hub-trae/qwen-3.7-plus",
+      "upstream": "trae/qwen-3.7-plus",
+      "name": "Qwen 3.7 Plus",
       "disabled": true
     },
     "jet-hub-trae/qwen3.8-flash": {
       "id": "jet-hub-trae/qwen3.8-flash",
       "upstream": "trae/qwen3.8-flash",
-      "name": "Qwen3.8-Flash · x0.08",
+      "name": "qwen3.8-flash",
       "disabled": true
     },
     "jet-hub-trae/qwen3.8-max": {
       "id": "jet-hub-trae/qwen3.8-max",
       "upstream": "trae/qwen3.8-max",
-      "name": "Qwen3.8-Max · x1.5",
+      "name": "qwen3.8-max",
+      "disabled": true
+    },
+    "jet-hub-trae/sagitta": {
+      "id": "jet-hub-trae/sagitta",
+      "upstream": "trae/sagitta",
+      "name": "Sagitta",
+      "disabled": true
+    },
+    "jet-hub-trae/seed-code-pro-0430": {
+      "id": "jet-hub-trae/seed-code-pro-0430",
+      "upstream": "trae/seed-code-pro-0430",
+      "name": "Seed Code Pro 0430",
       "disabled": true
     },
     "jet-hub-trae/step-5-preview": {
       "id": "jet-hub-trae/step-5-preview",
       "upstream": "trae/step-5-preview",
-      "name": "Step-5-Preview · x0.48",
+      "name": "step-5-preview",
       "disabled": true
     },
     "jet-hub-workbuddy/balanced-model": {
@@ -6066,13 +6661,13 @@ window.JET_HUB_CATALOG = {
     "jet-hub-workbuddy/deepseek-v4.1-flash-sg": {
       "id": "jet-hub-workbuddy/deepseek-v4.1-flash-sg",
       "upstream": "workbuddy/deepseek-v4.1-flash-sg",
-      "name": "Deepseek-V4.1-Flash · x0.11 SG",
+      "name": "Deepseek-V4.1-Flash · SG",
       "disabled": true
     },
     "jet-hub-workbuddy/default-model": {
       "id": "jet-hub-workbuddy/default-model",
       "upstream": "workbuddy/default-model",
-      "name": "Auto · x0.15",
+      "name": "Auto",
       "disabled": true
     },
     "jet-hub-workbuddy/fast-model": {
@@ -6090,7 +6685,7 @@ window.JET_HUB_CATALOG = {
     "jet-hub-workbuddy/gemini-3.8-flash": {
       "id": "jet-hub-workbuddy/gemini-3.8-flash",
       "upstream": "workbuddy/gemini-3.8-flash",
-      "name": "Gemini-3.8-Flash · x0.95",
+      "name": "gemini-3.8-flash",
       "disabled": true
     },
     "jet-hub-workbuddy/glm-5.2": {
@@ -6102,13 +6697,13 @@ window.JET_HUB_CATALOG = {
     "jet-hub-workbuddy/glm-5.3": {
       "id": "jet-hub-workbuddy/glm-5.3",
       "upstream": "workbuddy/glm-5.3",
-      "name": "GLM-5.3 · x0.69",
+      "name": "GLM-5.3",
       "disabled": true
     },
     "jet-hub-workbuddy/glm-5.3-flash": {
       "id": "jet-hub-workbuddy/glm-5.3-flash",
       "upstream": "workbuddy/glm-5.3-flash",
-      "name": "GLM-5.3-Flash · x0.08",
+      "name": "glm-5.3-flash",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-5.3-codex": {
@@ -6132,79 +6727,79 @@ window.JET_HUB_CATALOG = {
     "jet-hub-workbuddy/gpt-5.6-luna": {
       "id": "jet-hub-workbuddy/gpt-5.6-luna",
       "upstream": "workbuddy/gpt-5.6-luna",
-      "name": "GPT-5.6-Luna · x0.14",
+      "name": "GPT-5.6-Luna",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-5.6-sol": {
       "id": "jet-hub-workbuddy/gpt-5.6-sol",
       "upstream": "workbuddy/gpt-5.6-sol",
-      "name": "GPT-5.6-Sol · x3.47",
+      "name": "GPT-5.6-Sol",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-5.6-terra": {
       "id": "jet-hub-workbuddy/gpt-5.6-terra",
       "upstream": "workbuddy/gpt-5.6-terra",
-      "name": "GPT-5.6-Terra · x1.39",
+      "name": "GPT-5.6-Terra",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-6-astra": {
       "id": "jet-hub-workbuddy/gpt-6-astra",
       "upstream": "workbuddy/gpt-6-astra",
-      "name": "GPT-6-Astra · x6.67",
+      "name": "GPT-6-Astra",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-6-luna": {
       "id": "jet-hub-workbuddy/gpt-6-luna",
       "upstream": "workbuddy/gpt-6-luna",
-      "name": "GPT-6-Luna · x0.07",
+      "name": "gpt-6-luna",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-6-sol": {
       "id": "jet-hub-workbuddy/gpt-6-sol",
       "upstream": "workbuddy/gpt-6-sol",
-      "name": "GPT-6-Sol · x1.33",
+      "name": "gpt-6-sol",
       "disabled": true
     },
     "jet-hub-workbuddy/gpt-6.1-sol": {
       "id": "jet-hub-workbuddy/gpt-6.1-sol",
       "upstream": "workbuddy/gpt-6.1-sol",
-      "name": "GPT-6.1-Sol · x1.33",
+      "name": "gpt-6.1-sol",
       "disabled": true
     },
     "jet-hub-workbuddy/grok-4.7": {
       "id": "jet-hub-workbuddy/grok-4.7",
       "upstream": "workbuddy/grok-4.7",
-      "name": "Grok-4.7 · x1.90",
+      "name": "grok-4.7",
       "disabled": true
     },
     "jet-hub-workbuddy/hy3": {
       "id": "jet-hub-workbuddy/hy3",
       "upstream": "workbuddy/hy3",
-      "name": "Hy3 · x0.00→免费",
+      "name": "Hy3",
       "disabled": true
     },
     "jet-hub-workbuddy/hy4-preview": {
       "id": "jet-hub-workbuddy/hy4-preview",
       "upstream": "workbuddy/hy4-preview",
-      "name": "Hy4 Preview",
+      "name": "Hy4 preview",
       "disabled": true
     },
     "jet-hub-workbuddy/hy4-preview-f": {
       "id": "jet-hub-workbuddy/hy4-preview-f",
       "upstream": "workbuddy/hy4-preview-f",
-      "name": "Hy4 preview",
+      "name": "Hy4 preview · F",
       "disabled": true
     },
     "jet-hub-workbuddy/hy4free": {
       "id": "jet-hub-workbuddy/hy4free",
       "upstream": "workbuddy/hy4free",
-      "name": "Hy4 · x0.00→免费 FREE",
+      "name": "hy4free",
       "disabled": true
     },
     "jet-hub-workbuddy/hy4std": {
       "id": "jet-hub-workbuddy/hy4std",
       "upstream": "workbuddy/hy4std",
-      "name": "Hy4 · x0.29 STD",
+      "name": "hy4std",
       "disabled": true
     },
     "jet-hub-workbuddy/kimi-k2.6": {
@@ -6222,31 +6817,31 @@ window.JET_HUB_CATALOG = {
     "jet-hub-workbuddy/kimi-k3": {
       "id": "jet-hub-workbuddy/kimi-k3",
       "upstream": "workbuddy/kimi-k3",
-      "name": "Kimi-K3 · x1.62",
+      "name": "Kimi-K3",
       "disabled": true
     },
     "jet-hub-workbuddy/kimi-k3.1-pro": {
       "id": "jet-hub-workbuddy/kimi-k3.1-pro",
       "upstream": "workbuddy/kimi-k3.1-pro",
-      "name": "Kimi-K3.1-Pro · x0.97",
+      "name": "kimi-k3.1-pro",
       "disabled": true
     },
     "jet-hub-workbuddy/kimi-k3.1-pro-highspeed": {
       "id": "jet-hub-workbuddy/kimi-k3.1-pro-highspeed",
       "upstream": "workbuddy/kimi-k3.1-pro-highspeed",
-      "name": "Kimi-K3.1-Pro-Highspeed · x1.56",
+      "name": "kimi-k3.1-pro-highspeed",
       "disabled": true
     },
     "jet-hub-workbuddy/max-model": {
       "id": "jet-hub-workbuddy/max-model",
       "upstream": "workbuddy/max-model",
-      "name": "Max · x1.33",
+      "name": "max-model",
       "disabled": true
     },
     "jet-hub-workbuddy/minimax-m3.1-flash": {
       "id": "jet-hub-workbuddy/minimax-m3.1-flash",
       "upstream": "workbuddy/minimax-m3.1-flash",
-      "name": "MiniMax-M3.1-Flash · x0.08",
+      "name": "minimax-m3.1-flash",
       "disabled": true
     },
     "jet-hub-workbuddy/primary-model": {
@@ -6317,6 +6912,18 @@ window.JET_HUB_CATALOG = {
       "name": "Loomy (讯飞)",
       "desc": "讯飞 Loomy"
     },
+    "jet-hub-magicrew": {
+      "name": "超级麦吉 (MagiCrew)",
+      "desc": "超级麦吉（MagiCrew）"
+    },
+    "jet-hub-magicrewintl": {
+      "name": "MagiCrew (国际版)",
+      "desc": "MagiCrew 国际站（与国内站账号体系隔离）"
+    },
+    "jet-hub-marvis": {
+      "name": "腾讯 Marvis",
+      "desc": "腾讯 Marvis（QQ / 微信 OAuth 登录）"
+    },
     "jet-hub-minimax": {
       "name": "MiniMax Code (中国版)",
       "desc": "MiniMax Code 国内站"
@@ -6381,10 +6988,10 @@ window.JET_HUB_CATALOG = {
     {
       "url": "http://127.0.0.1:18500/",
       "port": "18500",
-      "models": 894,
-      "providers": 26,
+      "models": 979,
+      "providers": 29,
       "internalGateway": "direct",
-      "fullCatalogAt": "2026-11-05T07:10:43.502Z",
+      "fullCatalogAt": "2026-11-10T15:54:02.335Z",
       "version": "0.2.1-rc.2"
     }
   ]

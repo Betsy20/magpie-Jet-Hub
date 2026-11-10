@@ -11,6 +11,24 @@
 
 ## 1.0.0（未发布）
 
+- `fix(vendor)`: **`verify-vendor.mjs` 的「逐字节一致 1159」在本机必然失败**（2026-11-10 复核
+  发现）。脚本把 `identical` 硬编码成 1159，但本仓 `package.json` 声明 `esbuild ^0.24.0`，
+  而 `lib/client/jet-hub.js` 由 `plugin-src/client/build.mjs` 用 esbuild 打包、`__export`
+  的变量名取入口 basename（`entryPoints: [index.js]`）—— 0.24 给 `client_exports`，上游作者
+  用的更新版本给 `index_exports`，**差 3 字节**。⇒ 任何人按文档重建都会得到 **1158**，
+  而脚本把 `client/jet-hub.js` 归进「手改或污染」并 exit 1 —— **一条必然误报的基线等于没有**。
+  现在加 `BUILD_ARTIFACTS` 白名单：差异数按「文档 1159 − 构建产物差异」判，且**最多只允许 1 个**
+  （白名单被滥用时单独报一条），输出里点名「文档 1159 − 构建产物 1：client/jet-hub.js」。
+  `docs/vendor.md` 的「它做四件事」同步补这句说明。
+
+- `chore(snapshot)`: **`page/models.js` 重跑**（894 → **979** 个模型 / 28 → **29** 家，含
+  `jet-hub-marvis/main-auto`）。上一版 PR 里写「需要加载了新 vendor 的宿主在跑，所以没硬跑」——
+  但宿主早已重启（`:18500` 的 `magpie-bun` 是 22:25 起的，`/__meta` 报 29 家、`fullCatalogAt`
+  就是当天），理由不成立。重跑后 `tests/t-new-account.mjs` 的 `SNAPSHOT_MISSING` 白名单
+  **三条全部如约变红**（`magicrew` / `magicrewintl` 的凭据已恢复、`marvis` 也有目录了），
+  按那个反向锚点的设计清空 —— 这条白名单的用途就是「能拿到时必须删掉」，留着等于永久
+  掩盖真缺失。
+
 - `chore(vendor)`: **新增 `scripts/verify-vendor.mjs`，把「1170 个文件 / 1159 个逐字节一致 /
   11 个补丁」这条快照基线变成一条可执行命令**。原来 `docs/vendor.md` 的「怎么自己核一遍」
   只有一堆 shell，而临时目录一清就说不清「这 11 个差异到底是补丁还是被人手改过」——

@@ -956,19 +956,10 @@ console.log('\noauth 方法形状：')
       // （下面有反向锚点盯着），否则白名单会烂在代码里、永久掩盖真缺失。
       // 2026-11-03：宿主重启后快照重跑，25 家已齐全，白名单清空
       // （留着任何一条都等于永久掩盖真缺失，下面那条反向锚点就是防这个）。
-      const SNAPSHOT_MISSING = new Map([
-        // 2026-11-04 同步上游 `fddb875` 后重跑快照：magicrew 两家的凭据已失效
-        //（模型目录接口返 405 HTML）。**新 vendor 的 `model.list` 改为直接抛错、
-        // 不再回退静态表**（旧 vendor 会回退成 27 条），所以这一轮拿不到它们的目录。
-        // 这是上游行为变化，不是本仓库改的 —— 凭据恢复后重跑快照即会自动出现，
-        // 那时下面那条反向锚点会红、提醒删掉这两条。
-        ['jet-hub-magicrew', '凭据失效 + 新 vendor 不再回退静态表'],
-        ['jet-hub-magicrewintl', '凭据失效 + 新 vendor 不再回退静态表'],
-        // 2026-11-10 同步上游 `1d12f80` 新增腾讯 Marvis：本机没有 QQ / 微信 OAuth
-        // 凭据 ⇒ 拿不到任何账号 ⇒ 快照里没有它。凭据登录后重跑快照即会出现，
-        // 那时下面那条反向锚点会红、提醒删掉这一条。
-        ['jet-hub-marvis', '本机没有 Marvis 的 QQ / 微信 OAuth 凭据'],
-      ])
+      // 2026-11-10：同步上游 `1d12f80`（接腾讯 Marvis）后重跑快照，29 家全部拿到
+      // 目录 —— `magicrew` / `magicrewintl` 的凭据已恢复（上一版白名单里那两条就是
+      // 等这一天，反向锚点如约变红），`marvis` 的 `main-auto` 也在。再次清空。
+      const SNAPSHOT_MISSING = new Map()
       const expectProvs = [...new Set(fbIds.map((id) => `jet-hub-${id.split('/')[0]}`))]
       ok(expectProvs.length >= 20, `FALLBACK 应覆盖 20+ 家，实际 ${expectProvs.length}`)
       for (const [p, why] of SNAPSHOT_MISSING) {

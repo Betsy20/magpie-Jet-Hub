@@ -43,8 +43,28 @@ const PATCH_FILES = [
   'lib/types.d.ts',                     // ⑤ RpcModelSetDisabledManyRequest.closeProvider
 ].sort()
 
-/** 文档里写死的两个数（docs/vendor.md「与上游构建产物的差异」）。 */
+/**
+ * 文档里写死的两个数（docs/vendor.md「与上游构建产物的差异」）。
+ *
+ * ⚠️ `identical` 是**上游作者构建环境**下的数。`lib/client/jet-hub.js` 由
+ * `plugin-src/client/build.mjs` 用 esbuild 打包，产物里 `__export` 的变量名取入口
+ * basename（`entryPoints: [index.js]` ⇒ `index_exports`）。本仓 `package.json`
+ * 声明 `esbuild ^0.24.0`，0.24 给的是 `client_exports` —— 与上游那份差 3 字节。
+ * ⇒ 本机重建会得到 **1158** 而不是 1159，差的就是这一个构建产物（见
+ * `BUILD_ARTIFACTS`）。判据据此扣除，不把它当成「污染」。
+ */
 const EXPECT = { libFiles: 1170, identical: 1159, localeFiles: 2 }
+
+/**
+ * 上游构建产物里**随工具链版本漂移**的文件 —— 既不是补丁，也不是污染。
+ *
+ * 判据：它由本仓的 `build.mjs` 从**上游同一份源码**生成，内容差异只来自
+ * esbuild 版本（`__export` 变量名 / `@__PURE__` 注解保留策略）。
+ * ⚠️ 往里加文件前先确认「差异 100% 来自工具链」：如果某天真有人在 `vendor/`
+ * 手改了这个文件，这条白名单会把污染吃掉 —— 所以下面仍然要求它**最多差 1 个**，
+ * 且差异只允许是这一个已知文件。
+ */
+const BUILD_ARTIFACTS = new Set(['client/jet-hub.js'])
 
 const sha256 = (p) => createHash('sha256').update(fs.readFileSync(p)).digest('hex')
 
@@ -102,21 +122,30 @@ function main() {
 
   console.log(`  vendor/lib ${vend.length} 个文件｜上游 ${ups.length} 个｜逐字节一致 ${identical} 个`)
 
+  // 构建产物（见 BUILD_ARTIFACTS）随工具链版本变 —— 从「一致数」里扣掉，从「污染」里豁免。
+  const artifactDiffering = differing.filter((f) => BUILD_ARTIFACTS.has(f))
+  const expectedIdentical = EXPECT.identical - artifactDiffering.length
+  const artifactNote = artifactDiffering.length === 0
+    ? ''
+    : `（文档 ${EXPECT.identical} − 构建产物 ${artifactDiffering.length}：${artifactDiffering.join(', ')}）`
+
   if (vend.length !== EXPECT.libFiles) bad(`vendor/lib 文件数应为 ${EXPECT.libFiles}，实际 ${vend.length}（同步后请更新文档与 EXPECT）`)
   else ok(`文件数 ${vend.length} 与文档一致`)
-  if (identical !== EXPECT.identical) bad(`逐字节一致数应为 ${EXPECT.identical}，实际 ${identical}（同步后请更新文档与 EXPECT）`)
-  else ok(`逐字节一致 ${identical} 个与文档一致`)
+  if (identical !== expectedIdentical) bad(`逐字节一致数应为 ${expectedIdentical}${artifactNote}，实际 ${identical}（同步后请更新文档与 EXPECT）`)
+  else ok(`逐字节一致 ${identical} 个与文档一致${artifactNote}`)
 
   if (upstreamOnly.length) bad(`上游有、vendor 缺：${upstreamOnly.join(', ')}（同步漏拷）`)
   if (vendorOnly.length) bad(`vendor 有、上游没有：${vendorOnly.join(', ')}（快照被别的动作污染过）`)
+  // 构建产物一旦多于 1 个，说明白名单被滥用了 —— 逐个列出来人工看一眼。
+  if (artifactDiffering.length > 1) bad(`构建产物差异应最多 1 个，实际 ${artifactDiffering.length}：${artifactDiffering.join(', ')}（检查 BUILD_ARTIFACTS 是否被滥用）`)
 
   // `differing` 里是相对 `lib/` 的路径；补丁表按仓库路径写（`lib/xxx`），比较时归一。
   const PATCH_REL = new Set(PATCH_FILES.map((f) => f.replace(/^lib\//, '')))
-  const extra = differing.filter((f) => !PATCH_REL.has(f))
+  const extra = differing.filter((f) => !PATCH_REL.has(f) && !BUILD_ARTIFACTS.has(f))
   const missing = [...PATCH_REL].filter((f) => !differing.includes(f)).sort()
   if (missing.length) bad(`这些补丁**不在**差异里，说明被同步覆盖了：${missing.join(', ')}`)
   if (extra.length) bad(`这些文件与上游不同，但不在补丁表里（手改或污染）：${extra.join(', ')}`)
-  if (!missing.length && !extra.length) ok(`差异集合恰好等于补丁表（${PATCH_FILES.length} 个文件 / 6 类）`)
+  if (!missing.length && !extra.length) ok(`差异集合恰好等于补丁表（${PATCH_FILES.length} 个文件 / 6 类）${artifactDiffering.length ? ` + 构建产物 ${artifactDiffering.length} 个` : ''}`)
 
   // ── 2. .map 数量与体积 ─────────────────────────────────────────────
   console.log('· 2  source map')
