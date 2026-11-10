@@ -65,6 +65,8 @@ export const JetHubMagicrewPlugin = byId.get('jet-hub-magicrew')
 
 /** 本体 `magicrewintl`（magpie id `jet-hub-magicrewintl`，国际站）。 */
 export const JetHubMagicrewintlPlugin = byId.get('jet-hub-magicrewintl')
+
+/** 本体 `marvis`（magpie id `jet-hub-marvis`，腾讯 Marvis）。 */
 export const JetHubMarvisPlugin = byId.get('jet-hub-marvis')
 
 /** 本体 `minimax`（magpie id `jet-hub-minimax`）。 */

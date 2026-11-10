@@ -47,6 +47,20 @@
   ⚠ `files` 白名单里没有 `scripts/` 与 `tests/`，所以这几个入口只对**从源码 clone**
   的目录有效（发布出去的插件包里不需要测试）；`docs/testing.md` 里一并写明了。
 
+- `fix(test)`: **`isolate()` 建的沙箱目录永不回收**。`tests/_iso.mjs` 的 `isolate()`
+  只 `mkdtemp` 不清理，每跑一次全量测试就在 `%TEMP%` 留 5 个 `jet-hub-test-*`
+  （2026-11-11 实测：连跑三次留下 **15 个目录 / 0.52 MB**）。单次不大，但**永不回收**
+  —— 开发机跑几个月就是几百个目录，而且里面是测试造出来的**真凭据假副本**
+  （`access_token` / `refresh_token` 形状与真实一致）。现在在 `isolate()` 里挂
+  `process.once('exit')` 同步 `rmSync` 掉。
+  为什么用 `exit` 而不是 `afterEach`：这里没有测试框架，且要覆盖「用例里
+  `process.exit(1)` 直接退」那条路（好几个用例就是这么写的）；`exit` 回调只能跑
+  同步代码，`rmSync` 正好是同步的。实测：全量跑完残留数**不再增长**（15 → 15）。
+
+- `chore(index)`: **`JetHubMarvisPlugin` 缺 JSDoc 注释**。`index.mjs` 里 29 个工厂
+  都带一致的 `/** 本体 xxx（magpie id xxx）。 */`，只有 `1d12f80` 同步 Marvis 时
+  漏了这一行 —— 后续维护者按模式扫过去会以为「这个是有意不同的」。补上。
+
 - `test(page)`: **新增 `tests/t-page-contract.mjs`（36 条断言），把侧栏页「静默失效」的
   几类钉死**。侧栏页跑在 magpie 的窗口沙箱里（CSP `connect-src 'none'` + opaque origin），
   任何网络调用都**不报错、只哑掉** —— 用户看到的是「这个页面坏了」，而这条链路原来

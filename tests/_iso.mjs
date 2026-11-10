@@ -56,10 +56,25 @@ import { spawnSync } from 'node:child_process'
 /**
  * 建一个一次性隔离沙箱并设置环境变量。
  *
+ * 沙箱目录会在**进程退出时自动删掉**（见下面的 `process.once('exit')`）：
+ * 原来只 `mkdtemp` 不清理，每跑一次全量测试就在 `%TEMP%` 留 5 个
+ * `jet-hub-test-*`（2026-11-11 实测：连跑三次留下 15 个目录 / 0.52 MB）。
+ * 单次不大，但**永不回收** —— 开发机跑上几个月就是几百个目录，
+ * 而且里面是真凭据的**假副本**（测试造出来的 token），清理掉才安心。
+ *
  * @returns {{ root: string, home: string, options: (extra?: object) => object, env: object }}
  */
 export function isolate() {
   const root = mkdtempSync(join(tmpdir(), 'jet-hub-test-'))
+  // `process.once('exit')` 而不是 `afterEach`：这里没有测试框架，且要覆盖
+  // 「用例里 `process.exit(1)` 直接退」那条路（好几个用例就是这么写的）。
+  // `exit` 回调只能跑同步代码 —— `rmSync` 正好是同步的。
+  // `force: true` 让「已经被删过」也不抛，避免掩盖真实错误。
+  process.once('exit', () => {
+    try {
+      rmSync(root, { recursive: true, force: true })
+    } catch {}
+  })
   const env = {
     // 用户地址文件：容器只在控制台端口是 18500 时才写，测试一律不写
     JET_HUB_NO_ADDR_FILE: '1',
