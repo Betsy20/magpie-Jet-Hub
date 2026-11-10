@@ -942,7 +942,14 @@ console.log('\noauth 方法形状：')
     else without.push(p.auth.provider)
     for (const m of oauth) {
       ok(typeof m.authorize === 'function', `${p.auth.provider} 的 oauth 方法有 authorize`)
-      ok(m.ask === undefined, `${p.auth.provider} 的 oauth 方法没有 ask（新建没得选）`)
+      if (p.auth.provider === 'jet-hub-marvis') {
+        // 唯一的例外（2026-11-11）：宿主对插件签入没有「给链接 + 收粘贴」的形状，
+        // Marvis 的登录方式（QQ / 微信）与授权码只能走 ask() 问答收集 —— 宿主对
+        // oauth 方法同样先跑 prompt 再 authorize（Kiro「先问方式再登」同款）。
+        ok(typeof m.ask === 'function', 'jet-hub-marvis 的 oauth 方法带 ask（选方式 + 收粘贴地址）')
+      } else {
+        ok(m.ask === undefined, `${p.auth.provider} 的 oauth 方法没有 ask（新建没得选）`)
+      }
       ok(typeof m.label === 'string' && m.label.includes('新建'), `${p.auth.provider} 的 oauth 标签说清是「新建」`)
     }
   }
