@@ -258,7 +258,11 @@ const listMod = new Function(`${listSrc}\nreturn { listAccountsOf, accountById, 
   //
   // 用行为测，不用源码 grep：把 `refreshInBackground` 抽出来喂假容器。
   {
-    const refreshSrc = slice('function refreshInBackground(', 'const CACHE_TTL_MS')
+    // ⚠ 起点取 `const REFRESH_GUARD_MS =`（2026-11-11 三审 P1-A 新增的兜底常量）：
+    //    `refreshInBackground` 里引用了它，只切函数体会 ReferenceError。
+    // ⚠ 60 秒的兜底在测试里等不起 ⇒ 把那个常量**改小**（只改副本，源码不动）。
+    const refreshSrc = slice('const REFRESH_GUARD_MS =', 'const CACHE_TTL_MS')
+      .replace(/const REFRESH_GUARD_MS = [0-9_]+/, 'const REFRESH_GUARD_MS = 40')
     const make = () => {
       const rec = { start: 0, refreshModels: 0, refreshFullCatalog: 0, writeCache: 0 }
       const container = {
@@ -276,8 +280,11 @@ const listMod = new Function(`${listSrc}\nreturn { listAccountsOf, accountById, 
         return { refreshInBackground, snap: () => ({ allModels, fullModels, refreshing }) }
       `
       // eslint-disable-next-line no-new-func
-      const fn = new Function('writeCache', 'absorbMeta', 'DSH_PROVIDERS', body)
-      const api = fn(() => { rec.writeCache += 1 }, () => {}, ['x'])
+      // `refreshInBackground` 里还有一层 `setTimeout` 兜底（`REFRESH_GUARD_MS`）——
+      // 注入真的 `setTimeout` / `clearTimeout`：假定时器会让那条兜底永远不 fire，
+      // 测不到「挂住时放开标记」这个语义。
+      const fn = new Function('writeCache', 'absorbMeta', 'DSH_PROVIDERS', 'setTimeout', 'clearTimeout', body)
+      const api = fn(() => { rec.writeCache += 1 }, () => {}, ['x'], setTimeout, clearTimeout)
       return { api, container, rec }
     }
 
@@ -294,6 +301,20 @@ const listMod = new Function(`${listSrc}\nreturn { listAccountsOf, accountById, 
     b.api.refreshInBackground(b.container, () => {})
     await new Promise((r) => setTimeout(r, 60))
     ok(b.rec.start === 2, 'C-9c 串行两次跑两条链（去重只挡并发，不挡下一次）', `实际 ${b.rec.start} 条`)
+
+    // C-9d **挂住**时也必须放开标记（2026-11-11 三审 P1-A 补的这一格）
+    //
+    // ⚠ 为什么 C-9a/b/c 抓不到：它们用的假容器**都会 resolve**，而 `finally` 只在
+    //    promise settle 时执行。真实故障形态是 `container.start()` / `refreshModels()`
+    //    永不 settle（`src/container.mjs:726` 的 `route.fetch(req)` 没有 AbortSignal、
+    //    没有超时）⇒ `refreshing` 永久 `true` ⇒ 29 家 `models()` 全部只返回磁盘旧
+    //    目录、`writeCache()` 永不执行。这条用「永不 settle 的 start」把它钉住。
+    const c = make()
+    c.container.start = () => new Promise(() => {}) // 永不 settle
+    c.api.refreshInBackground(c.container, () => {})
+    ok(c.api.snap().refreshing === true, 'C-9d 挂住时标记先置位（不然并发挡不住）')
+    await new Promise((r) => setTimeout(r, 120))
+    ok(c.api.snap().refreshing === false, 'C-9d 挂住超过 REFRESH_GUARD_MS 后标记必须放开（否则永久冻结）')
   }
 }
 

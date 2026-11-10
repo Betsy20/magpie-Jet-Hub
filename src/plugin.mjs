@@ -956,8 +956,10 @@ const CREATE_TIMEOUT_MS = 45_000
  *
  * 为什么也要有（2026-11-11 审计发现）：这两条路径都走 `container.rpc()`，而那条
  * 路径**没有超时**（见上面 `LOGIN_POLL_TIMEOUT_MS` 的说明）。宿主
- * `usageOf(provider, account, signal)` 虽然传了 `{ signal }`，但那个 signal 只到得了
- * `a.usage(getAuth, info, { signal })` 这一层 —— `container.rpc()` 不吃它。
+ * `usageOf(provider, account, signal)` 确实传了 `{ signal }`（2026-11-11 从
+ * `magpie.exe` 提取的 `_mp_host.js` 核实：`a.usage(getAuth, info, {
+ * signal })`，`signal === undefined ? undefined : { signal }`），但那个 signal
+ * 只到得了 `a.usage(getAuth, info, { signal })` 这一层 —— `container.rpc()` 不吃它。
  * 于是上游一挂住：用量卡永远转圈、promise 永远不 settle（泄漏）、
  * `balanceCache` 也永远不写。表现是「点开账号卡片，余额那一行一直是空的」。
  *
@@ -1774,10 +1776,39 @@ function writeCache(log) {
  */
 let refreshing = false
 
+/**
+ * 一条刷新链最多允许挂多久（毫秒）。
+ *
+ * ⚠️⚠️ 为什么除了 `finally` 还要这个兜底（2026-11-11 三审 P1-A）：
+ * `finally` 只在 promise **settle** 时执行，而 ARC 里最坏的形态不是 reject 而是
+ * **永不 settle** —— `container.start()` / `refreshModels()` 最终都落到
+ * `route.fetch(req)`（`src/container.mjs:726`），那条路径**没有 AbortSignal、
+ * 没有超时**。上游一次卡住，`refreshing` 就永久 `true`：
+ *   ① 29 家 `provider.models()` 全部永久只返回磁盘旧目录；
+ *   ② `writeCache()` 永不执行 ⇒ 新装机器**永远**写不出第一份缓存；
+ *   ③ 用户唯一的自救（重启 magpie）之后仍会再撞一次。
+ * PR 自己的注释写「失败也要能重试，否则一次网络抖动就把后台刷新永久卡死」——
+ * 这个兜底正是那句话没覆盖到的形态。
+ *
+ * 取 `CACHE_TTL_MS`（60 秒）：与「目录多久算陈旧」同一个量级，短于它没有意义
+ * （下一次 `currentAll()` 本来也会因为 `stale` 重新进这里）。
+ *
+ * ⚠️ 放开标记后旧链**仍在跑**（取消不了，同上）⇒ 极端情况下会有两条链并发。
+ * 那是**可接受**的：并发最坏是几次重复 RPC，而冻结是**功能全丢**。
+ */
+const REFRESH_GUARD_MS = 60_000
+
 /** 后台把两个目录都刷一遍（实时可用 + 上游全量）。 */
 function refreshInBackground(container, log) {
   if (refreshing) return
   refreshing = true
+  // 兜底：即使上面那条链永不 settle，也要把标记放开（理由见 `REFRESH_GUARD_MS`）。
+  // `unref()` 让这个定时器不拖住进程退出（测试 / CLI 场景）。
+  const guard = setTimeout(() => {
+    refreshing = false
+    log?.('后台刷新模型目录超时（60 秒未完成），已放开去重标记 —— 下一次会重试')
+  }, REFRESH_GUARD_MS)
+  guard.unref?.()
   container
     .start()
     .then(() => container.refreshModels())
@@ -1796,6 +1827,7 @@ function refreshInBackground(container, log) {
     })
     .catch((e) => log?.(`后台刷新模型目录失败：${e?.message ?? e}`))
     .finally(() => {
+      clearTimeout(guard)
       refreshing = false
     })
 }
@@ -2084,8 +2116,16 @@ export function makePlugin(dshProvider) {
               // 同样的风险，行为却不一致。上游挂住时「Sign in」按钮会永远转圈、没有
               // 任何错误。目录拉不到不影响签入本身（凭据已经在池里了），所以超时只
               // 记一行日志、按「没有目录」继续。
-              let all = []
+              // ⚠ 超时 ≠ 没有模型（2026-11-11 三审 P1）：`withDeadline` 超时后
+              //    **赋值不会发生**，`all` 仍是初值 ⇒ `n === 0` ⇒ 下面那道闸门会抛
+              //    「没有可用模型」。而真实原因是**超时**（同文件 1730 自己写着
+              //    「全量目录要 20+ 秒才拉得到」，而 `START_TIMEOUT_MS` 是 12 秒）
+              //    ⇒ 原本 12–60 秒内能成功的 api 型签入，现在 12 秒必失败，且用户
+              //    看到的是**假错误**（去查模型、查登录，其实都不是）。
+              //    修法：超时**不参与**那道闸门的判定，并用内存里已有的目录兜底。
+              let all = allModels ?? []
               let wide = 0
+              let catalogTimedOut = false
               try {
                 ;[all, wide] = await withDeadline(
                   (async () => {
@@ -2104,10 +2144,14 @@ export function makePlugin(dshProvider) {
                   '签入后刷新目录',
                 )
               } catch (e) {
+                catalogTimedOut = true
                 log?.(`签入后刷新目录超时或失败（不影响签入）：${e?.message ?? e}`)
               }
               const n = Object.keys(modelsOf(dshProvider, all)).length
-              if (n === 0 && wide === 0) {
+              // ⚠ `catalogTimedOut` 必须排除：超时只是没拿到**新**目录，不代表这家
+              //    没有模型（凭据早就在池里了）—— 注释 2085 承诺的「按没有目录继续」
+              //    就是这个意思。
+              if (!catalogTimedOut && n === 0 && wide === 0) {
                 throw new Error(
                   `本体里的 ${dshProvider} 没有可用模型：确认这个账号在 DSH 里已登录，或先在 /v1/models 里看它是否有模型`,
                 )
@@ -2265,10 +2309,23 @@ export function makePlugin(dshProvider) {
 
                     const hit = await accountById(container, dshProvider, accountId, log)
                     let wide = 0
+                    // ⚠ 同样要套超时（2026-11-11 三审 P1）：`refreshFullCatalog` 走
+                    //    `container.rpc()`，那条路径**不会自己超时**（`route.fetch(req)`
+                    //    没有 AbortSignal）⇒ 上游挂住时「在浏览器里新建账号」的
+                    //    authorize() 永远不返回，magpie 那边按钮一直转圈。
+                    //    上面 api 型那条已经套了（`START_TIMEOUT_MS`），同一个风险
+                    //    不能两种行为。目录拉不到不影响签入（凭据早就在池里了）。
                     try {
-                      fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
-                      wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
-                      writeCache(log)
+                      wide = await withDeadline(
+                        (async () => {
+                          fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+                          const w = Object.keys(modelsOfFull(dshProvider, fullModels)).length
+                          writeCache(log)
+                          return w
+                        })(),
+                        START_TIMEOUT_MS,
+                        '新建后刷新目录',
+                      )
                     } catch { /* 全量拉不到不影响签入 */ }
 
                     return {
@@ -2565,7 +2622,12 @@ export function makePlugin(dshProvider) {
            */
           async checkin(getAuth, _info, { signal } = {}) {
             try {
-              // 同 `usage()`：宿主 abort 之后别再发请求（会影响整家渠道的账号）。
+              // ⚠️ 与 `usage()` **不同**：宿主 `checkinOf(provider, account)` 只传
+              //   **2 个**参数（2026-11-11 从 `magpie.exe` 提取的 `_mp_host.js` 核实：
+              //   `a.checkin(async () => authCopy(key), JSON.parse(JSON.stringify(p)))`），
+              //   第三个参数恒为 `undefined` ⇒ 这里的 `signal` 恒 `undefined`。
+              //   ⇒ 这个守卫目前**是死代码**。留着是为了「将来宿主补齐第三参时自动生效」，
+              //     而不是因为它现在有用 —— 别把它当成「签到可以被取消」的证据。
               if (signal?.aborted) return { outcome: 'failed', message: '请求已取消' }
               const account = typeof getAuth === 'function' ? await getAuth() : undefined
               // 与 `usage()` 同源，统一走 `dshAccountIdOf`（理由见那边注释）
@@ -2590,6 +2652,19 @@ export function makePlugin(dshProvider) {
               // 「这家没有签到功能」是能力缺失，不是故障 ⇒ `ineligible`。
               // 判据见 `isCheckinUnsupported()` 的长注释（那类文案占了 `failed` 的绝大多数）。
               if (isCheckinUnsupported(msg)) return { outcome: 'ineligible', message: msg }
+              // ⚠ **超时 ≠ 失败**（2026-11-11 三审 P2）：`credits.claimAll` 是**写操作**，
+              //    超时只说明「没等到回包」，上游可能**已经领取成功**。直接报 `failed`
+              //    会让用户以为没领到（假状态）。
+              //    重试是安全的：`credits.claimAll` 本身幂等（第二次跑会返回
+              //    `alreadyClaimed`，`toMagpieCheckin` 把它映射成 `done`），而宿主
+              //    `_mp_host.js:2462`「again later that day after a failure」会自动重试。
+              //    ⇒ 这里只需要把「结果未知」说清楚，别把未知报成失败。
+              if (/超时|timeout/i.test(msg)) {
+                return {
+                  outcome: 'failed',
+                  message: `${msg}。**结果未知**：上游可能已经领取成功，稍后会自动重试（重试是幂等的，不会重复领）。`,
+                }
+              }
               // 其余（401 / 网络 / 上游报错）在 magpie 里等同 failed，但带上原文更有用
               return { outcome: 'failed', message: msg }
             }

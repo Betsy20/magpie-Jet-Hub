@@ -16,6 +16,13 @@ npm run test:all                 # 等价于第二条
 > ⚠ `files` 白名单里**没有** `scripts/` 与 `tests/`，所以 `npm test` 只对
 > 从源码 clone 的目录有效；发布出去的插件包里跑不了（也不需要）。
 
+⚠ **两个 script 有副作用 / 要传参，别按「等价」当无参命令跑**：
+
+| script | 怎么跑 | 注意 |
+|---|---|---|
+| `verify:vendor` | `npm run verify:vendor -- /path/to/upstream` | **必须**用 `--` 传上游目录，否则 exit 2（只打印用法） |
+| `snapshot` | `npm run snapshot` | **会改写** `page/models.js`（它本来就是自动生成的快照），跑完记得 `git diff` 看一眼 |
+
 汇总行会标出哪些用例有「真实资源断言未跑」，例如
 
 ```text
