@@ -11,7 +11,7 @@
  * （`PROVIDER_IDS` / `DSH_PROVIDERS` / `idOf`）都留在 `src/plugin.mjs` 里，
  * 需要时从那里 import。
  *
- * ⚠️ 只有 **28** 个工厂：`aggregate`（聚合路由）与 `jet-hub-auto`（自动选号）
+ * ⚠️ 只有 **29** 个工厂：`aggregate`（聚合路由）与 `jet-hub-auto`（自动选号）
  * 这两个路由组没有自己的账号池与模型目录，注册成 magpie provider 只会得到一张
  * 永远没账号、也永远选不了具体模型的空卡，所以不注册。
  */

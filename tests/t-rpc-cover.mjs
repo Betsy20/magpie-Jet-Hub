@@ -870,8 +870,8 @@ if (!PROBE) {
   // （2026-11-04 真机报障：「更新插件后停用的供应商被启用了」）。
   ok(/writeModelsWithProviderClosed\(req\.provider, ids, closeProvider \? true : 'keep'\)/.test(rpc),
     '… 且真的调了 writeModelsWithProviderClosed(provider, ids, closeProvider ? true : \'keep\')')
-  ok(/const coversAll = catalog\.complete[\s\S]{0,200}?every\(\(id\) => after\[id\] === true\)/.test(rpc),
-    '… 判据用的是「写入后黑名单覆盖全量目录」（fullCatalogIds 的纯净并集）')
+  ok(/const coversAll = catalog\.complete\s*&& catalog\.ids\.length > 0\s*&& catalog\.ids\.every\(\(id\) => after\[id\] === true\)/.test(rpc),
+    '… 判据用的是「写入后黑名单覆盖全量目录」（fullCatalogIds 的纯净并集，且空目录不算覆盖）')
   // 契约本身也要钉住：`closeProvider` 必须从 `req` 读、默认 `true`。
   // 只钉上面三条的话，把 `&& closeProvider` 删掉照样全绿。
   ok(/const closeProvider = req\.closeProvider !== false;/.test(rpc),

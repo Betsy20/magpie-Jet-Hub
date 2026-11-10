@@ -11,7 +11,7 @@
 | 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交） |
 | 许可 | MIT，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](../vendor/LICENSE) |
 
-**为什么不用 npm 包**：npm 上的版本（最新 `2.14.261103`）落后于仓库 `master` —— 文件数更少（缺 `cap-pow.*` 等）、且大量文件内容不同，而本仓库要的是「渠道最全」的那一版。这一版是从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
+**为什么不用 npm 包**：npm 上的版本（最新 `2.21.261109`，`lib/` **1138** 个文件）落后于仓库 `master` 的 `1d12f80`（`lib/` **1170** 个）—— 少的 32 个正是 `marvis-*` 8 个模块各自的 `.js` / `.d.ts` / `.map`；两边都有的文件里 **79 个不同**，其中 11 个是本仓库的补丁（见下节），另外 68 个是上游在 npm 发布之后又往前走的部分。而本仓库要的是「渠道最全」的那一版。这一版是从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
 
 取法：
 
@@ -69,9 +69,26 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 怎么自己核一遍
 
+一条命令（推荐；出口码即结论）：
+
 ```bash
 git clone https://gitee.com/iJetLi/deepseek-harness-codearts /tmp/up2
 cd /tmp/up2 && git checkout 1d12f80 && rm -rf lib && npm install
+cd /path/to/magpie-Jet-Hub && node scripts/verify-vendor.mjs /tmp/up2
+```
+
+它做四件事，任何一条不符就退出码 1 并逐条点名：
+
+1. `lib/` 逐文件 sha256：**文件数 1170、逐字节一致 1159** 必须与上面那张表对得上；
+2. 差异集合必须**恰好等于**补丁表那 11 个文件 —— 少一个 = 补丁被同步覆盖（静默故障），
+   多一个 = 快照被别的动作污染过；
+3. `lib/*.map` 584 个 / 约 4.00 MiB、`locale/` 2 个逐字节一致；
+4. `vendor/package.json` 的版本号与上游同一次提交一致（并打出依赖树，换机漏依赖就
+   表现成「控制台打不开」）。
+
+手动核法（脚本不可用时）：
+
+```bash
 diff -r /tmp/up2/lib /path/to/magpie-Jet-Hub/vendor/lib
 # 逐文件哈希核（比 diff -r 更严，能看出换行 / 编码差异）：
 cd /tmp/up2/lib && find . -type f -exec sha256sum {} + | sort -k2 > /tmp/up2/a.txt
@@ -100,8 +117,18 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 `vendor/` 是随仓库分发的快照，不跟着 npm 自动走。升版本要：
 
 1. 重新 clone / 构建上游，替换 `lib/`、`locale/`、`package.json`、`LICENSE`
-2. 把上面那 **6 类**改动重新应用（gemini 常量拆分、magicrew 的 IndexedDB 读取与临时 profile 回收（含 `lib/leveldb-sstable.js` 的 WAL 分片重组）、`lib/backup.js` 的 `keepDisabledModels`、`lib/jet-hub-rpc.js` 的「黑名单覆盖全量即补设供应商关闭意图」、`lib/types.d.ts` 的 `RpcModelSetDisabledManyRequest.closeProvider`）
-   ⚠️ 除 gemini 外的 5 类都有测试盯着（`t-backup-keep` / `t-magicrew-creds` / `t-rpc-cover` 第 8 节），漏打的直接红；`gemini` 那条没有测试（值相等，只能人工核），`types.d.ts` 的类型只能在 `tsc` 里体现（本仓库不编译类型声明）
+2. 把上面那 **6 类**改动重新应用。逐类点名（与顶部差异表的行一一对应）：
+   ① `lib/gemini-oauth.js` / `.d.ts` 的两个默认 client 常量拆成两段；② magicrew 补读 IndexedDB
+   （`lib/magicrew-browser-login.js` / `lib/magicrew-local-browser.js` 各一对 `.js` / `.d.ts`）；
+   ③ 开窗前回收一次性 profile（同一个 `lib/magicrew-browser-login.js`）；④ `lib/backup.js` 的
+   `keepDisabledModels`（配 `.d.ts`）；⑤ `lib/jet-hub-rpc.js` 的「黑名单覆盖全量即补设供应商关闭意图」
+   与 `lib/leveldb-sstable.js` 的 WAL 分片重组；⑥ `lib/types.d.ts` 的
+   `RpcModelSetDisabledManyRequest.closeProvider` 类型 —— 外加上面那条「三个 `.d.ts` 的 `.map` 不重生成」的决策。
+   **6 类都有测试盯着，漏打的直接红**：`t-backup-keep`（④）、`t-magicrew-creds`（②③与
+   `leveldb-sstable`）、`t-rpc-cover` 第 8 节（⑤的意图补丁与空目录守卫）、`t-vendor-patches`
+   （①的「拆成两段」形态与拼出来的长度、⑥的 `closeProvider` 两处、以及 ② 的两个 `.d.ts` 声明
+   是否跟上实现）。唯一**没有**自动断言的是「`.d.ts.map` 不重生成」—— 它只影响编辑器跳转行号，
+   判据是「与上游逐字节一致」，按上一条的基线人工核。
 3. 加/减 provider 时：`src/plugin.mjs` 的 `DSH_PROVIDERS` + `NAMES` + `FALLBACK_MODELS`、`index.mjs` 的具名工厂、`src/icons.mjs`、`scripts/snapshot-models.mjs` 的 `NAMES`、`tests/t-plugin.mjs` 的 `EXPECTED_PROVIDER_COUNT`、`tests/t-new-account.mjs` 的两处 `=== N`
 4. 跑 `node scripts/test-all.mjs` 与 `node scripts/snapshot-models.mjs`（后者需要有一个加载了**新** vendor 的宿主在跑；magpie 不热重载插件，旧宿主还在时用 `JET_HUB_META_PORT=<新容器端口>` 指定）
 
