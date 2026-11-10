@@ -234,12 +234,66 @@ const listMod = new Function(`${listSrc}\nreturn { listAccountsOf, accountById, 
     'C-7 `:direct` 标记 key 不含账号 id，认成空串')
 
   // C-8 源码守卫：usage / checkin 里不能再出现手写的取值表达式
-  const usageSrc = slice('async usage(getAuth) {', 'async checkin(getAuth) {')
-  const checkinSrc = slice('async checkin(getAuth) {', 'provider: {')
+  //
+  // ⚠ 标记只取到 `(` 为止，**不写完整签名**（2026-11-11）：签名一加参数
+  // （给 `{ signal }` 留位）这条守卫就抛「找不到标记」，把前面三十条断言一起带走 ——
+  // 判据是「取值表达式别再手写」，与形参列表长什么样毫无关系。
+  const usageSrc = slice('async usage(', 'async checkin(')
+  const checkinSrc = slice('async checkin(', 'provider: {')
   for (const [name, seg] of [['usage', usageSrc], ['checkin', checkinSrc]]) {
     const code = stripComments(seg)
     ok(/dshAccountIdOf\(account, dshProvider\)/.test(code), `C-8a ${name} 走 dshAccountIdOf`)
     ok(!/account\?\.uid \?\?/.test(code), `C-8b ${name} 没有手写的 \`?? uid\` 取值（那会和 dshAccountIdOf 分叉）`)
+  }
+
+  // C-9 后台刷新的 in-flight 去重（2026-11-11 审计：冷启动 58 条并发链）
+  //
+  // 为什么必须有：`currentAll()` 的判据是 `allModels === undefined || fullModels ===
+  // undefined || stale`，而**干净机器上没有磁盘缓存** ⇒ 前两项恒为真，每次调用都新起
+  // 一条 `refreshInBackground()`。magpie 宿主 `providers()` 是
+  // `Promise.all([...auths()].map(row))` —— 29 家并行各调一次 `provider.models()`，
+  // `config` 钩子另外 29 次串行 ⇒ 冷启动最多 58 条链同时跑，并发互清
+  // `modelMeta`（能力声明随机丢）、上千次 `rpc('model.list')`、58 次同步写盘，
+  // 20 秒超时到点拿到空列表 —— **而没有任何错误**。
+  //
+  // 用行为测，不用源码 grep：把 `refreshInBackground` 抽出来喂假容器。
+  {
+    const refreshSrc = slice('function refreshInBackground(', 'const CACHE_TTL_MS')
+    const make = () => {
+      const rec = { start: 0, refreshModels: 0, refreshFullCatalog: 0, writeCache: 0 }
+      const container = {
+        start: () => { rec.start += 1; return Promise.resolve() },
+        refreshModels: async () => { rec.refreshModels += 1; return [{ id: 'x/1' }] },
+        refreshFullCatalog: async () => { rec.refreshFullCatalog += 1; return [{ id: 'x/1' }] },
+      }
+      // `allModels` / `fullModels` / `refreshing` 都是模块级 `let` —— 必须**声明在
+      // 函数体里**才能被 `refreshInBackground` 赋值（当参数传进去是值拷贝，赋值丢）。
+      const body = `
+        let allModels
+        let fullModels
+        let refreshing = false
+        ${refreshSrc}
+        return { refreshInBackground, snap: () => ({ allModels, fullModels, refreshing }) }
+      `
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('writeCache', 'absorbMeta', 'DSH_PROVIDERS', body)
+      const api = fn(() => { rec.writeCache += 1 }, () => {}, ['x'])
+      return { api, container, rec }
+    }
+
+    const a = make()
+    for (let i = 0; i < 10; i += 1) a.api.refreshInBackground(a.container, () => {})
+    await new Promise((r) => setTimeout(r, 60))
+    ok(a.rec.start === 1, 'C-9a 并发 10 次只启动 1 条刷新链', `实际 ${a.rec.start} 条`)
+    ok(a.api.snap().refreshing === false, 'C-9b 链跑完后标记复位（否则以后再也刷不了）')
+
+    // 去重只挡**并发**，不挡**重试** —— 用 `then` 清标记的话一次失败就永久卡死。
+    const b = make()
+    b.api.refreshInBackground(b.container, () => {})
+    await new Promise((r) => setTimeout(r, 60))
+    b.api.refreshInBackground(b.container, () => {})
+    await new Promise((r) => setTimeout(r, 60))
+    ok(b.rec.start === 2, 'C-9c 串行两次跑两条链（去重只挡并发，不挡下一次）', `实际 ${b.rec.start} 条`)
   }
 }
 

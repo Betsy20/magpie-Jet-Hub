@@ -11,6 +11,133 @@
 
 ## 1.0.0（未发布）
 
+- `fix(plugin)`: **冷启动时后台刷新没有 in-flight 去重，最多 58 条链并发**。
+  `currentAll()` 的判据是 `allModels === undefined || fullModels === undefined || stale`，
+  而**干净机器上没有磁盘缓存**（`readCache()` 返回 `{}`）⇒ 前两项恒为真，每次调用都新起
+  一条 `refreshInBackground()`。而 magpie 宿主 `providers()` 是
+  `Promise.all([...auths()].map(row))` —— 29 家**并行**各调一次 `provider.models()`，
+  `config` 钩子另外 29 次串行。次生故障：① `container._absorbModels()` 的
+  `modelMeta.clear()` 与 `refreshFullCatalog()` 的 `set()` 并发互清 ⇒ 能力声明（上下文
+  窗口 / 图片 / 推理档位）随机丢；② 上千次 `rpc('model.list')` 打满容器；③ 58 次**同步**
+  写盘；④ 20 秒超时到点，magpie 拿到的是空列表 —— 而**没有任何错误**。
+  用户看到的就是「新装的插件第一次打开 magpie，模型列表是空的」。
+  修法：加 `refreshing` 标记，一次只跑一条链，`finally` 里清空（用 `finally` 而不是
+  `then` —— 失败也要能重试，否则一次网络抖动就把刷新永久卡死）。`tests/` 里
+  `refreshInBackground|currentAll` 此前**零命中**。
+
+- `fix(plugin)`: **oauth 型 `authorize()` 的目录拉取没套超时，Key 型套了**。
+  `liveAll` / `refreshFullCatalog` 内部走 `container.rpc()`，那条路径**不会自己超时**
+  （`route.fetch(req)` 没有 AbortSignal）。Key 型的 `addAccount` 分支早就为此套了
+  `withDeadline` 并写了注释「实测上游挂住时 authorize() 能一直不返回（60 秒没回）」，
+  oauth 这条**没修** —— 同样的两条调用、同样的风险，行为却不一致，上游挂住时「Sign in」
+  按钮永远转圈。现在两条一起套 `START_TIMEOUT_MS`；目录拉不到不影响签入本身
+  （凭据已经在池里），超时只记一行日志、按「没有目录」继续。
+
+- `fix(plugin)`: **`usage()` / `checkin()` 的 RPC 无超时，也不吃宿主的 `signal`**。
+  宿主 `usageOf(provider, account, signal)` 把 `{ signal }` 作为**第三参数**传给
+  `a.usage(getAuth, info, { signal })`，而插件只声明了一个形参 —— signal 直接丢掉，
+  `container.rpc()` 又不吃它。于是上游一挂住：用量卡永远转圈、promise 永远不 settle
+  （泄漏）、`balanceCache` 也永远不写。表现是「点开账号卡片，余额那一行一直是空的」。
+  现在两条都接住 `{ signal }`（入口先看一眼，已取消就不发请求），并套
+  `USAGE_TIMEOUT_MS = 20_000`（`credits.balances` 要为**每个账号**发一次上游请求，
+  比单次 `login.poll` 慢一档）。
+
+- `fix(plugin)`: **`toMagpieCheckin()` 的 `failed` 分支透传空串**。`message ?? (…)` 在
+  `message === ''`（上游偶尔回空串，不是 `undefined`）时求值就是 `''` ⇒ 落盘
+  `{outcome:'failed', message:''}`，用户看到一张**空白**的失败卡，连「为什么失败」都没有。
+  改成 `String(message ?? '').trim() || …`：空串 / 纯空白都算「没说到」，
+  退回 `kind` 或兜底文案。
+
+- `fix(plugin)`: **`windows[].display` 没走 `fmtNum`，且注释对宿主的描述是错的**。
+  注释写「magpie 对 `windows[].display` 会自己按数字格式化」，但核过宿主 `_mp_host.js`：
+  `display: text(w?.display)` 与 `balance: text(u.balance)` 走的是**同一条** `text()`，
+  都不格式化。同一条 officeace 数据会显示成 `balance:"10000 积分"` +
+  `display:"4584.442685714286 / 10000 积分"` —— 一个整齐、一个满屏小数。现在两处都收敛。
+
+- `fix(plugin)`: **`usage()` 的 catch 路径缺 `plan`**。同文件其它 4 条 `usage` 返回路径
+  都带 `plan`，宿主 `plan: text(u.plan)` 缺失即空串 ⇒ 一张**没有标题**的错误卡 ——
+  而它恰好是用户最可能看到的那条（网络故障）。
+
+- `fix(console)`: **`loadAccounts()` 失败时不清空旧卡片 ⇒ 跨 provider 误删账号（不可逆）**。
+  `setProvider()` 是**同步**改 `#accProvider` 的，`loadAccounts()` 是异步的 —— 两者一旦
+  在失败路径上分叉，页面就进入「标题是 B、卡片是 A」的混合态。而 `onAccAction()` 取的是
+  `$('#accProvider').value`（B）、`btn.dataset.id` 却是 A 家的 accountId ⇒ 点「删除」会
+  真的删掉 **A 家**的账号，并连带 `credentials.unset`（**没有 undo**）。
+  触发条件只是「任何一次 `account.list` 失败」（本地服务重启 / 端口漂移到 18501+ /
+  上游超时），而 `rpc()` 是裸 fetch、没有 `AbortSignal` / 超时，失败窗口**不是毫秒级而是
+  无限长**。修法：`loadAccounts()` 开头发请求**之前**先清场（`ACC` / `BAL` 清空 +
+  渲染空态），失败时把空态文案换成「读取失败：…」（两种情况都渲染成空列表，但含义
+  完全相反 —— 一个是真的没号，一个是没读到，文案不能混）。
+  顺带修 `account.update` 的 `a?.enabled === false`：`ACC.find()` 返回 `undefined` 时
+  求值是 `false` = **停用**，方向正好反 —— 卡片不在列表里时点一下反而把活号停掉。
+  现在找不到就抛错让用户重试。
+
+- `fix(console)`: **`loadStrictOrder()` 的 `catch` 分支缺 provider 守卫**。
+  切到 buddy 发请求 → 切到 zcode（zcode 的 `getEnabled` 成功、开关打开且可交互）→
+  buddy 的请求超时失败 —— 没有守卫时，buddy 的失败回包会无条件把
+  `checked=false; disabled=true` 写到**当前**的 `#accStrict` 上，用户看到「zcode 的严格
+  手动顺序被关掉了」。成功路径早就有这道守卫（`if ($('#accProvider').value !== provider) return`），
+  失败路径漏了。`tests/t-console-strict-order.mjs` 的 3.3 / 3.4 只覆盖了成功路径的守卫与
+  「本来就没切走」的失败，这条竞态是测试盲区。
+
+- `fix(console)`: **`saveSetting()` 失败后不把控件拨回 ⇒ 四个设置项停在假保存状态**。
+  `#setSearch` / `#setSession` 是 checkbox、`#setPanel` 是 select、`#setXff` 是 input，
+  全由 `change` 事件触发 —— 落盘失败时浏览器已经把控件改掉了，`catch` 只写一条红字，
+  控件**保持在用户刚改出来的位置**。下次进设置页之前，「渠道原生搜索 = 开」都是假的。
+  同文件的 `saveStrictOrder()` 做对了（「落盘失败就把开关拨回去，别让界面停在假状态」），
+  而且 `t-console-strict-order.mjs` 的 3.7 已经把「失败后回读」锁定成契约。
+  现在 `saveSetting()` 也回读（先 `loadSettings()` 再覆盖错误消息 —— 错误比「读取中」重要）。
+
+- `fix(console)`: **`loadSettings()` 用 `.catch(() => ({}))` 吞掉四个 RPC 失败 ⇒ 假状态 +
+  死代码**。四个 `.catch` 把失败压成空对象，于是「读不到」被渲染成「确认是关的」：
+  用户在设置页看到「渠道原生搜索：关」，实际可能是开的，他会去点一下「开」，
+  反而把本来开着的**关掉**。同时外层 `catch` 是**死代码**（`Promise.all` 的四个 promise
+  都被兜住，永远不 reject），出问题时页面完全静默。现在把每一项包成
+  `{ ok, value, error }`：能读到的照常渲染，读不到的明确说「有几项没读出来」，
+  并提示「显示的可能不是真实状态」。
+
+- `fix(console)`: **`startLogin()` 的旧轮询迟到回包会停掉新登录的轮询**。
+  `setInterval` 的回调是 async，`clearInterval` 只能取消**未来**的 tick，取消不了已经
+  `await` 在飞的那一次。旧登录的 `login.poll` 若在新 `startLogin()` 之后才返回
+  `done:true`，就会：① 停掉**新**登录的轮询（新弹窗永远「等待中…」）；
+  ② 抹掉新登录的占位账号 id（之后 `closeLogin()` 不再 `reclaimPlaceholder` 它，
+  池里留一条**幽灵账号**）；③ `#lmState` 被写成「✓ 登录成功」而明明还在授权中。
+  900ms 那套 `settledId` 守卫只防住了 `setTimeout`，没防住 `await`。
+  现在每个 tick 记下自己的句柄，`await` 之后校验 `loginTimer !== myTimer` 就作废。
+
+- `fix(console)`: **`rotateFingerprint()` 的结果文案被自己的重读覆盖，且双倍 RPC**。
+  它内部 `say('#accMsg', '指纹代次 → N')` 之后立刻 `await loadAccounts()`，而
+  `loadAccounts()` 开头就是 `say('#accMsg', '读取中…')` —— 用户**永远看不到**那条结果
+  （卡片上「指纹代次」那行只是数字悄悄变了，不会注意到）。而且外层 `onAccAction()`
+  还会再 `loadAccounts()` 一遍 ⇒ 双倍 `account.list` + `credits.balances`（后者要为每个
+  账号发一次上游请求）。改成 `flash` 模式（`test` / `retest` / `comp` 都是这个模式），
+  重读交给外层。
+
+- `fix(console)`: **可访问性两处**。① `#accStrict` 的文字标签在 `<label>` **外面**，
+  点「严格手动顺序」四个字（用户最自然的点击目标）不会切换开关，只有点那个 34×20px 的
+  小滑块才会；现在文字也是 `<label for="accStrict">`（配 `.swText { cursor: pointer }`）。
+  ② `#nav` 的三个按钮只有 `class="on"` 表示选中，**没有** `role="tab"` / `aria-selected`，
+  `<nav>` 也没有 `role="tablist"` —— 屏幕阅读器完全感知不到「当前在哪一页」。
+  对照 `page/index.html` 的 `#tabs` 是**有**这套语义的，两个页面同一语义不该两种实现；
+  `console.js` 的 `wireTabs()` 同步维护 `aria-selected`。
+
+- `fix(page)`: **`flash()` 的失败路径不清除 `data-done` ⇒ 「复制失败」继承上一次成功的
+  绿色**。`page.css` 有 `button.mini[data-done] { color: var(--jh-ok); … }`，而
+  `flash()` 只在成功时设 `data-done`、失败时**不清**。1.6 秒窗口内第一次点成功、
+  第二次点失败，按钮就会「绿色 + 复制失败」—— 正是注释里声称要避免的「失败看起来像成功」。
+  这是个「状态机少了一条边」，补上 `else delete btn.dataset.done`。
+
+- `test(console)`: **上面三条前端静默缺陷各补一格断言**（原来都是测试盲区）：
+  `t-console-strict-order.mjs` 新增 **3.4b** —— 失败路径的竞态（切到 buddy 发请求 →
+  切到 zcode → buddy 超时失败，不许把 zcode 的开关拨回 false 并置灰）。原有用例
+  3.3 只测了**成功**路径的守卫、3.4 只测了「本来就没切走」的失败。
+  `t-page-contract.mjs` 新增 **第 7 节** —— `flash()` 的两条边（成功变绿 / 紧接着失败
+  必须清绿），用假定时器把真函数抽出来求值。
+  `t-account-cache.mjs` 新增 **C-9a/b/c** —— 后台刷新 `refreshInBackground` 的
+  in-flight 去重（并发 10 次只启动 1 条链 / 链跑完标记复位 / 串行两次跑两条 ——
+  去重只挡并发、不挡重试）。**四条变异实测都变红**：删 catch 守卫 / 删 `else` 分支 /
+  删 `if (refreshing) return`。
+
 - `fix(test)`: **两条用例在受限沙箱下静默失败，而失败信息是一片空白**。
   `tests/t-seed-auth.mjs` 与 `tests/t-import-backup.mjs` 都用
   `spawnSync(process.execPath, [script, …], { encoding: 'utf8' })` —— `encoding` 是

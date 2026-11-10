@@ -183,5 +183,38 @@ console.log('--- 6) 控制台地址优先取快照 ---')
   ok(badSnap.conUrl() === 'http://127.0.0.1:18500/', '快照地址不是 http(s) 时不认，退回默认', badSnap.conUrl())
 }
 
-console.log(`\n${bad === 0 ? '✓ 全部通过' : `✗ ${bad} 项失败`}（${total} 项：CSP 契约 + 结构对齐 + 片段实现 + 控制台地址）`)
+/* ── 7. `flash()` 失败时不能继承上一次的绿色 ────────────────────── */
+
+console.log('--- 7) flash() 的两条边（成功变绿 / 失败必须清绿） ---')
+{
+  // 为什么值得单独一条：`flash()` 的注释（「只有成功才变绿……无条件设 data-done
+  // 会让失败看起来像成功」）说得很清楚，但**失败那一侧没人删** —— `data-done`
+  // 是个布尔态，只给 `ok === true` 设、不给 `ok === false` 清，状态机就少了一条边。
+  // 1.6 秒窗口内第一次点成功、第二次点失败，按钮会同时是「绿色成功态」+「复制失败」
+  // 文案 —— 正是这段注释要避免的形态。（2026-11-11 审计实测复现。）
+  const flashSrc = sliceFn(js, 'function flash(btn, text, ok = false)')
+  // 假定时器：只要句柄，不真等 1.6 秒。`flash` 里只用到 `setTimeout` / `clearTimeout`
+  // 和 `btn.dataset`，全部可由参数注入。
+  let seq = 0
+  const timers = new Map()
+  const build = () => {
+    const btn = { textContent: '复制', innerHTML: '复制', dataset: {} }
+    // eslint-disable-next-line no-new-func
+    const fn = new Function(
+      'setTimeout',
+      'clearTimeout',
+      `${flashSrc}\nreturn flash`,
+    )((cb) => { const id = ++seq; timers.set(id, cb); return id }, (id) => { timers.delete(id) })
+    return { btn, fn }
+  }
+
+  const { btn, fn } = build()
+  fn(btn, '已复制', true)
+  ok(btn.dataset.done === '1', '成功 ⇒ 按钮变绿（data-done 置位）')
+  fn(btn, '复制失败', false)
+  ok(!Object.prototype.hasOwnProperty.call(btn.dataset, 'done'),
+    '紧接着失败 ⇒ **必须**清掉 data-done（否则「绿色 + 复制失败」自相矛盾）')
+}
+
+console.log(`\n${bad === 0 ? '✓ 全部通过' : `✗ ${bad} 项失败`}（${total} 项：CSP 契约 + 结构对齐 + 片段实现 + 控制台地址 + flash 状态机）`)
 process.exit(bad === 0 ? 0 : 1)

@@ -30,16 +30,19 @@
         <div class="providerList" id="providerList"></div>
       </div>
 
-      <nav class="railNav" id="nav">
-        <button data-tab="overview" title="概览">
+      <nav class="railNav" id="nav" role="tablist" aria-label="控制台页面">
+        <button data-tab="overview" title="概览" role="tab" aria-selected="false" aria-controls="tab-overview">
           <span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.6"/><rect x="11" y="2.5" width="6.5" height="6.5" rx="1.6"/><rect x="2.5" y="11" width="6.5" height="6.5" rx="1.6"/><rect x="11" y="11" width="6.5" height="6.5" rx="1.6"/></svg></span>
           <span class="navLabel">概览</span>
         </button>
-        <button data-tab="settings" title="设置">
+        <button data-tab="settings" title="设置" role="tab" aria-selected="false" aria-controls="tab-settings">
           <span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.2h5.2M11.6 6.2h5.4M3 13.8h5.4M11.8 13.8H17"/><circle cx="10" cy="6.2" r="1.7"/><circle cx="10.2" cy="13.8" r="1.7"/></svg></span>
           <span class="navLabel">设置</span>
         </button>
-        <button data-tab="backup" title="备份">
+        <button data-tab="backup" title="备份" role="tab" aria-selected="false" aria-controls="tab-backup">
+          <!-- `aria-selected` 由 console.js 的 wireTabs() 同步维护 —— 只设 class 不改
+               属性的话，屏幕阅读器会永远停在初始值。 -->
+          
           <span class="navIcon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3v9"/><path d="M6.6 8.6 10 12l3.4-3.4"/><path d="M3.5 13.6v1.9a1.5 1.5 0 0 0 1.5 1.5h10a1.5 1.5 0 0 0 1.5-1.5v-1.9"/></svg></span>
           <span class="navLabel">备份</span>
         </button>
@@ -50,7 +53,7 @@
       <!-- ══════════ 概览 ══════════ -->
       <!-- 默认视图是「账号」（见下方 `#tab-accounts` 的 class="tab on"）：
            侧栏点一家供应商就该看到它的账号池，概览是次要的那一屏。 -->
-      <section id="tab-overview" class="tab">
+      <section id="tab-overview" class="tab" role="tabpanel">
         <div class="panelHead"><h1>概览</h1></div>
         <div class="cards" id="cards"></div>
         <h2>网关</h2>
@@ -78,7 +81,7 @@
       </section>
 
       <!-- ══════════ 账号（默认视图） ══════════ -->
-      <section id="tab-accounts" class="tab on">
+      <section id="tab-accounts" class="tab on" role="tabpanel">
         <div class="panelHead">
           <h1>账号池 <span class="sub">登录 / 续期 / 换号 / 测试 / 重置</span></h1>
           <button id="accAdd" class="primary right">添加账号</button>
@@ -93,7 +96,10 @@
           <button id="accResetAll" class="warn">全部重置</button>
           <span class="barSep"></span>
           <label class="sw" title="严格手动顺序：按卡片顺序选号，不再按余额分档"><input type="checkbox" id="accStrict"><i></i></label>
-          <span class="muted">严格手动顺序</span>
+          <!-- 文字也必须是 label（`for` 指回同一个 input）：原来它是独立的 <span>，
+               点这四个字（用户最自然的点击目标）**不会**切换开关，只有点那个
+               34×20px 的小滑块才会。屏幕阅读器也读不到「这个开关叫什么」。 -->
+          <label class="swText" for="accStrict">严格手动顺序</label>
           <!-- 匿名通道只有 opencode 有（本体 opencode.addAnonymous）；别的 provider 下隐藏 -->
           <button id="accAnon" hidden>加匿名通道</button>
           <!-- 出口代理只对四家可用（gemini / qoder / minimaxintl / opencode）；别的 provider 下隐藏 -->
@@ -119,7 +125,7 @@
       </section>
 
       <!-- ══════════ 设置 ══════════ -->
-      <section id="tab-settings" class="tab">
+      <section id="tab-settings" class="tab" role="tabpanel">
         <div class="panelHead"><h1>设置</h1></div>
         <div class="rows">
           <div class="row"><div><b>渠道原生搜索</b><p>让上游自己做联网检索（不是 magpie 的 web_search）。</p></div><label class="sw"><input type="checkbox" id="setSearch"><i></i></label></div>
@@ -150,7 +156,7 @@
       </section>
 
       <!-- ══════════ 备份 ══════════ -->
-      <section id="tab-backup" class="tab">
+      <section id="tab-backup" class="tab" role="tabpanel">
         <div class="panelHead">
           <h1>备份 <span class="sub">账号池 + 凭据，可导出 / 导入</span></h1>
         </div>

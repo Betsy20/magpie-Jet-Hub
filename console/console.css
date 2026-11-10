@@ -595,6 +595,9 @@ td.mono { font-family: var(--code); font-size: 11.5px; color: var(--fg2b); }
 .sw input:checked + i { background: var(--brand); }
 .sw input:checked + i::after { transform: translateX(14px); }
 .sw input:focus-visible + i { box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 25%, transparent); }
+/* 开关旁边的文字也是 <label>（点文字同样能切换，见 index.html 的说明）——
+   手型光标是「这里可点」的唯一视觉线索，别省。 */
+.swText { color: var(--fg3); cursor: pointer; }
 
 /* ── 弹窗 ── */
 .modal { position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgb(0 0 0 / 32%); }
