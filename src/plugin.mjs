@@ -1076,6 +1076,44 @@ const KEY_ACCOUNT_RPC = new Map([
  */
 const MAGICREW_CREATE_MODES = ['browser', 'local-browser']
 
+/**
+ * **必须**带 `mode: 'browser'` 才会进自家分支的渠道：`monkeycode` / `monkeycodeintl`。
+ *
+ * ⚠️⚠️ 这是一个**真缺陷**的修法（2026-11-11 真机踩到）。本体 `case 'account.create'`
+ * 里 MonkeyCode 的分支条件写的是：
+ *
+ * ```js
+ * if (monkeycodeProduct !== undefined && monkeycodeAuthOf !== undefined && req.mode === 'browser')
+ * ```
+ *
+ * （`vendor/lib/jet-hub-rpc.js:4345`）—— `mode` 是**分支判据**而不是可选参数。
+ * 而 `startNewAccountSmart()` 此前**只**给超级麦吉两站传 `mode`，其余一律裸传
+ * `{ provider }`。
+ *
+ * 后果链（用户在 magpie 面板点「新建账号 → MonkeyCode」实测）：
+ *
+ * 1. `account.create` 不带 `mode` ⇒ MonkeyCode 分支被跳过 ⇒ 落到 `case` 末尾的
+ *    `return { ok: false, error: { message: 'unknown provider: monkeycode' } }`；
+ * 2. 面板弹出「登录未完成 / unknown provider: monkeycode」，而**日志里什么都没有**
+ *    （分支根本没进，没有任何 warn）—— 这就是为什么这个 bug 藏了这么久；
+ * 3. ⇒ 永远没法重新抓 `monkeycode_ai_session` ⇒ 老会话一路 401 过期 ⇒ 面板读不到
+ *    积分、签到失败、模型被按「额度耗尽」打冷却标签；
+ * 4. ⇒ 用户看到的是「MonkeyCode 用不了 / 显示不出积分」，而根因是「加不了账号」。
+ *
+ * MonkeyCode 只有「开一次性独立 profile 的浏览器窗口让用户自己登」这一条路（与超级
+ * 麦吉的 `browser` 腿同型），没有 `local-browser` 那样的第二条腿可退，所以只传
+ * `browser`、不重试别的 mode。
+ *
+ * ⚠️ 国际站（`monkeycodeintl`）在同一张表里：两站共用同一个 `handleMonkeycodeRpc`
+ * 与同一段分支判据（`vendor/lib/jet-hub-rpc.js:4345` 对两个 product 都生效），漏一个
+ * 就是国际站面板同样弹出 `unknown provider: monkeycodeintl`。
+ *
+ * ⚠️ `baizhi`（百智云）的 `account.create` 也有同样的 `req.mode === 'browser'` 判据
+ * （`:4510`），但**本次刻意不动它** —— 用户只要求先修猴子云；百智云另有
+ * `baizhi.startSession`（给已有账号补 cookie）可用，不在这次范围内。
+ */
+const BROWSER_MODE_PROVIDERS = new Set(['monkeycode', 'monkeycodeintl'])
+
 /** 轮询 `login.poll` 的间隔（本体登录流程最短也要一两秒，2 秒够用且不吵）。 */
 const LOGIN_POLL_MS = 2_000
 
@@ -1171,11 +1209,14 @@ async function withRpcDeadline(container, method, payload, ms, what) {
  * 有效期。所以这里返回的 `accountId` 此时还只是个占位，不能当成「已登录」。
  */
 async function startNewAccount(container, provider, log, mode) {
-  // 只有超级麦吉两站要带 `mode`（见下方 `MAGICREW_CREATE_MODES` 的说明），
+  // 只有三类 provider 需要 `mode`：
+  //  · 超级麦吉两站 —— 必须是 `browser` 或 `local-browser`（见 `MAGICREW_CREATE_MODES`）；
+  //  · `monkeycode` / `monkeycodeintl` —— 必须是 `browser`
+  //    （见 `BROWSER_MODE_PROVIDERS`，漏传就是那句 `unknown provider: monkeycode`）。
   // 其余各家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
   //
-  // 腾讯 Marvis 不走这里：它不需要本机浏览器，走宿主 `mode: 'code'` 的
-  // 腾讯 Marvis 不走这里：见 `marvisOauthMethod()` 的长注释。
+  // 腾讯 Marvis 不走这里：它不需要本机浏览器，走宿主 `mode: 'code'` 那条通道，
+  // 见 `marvisOauthMethod()` 的长注释。
   const payload = mode === undefined ? { provider } : { provider, mode }
   const v = await withRpcDeadline(
     container,
@@ -1251,6 +1292,12 @@ async function startNewAccount(container, provider, log, mode) {
  * 只会变成 `login.poll` 的终态，根本不在本函数的 errors 数组里。
  */
 async function startNewAccountSmart(container, provider, log) {
+  // ⚠️⚠️ 这里曾漏了 monkeycode / monkeycodeintl（2026-11-11 真机踩到）：
+  //    它们的 `account.create` 分支判据里带着 `req.mode === 'browser'`，不传 `mode`
+  //    就直接掉进 `unknown provider: xxx`。详见 `BROWSER_MODE_PROVIDERS` 的长注释。
+  //    这两家只有一条腿，所以要**先**判，别落到下面重试 `local-browser` 的循环里。
+  if (BROWSER_MODE_PROVIDERS.has(provider)) return startNewAccount(container, provider, log, 'browser')
+
   if (provider !== 'magicrew' && provider !== 'magicrewintl') return startNewAccount(container, provider, log)
 
   const errors = []
