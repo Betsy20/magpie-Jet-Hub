@@ -91,6 +91,16 @@ export const KEY_INPUT = 'apiKey'
 export const SESSION_INPUT = 'sessionPaste'
 
 /**
+ * 「开始登录」那一步的输入键 —— 只为让宿主把说明屏渲染出来、并记住用户已确认。
+ *
+ * 存在的理由是**顺序**：宿主先问 `ask()` 的问题、再调 `authorize()` 开窗、最后
+ * 才给粘贴框。而「粘什么」这件事必须讲在**开窗之前**（否则用户看到粘贴框时
+ * 还不知道要开官网），而「粘登录态」这件事必须发生在**登录之后**。
+ * ⇒ 拆成两屏：第一屏讲清楚 + 一个「开始」，第二屏才是粘贴框。
+ */
+export const SESSION_START_INPUT = 'sessionStart'
+
+/**
  * Key 输入框的占位提示，按渠道给一句「去哪拿」。
  *
  * 只是占位文案，**不参与校验** —— Key 形状校验在本体（`vendor/lib/modelscope-rpc.js`
@@ -3361,57 +3371,79 @@ function monkeycodePasteMethod(dshProvider, container, log) {
   const name = NAMES[dshProvider] ?? dshProvider
   const base = monkeycodeBaseUrl(dshProvider)
   return {
-    type: 'api',
-    keyless: true,
-    /**
-     * label 写的是**最省事的那条**（粘 cookie），不是「粘 API Key」。
-     *
-     * 两个理由：
-     * ① 用户手上通常只有登录态 —— 「OhMyAgent」页得自己找，而 console 里随手
-     *    F12 就有 cookie；
-     * ② 只有 cookie 读得到积分（平台的 `/api/v1/users/*` 只认网页登录态）。
-     *
-     * 之所以用 `api` 型而不是 `oauth` + `method:'code'`（2026-11-11 hcss8141
-     * 真机实测的结论，与 {@link baizhiPasteMethod} 同因）：
-     *   宿主只在 `openError` 为空时才渲染我们返回的 `instructions`
-     *   （`internal/gui/assets/app.js:13075` —— 条件链里 `signing.openError ===
-     *   openBlocked` 排在 `sub.plugin ? signing.instructions : …` **前面**）。而
-     *   `authorize()` 里没有用户手势，那个 `window.open` 很容易被判成弹窗拦掉；
-     *   服务器上更是必然失败（没有浏览器可开）⇒ 说明文字整段不显示，粘贴框只剩
-     *   一个「验证码」标签。
-     *   `api` 型没有开窗/等回调任何一环，说明由 `prompt.message` 承载，而 prompt
-     *   的 `message` 是无条件渲染的（`app.js:12750` 的 `inLang(q.messages, q.message)`）。
-     */
-    label: `粘贴网页登录态新建一个 ${name} 账号`,
+    type: 'oauth',
+    label: `打开官网，粘贴网页登录态新建一个 ${name} 账号`,
 
     /**
-     * 唯一一问：粘贴内容。
+     * 第一屏：讲清「去哪登录、登录完粘什么」，一个「打开官网去登录」按钮。
      *
-     * `message` 是**唯一无条件显示**的说明位，所以判据全写在这里。
-     * 答过就返 null（宿主会拿 `inputs` 再问一轮，不返 null 就死循环）；
-     * 判空前必须 trim —— 用户复制时带上空白很常见，不 trim 会把「一串空格」
-     * 当成已答，界面再也回不到输入框（2026-11-01 二审实测过这个坑）。
+     * ## 为什么需要这一屏（这是真机两轮实测逼出来的，不是冗余）
+     *
+     * 宿主的顺序是固定的：**先问 `ask()` 的问题 → 再调 `authorize()` 开窗 →
+     * 最后才渲染粘贴框**（`internal/gui/assets/app.js` 的 `startPluginSignIn`）。
+     * 而粘贴框只在 `pasteCode` / `pasteCallback` / `pasteKey` 为真时才出现
+     * （`app.js:13122`），也就是说**想「登录之后再粘」，就只能是 `method:'code'`
+     * 那条路** —— 代价是那个框的标签被写死成「验证码」（`what = flow.pasteCode
+     * ? t("Code") : …`），用户根本猜不到该往里粘 cookie。
+     *
+     * 说明又**不能**只写在 `authorize().instructions` 里：宿主在 `openError`
+     * 非空时会用「浏览器拦下了登录页面」把它整段顶掉（`app.js:13075` 条件链里
+     * `openError` 排在 `instructions` 前面），而 `window.open` 出现在 await 之后、
+     * 没有用户手势，被拦是常态。
+     *
+     * ⇒ 唯一能保证「说明一定被看到」的位置是 prompt 的 `message`
+     * （`app.js:12750` 的 `inLang(q.messages, q.message)`，无条件渲染）。
+     * 而 prompt 又一定在开窗之前。所以把它放在这里，正好也符合
+     * 「先知道要干什么，再去干」的自然顺序。
+     *
+     * 用 `select` 而不是 `text`：`text` 的提交按钮在输入为空时是禁用的
+     * （`submit.disabled = … || !url.value.trim()`），逼用户随手敲一个字符很难看。
      */
+    prompts: [{ type: 'select', key: SESSION_START_INPUT, message: '开始登录', options: [] }],
     async ask(inputs = {}) {
-      if (typeof inputs?.[SESSION_INPUT] === 'string' && inputs[SESSION_INPUT].trim() !== '') return null
+      // 已经点过「打开官网去登录」就收手：宿主会拿 `inputs` 再问一轮，
+      // 不返 null 就死循环（Marvis 那条踩过同一个坑）。
+      if (inputs?.[SESSION_START_INPUT] !== undefined) return null
       return {
-        type: 'password',
-        key: SESSION_INPUT,
-        message: `先在浏览器里打开 ${base} 并登录 ${name}。`
-          + '然后按 F12 → Application（应用）→ Cookies → 选中该站点，'
-          + '找到 monkeycode_ai_session 那一行，双击它的 Value 复制，粘到下面'
-          + '（也可从 Network 里任意一条请求复制整条 Cookie）。'
+        type: 'select',
+        key: SESSION_START_INPUT,
+        message: `点下面的按钮会打开 ${base}。在那边登录 ${name} 之后，`
+          + '按 F12 → Application（应用）→ Cookies → 选中该站点，'
+          + '找到 monkeycode_ai_session 那一行，双击它的 Value 复制。'
+          + '然后把复制的值粘到**下一步的输入框**里（那个框标着「验证码」，名字是宿主写死的，'
+          + '往里粘 Cookie 就行，不用管它叫什么）。'
           + '插件会自己去平台换出网关 Key，不用你手工找。'
-          + '手里已经有 oma_ 开头的 API Key 时，直接粘 Key 也能建号（可与 signing_secret 用空格隔开），'
-          + '但只有 Key 读不到积分。',
-        placeholder: 'monkeycode_ai_session=…',
+          + '手里已经有 oma_ 开头的 API Key 时，直接粘 Key 也能建号'
+          + '（可与 signing_secret 用空格隔开），但只有 Key 读不到积分。',
+        options: [{ value: 'go', label: '打开官网去登录' }],
       }
     },
 
+    /**
+     * 开窗 + 等用户粘回登录态。
+     *
+     * `method: 'code'` 是必须的：它让宿主渲染那个粘贴框
+     * （`pluginsignin.go` 里 `if a.Method == "code" { s.st.PasteCode, s.plugin = … }`），
+     * 且 `callback` 会拿到用户粘进来的文本。不带它 ⇒ 宿主立刻
+     * `go plugin.Finish(wait, a.Session, "")`，paste 框永远不出现。
+     *
+     * `instructions` 也照写一遍：开窗成功时它会被显示，是第二处提醒。
+     * 开窗失败被顶掉也无妨 —— 关键说明已经在上一步的 prompt 里显示过了。
+     */
     async authorize(inputs = {}) {
-      return monkeycodeFinishPaste({
-        container, log, dshProvider, pasted: monkeycodeTextOf(inputs?.[SESSION_INPUT]),
-      })
+      const pasted = monkeycodeTextOf(inputs?.[SESSION_INPUT])
+      return {
+        url: base,
+        instructions: `登录完成后，按 F12 → Application（应用）→ Cookies，选中该站点，`
+          + '复制 monkeycode_ai_session 的 Value，粘到下面的输入框里'
+          + '（标签写的是「验证码」，那是宿主写死的，粘 Cookie 就行）。',
+        method: 'code',
+        callback: (code) => monkeycodeFinishPaste({
+          // 优先用 callback 收到的（= 用户粘贴框里的内容）；prompt 那一屏
+          // 理论上是空的，但两条都兜住，避免某一版前端换了行为就整条断掉。
+          container, log, dshProvider, pasted: monkeycodeTextOf(code) || pasted,
+        }),
+      }
     },
   }
 }
@@ -3672,37 +3704,51 @@ function nicknameOfPaste(raw) {
 function baizhiPasteMethod(dshProvider, container, log) {
   const name = NAMES[dshProvider] ?? dshProvider
   return {
-    type: 'api',
-    keyless: true,
-    label: `粘贴网页登录态新建一个 ${name} 账号`,
+    type: 'oauth',
+    label: `打开官网，粘贴网页登录态新建一个 ${name} 账号`,
 
     /**
-     * 唯一一问：粘贴内容。
+     * 第一屏：讲清「去哪登录、登录完粘什么」。理由与 `monkeycodePasteMethod`
+     * 里同名字段逐条相同（宿主顺序固定：prompt → 开窗 → 粘贴框；说明只能放在
+     * prompt 的 message 里才不会被 `openError` 顶掉）。
      *
-     * `message` 是**唯一无条件显示**的说明位，所以判据全写在这里。
-     * 答过就返 null（宿主会拿 `inputs` 再问一轮，不返 null 就死循环）；
-     * 判空前必须 trim —— 用户复制时带上空白很常见，不 trim 会把「一串空格」
-     * 当成已答，界面再也回不到输入框（2026-11-01 二审实测过这个坑）。
+     * ⚠️ 百智云这里要**两枚** cookie，文案必须点名 `sl-session` 与
+     * `baizhi_session` —— 只带 `baizhi_session` 时 `/api/v1/user/profile`
+     * 仍然 401，用户会以为插件坏了。
      */
+    prompts: [{ type: 'select', key: SESSION_START_INPUT, message: '开始登录', options: [] }],
     async ask(inputs = {}) {
-      if (typeof inputs?.[SESSION_INPUT] === 'string' && inputs[SESSION_INPUT].trim() !== '') return null
+      if (inputs?.[SESSION_START_INPUT] !== undefined) return null
       return {
-        type: 'password',
-        key: SESSION_INPUT,
-        message: `先在浏览器里打开 https://baizhi.cloud 并登录 ${name}。`
-          + '然后按 F12 → Application（应用）→ Cookies → 选中 baizhi.cloud，'
-          + '把 sl-session 和 baizhi_session 这两条的 Value 都复制下来，一起粘到下面'
-          + '（两条都要，缺一条读不到积分；也可直接粘整条 Cookie，或用空格/换行分开两条）。'
+        type: 'select',
+        key: SESSION_START_INPUT,
+        message: `点下面的按钮会打开 https://baizhi.cloud。在那边登录 ${name} 之后，`
+          + '按 F12 → Application（应用）→ Cookies → 选中 baizhi.cloud，'
+          + '把 sl-session 和 baizhi_session 这两条的 Value 都复制下来（两条都要，缺一条读不到积分）。'
+          + '然后把它们一起粘到**下一步的输入框**里（那个框标着「验证码」，名字是宿主写死的，'
+          + '粘 Cookie 就行，两条可用空格或换行分开）。'
           + '插件会自己调控制台换出 sk- 密钥，不用你手工找 Key。'
           + '手里已经有 sk- 开头的模型 Key 时，直接粘 Key 也能建号（能发消息，但查不到积分）。',
-        placeholder: 'sl-session=…; baizhi_session=…',
+        options: [{ value: 'go', label: '打开官网去登录' }],
       }
     },
 
+    /**
+     * 开窗 + 等用户粘回登录态。`method: 'code'` 是那个粘贴框存在的前提
+     * （`pluginsignin.go` 的 `if a.Method == "code"`），见 MonkeyCode 那条的注释。
+     */
     async authorize(inputs = {}) {
-      return baizhiFinishPaste({
-        container, log, dshProvider, pasted: monkeycodeTextOf(inputs?.[SESSION_INPUT]),
-      })
+      const pasted = monkeycodeTextOf(inputs?.[SESSION_INPUT])
+      return {
+        url: 'https://baizhi.cloud',
+        instructions: '登录完成后，按 F12 → Application（应用）→ Cookies，选中 baizhi.cloud，'
+          + '把 sl-session 与 baizhi_session 的 Value 一起粘到下面的输入框里'
+          + '（标签写的是「验证码」，那是宿主写死的，粘 Cookie 就行）。',
+        method: 'code',
+        callback: (code) => baizhiFinishPaste({
+          container, log, dshProvider, pasted: monkeycodeTextOf(code) || pasted,
+        }),
+      }
     },
   }
 }

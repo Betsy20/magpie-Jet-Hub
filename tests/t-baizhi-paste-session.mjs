@@ -193,18 +193,33 @@ console.log('\n【5】插件壳接线（面板路径真的指向新方法）')
     '粘贴提示同时点名 sl-session 与 baizhi_session')
   ok(/两条都要/.test(methodBody), '明确写了「两条都要」（只带一条会静默读不到积分）')
 
-  // ⚠️ 必须走 api 型 + ask()，不能走 oauth + method:'code'。
-  // 真机实测（2026-11-11 hcss8141）：oauth 型下宿主只在 `openError` 为空时渲染
-  // `instructions`（app.js:13075 条件链里 openError 排在 instructions 前面），
-  // 而服务器上 `w.OpenURL()` 必然失败 ⇒ 说明文字一个字都不显示，粘贴框只剩
-  // 「验证码」标签。api 型的 prompt.message 是无条件渲染的（app.js:12750）。
-  ok(/type: 'api'/.test(methodBody), 'type: \'api\'（oauth 型的 instructions 会被 openError 顶掉）')
-  ok(/keyless: true/.test(methodBody), 'keyless: true（否则宿主先弹它自己的 personal-key 框且不传给我们）')
-  ok(/async ask\(inputs = \{\}\)/.test(methodBody), '用 ask() 收值，说明文字由 prompt.message 承载')
-  ok(!/method: 'code'/.test(methodBody), '不再用 method: \'code\'（那条路在无浏览器的服务器上说明文字不显示）')
-  ok(!/url: 'https:\/\/baizhi\.cloud'/.test(methodBody),
-    '不再返回 url（不依赖宿主开窗，服务器上没有浏览器）')
-  ok(/baizhi\.cloud/.test(methodBody), '说明里仍给出官网地址，让人自己去开')
+  // ⚠️ 形态：**oauth + 两屏（prompt 讲说明 → authorize 开窗 + code 粘贴框）**。
+  //
+  // 这条形态是三轮真机实测（2026-11-11 hcss-ecs-8141）逼出来的：
+  //  · 只写 `instructions`：说明被 `openError` 顶掉（app.js:13075 条件链里
+  //    openError 排在 instructions 前面），服务器上 `w.OpenURL()` 必然失败
+  //    ⇒ 一个字都看不到。
+  //  · 改成纯 `type:'api'` + `ask()`：说明显示了，但网页不再自动打开
+  //    （用户原话：「没有自动打开网页」）—— api 型没有 url 这一环。
+  //  · 宿主顺序固定为 prompt → 开窗 → 粘贴框（prompt.message 无条件渲染，
+  //    app.js:12750；粘贴框只在 pasteCode/pasteCallback/pasteKey 时渲染，
+  //    app.js:13122）。所以要「说明在开窗前、粘贴在登录后」，只能拆两屏：
+  //    第一屏 ask() 出说明 + 「打开官网去登录」，第二屏 authorize() 返 url 开窗
+  //    并返 `method:'code'` 换出粘贴框。
+  ok(/type: 'oauth'/.test(methodBody), 'type: \'oauth\'（api 型没有 url，网页不会自动打开）')
+  ok(/async ask\(inputs = \{\}\)/.test(methodBody), '用 ask() 承载说明（prompt.message 无条件渲染）')
+  ok(/prompts: \[\{/.test(methodBody), '声明 prompts，否则宿主递 undefined 给 authorize（拿不到 inputs）')
+  ok(/key: SESSION_START_INPUT/.test(methodBody), '第一屏用 SESSION_START_INPUT 作 key')
+  ok(/options: \[\{ value: 'go', label: '打开官网去登录' \}\]/.test(methodBody),
+    '第一屏给一个「打开官网去登录」按钮（select 而非 text，text 空值时按钮禁用）')
+  ok(/url: 'https:\/\/baizhi\.cloud'/.test(methodBody), '返回 url ⇒ 前端 openSignInPage 会自动开窗')
+  // `method:'code'` 是粘贴框存在的**唯一**前提：不带它宿主立刻
+  // `go plugin.Finish(wait, a.Session, "")`（pluginsignin.go），paste 框永不出现。
+  ok(/method: 'code'/.test(methodBody), '返回 method:\'code\' ⇒ 宿主渲染粘贴框并等用户粘回登录态')
+  ok(/callback: \(code\) => baizhiFinishPaste/.test(methodBody),
+    'callback 收用户粘贴的文本（不用旧版立刻收口那种 callback: () =>）')
+  ok(/monkeycodeTextOf\(code\) \|\| pasted/.test(methodBody),
+    'callback 优先用粘贴框的内容，prompt 那屏的空值兜底')
 
   const finishBody = src.slice(src.indexOf('async function baizhiFinishPaste'), src.indexOf('function marvisOauthMethod'))
   ok(/exchangeBaizhiSessionForKey\(normalized/.test(finishBody), '用登录态换 sk-（用户不用自己抄 Key）')
