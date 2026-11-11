@@ -2862,6 +2862,14 @@ export function makePlugin(dshProvider) {
               // 腾讯 Marvis 给两条腿（QQ / 微信），各一个方法：面板上直接是两个可点的
               // 选项，不用先去开关里选。两条腿的凭据不通用，所以必须让用户当场挑。
               ? [marvisOauthMethod(dshProvider, container, log)]
+              // MonkeyCode 两站：**不再走「宿主开浏览器抓 cookie」那条腿**。
+              // 那条腿要求 magpie 所在机器上有一个可见的 Chromium 窗口、并且真人
+              // 就坐在那台机器前（见 `monkeycode-browser-login.js` 的「窗口必须可见」），
+              // 装在服务器上时永远走不通 —— 2026-11-11 真机报的就是
+              // 「找不到可用的浏览器（网页版登录需要本机有一个 Chromium 内核浏览器）」。
+              // 改成「打开官网 + 粘贴 Key」：只要用户手里有 Key，任何机器都能加号。
+              : MONKEYCODE_PROVIDERS.has(dshProvider)
+                ? [monkeycodePasteMethod(dshProvider, container, log)]
               : [{
               type: 'oauth',
               label: `在浏览器里新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`,
@@ -3269,6 +3277,239 @@ export function makePlugin(dshProvider) {
       _internal: { container, dshProvider, toUpstreamModel, toMagpieCheckin, toMagpieUsage },
     }
   }
+}
+
+/**
+ * MonkeyCode 两站的新建方法：**打开官网 + 粘贴 Key**，走宿主的「code 型」签入。
+ *
+ * ## 为什么不用 vendor 自带的「浏览器登录」
+ *
+ * `monkeycode-browser-login.js` 的整条思路是「在 magpie 那台机器上开一个**可见**
+ * Chromium 窗口，让真人在那里登录，再用 CDP 读 HttpOnly 的 `monkeycode_ai_session`」
+ * （文件头注释原文：「⚠️⚠️ 窗口必须可见（`hideWindow: false`）：用户要在这个窗口里
+ * 自己登录」）。这个前提在服务器上直接不成立：
+ *
+ *   1. 绝大多数 Linux 服务器上没有 Chromium —— 2026-11-11 真机报
+ *      「MonkeyCode: 找不到可用的浏览器（网页版登录需要本机有一个 Chromium 内核
+ *      浏览器）」，9 条候选路径全落空；
+ *   2. 就算装上了，也没有人坐在那台机器前点「同意」；
+ *   3. `chromium-session.js` 的实测表写明 `--headless=new` 一律 `F001` ⇒ 无头替不了。
+ *
+ * 而 MonkeyCode 的推理凭据本来就**是用户能自己拿到的两串文本**：`oma_…` +
+ * `signing_secret`，在平台站内「OhMyAgent」页面同一次生成（见
+ * `vendor/lib/client/jet-hub.js` 的弹窗文案：「signing_secret 与 API Key 同时生成
+ * （48 位随机串）」）。所以让用户在自己的浏览器里打开官网、复制两串、粘回来，
+ * 就完全绕开了「magpie 那台机器上必须有浏览器」这个死结。
+ *
+ * ## 为什么是 `method: 'code'` 而不是 `ask()`
+ *
+ * 宿主的 `authorize()` 返回对象里那个字段叫 `method`（`Authorization.Method`，
+ * `host.js` 按 `a.method === "code"` 判定），取 `"code"` 时 GUI 会把 `url` 渲染成
+ * **一段带复制按钮的链接**，并给一个粘贴框；用户粘进去后宿主调
+ * `callback(code)`（2 分钟预算，比 authorize 的 1 分钟宽）。这正是要的形态：
+ * 一个链接 + 一个输入框，不依赖任何本地程序。
+ *
+ * ⚠️ 字段名是 `method`，不是 `mode` —— 写成 `mode: 'code'` 宿主不认（会当成
+ * auto 型，去等一个永远不来的回调）。腾讯 Marvis 那条踩过同一个坑。
+ *
+ * ## 粘贴框收两个值怎么办
+ *
+ * 粘贴框是**单行 input**（`internal/gui/assets/app.js` 里 `input(...)`，`type` 只
+ * 在 pasteKey 时才是 password），但它是普通文本框 —— 用户在浏览器里从官网那页
+ * 连续复制两行、粘进来的就是一串带换行/空白的文本。`monkeycodePastedPaire()` 按
+ * 「先 Key 后 signing_secret」的顺序认，也容忍 `API Key: xxx` 这种带标签的写法。
+ * 只粘了一把 Key 时照样建号 —— 能发消息，只是查不到余额/积分（`fetchMonkeycodeWallet`
+ * 会明确说「未配置会话」）；之后可以用面板上的「改 Key」补 session cookie。
+ *
+ * ## 为什么不做「新建 + 立刻验一把」
+ *
+ * 建号只是一次本地写盘（`monkeycode.addAccount` 不访问上游）。真去发一次请求会
+ * 在 Key 有误时把错误推迟到用户第一次聊天时，但也会让「刚建完就想改」变得很别扭：
+ * 验失败要不要回滚？回滚掉用户刚粘的 Key 吗？这里选择**不回滚、不预验** ——
+ * 与仓库里 modelscope / opencode / qiniu 那三条贴 Key 的路径保持同一纪律
+ * （它们同样只在建号时校验形状）。
+ */
+function monkeycodePasteMethod(dshProvider, container, log) {
+  const name = NAMES[dshProvider] ?? dshProvider
+  const base = monkeycodeBaseUrl(dshProvider)
+  return {
+    type: 'oauth',
+    label: `打开 ${name} 官网，粘贴 API Key 建号`,
+
+    /**
+     * 只做一件事：把官网地址交出去。
+     *
+     * 没有任何网络调用，所以不需要 `container.start()`，也不受 authorize()
+     * 那 1 分钟硬超时影响（这里就是一次赋值）。
+     */
+    async authorize() {
+      return {
+        // ⚠️ 不写具体子路径：平台的「OhMyAgent」页不是独立路由（实测 `/ohmyagent`
+        // 之类一律回 200，那是 SPA 的 catch-all 吐同一个壳，不是真页面）。
+        // 给站根最稳，路径由 instructions 里的文字指路。
+        url: base,
+        instructions: `在打开的 ${name} 页面里登录，然后进入「OhMyAgent」页面，复制两样东西粘到下面：`
+          + '① API Key（oma_ 开头）'
+          + '；② 同一页面给的 signing_secret（48 位）。'
+          + '先 Key 后 secret，用空格或换行隔开都行；只粘 Key 也能建号，只是查不到积分。',
+        method: 'code',
+        callback: (pasted) => monkeycodeFinishPaste({
+          container, log, dshProvider, pasted: monkeycodeTextOf(pasted),
+        }),
+      }
+    },
+  }
+}
+
+/**
+ * 把用户粘回来的文本拆成 `{ apiKey, signingSecret }`，再交给本体的 `addAccount`。
+ *
+ * 认这几种写法（都是从官网那页复制出来的自然形态）：
+ *
+ * ```
+ *   oma_abcdefghijklmnop  3f9c…（48 位）
+ *   oma_abcdefghijklmnop
+ *   3f9c…（48 位）
+ *   API Key: oma_abcdefghijklmnop
+ *   signing_secret: 3f9c…
+ * ```
+ *
+ * ⚠️ **不能靠「长度」硬猜**：`signing_secret` 是 48 位、`oma_…` 的 Key 也可能很长，
+ * 两者长度区间重叠。所以按**前缀**认 Key（`oma_` 或 `sk-`，与本体
+ * `monkeycode-rpc.js` 的错误文案「请粘贴 oma_ 开头的 Key」一致），剩下那段当 secret。
+ */
+async function monkeycodeFinishPaste({ container, log, dshProvider, pasted }) {
+  const raw = String(pasted ?? '').trim()
+  if (raw === '') {
+    throw new Error('没收到任何内容：请把官网那页的 API Key（oma_ 开头）粘到框里')
+  }
+  const { apiKey, signingSecret } = monkeycodePastedPairOf(raw)
+  if (apiKey === '') {
+    throw new Error(
+      '没在这段文本里找到 API Key：它应该以 oma_（或 sk-）开头。'
+        + '请到官网「OhMyAgent」页面复制「API Key」那一行',
+    )
+  }
+  log?.(`[${dshProvider}] 收到粘贴的 Key（尾 4 位 ${apiKey.slice(-4)}）`
+    + (signingSecret === '' ? '，没有 signing_secret' : '，含 signing_secret'))
+
+  // 建号是一次本地写盘，但容器可能还没起（冷启动 20–30 秒）——
+  // 与 `KEY_ACCOUNT_RPC` 那条同预算（magpie 给 code 型 callback 2 分钟）。
+  await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+  const v = await withRpcDeadline(
+    container,
+    `${dshProvider}.addAccount`,
+    {
+      apiKey,
+      ...(signingSecret === '' ? {} : { signingSecret }),
+      ...(nicknameOfPaste(raw) === undefined ? {} : { nickname: nicknameOfPaste(raw) }),
+    },
+    CREATE_TIMEOUT_MS,
+    `新建 ${dshProvider} 账号`,
+  )
+  const accountId = String(v?.accountId ?? '').trim()
+  if (accountId === '') {
+    throw new Error(`本体没有返回账号 id（${dshProvider}.addAccount 回：${JSON.stringify(v)}）`)
+  }
+  // 新建的号还没进 `account.list` 的 15 秒缓存，不然后面用量卡会拿旧列表。
+  accountsCache.delete(dshProvider)
+
+  // 建完拉一次目录：Key 刚生效时模型列表可能刚变。拉不到不影响建号。
+  try {
+    await withDeadline(
+      (async () => {
+        await liveAll(container, log)
+        fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+        writeCache(log)
+      })(),
+      START_TIMEOUT_MS,
+      '建号后刷新目录',
+    )
+  } catch { /* 目录拉不到不影响建号 */ }
+
+  const hit = await accountById(container, dshProvider, accountId, log)
+  const landed = await landedAccountOf(container, dshProvider, accountId, hit, log)
+  const signedId = landed.id
+  let wide = 0
+  try {
+    wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
+  } catch { /* 缓存没读到就当 0 */ }
+
+  return {
+    type: 'success',
+    key: `jet-hub-local:${dshProvider}/${signedId}`,
+    accountId: `${accountLabel(landed.hit ?? { id: signedId })}·已新建`
+      + (wide > 0 ? `·上游 ${wide} 个模型` : '')
+      + (signingSecret === '' ? '·缺 signing_secret' : ''),
+    uid: signedId,
+    metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: signedId },
+  }
+}
+
+/**
+ * 归一化粘贴内容 —— 宿主给的一般是字符串，但契约没写死（Marvis 那条同理）。
+ */
+function monkeycodeTextOf(pasted) {
+  if (typeof pasted === 'string') return pasted
+  if (pasted === undefined || pasted === null) return ''
+  if (typeof pasted === 'object') {
+    // 宿主可能把粘贴框的值包成 `{ code }` / `{ value }`；也可能直接给整个 payload。
+    for (const key of ['code', 'value', 'text', 'input', 'url', 'apiKey']) {
+      const v = pasted[key]
+      if (typeof v === 'string' && v.trim() !== '') return v
+    }
+    // 兜底：把对象里的字符串值拼起来（用户在 UI 里分两个框填时是这种形态）。
+    const parts = [pasted.apiKey, pasted.signingSecret, pasted.signing_secret]
+      .filter((x) => typeof x === 'string' && x.trim() !== '')
+    return parts.join(' ')
+  }
+  return String(pasted)
+}
+
+/**
+ * 从一段自由文本里认出 `{ apiKey, signingSecret }`。
+ *
+ * 逐 token 扫：带 `oma_` / `sk-` 前缀的当 Key，剩下的第一段「够长且不是标签词」
+ * 当 secret。标签词（`apikey` / `signing_secret` 等）只是跳过，不参与判定 ——
+ * 用户从网页复制时常把标签一起带进来。
+ */
+function monkeycodePastedPairOf(raw) {
+  const tokens = String(raw)
+    .split(/[\s,，、;；]+/u)
+    .map((t) => t.replace(/^[\s"'`「」【】()（）<>]+|[\s"'`「」【】()（）<>]+$/gu, ''))
+    .map((t) => t.replace(/[:：=]+$/u, ''))
+    .filter((t) => t !== '')
+  const labels = new Set([
+    'api', 'key', 'apikey', 'api_key', 'signing', 'secret', 'signing_secret',
+    'signingsecret', '密钥', '签名', '签名密钥', '令牌',
+  ])
+  const useful = tokens.filter((t) => !labels.has(t.toLowerCase()))
+  // 按前缀认 Key：`oma_` 是官方形态，`sk-` 是本体错误文案里也提到的另一种。
+  const keyed = useful.find((t) => /^(oma_|sk-)/i.test(t))
+  if (keyed !== undefined) {
+    const rest = useful.filter((t) => t !== keyed)
+    return { apiKey: keyed, signingSecret: rest.find((t) => t.length >= 8) ?? '' }
+  }
+  // 没有带前缀的：只有一段时当 Key（让本体给出「形状不对」的原话，比我们猜更准）；
+  // 有两段时按「先 Key 后 secret」的位置约定。
+  if (useful.length === 1) return { apiKey: useful[0], signingSecret: '' }
+  if (useful.length >= 2) {
+    const [first, second] = useful
+    return { apiKey: first, signingSecret: second.length >= 8 ? second : '' }
+  }
+  return { apiKey: '', signingSecret: '' }
+}
+
+/**
+ * 从粘贴内容里猜一个昵称（可选）。
+ *
+ * 只认显式的 `nickname: xxx` / `昵称: xxx` —— 绝不拿 Key 的任何片段当昵称，
+ * 卡上显示一串密钥字符既难看也泄露信息。猜不到就返回 undefined，
+ * 由本体自己的 `accountLabel()` 兜底。
+ */
+function nicknameOfPaste(raw) {
+  const m = /(?:nickname|昵称)\s*[:：=]\s*([^\s,，;；]{1,32})/iu.exec(String(raw ?? ''))
+  return m === null ? undefined : m[1]
 }
 
 /**
