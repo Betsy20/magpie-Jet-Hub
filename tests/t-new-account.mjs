@@ -943,10 +943,24 @@ console.log('\noauth 方法形状：')
     for (const m of oauth) {
       ok(typeof m.authorize === 'function', `${p.auth.provider} 的 oauth 方法有 authorize`)
       if (p.auth.provider === 'jet-hub-marvis') {
-        // 唯一的例外（2026-11-11）：宿主对插件签入没有「给链接 + 收粘贴」的形状，
-        // Marvis 的登录方式（QQ / 微信）与授权码只能走 ask() 问答收集 —— 宿主对
-        // oauth 方法同样先跑 prompt 再 authorize（Kiro「先问方式再登」同款）。
-        ok(typeof m.ask === 'function', 'jet-hub-marvis 的 oauth 方法带 ask（选方式 + 收粘贴地址）')
+        // Marvis（2026-11-11 二改）：登录方式（QQ / 微信）只能问出来，所以带 ask；
+        // 但**授权页地址与授权码不走 ask** —— 宿主原生支持 code 型签入
+        // （`authorize()` 返回 `method: 'code'`），GUI 会渲染带「复制链接」按钮的
+        // 一行 + 粘贴框。早先写 `mode: 'code'` 宿主不认，用户看到的是题干里一段
+        // 不能一键复制的纯文本（用户原话：「没有复制连接的按钮」）。
+        ok(typeof m.ask === 'function', 'jet-hub-marvis 的 oauth 方法带 ask（选 QQ / 微信）')
+        // ask 只问一次就收手：宿主拿 `inputs` 再问一轮，不返 null 会死循环。
+        const asked = await m.ask({ marvis_login_type: '1' })
+        ok(asked === null, 'jet-hub-marvis 的 ask 答过登录方式后返 null（不死循环）')
+        const a1 = await m.authorize({ marvis_login_type: '1' })
+        ok(a1.method === 'code', 'jet-hub-marvis 的 authorize 说自己是 code 型（宿主据此给复制按钮 + 粘贴框）')
+        ok(typeof a1.url === 'string' && a1.url.startsWith('https://graph.qq.com/'), 'QQ 腿给的是 graph.qq.com 授权页')
+        ok(/^0\.\d+$/.test(new URL(a1.url).searchParams.get('state') ?? ''), 'QQ 腿的 state 是小数（整数会被上游拒）')
+        ok(typeof a1.callback === 'function', 'jet-hub-marvis 的 authorize 给了 callback（宿主拿它收粘回的码）')
+        ok(typeof a1.instructions === 'string' && !a1.instructions.includes('https://graph.qq.com'),
+          'instructions 里不重复贴地址（宿主会单独渲染带复制按钮的那一行，重复就显示两遍）')
+        const a2 = await m.authorize({ marvis_login_type: '2' })
+        ok(a2.url.startsWith('https://open.weixin.qq.com/connect/qrconnect'), '微信腿给的是 qrconnect 扫码页')
       } else {
         ok(m.ask === undefined, `${p.auth.provider} 的 oauth 方法没有 ask（新建没得选）`)
       }
