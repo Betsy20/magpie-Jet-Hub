@@ -186,7 +186,6 @@ console.log('\n【5】插件壳接线（面板路径真的指向新方法）')
     '存在 `baizhiPasteMethod`')
   ok(/dshProvider === 'baizhi'\s*\n\s*\? \[baizhiPasteMethod\(dshProvider, container, log\)\]/.test(src),
     'methods 分发里 baizhi 落到 paste 方法（不是通用 oauth）')
-  ok(/url: 'https:\/\/baizhi\.cloud'/.test(src), '打开的是站根（子路径是 SPA catch-all，白给）')
 
   // 粘贴框必须提到**两枚** cookie，否则用户只复制一条 ⇒ 积分读不出来
   const methodBody = src.slice(src.indexOf('function baizhiPasteMethod'), src.indexOf('async function baizhiFinishPaste'))
@@ -194,8 +193,18 @@ console.log('\n【5】插件壳接线（面板路径真的指向新方法）')
     '粘贴提示同时点名 sl-session 与 baizhi_session')
   ok(/两条都要/.test(methodBody), '明确写了「两条都要」（只带一条会静默读不到积分）')
 
-  // code 型签入的字段名是 `method`，写成 `mode` 会被当 auto 型、永远等不到回调
-  ok(/method: 'code'/.test(methodBody), 'method: \'code\'（写 mode 会退化成 auto 型）')
+  // ⚠️ 必须走 api 型 + ask()，不能走 oauth + method:'code'。
+  // 真机实测（2026-11-11 hcss8141）：oauth 型下宿主只在 `openError` 为空时渲染
+  // `instructions`（app.js:13075 条件链里 openError 排在 instructions 前面），
+  // 而服务器上 `w.OpenURL()` 必然失败 ⇒ 说明文字一个字都不显示，粘贴框只剩
+  // 「验证码」标签。api 型的 prompt.message 是无条件渲染的（app.js:12750）。
+  ok(/type: 'api'/.test(methodBody), 'type: \'api\'（oauth 型的 instructions 会被 openError 顶掉）')
+  ok(/keyless: true/.test(methodBody), 'keyless: true（否则宿主先弹它自己的 personal-key 框且不传给我们）')
+  ok(/async ask\(inputs = \{\}\)/.test(methodBody), '用 ask() 收值，说明文字由 prompt.message 承载')
+  ok(!/method: 'code'/.test(methodBody), '不再用 method: \'code\'（那条路在无浏览器的服务器上说明文字不显示）')
+  ok(!/url: 'https:\/\/baizhi\.cloud'/.test(methodBody),
+    '不再返回 url（不依赖宿主开窗，服务器上没有浏览器）')
+  ok(/baizhi\.cloud/.test(methodBody), '说明里仍给出官网地址，让人自己去开')
 
   const finishBody = src.slice(src.indexOf('async function baizhiFinishPaste'), src.indexOf('function marvisOauthMethod'))
   ok(/exchangeBaizhiSessionForKey\(normalized/.test(finishBody), '用登录态换 sk-（用户不用自己抄 Key）')

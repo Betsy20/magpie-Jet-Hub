@@ -81,6 +81,16 @@ export const ACCOUNT_INPUT = 'dshAccount'
 export const KEY_INPUT = 'apiKey'
 
 /**
+ * 「粘贴网页登录态」用的输入键。与 {@link KEY_INPUT} **刻意分开**。
+ *
+ * 理由同上面那条：两条方法不共用键，否则用户在一条里答过的值会让另一条的
+ * `ask()` 误以为已经答过而直接跳过提问。而这里更要紧的是**语义**：
+ * `apiKey` 位在别的渠道是「一把 `sk-` Key」，而这里粘进来的通常是 cookie ——
+ * 混用会让「用户到底给了什么」在日志与错误文案里彻底看不清。
+ */
+export const SESSION_INPUT = 'sessionPaste'
+
+/**
  * Key 输入框的占位提示，按渠道给一句「去哪拿」。
  *
  * 只是占位文案，**不参与校验** —— Key 形状校验在本体（`vendor/lib/modelscope-rpc.js`
@@ -3351,32 +3361,57 @@ function monkeycodePasteMethod(dshProvider, container, log) {
   const name = NAMES[dshProvider] ?? dshProvider
   const base = monkeycodeBaseUrl(dshProvider)
   return {
-    type: 'oauth',
-    label: `打开 ${name} 官网，粘贴 API Key 建号`,
+    type: 'api',
+    keyless: true,
+    /**
+     * label 写的是**最省事的那条**（粘 cookie），不是「粘 API Key」。
+     *
+     * 两个理由：
+     * ① 用户手上通常只有登录态 —— 「OhMyAgent」页得自己找，而 console 里随手
+     *    F12 就有 cookie；
+     * ② 只有 cookie 读得到积分（平台的 `/api/v1/users/*` 只认网页登录态）。
+     *
+     * 之所以用 `api` 型而不是 `oauth` + `method:'code'`（2026-11-11 hcss8141
+     * 真机实测的结论，与 {@link baizhiPasteMethod} 同因）：
+     *   宿主只在 `openError` 为空时才渲染我们返回的 `instructions`
+     *   （`internal/gui/assets/app.js:13075` —— 条件链里 `signing.openError ===
+     *   openBlocked` 排在 `sub.plugin ? signing.instructions : …` **前面**）。而
+     *   `authorize()` 里没有用户手势，那个 `window.open` 很容易被判成弹窗拦掉；
+     *   服务器上更是必然失败（没有浏览器可开）⇒ 说明文字整段不显示，粘贴框只剩
+     *   一个「验证码」标签。
+     *   `api` 型没有开窗/等回调任何一环，说明由 `prompt.message` 承载，而 prompt
+     *   的 `message` 是无条件渲染的（`app.js:12750` 的 `inLang(q.messages, q.message)`）。
+     */
+    label: `粘贴网页登录态新建一个 ${name} 账号`,
 
     /**
-     * 只做一件事：把官网地址交出去。
+     * 唯一一问：粘贴内容。
      *
-     * 没有任何网络调用，所以不需要 `container.start()`，也不受 authorize()
-     * 那 1 分钟硬超时影响（这里就是一次赋值）。
+     * `message` 是**唯一无条件显示**的说明位，所以判据全写在这里。
+     * 答过就返 null（宿主会拿 `inputs` 再问一轮，不返 null 就死循环）；
+     * 判空前必须 trim —— 用户复制时带上空白很常见，不 trim 会把「一串空格」
+     * 当成已答，界面再也回不到输入框（2026-11-01 二审实测过这个坑）。
      */
-    async authorize() {
+    async ask(inputs = {}) {
+      if (typeof inputs?.[SESSION_INPUT] === 'string' && inputs[SESSION_INPUT].trim() !== '') return null
       return {
-        // ⚠️ 不写「OhMyAgent」之类子路径：那不是独立路由（实测一律回 200，是
-        // SPA 的 catch-all 吐同一个壳）。给站根最稳 —— 用户登录完自然停在 console。
-        url: base,
-        instructions: `在打开的 ${name} 页面里登录。登录完成后，把这个账号的网页登录态粘到下面，`
-          + '插件会自己换出网关 Key（不用你去找 Key）：'
-          + '① 按 F12 打开开发者工具 → Application（应用）→ Cookies → 选中该站点，'
-          + '找到 monkeycode_ai_session 那一行，双击它的 Value 复制；'
-          + '② 或者从开发者工具的 Network 里任意一条请求把整条 Cookie 复制过来，也认。'
-          + '手里已经有 oma_ 开头的 API Key 时，也可以直接粘 Key（可与 signing_secret 用空格隔开），'
+        type: 'password',
+        key: SESSION_INPUT,
+        message: `先在浏览器里打开 ${base} 并登录 ${name}。`
+          + '然后按 F12 → Application（应用）→ Cookies → 选中该站点，'
+          + '找到 monkeycode_ai_session 那一行，双击它的 Value 复制，粘到下面'
+          + '（也可从 Network 里任意一条请求复制整条 Cookie）。'
+          + '插件会自己去平台换出网关 Key，不用你手工找。'
+          + '手里已经有 oma_ 开头的 API Key 时，直接粘 Key 也能建号（可与 signing_secret 用空格隔开），'
           + '但只有 Key 读不到积分。',
-        method: 'code',
-        callback: (pasted) => monkeycodeFinishPaste({
-          container, log, dshProvider, pasted: monkeycodeTextOf(pasted),
-        }),
+        placeholder: 'monkeycode_ai_session=…',
       }
+    },
+
+    async authorize(inputs = {}) {
+      return monkeycodeFinishPaste({
+        container, log, dshProvider, pasted: monkeycodeTextOf(inputs?.[SESSION_INPUT]),
+      })
     },
   }
 }
@@ -3588,7 +3623,7 @@ function nicknameOfPaste(raw) {
 }
 
 /**
- * 百智云的新建方法：**打开官网 + 粘贴网页登录态 / API Key**，与 MonkeyCode 同款。
+ * 百智云的新建方法：**粘贴网页登录态 / API Key 建号**，与 MonkeyCode 同源但**形态不同**。
  *
  * ## 为什么不能像 CodeArts / Gemini 那样「开个链接就好」
  *
@@ -3602,35 +3637,72 @@ function nicknameOfPaste(raw) {
  *
  * ⇒ 唯一能在服务器上跑通的形态，就是让用户在自己的浏览器里登录、把登录态粘回来。
  *
+ * ## ⚠️ 为什么是 `type: 'api'` + `ask()`，而不是 `type: 'oauth'` + `method: 'code'`
+ *
+ * MonkeyCode 那边用的是 oauth/code 型（宿主渲染一个链接 + 一个粘贴框），在真机上
+ * 确实跑通了。但它有一个**实测暴露的缺陷**（2026-11-11 hcss8141）：
+ *
+ *   · 宿主只在 `openError` 为空时才渲染我们返回的 `instructions`
+ *     （`internal/gui/assets/app.js:13075` —— 条件链里 `signing.openError ===
+ *     openBlocked` 排在 `sub.plugin ? signing.instructions : …` **前面**）；
+ *   · 而 `authorize()` 里没有任何用户手势，浏览器很容易把那个 `window.open`
+ *     判成弹窗拦掉；服务器上更是必然失败（没有浏览器可开）。
+ *   ⇒ 那一刻「要粘哪两枚 cookie」这段说明**整段不显示**，粘贴框只剩一个
+ *     「验证码」标签，用户完全不知道该粘什么。
+ *
+ * `type: 'api'` + `ask()` 这条路（modelscope / opencode / qiniu 三家已在用）没有
+ * 上面任何一环：**不开窗、不等回调、说明文字由 `prompt.message` 承载**，而
+ * prompt 的 `message` 是无条件渲染的（`app.js:12750` 的 `inLang(q.messages, q.message)`）。
+ *
+ * `keyless: true` 的理由同 {@link KEY_ACCOUNT_RPC} 那三条：magpie 对 api 型会先弹
+ * 它自己的 personal-key 框，且**不把值传给 `authorize(inputs)`** —— 我们要自己收，
+ * 所以 `ask()` 出面，`keyless` 让宿主跳过它那个框
+ * （`PluginAPIKey` 里 `strings.TrimSpace(key) == ""` 时只有 keyless/keyAsked 才放行）。
+ *
  * ## ⚠️ 百智云比 MonkeyCode 多一个坑：要**两枚** cookie
  *
  * 控制台同时下发 `sl-session`（设备/风控会话）与 `baizhi_session`（登录会话），
  * 实测**两枚都要带上**才能通过（只带 `baizhi_session` 时 `/api/v1/user/profile`
- * 会 401）。所以粘贴提示特意写了「两条都要复制」，并且归一化时认这两个名字。
+ * 会 401）。这一点写进了 `prompt.message`，也认「整条 Cookie 头」与「两条裸值
+ * 按位置补名字」两种粘贴形态（见 {@link baizhiPastedCookieOf}）。
  *
- * 只粘一条也能建号（用户手上要是有 `sk-` Key 也一样），只是积分读不出来 ——
- * 面板上会显示「未登录」，用户再点一次「改 Key」补上即可。
+ * 只粘一条也能建号（用户手上有 `sk-` Key 时也一样），只是积分读不出来 ——
+ * 卡片上会标出来，用户再点「改 Key → 只填 cookie」补上即可。
  */
 function baizhiPasteMethod(dshProvider, container, log) {
   const name = NAMES[dshProvider] ?? dshProvider
   return {
-    type: 'oauth',
-    label: `打开 ${name} 官网，粘贴网页登录态建号`,
+    type: 'api',
+    keyless: true,
+    label: `粘贴网页登录态新建一个 ${name} 账号`,
 
-    async authorize() {
+    /**
+     * 唯一一问：粘贴内容。
+     *
+     * `message` 是**唯一无条件显示**的说明位，所以判据全写在这里。
+     * 答过就返 null（宿主会拿 `inputs` 再问一轮，不返 null 就死循环）；
+     * 判空前必须 trim —— 用户复制时带上空白很常见，不 trim 会把「一串空格」
+     * 当成已答，界面再也回不到输入框（2026-11-01 二审实测过这个坑）。
+     */
+    async ask(inputs = {}) {
+      if (typeof inputs?.[SESSION_INPUT] === 'string' && inputs[SESSION_INPUT].trim() !== '') return null
       return {
-        url: 'https://baizhi.cloud',
-        instructions: `在打开的 ${name} 页面里登录。登录完成后，把这个账号的网页登录态粘到下面，`
-          + '插件会自己去控制台换出 `sk-` 密钥（不用你手工找 Key）：'
-          + '① 按 F12 打开开发者工具 → Application（应用）→ Cookies → 选中 baizhi.cloud，'
-          + '把 sl-session 和 baizhi_session 这两条的 Value 都复制下来（两条都要，缺一条读不到积分）；'
-          + '② 或者从开发者工具的 Network 里任意一条请求把整条 Cookie 复制过来，也认。'
-          + '手里已经有 sk- 开头的模型 Key 时，直接粘 Key 也可以（能发消息，但查不到积分）。',
-        method: 'code',
-        callback: (pasted) => baizhiFinishPaste({
-          container, log, dshProvider, pasted: monkeycodeTextOf(pasted),
-        }),
+        type: 'password',
+        key: SESSION_INPUT,
+        message: `先在浏览器里打开 https://baizhi.cloud 并登录 ${name}。`
+          + '然后按 F12 → Application（应用）→ Cookies → 选中 baizhi.cloud，'
+          + '把 sl-session 和 baizhi_session 这两条的 Value 都复制下来，一起粘到下面'
+          + '（两条都要，缺一条读不到积分；也可直接粘整条 Cookie，或用空格/换行分开两条）。'
+          + '插件会自己调控制台换出 sk- 密钥，不用你手工找 Key。'
+          + '手里已经有 sk- 开头的模型 Key 时，直接粘 Key 也能建号（能发消息，但查不到积分）。',
+        placeholder: 'sl-session=…; baizhi_session=…',
       }
+    },
+
+    async authorize(inputs = {}) {
+      return baizhiFinishPaste({
+        container, log, dshProvider, pasted: monkeycodeTextOf(inputs?.[SESSION_INPUT]),
+      })
     },
   }
 }
