@@ -512,6 +512,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .metaRow dd[data-tone="ok"] { color: var(--green); }
 .metaRow dd[data-tone="off"] { color: var(--fg3); }
 .creditTotal { font-size: 13px; font-weight: 600; color: var(--brand); font-variant-numeric: tabular-nums; }
+/* token 计渠道（Marvis）的单位后缀：与数字同号但弱化，避免被读成积分 */
+.creditUnit { font-size: 11px; font-weight: 400; color: var(--fg3); }
 .creditPoolPart { font-size: 11px; font-variant-numeric: tabular-nums; }
 .creditExpire { color: var(--orange-ink); }
 /* 「剩 22 天 / 已过 2 天」：跟「临期积分」用同一个橙，但**类名分开** ——

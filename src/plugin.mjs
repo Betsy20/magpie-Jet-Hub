@@ -1849,19 +1849,30 @@ function fmtNum(n) {
  * （`146.341` / `4584.44`），压成 `0.15K` 只会让读数更难核对。
  *
  * 阈值与 `vendor/lib/credits.js` 的 `formatTokenAmount`（进而与客户端
- * `formatTokens`）一致：`>= 1e6` → M、`>= 1e3` → K、其余取整。唯一差别是
- * **去掉末尾的 0**，沿用 `fmtNum` 那条卡片惯例（`10000000` → `10M` 而不是
- * `10.00M`），跟同一行里的其余读数写法对齐。
+ * `formatTokens`）一致：`>= 1e6` → M、`>= 1e3` → K、其余取整。两处刻意的差别：
+ *
+ * ① **向下截断，不四舍五入**。剩余量舍入会向上虚报，最坏情况是把
+ *    `9999976 / 10000000`（已用 24，几乎没动）渲染成 `10M / 10M · 剩余 100%`
+ *    —— 读数与「满额未用」逐字相同，等于把用掉的量抹掉。截断最多少报到
+ *    一个 0.01 单位，方向永远是「我不比实际多」。
+ * ② **去掉末尾的 0**，沿用 `fmtNum` 那条卡片惯例（`10000000` → `10M` 而不是
+ *    `10.00M`），跟同一行里的其余读数写法对齐。
+ *
+ * `unit` 比较**不分大小写**：OfficeAce 那家报的是 `'Token'`（首字母大写），
+ * 而 `claimUnitLabel` 也同时认 `'token'` / `'Token'` 两种写法。
  */
 function fmtScaled(n, unit) {
   const v = Number(n)
   if (!Number.isFinite(v)) return String(n)
-  if (String(unit ?? '').trim() !== 'token') return fmtNum(v)
+  if (String(unit ?? '').trim().toLowerCase() !== 'token') return fmtNum(v)
   const abs = Math.abs(v)
-  const trim = (s) => s.replace(/\.?0+$/, '')
-  if (abs >= 1e6) return `${trim((v / 1e6).toFixed(2))}M`
-  if (abs >= 1e3) return `${trim((v / 1e3).toFixed(2))}K`
-  return String(Math.round(v))
+  // 只去**小数**尾部的 0：`10.00` → `10`，但 `10` 必须原样留下
+  // （`/\.?0+$/` 那种写法会把整数的尾零也吃掉，`10` 变成 `1`）。
+  const trim = (s) => (s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s)
+  // 先放大 100 倍再截断，等价于「保留两位、向零取整」
+  if (abs >= 1e6) return `${trim(String(Math.trunc((v / 1e6) * 100) / 100))}M`
+  if (abs >= 1e3) return `${trim(String(Math.trunc((v / 1e3) * 100) / 100))}K`
+  return fmtNum(v)
 }
 
 /**

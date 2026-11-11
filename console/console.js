@@ -372,10 +372,16 @@ async function loadBalances(provider, prefetched, force = false) {
       const stale = typeof row?.error === 'string' && row.error !== '' ? row.error : null
       const b = row?.balance
       if (!b || typeof b !== 'object') {
-        next.set(id, { total: 0, long: null, temp: null, expired: 0, error: stale ?? '余额查询失败', stale: null, split: null })
+        next.set(id, { total: 0, unit: 'credit', long: null, temp: null, expired: 0, error: stale ?? '余额查询失败', stale: null, split: null })
         continue
       }
       const total = Number(b.total) || 0
+      // 量纲：只有 `token` 计的渠道（Marvis 千万级令牌）需要量级压缩，
+      // 积分渠道维持原样。取第一个包的 `unit` —— `CreditBalance` 顶层没有
+      // unit 字段（`vendor/lib/credits.d.ts:357`，只有 `CreditPackage.unit`
+      // 在 `:182`），缺省按积分处理，与旧渲染逐字兼容。
+      const unit = String((Array.isArray(b.packages) ? b.packages[0]?.unit : '') ?? '')
+        .trim().toLowerCase() === 'token' ? 'token' : 'credit'
       // 临期：**只有上游真的下发了正数才展示**。`expiringTotal` 是可选字段，
       // 绝大多数渠道（CodeBuddy / AStudio / MiniMax …）压根没有 —— 这时显示
       // 「临期 0」会让人误以为「确认没有快过期的」，而事实是「不知道」。
@@ -391,6 +397,7 @@ async function loadBalances(provider, prefetched, force = false) {
       const split = provider === 'baizhi' ? formatBaizhiPoolSplit(b.packages) : null
       next.set(id, {
         total,
+        unit,
         temp,
         expired,
         // 「其余」= 永久 + 长期（不是「长期」，见上面注释）。
@@ -503,12 +510,17 @@ function renderAccounts(provider = $('#accProvider').value) {
               ? `<span class="creditSplitNote">${esc(bal.split.note)}</span>`
               : ''
           }`
+    // 数值一律走 `formatScaledAmount`：`token` 计的渠道（Marvis 千万级令牌）
+    // 压成 `9.99M`，积分渠道逐字不变。⚠️ 不带单位后缀 —— 这一行历来只给数字，
+    // 「积分」二字在行首的 `<dt>` 上，只有 token 渠道才补 ` token` 免得被读成积分
+    // （与账号徽标的 `9.99M token` 同一个写法）。
+    const unitTag = bal?.unit === 'token' ? '<span class="creditUnit"> token</span>' : ''
     const creditDd = !bal
       ? '<dd class="muted">—</dd>'
       : bal.error
         ? `<dd class="muted" title="${esc(bal.error)}">查不到（${esc(bal.error.slice(0, 18))}）</dd>`
-        : `<dd${bal.stale ? ` title="${esc(bal.stale)}"` : ''}><span class="creditTotal">${bal.total}</span>${splitPart}${
-            bal.expired > 0 ? `<span class="creditExpired">另有 ${bal.expired} 已失效</span>` : ''
+        : `<dd${bal.stale ? ` title="${esc(bal.stale)}"` : ''}><span class="creditTotal">${formatScaledAmount(bal.total, bal.unit)}</span>${unitTag}${splitPart}${
+            bal.expired > 0 ? `<span class="creditExpired">另有 ${formatScaledAmount(bal.expired, bal.unit)} 已失效</span>` : ''
           }${bal.stale ? '<span class="creditStale">旧</span>' : ''}</dd>`
     return `<article class="accountCard">
       <div class="accountTop">
@@ -1558,6 +1570,37 @@ function formatTokenAmount(value) {
 /** 积分：整数不带小数位，有小数才保留两位（与客户端 `formatCredits` 一致）。 */
 function formatCreditAmount(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2)
+}
+
+/**
+ * 账号卡「积分」行的数值：`unit === 'token'` 的量级压缩成 `9.99M`，
+ * 其余（含缺 unit 的旧回包、以及所有 credit 渠道）**逐字**走 `String(value)`，
+ * 与旧渲染完全一致 —— 积分那几位小数历来是原样显示的，这次不动它。
+ *
+ * 为什么不直接用上面的 `formatTokenAmount`：
+ * ① 它用 `toFixed(2)` **四舍五入**，而这一行报的是**剩余额度** —— 舍入会
+ *    向上虚报。Marvis 实测 `9999976 / 10000000`（只用了 24 个令牌）四舍五入后
+ *    是 `10.00M`，跟「满额没用过」逐字相同，等于把已用量抹掉。这里向下截断，
+ *    方向永远是「不比实际多」。
+ * ② 它保留两位尾数（`10000000` → `10.00M`），这一行沿用控制台其余的写法
+ *    去掉尾零（`10M`）。
+ *
+ * **token 这段必须与 `src/plugin.mjs` 的 `fmtScaled` 逐字同口径**：同一条账号
+ * 在账号徽标（插件侧算）与控制台（这里算）上是两个独立实现，一旦分叉，
+ * 用户会看到同一个号两处读数不同 —— 那比不压缩更糟。credit 侧则刻意保留
+ * 各自的旧行为（插件走 `fmtNum` 收两位、这里原样串），本次不动。
+ */
+function formatScaledAmount(value, unit) {
+  if (String(unit ?? '').trim().toLowerCase() !== 'token') return String(value)
+  const v = Number(value)
+  if (!Number.isFinite(v)) return String(value)
+  const abs = Math.abs(v)
+  // 只去小数尾零：`10.00` → `10`，但整数 `10` 必须原样
+  const trim = (s) => (s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s)
+  if (abs >= 1e6) return `${trim(String(Math.trunc((v / 1e6) * 100) / 100))}M`
+  if (abs >= 1e3) return `${trim(String(Math.trunc((v / 1e3) * 100) / 100))}K`
+  // 与 `fmtNum` 逐字相同：两位小数、去尾零（`8.5` 保持 `8.5`，不取整成 `9`）
+  return v.toFixed(2).replace(/\.?0+$/, '')
 }
 
 /**

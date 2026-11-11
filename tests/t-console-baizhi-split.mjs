@@ -531,7 +531,12 @@ if (fmtSrc === null) {
     )
     // null 分支（split 为 null 时）逐字回退旧渲染：其余 / 临期 / 已失效 / 旧
     ok(/其余 \$\{bal\.long\} · 临期/.test(ra), 'null 分支保留旧串「其余 … · 临期 …」')
-    ok(/另有 \$\{bal\.expired\} 已失效/.test(ra), 'null 分支保留「另有 N 已失效」')
+    // ⚠️ 已失效数 2026-11-11 起走 `formatScaledAmount(bal.expired, bal.unit)` ——
+    // 原来是裸 `${bal.expired}`，token 计渠道会把千万级原始整数逐位写出来。
+    // 文案（「另有 … 已失效」）与落位不变，只换数值表达式；credit 渠道
+    // `formatScaledAmount` 对非 token 走 `String(value)`，与旧串逐字相同。
+    ok(/另有 \$\{formatScaledAmount\(bal\.expired, bal\.unit\)\} 已失效/.test(ra), 'null 分支保留「另有 N 已失效」')
+    ok(/formatScaledAmount\(bal\.total, bal\.unit\)/.test(ra), '合计值走 `formatScaledAmount`（token 计渠道量级压缩）')
     ok(/creditStale/.test(ra), 'null 分支保留 stale「旧」标记')
   }
 }

@@ -11,6 +11,30 @@
 
 ## 1.0.0（未发布）
 
+- `fix(usage)`: **令牌量级收敛——千万级额度不再逐位写全**（2026-11-11 用户报障「我这里显示的
+  不是 1m 而是每个数字都写出来了」，截图上是 `余额 9999976 token` 与
+  `24 / 10,000,000 token`）。根因在 `fmtNum()`：它只 `toFixed(2)` 收小数位、**压量级为零**，
+  于是 Marvis 的 `avail_tokens` 原样贴出去；而 `balance` 是纯文本字段，magpie 逐字照搬
+  （卡片那一行因此位数差三个数量级，一眼读不出还剩多少）。
+  - 新增 `fmtScaled(n, unit)`：`unit === 'token'` 时 `>= 1e6` → `M`、`>= 1e3` → `K`，
+    其余仍走 `fmtNum`。**积分（credit）刻意不走量级压缩**——实测都是两位数
+    （`146.341` / `4584.44`），压成 `0.15K` 只会更难核对；`unit` 比较**不分大小写**
+    （OfficeAce 报的是 `'Token'`）。
+  - 两处刻意的偏离 `vendor/lib/credits.js:487` 的 `formatTokenAmount`：
+    ① **向下截断而非四舍五入** —— 这一行报的是剩余额度，舍入会向上虚报，最坏把
+    `9999976 / 10000000`（只用了 24）渲染成 `10M / 10M · 剩余 100%`，与「满额未用」逐字相同，
+    等于抹掉已用量；② **去掉尾零**（`10M` 而不是 `10.00M`），与同一行其余读数同一写法。
+  - 5 个拼接点全部换到 `fmtScaled`：合计行 `balanceText`、钱包水位窗口、每日桶窗口、
+    默认配额窗口、欠费 `text` 行。（`windowedTotal` 保持 `fmtNum`：它只服务
+    `WALLET_WINDOW_POOLS` 那几家 credit 渠道，不在本次范围。）
+  - 控制台同一问题一并修掉：`console/console.js` 的「积分」行原本直接输出 `bal.total`
+    原始整数（`9931000`，且**无单位**），与账号徽标的 `9.93MToken` 两处读数对不上。
+    现在走 `formatScaledAmount(value, unit)`（同一口径、同样向下截断），token 计渠道
+    另补一个弱化的 ` token` 后缀（`.creditUnit`），免得被读成积分。
+  - `tests/t-console-baizhi-split.mjs` 同步：断言从裸 `${bal.expired}` 改为
+    `formatScaledAmount(bal.expired, bal.unit)`，并新增一条钉住合计值也走该函数。
+    文案与落位不变，credit 渠道对非 token 走 `String(value)` ⇒ 旧串逐字保留。
+
 - `fix(usage)`: **用量卡分母口径整套重做**（用户 2026-11-09 连续反馈：先是「剩余永远是 100%」，
   再是「这都变成负数了」，最后是「总额度也要有窗口」）。根因是插件一直把 `remaining` 冗余填进
   `limit`，而 magpie 用 `limit` 当进度条分母 ⇒ 分母 == 余额 ⇒ 刚查完就是 100%。
