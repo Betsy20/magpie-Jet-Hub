@@ -40,6 +40,8 @@ GH_URL="https://github.com/hnlinyh/magpie-Jet-Hub"
 MANIFEST_KEY="magpie-jet-hub"
 REMOTE_HOST="111.91.17.201"
 REMOTE_USER="root"
+# 连接一律走 ~/.ssh/config 里的别名：密钥（~/.ssh/hcss_ecs_8141）、端口、User
+# 都写在 config 里，显式写 user@IP 会绕过 config ⇒ Permission denied (publickey)。
 REMOTE_NAME="hcss8141"
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new)
 REMOTE_PLUGINS="/opt/magpie/config/magpie/plugins"
@@ -90,7 +92,7 @@ EOF
 }
 trap 'die "第 ${LINENO} 行命令失败"' ERR
 
-rsh() { ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "$@"; }
+rsh() { ssh "${SSH_OPTS[@]}" "${REMOTE_NAME}" "$@"; }
 
 # ---------------------------------------------------------------------------
 # [1/7] 本地版本校验：fork main 必须 == 本地 HEAD
