@@ -47,7 +47,8 @@ npm run test:all                 # 等价于第二条
 | `t-account-pin.mjs` | 选号钉住：并发隔离、钉住死号仍被拦、两个入口判据一致 |
 | `t-account-cache.mjs` | 账号列表缓存与失败路径 |
 | `t-cred-alive.mjs` | 凭据还在不在：真容器判路径推导与五种情形（ref 在 / ref 不在 / 文件缺失放行 / 结构不认识放行 / 有 refs 段但段内为空不放行），以及 `ask()` 与 `authorize()` 的接线方向 |
-| `t-usage.mjs` | 用量换算、积分包合并与到期日排序；第 7 节是「凭据不在了」的文案 + 一段直接 import `vendor/lib/jet-hub-rpc.js` 的行为锁（删 `product` 判空守卫会红） |
+| `t-baseline-store.mjs` | 积分分母的**持久化**契约（真读写临时磁盘）：水位跨天存活、每日基线按天失效、老文件缺 `kind` 兼容、白名单判定、同 key 取大值防倒挂。改坏 `saveDailyBaseline` 的 `kind === 'peak'` 或 `loadDailyBaseline` 的默认 kind ⇒ 必红 |
+| `t-usage.mjs` | 用量换算、积分包合并与到期日排序；钱包 / 每日基线 / 历史水位三种分母口径（含白名单边界与合计行的 `/` 总和）；第 7 节是「凭据不在了」的文案 + 一段直接 import `vendor/lib/jet-hub-rpc.js` 的行为锁（删 `product` 判空守卫会红） |
 | `t-checkin.mjs` | 一键领积分 |
 | `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 29 家图标（`data:image`、≤1MB、互不相同） |
 | `t-attachments.mjs` | 附件服务（内容寻址、去重、上限） |
@@ -60,6 +61,7 @@ npm run test:all                 # 等价于第二条
 | `t-login-reclaim.mjs` | 放弃授权时回收占位账号（四字段判据：昵称等于 id 或白名单、无到期时间、不可 refreshable、10 分钟内创建；外加 `login.poll` 二次确认） |
 | `t-console-backup.mjs` | 控制台解壳：与 CLI / 前端导出侧三方契约常量对账、口令不裁剪、非 JSON 不被说成口令错 |
 | `t-console-credits.mjs` | 控制台余额卡片：真实回包形状（`{accounts:[...]}`）摊平、三个额度字段方向（`total` 是可用合计、`expiringTotal` 是「total 中即将到期」仍可用、`expiredTotal` 是「已失效不可用」）、兼顶旧读数（`balance` + `error` 同时有值时打 `stale`）、`prefetched` 不重复发 RPC、`unsupported provider` 静默降级、每次调用重置 |
+| `t-console-baizhi-split.mjs` | 百智云积分「每日 / 长期」拆分：每日桶名字集合与上游客户端 `DAILY_POOL_NAMES` 逐字对账（且不退化子串匹配）、真 `buildBaizhiBalance` 喂截图同形钱包（916.68 ⇒ 每日 99.64 / 长期 817.04）、四条已审计边界（未领取 / 超额「总额不可知」/ 领取标记缺失「未知」/ 冻结不进长期）与 postpaid、packages 缺失-非数组-空 ⇒ null、`loadBalances` 穿透（baizhi 带 `split`、通用渠道 `split:null` 且旧三档逐字不变、兼顶行照样拆、换渠道清零）、`formatCreditAmount` 组合串 = `长期 817.04 · 每日 99.64` 与 `renderAccounts` 接线（消费 `bal.split`、null 分支保留旧串） |
 | `t-new-account.mjs` | 「在 magpie 里新建账号」链路（三家豁免、只拿 URL 就返回、三种终态） |
 | `t-key-account.mjs` | Key 型渠道（modelscope / opencode）的「贴 Key 新建」：一条 `api` + `keyless` 方法、`ask()` 收 Key、`authorize(inputs)` 里调 `*.addAccount` |
 | `t-magicrew-creds.mjs` | 超级麦吉凭据读取（在 IndexedDB 不在 localStorage；末节读真实 Edge，读到就验） |

@@ -237,9 +237,68 @@ let ACC = []
  *  ③ 三个额度字段的语义**别弄反**（下面 `loadBalances` 的注释有详述）：
  *     `total` 是可用合计，`expiringTotal` 才是「临期」，`expiredTotal` 是「已失效」。
  *
- * @type {Map<string, {total:number, long:number, temp:number, expired:number, error?:string}>}
+ * @type {Map<string, {total:number, long:number, temp:number, expired:number, error?:string, split?:object|null}>}
  */
 let BAL = new Map()
+
+/**
+ * 百智云「每日桶」的资源包名 —— 与上游客户端**逐字一致**，改一个字就对不上。
+ *
+ * 口径来源 `vendor/lib/client/jet-hub.js:4795`（`DAILY_POOL_NAMES`）：
+ * 上游用 `packages.find(p => p.name === '每日赠送' || p.name === '每日积分')`
+ * 精确相等匹配，**不是** `includes()` 子串匹配 —— 写成子串会把将来某个叫
+ * 「每日积分补偿」的包误认成每日桶，差价直接算错一档。
+ */
+const BAIZHI_DAILY_POOL_NAMES = ['每日赠送', '每日积分']
+
+/**
+ * 每日桶的**默认**过期口径（`vendor/lib/baizhi-credits.js:344` 的 `expiryNote`
+ * 兜底分支）。命中它说明「每日 N」就是正常读数（零点过期），文案放 `title`
+ * 即可；其余三种（今日尚未领取 / 发放额超过固定值 / 领取状态未知）都意味着
+ * 这个数字**需要解释**，必须直显小字 —— 见渲染层 `creditSplitNote`。
+ */
+const BAIZHI_DAILY_DEFAULT_NOTE = '每日 00:00（UTC+8）过期'
+
+/**
+ * 百智云积分包的「每日 / 长期」拆分（纯函数，无副作用，不格式化）。
+ *
+ * 上游现成口径：`vendor/lib/client/jet-hub.js:4795-4813` 的
+ * `DAILY_POOL_NAMES` + `formatPoolSplitLine` ——
+ * `长期 ${restSum} · 每日 ${daily.remaining}`，其中 `restSum` 是**其余 active 包
+ * 的正 remaining 之和**（冻结包 `active:false` 自然排除，见
+ * `vendor/lib/baizhi-credits.js:361-374`）。
+ *
+ * ⚠️ 只复刻「每日桶」这**一条最小语义**，通用三档（永久 / 长期 / 临期）仍然不碰
+ * （原因见 `loadBalances` 上方「为什么不复刻上游的三档分桶」）：
+ * baizhi 的资源包是上游自己按钱包字段拆好的（`buildBaizhiBalance`），
+ * 两侧口径同源、不存在「给余数贴长期」的误导问题。
+ *
+ * @param {unknown} packages `balance.packages`（RPC 原样透传的那一份）
+ * @returns {{daily:number, rest:number, note:string}|null} 非数组 / 无每日桶 ⇒ null
+ *   （调用方回退旧渲染 —— **绝不编造**一个「每日 0」或「长期 = 合计」）
+ */
+function formatBaizhiPoolSplit(packages) {
+  if (!Array.isArray(packages)) return null
+  // 精确相等匹配（坑位见上：不能用 includes 子串）
+  const daily = packages.find((pkg) => pkg && BAIZHI_DAILY_POOL_NAMES.includes(pkg.name)) ?? null
+  if (daily === null) return null
+  // 其余 active 包的正 remaining：冻结包 active=false ⇒ 不进「长期」。
+  // 与上游 `jet-hub.js:4803-4808` 的 reduce 逐条同判（非有限值 / ≤0 不计）。
+  const rest = packages.reduce((sum, pkg) => {
+    if (!pkg || pkg === daily) return sum
+    if (pkg.active !== true) return sum
+    const remaining = Number(pkg.remaining)
+    return Number.isFinite(remaining) && remaining > 0 ? sum + remaining : sum
+  }, 0)
+  // 数值不在这里格式化 —— 调用方用 `formatCreditAmount`（与客户端 formatCredits 同形）。
+  // `note` 是上游已审计过的边界文案（「今日尚未领取（每日 +100）」/「总额不可知」…），
+  // 原样带出给渲染层决定放 title 还是直显，缺失时给 ''。
+  return {
+    daily: Number(daily.remaining) || 0,
+    rest,
+    note: typeof daily.expiryNote === 'string' ? daily.expiryNote : '',
+  }
+}
 
 /**
  * 拉一家渠道下**所有账号**的积分余额，摊成 `accountId → 读数`。
@@ -279,6 +338,15 @@ let BAL = new Map()
  * 永久与长期是两个独立读数（`jet-hub.js:2907-2915` 的表格、`:4727-4741` 的
  * `formatExpirySplitLine` 三个独立 `parts.push`）。给余数贴「长期」会**低估
  * 最安全的那部分额度** —— 对一个积分看板是实质误导。所以文案写「其余」。
+ *
+ * ## 例外：baizhi 的「每日 / 长期」走资源包口径（不是上面那个余数）
+ *
+ * 百智云是**上游自己**把钱包拆成了两个资源包（`baizhi-credits.js:249`
+ * `buildBaizhiBalance`：`每日积分` / `充值积分`），两侧同源、不存在给余数乱贴标签
+ * 的问题；而且用户点名要跟官方钱包对齐。⇒ **只对 `provider === 'baizhi'`**
+ * 消费 `balance.packages`，用 `formatBaizhiPoolSplit` 产出 `split` 字段
+ * （`{daily, rest, note}` 或 null）。其余渠道、或包里没有每日桶（如 postpaid
+ * 只有「授信额度」一包）一律 `split: null`，渲染层回退旧口径。
  */
 async function loadBalances(provider, prefetched, force = false) {
   // ⚠️ 写局部 `next` 再返回，**不要**在这里直接改全局 `BAL`。
@@ -304,10 +372,16 @@ async function loadBalances(provider, prefetched, force = false) {
       const stale = typeof row?.error === 'string' && row.error !== '' ? row.error : null
       const b = row?.balance
       if (!b || typeof b !== 'object') {
-        next.set(id, { total: 0, long: null, temp: null, expired: 0, error: stale ?? '余额查询失败', stale: null })
+        next.set(id, { total: 0, unit: 'credit', long: null, temp: null, expired: 0, error: stale ?? '余额查询失败', stale: null, split: null })
         continue
       }
       const total = Number(b.total) || 0
+      // 量纲：只有 `token` 计的渠道（Marvis 千万级令牌）需要量级压缩，
+      // 积分渠道维持原样。取第一个包的 `unit` —— `CreditBalance` 顶层没有
+      // unit 字段（`vendor/lib/credits.d.ts:357`，只有 `CreditPackage.unit`
+      // 在 `:182`），缺省按积分处理，与旧渲染逐字兼容。
+      const unit = String((Array.isArray(b.packages) ? b.packages[0]?.unit : '') ?? '')
+        .trim().toLowerCase() === 'token' ? 'token' : 'credit'
       // 临期：**只有上游真的下发了正数才展示**。`expiringTotal` 是可选字段，
       // 绝大多数渠道（CodeBuddy / AStudio / MiniMax …）压根没有 —— 这时显示
       // 「临期 0」会让人误以为「确认没有快过期的」，而事实是「不知道」。
@@ -315,14 +389,22 @@ async function loadBalances(provider, prefetched, force = false) {
       const temp = Number.isFinite(rawTemp) && rawTemp > 0 ? Math.min(rawTemp, total) : null
       // 已失效：不可用额度，只用于「另有 N 已失效」的提示。
       const expired = Math.max(0, Number(b.expiredTotal) || 0)
+      // 百智云「每日 / 长期」拆分：只有这家渠道的资源包是上游自己按钱包字段拆好的
+      // （`baizhi-credits.js:303-360`），口径与客户端同源 ⇒ 可以照上游
+      // `formatPoolSplitLine`（`client/jet-hub.js:4800`）复刻。其余渠道一律 null
+      // （不编造、也不给通用余数贴「长期」，见上方注释）。
+      // 失败行（上面的 `!b` 分支）同样给 null。
+      const split = provider === 'baizhi' ? formatBaizhiPoolSplit(b.packages) : null
       next.set(id, {
         total,
+        unit,
         temp,
         expired,
         // 「其余」= 永久 + 长期（不是「长期」，见上面注释）。
         long: temp === null ? null : Math.max(0, total - temp),
         error: null,
         stale,
+        split,
       })
     }
   } catch (e) {
@@ -371,12 +453,14 @@ async function loadAccounts() {
     // 代价是积分列先显示「—」再跳成数字，但列表本身立刻可操作。
     renderAccounts(provider)
     syncProxyButtons()
+    syncStrictOrderToggle()
     say('#accMsg', `${ACC.length} 个账号`, 'ok')
     const nextBal = await loadBalances(provider)
     if ($('#accProvider').value !== provider) return
     BAL = nextBal
     renderAccounts(provider)
     syncProxyButtons()
+    syncStrictOrderToggle()
     // 「查不到」与「旧数据」是两件事，别混成一个数：
     // 查不到 = 这次没有任何读数；旧数据 = 有读数但可能是上一轮的。
     const noBal = ACC.filter((a) => !BAL.has(a.id) || BAL.get(a.id)?.error).length
@@ -437,17 +521,38 @@ function renderAccounts(provider = $('#accProvider').value, emptyText) {
     // （见 loadBalances 上方注释）。给余数贴「长期」会低估最安全的额度。
     // ⚠️ `bal.stale` 是「兼顶旧读数」：RPC 层要求这种行必须标注，否则用户
     // 看到的是过期积分却毫无提示（`jet-hub-rpc.js:905-925`）。
+    // 百智云例外：`bal.split` 存在时合计后面改渲染「长期 X · 每日 Y」（口径同上游
+    // `formatPoolSplitLine`，见 `formatBaizhiPoolSplit`）；`split === null` 时
+    // **逐字**回退下面这套「其余 / 临期」渲染（含已失效、旧数据标记，语义都不动）。
+    // 「每日」数走 `.creditExpire`（橙色，与「临期」同一视觉语言）；过期口径放
+    // `title`，非默认口径另起 `.creditSplitNote` 直显（否则「每日 0」会被读成用光）。
+    const splitPart =
+      bal?.split == null
+        ? bal && bal.temp !== null
+          ? ` <span class="creditPoolPart">其余 ${bal.long} · 临期 <span class="creditExpire">${bal.temp}</span></span>`
+          : ''
+        : ` <span class="creditPoolPart">长期 ${formatCreditAmount(bal.split.rest)} · 每日 <span class="creditExpire"${
+            bal.split.note ? ` title="${esc(bal.split.note)}"` : ''
+          }>${formatCreditAmount(bal.split.daily)}</span></span>${
+            // 非默认过期口径（未领取 / 超额 / 标记缺失）直显小字，不能只藏在 title 里：
+            // 上游已审计的诚实文案就是为「这个数字需要解释」准备的
+            // （`baizhi-credits.js:338-344`，默认口径才是「零点过期」）。
+            bal.split.note && bal.split.note !== BAIZHI_DAILY_DEFAULT_NOTE
+              ? `<span class="creditSplitNote">${esc(bal.split.note)}</span>`
+              : ''
+          }`
+    // 数值一律走 `formatScaledAmount`：`token` 计的渠道（Marvis 千万级令牌）
+    // 压成 `9.99M`，积分渠道逐字不变。⚠️ 不带单位后缀 —— 这一行历来只给数字，
+    // 「积分」二字在行首的 `<dt>` 上，只有 token 渠道才补 ` token` 免得被读成积分
+    // （与账号徽标的 `9.99M token` 同一个写法）。
+    const unitTag = bal?.unit === 'token' ? '<span class="creditUnit"> token</span>' : ''
     const creditDd = !bal
       ? '<dd class="muted">—</dd>'
       : bal.error
         ? `<dd class="muted" title="${esc(bal.error)}">查不到（${esc(bal.error.slice(0, 18))}）</dd>`
-        : `<dd${bal.stale ? ` title="${esc(bal.stale)}"` : ''}><span class="creditTotal">${bal.total}</span>${
-            bal.temp === null
-              ? ''
-              : ` <span class="creditPoolPart">其余 ${bal.long} · 临期 <span class="creditExpire">${bal.temp}</span></span>`
-          }${bal.expired > 0 ? `<span class="creditExpired">另有 ${bal.expired} 已失效</span>` : ''}${
-            bal.stale ? '<span class="creditStale">旧</span>' : ''
-          }</dd>`
+        : `<dd${bal.stale ? ` title="${esc(bal.stale)}"` : ''}><span class="creditTotal">${formatScaledAmount(bal.total, bal.unit)}</span>${unitTag}${splitPart}${
+            bal.expired > 0 ? `<span class="creditExpired">另有 ${formatScaledAmount(bal.expired, bal.unit)} 已失效</span>` : ''
+          }${bal.stale ? '<span class="creditStale">旧</span>' : ''}</dd>`
     return `<article class="accountCard">
       <div class="accountTop">
         <span class="dragHandle" aria-hidden="true" title="用操作行的 ↑ ↓ 调整顺序">${GRIP_ICON}</span>
@@ -1093,12 +1198,68 @@ const PROXY_CHANNELS = {
  */
 const ONBOARDING_PROVIDERS = new Set(['loomy', 'raccoon', 'magicrew', 'magicrewintl'])
 
+/**
+ * 走「余额到期分档」选号的渠道：这些渠道的选号器**先按积分到期档位排序、档内才看
+ * 手动顺序**，卡片序号徽标（「按顺序选号」）对它们只有开了「严格手动顺序」才字面为真。
+ * 其余渠道是纯池内手动序 —— 拖拽序本来就是绝对优先级，开关对它们没有意义。
+ *
+ * ⚠️ 必须与 `vendor/lib/provider-registry.js:1221` 的 `BALANCE_TIERED_PROVIDERS`
+ * 一一对应（上游 2026-11-09 从 `src/index.ts` 每一处 balance 装配逐条清点得出，
+ * 其 `strict-manual-order-wiring` 测试盯着双向差集）。加新供应商时**两处一起改**
+ * （vendor 表 + 这里）。
+ */
+const BALANCE_TIERED_PROVIDERS = new Set([
+  'buddy', 'workbuddy', 'lobsterai', 'qoder', 'qodercn', 'trae', 'loomy',
+  'minimax', 'minimaxintl', 'autoclaw', 'autoclawintl', 'magicrew', 'magicrewintl', 'astudio',
+])
+
 function syncProxyButtons() {
   const provider = $('#accProvider').value
   const anon = $('#accAnon')
   if (anon) anon.hidden = provider !== 'opencode'
   const px = $('#accProxy')
   if (px) px.hidden = !PROXY_CHANNELS[provider]
+  // 「严格手动顺序」只对分档渠道渲染 —— 与 `#accAnon` / `#accProxy` 同一套隐藏约定。
+  const sw = $('#accStrictWrap')
+  if (sw) sw.hidden = !BALANCE_TIERED_PROVIDERS.has(provider)
+}
+
+/**
+ * 把「严格手动顺序」开关的勾选态与本体对齐（本体选号路径**每次现读**这份开关，
+ * 这里只负责显示；`vendor/lib/jet-hub-rpc.js` 的 `strictManualOrder.getEnabled`）。
+ *
+ * 读失败**不打断**账号列表：勾选态缺失只影响这一枚小开关的显示，
+ * 不能让它盖掉 `account.list` 的错误（`loadAccounts` 的错误语义优先）。
+ */
+async function syncStrictOrderToggle() {
+  const provider = $('#accProvider').value
+  const box = $('#accStrictOrder')
+  if (!box || !BALANCE_TIERED_PROVIDERS.has(provider)) return
+  try {
+    const v = await rpc('strictManualOrder.getEnabled', { provider })
+    // 两次 await 之间用户可能已经切走 —— 与 `loadAccounts` 同一条守卫。
+    if ($('#accProvider').value !== provider) return
+    box.checked = v?.enabled === true
+  } catch {
+    /* 显示层尽力而为：读不到就保持当前勾选态，不报错（见上）。 */
+  }
+}
+
+/** 开关写回：以后端**落盘后回读**的值为准，不做乐观更新（与 `setDisabledMany` 同取向）。 */
+async function onStrictOrderToggle(e) {
+  const provider = $('#accProvider').value
+  const box = e.currentTarget
+  const want = box.checked
+  try {
+    const v = await rpc('strictManualOrder.setEnabled', { provider, enabled: want })
+    box.checked = v?.enabled === true
+    say('#accMsg', v?.enabled
+      ? '已开：选号完全按序号进行，余额档位只判可用性（锁定永久积分照旧生效）'
+      : '已关：先按积分到期档位、档内再按序号（升级前行为）', 'ok')
+  } catch (err) {
+    box.checked = !want
+    say('#accMsg', String(err.message ?? err), 'err')
+  }
 }
 
 /** 当前代理弹窗里的 accountId：下拉优先，其次手填框。 */
@@ -1472,6 +1633,37 @@ function formatTokenAmount(value) {
 /** 积分：整数不带小数位，有小数才保留两位（与客户端 `formatCredits` 一致）。 */
 function formatCreditAmount(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2)
+}
+
+/**
+ * 账号卡「积分」行的数值：`unit === 'token'` 的量级压缩成 `9.99M`，
+ * 其余（含缺 unit 的旧回包、以及所有 credit 渠道）**逐字**走 `String(value)`，
+ * 与旧渲染完全一致 —— 积分那几位小数历来是原样显示的，这次不动它。
+ *
+ * 为什么不直接用上面的 `formatTokenAmount`：
+ * ① 它用 `toFixed(2)` **四舍五入**，而这一行报的是**剩余额度** —— 舍入会
+ *    向上虚报。Marvis 实测 `9999976 / 10000000`（只用了 24 个令牌）四舍五入后
+ *    是 `10.00M`，跟「满额没用过」逐字相同，等于把已用量抹掉。这里向下截断，
+ *    方向永远是「不比实际多」。
+ * ② 它保留两位尾数（`10000000` → `10.00M`），这一行沿用控制台其余的写法
+ *    去掉尾零（`10M`）。
+ *
+ * **token 这段必须与 `src/plugin.mjs` 的 `fmtScaled` 逐字同口径**：同一条账号
+ * 在账号徽标（插件侧算）与控制台（这里算）上是两个独立实现，一旦分叉，
+ * 用户会看到同一个号两处读数不同 —— 那比不压缩更糟。credit 侧则刻意保留
+ * 各自的旧行为（插件走 `fmtNum` 收两位、这里原样串），本次不动。
+ */
+function formatScaledAmount(value, unit) {
+  if (String(unit ?? '').trim().toLowerCase() !== 'token') return String(value)
+  const v = Number(value)
+  if (!Number.isFinite(v)) return String(value)
+  const abs = Math.abs(v)
+  // 只去小数尾零：`10.00` → `10`，但整数 `10` 必须原样
+  const trim = (s) => (s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s)
+  if (abs >= 1e6) return `${trim(String(Math.trunc((v / 1e6) * 100) / 100))}M`
+  if (abs >= 1e3) return `${trim(String(Math.trunc((v / 1e3) * 100) / 100))}K`
+  // 与 `fmtNum` 逐字相同：两位小数、去尾零（`8.5` 保持 `8.5`，不取整成 `9`）
+  return v.toFixed(2).replace(/\.?0+$/, '')
 }
 
 /**
@@ -2021,6 +2213,7 @@ async function boot() {
       say('#accMsg', String(e.message ?? e), 'err')
     }
   })
+  $('#accStrictOrder').addEventListener('change', onStrictOrderToggle)
 
   // 出口代理弹窗
   $('#pxTest').addEventListener('click', (e) => proxyTest(e.currentTarget))

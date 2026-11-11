@@ -317,6 +317,8 @@ h2 .sub { font-size: 11.5px; font-weight: 400; color: var(--fg2); margin-left: 6
 /* ── 表单控件 ── */
 .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .bar label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg3); }
+/* `.bar label` 的 inline-flex 会盖掉 `hidden` 的 UA display:none —— 非分档渠道下必须真隐藏。 */
+.bar label[hidden] { display: none; }
 select, input[type=file], input[type=number], input[type=text], input[type=password], input:not([type]) {
   font: inherit;
   font-size: 13px;
@@ -510,6 +512,8 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .metaRow dd[data-tone="ok"] { color: var(--green); }
 .metaRow dd[data-tone="off"] { color: var(--fg3); }
 .creditTotal { font-size: 13px; font-weight: 600; color: var(--brand); font-variant-numeric: tabular-nums; }
+/* token 计渠道（Marvis）的单位后缀：与数字同号但弱化，避免被读成积分 */
+.creditUnit { font-size: 11px; font-weight: 400; color: var(--fg3); }
 .creditPoolPart { font-size: 11px; font-variant-numeric: tabular-nums; }
 .creditExpire { color: var(--orange-ink); }
 /* 「剩 22 天 / 已过 2 天」：跟「临期积分」用同一个橙，但**类名分开** ——
@@ -518,6 +522,10 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 /* 「另有 N 已失效」：弱化的橙，与主数值的品牌蓝明确区分，也不跟「临期」抢注意力
    （上游 `jet-hub.js:330` 的注释：已失效额度用弱化橙，用量才用中性色）。 */
 .creditExpired { margin-left: 8px; font-size: 11px; color: var(--orange-ink); }
+/* 百智云每日桶的「非默认口径」小字（今日尚未领取 / 发放额超过固定值 / 领取状态未知）。
+   ⚠️ 必须**直显**而不是只挂 title：那一档数字（尤其是 0）不带解释会被读成「已经用光」。
+   用中性灰而不是橙：它解释的是数字含义，不是告警（橙色留给「临期 / 零点过期」）。 */
+.creditSplitNote { margin-left: 6px; font-size: 11px; color: var(--fg3); }
 /* 「旧」：这一行是**兼顶旧读数**（RPC 层查不到新的就回上一轮的，并带 error 说明）。
    ⚠️ 必须标出来 —— 否则用户看到过期积分却以为是最新的（`jet-hub-rpc.js:905-925` 的硬要求）。
    用中性灰框而不是橙色：它不是错误，只是「不是这一秒的数」。 */

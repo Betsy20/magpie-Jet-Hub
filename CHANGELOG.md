@@ -11,6 +11,436 @@
 
 ## 1.0.0（未发布）
 
+- `fix(usage)`: **令牌量级收敛——千万级额度不再逐位写全**（2026-11-11 用户报障「我这里显示的
+  不是 1m 而是每个数字都写出来了」，截图上是 `余额 9999976 token` 与
+  `24 / 10,000,000 token`）。根因在 `fmtNum()`：它只 `toFixed(2)` 收小数位、**压量级为零**，
+  于是 Marvis 的 `avail_tokens` 原样贴出去；而 `balance` 是纯文本字段，magpie 逐字照搬
+  （卡片那一行因此位数差三个数量级，一眼读不出还剩多少）。
+  - 新增 `fmtScaled(n, unit)`：`unit === 'token'` 时 `>= 1e6` → `M`、`>= 1e3` → `K`，
+    其余仍走 `fmtNum`。**积分（credit）刻意不走量级压缩**——实测都是两位数
+    （`146.341` / `4584.44`），压成 `0.15K` 只会更难核对；`unit` 比较**不分大小写**
+    （OfficeAce 报的是 `'Token'`）。
+  - 两处刻意的偏离 `vendor/lib/credits.js:487` 的 `formatTokenAmount`：
+    ① **向下截断而非四舍五入** —— 这一行报的是剩余额度，舍入会向上虚报，最坏把
+    `9999976 / 10000000`（只用了 24）渲染成 `10M / 10M · 剩余 100%`，与「满额未用」逐字相同，
+    等于抹掉已用量；② **去掉尾零**（`10M` 而不是 `10.00M`），与同一行其余读数同一写法。
+  - 5 个拼接点全部换到 `fmtScaled`：合计行 `balanceText`、钱包水位窗口、每日桶窗口、
+    默认配额窗口、欠费 `text` 行。（`windowedTotal` 保持 `fmtNum`：它只服务
+    `WALLET_WINDOW_POOLS` 那几家 credit 渠道，不在本次范围。）
+  - 控制台同一问题一并修掉：`console/console.js` 的「积分」行原本直接输出 `bal.total`
+    原始整数（`9931000`，且**无单位**），与账号徽标的 `9.93MToken` 两处读数对不上。
+    现在走 `formatScaledAmount(value, unit)`（同一口径、同样向下截断），token 计渠道
+    另补一个弱化的 ` token` 后缀（`.creditUnit`），免得被读成积分。
+  - `tests/t-console-baizhi-split.mjs` 同步：断言从裸 `${bal.expired}` 改为
+    `formatScaledAmount(bal.expired, bal.unit)`，并新增一条钉住合计值也走该函数。
+    文案与落位不变，credit 渠道对非 token 走 `String(value)` ⇒ 旧串逐字保留。
+
+- `fix(usage)`: **用量卡分母口径整套重做**（用户 2026-11-09 连续反馈：先是「剩余永远是 100%」，
+  再是「这都变成负数了」，最后是「总额度也要有窗口」）。根因是插件一直把 `remaining` 冗余填进
+  `limit`，而 magpie 用 `limit` 当进度条分母 ⇒ 分母 == 余额 ⇒ 刚查完就是 100%。
+  `vendor/lib/credits.d.ts:184-196` 早写死了契约：`totalKnown:false` 时面板**不得**把
+  `remaining / total` 并列显示。现在按数据来源分四种口径：
+  - **钱包**（上游只给余额）：只给 `w.balance`，magpie 见到 balance 即不画进度条、只写「N left」。
+  - **每日额度**（`每日积分`/`每日赠送`/`每日额度`/`每日签到奖励`，且上游没给可信总额）：
+    分母 = **当天首见的余额**，跨天重置；余额中途上涨则抬基线（防「已用为负」）。
+  - **MonkeyCode 积分余额**：没有积分包概念（`/wallet/credits` 等 7 个端点全 404），只有
+    `/wallet/transaction` 流水 ⇒ 分母 = **近 30 天收入之和**（严格滚动、实时拉流水、翻页上限 5 页、
+    60 秒缓存）。上游余额本来就可能为负（实测 -16.616，即 30 天收入 − 支出），负值时剩余显示 0。
+  - **百智云「充值积分」**：长期积分，上游 `/balance` 只回 6 个字段、无初始总额无累计充值
+    （~45 个流水/订单端点全 404，控制台 SPA 分包里也无相关 API 字面量）⇒ 分母 = **历史水位**
+    （只抬不降，充值即抬），等价于「充值会让窗口扩大」。白名单 `WALLET_WINDOW_POOLS` 控制范围，
+    其它渠道的钱包语义一律不动。
+  - 行内配额只画前 2 条窗口（`ws.slice(0, 2)`），所以「总额度」不另开窗口，而是写进合计行
+    （`699.96 / 699.96 credit`）；任一条窗口缺分母则合计行不加 `/`。
+  - 负数与已过期积分改走 `text` 窗口（magpie 的 `balance` 会被 `Math.max(0, …)` clamp 且
+    「说了 0」）；`text` 形态的「已欠费 10.4」解析时须补回负号（`parseFloat` 会丢掉）。
+  - 新增 `tests/t-baseline-store.mjs` 锁持久化契约（水位跨天存活 / 每日基线按天失效 /
+    老文件缺 `kind` 兼容）；`t-usage.mjs` 扩到 10 组分母断言。两处均做过反证（改坏代码必红）。
+
+- `feat(marvis)`: **接入腾讯 Marvis**（2026-11-10）。上游 `5aad869 → 1d12f80` 引入的新渠道，
+  这次连 vendor 一起追到 master 头 `6ad2e241` 并把它注册成第 **29** 家 magpie provider。
+  - **登录不碰本机浏览器**：上游 marvis 的登录是「自己拉一个 Chromium，用 CDP 在
+    `marvis_oauth` 请求发出**前一刻** `Fetch.fulfillRequest` 截下来」，前提是机器上有
+    headful Chromium + X display（`--headless=new` 与 `chrome-headless-shell` 实测恒
+    `F001`）。只有 sshd 的服务器上这个前提永远不成立 —— 用户点「新建账号」只收到
+    「Marvis 找不到可用的浏览器」（2026-11-10 报障）。
+    现在改走宿主自带的 `mode: 'code'` 通道（`internal/provider/pluginsignin_paste.go`；
+    `/opt/magpie` 里 8 个社区登录插件全这么写）：`authorize()` 用 `authorizeUrlOf()`
+    纯函数算出授权页地址返回给 magpie，由宿主显示「登录链接 + 粘贴框」，用户把登录后
+    那个页面的**整条地址栏**（或只 code 那串）粘回来，`callback(pasted)` 里
+    `marvisCodeOf()` 抠出 code、带 `Ual-Access-Guid` 调 `container.ctx.get('marvisAuth').exchangeCode()`
+    兑换凭据，再拼成 `importCredentialFromMagpie()` 认的形状交给
+    `account.create { mode: 'magpie-import', magpieCredential }` 落库（同一条腿、同一套
+    openid 判重、同一套写池写凭据，宿主侧零改动）。
+    能这么做的依据是三条实测：授权页地址是纯函数；`exchangeCode` **先校参数后兑 code**
+    （不带 guid 头一律 `-109 RC_PARAMS_INVALID`，故浏览器那次跳转不烧 code，我们再兑一次仍有效）；
+    宿主对 `mode: 'code'` 就是这么用的。
+    **删掉了原来那条 `mode: 'browser'` 腿**：`startNewAccount` 去掉了 `extra` 形参、
+    `startNewAccountSmart` 去掉了 marvis 分流 —— 现在 29 家里只有超级麦吉两站要试多种 mode。
+  - **`account.create` 的两条 marvis 腿仍都以 `req.mode` 为条件**（`magpie-import` / `browser`），
+    不带 `mode` 会一路落到 `unknown provider: marvis` —— 本插件只走 `magpie-import`。
+  - **QQ / 微信各占一个新建方法**（`marvisOauthMethods()`）：面板先弹「用哪种方式登录」，
+    用户当场挑 QQ 授权或微信扫码。两家凭据不通用（`login_type` 不同、续期端点不认另一边
+    的 refresh），让用户自己选，比猜一个默认值再让他去开关里改更不会选错。
+    **不能**做成 oauth 方法的 `ask()` —— `tests/t-new-account.mjs` 钉着「有 oauth 方法的
+    provider 必须 `m.ask === undefined`」；多个方法不需要 magpie 侧任何改动。
+  - **模型目录只有一条**（`main-auto`，展示名 DeepSeek V4.1 Flash）：上游实测 9 个远端
+    目录端点全 404，目录就是 vendor 里的静态常量，真实 id `deepseek-v4-1-flash-261017`
+    不能直传。`contextWindow` 声明 1_000_000、收图，刻意不声明 `maxTokens`
+    （32k/65k/131k/1M 都返 200，上游不校验上界）。
+  - **凭据 / 额度**：`MARVIS_ACCOUNT_DEFAULT` 前缀；钱包走 `/v3/marvis_get_wallet`
+    （只有余额、无到期时间 ⇒ `expiryUnknown`）；续期走 `/marvis_client_login/marvis_refresh_token`
+    （refresh_token 一次性轮换、可能回空串 ⇒ vendor 侧保留旧值）。
+    **推理腿绝不能带 `Ual-Access-Signature`**（带了会 403 伪装成 401），业务腿 `/v3/*` 必须带 ——
+    这些都在 vendor 的 marvis 模块里，插件层不碰 HTTP。
+  - 本轮插件层 8 处接线：`DSH_PROVIDERS` / `NAMES`（`腾讯 Marvis`）/ `FALLBACK_MODELS`
+    （`marvis/main-auto`）/ `index.mjs` 具名工厂 / `src/icons.mjs`（上游只有占位图：蓝底白 M）/
+    `console/icons.js`（29 → 30 条）/ `scripts/snapshot-models.mjs` 的 `NAMES` / oauth 方法的 `mode: 'code'` 分支。
+  - 测试侧：`EXPECTED_PROVIDER_COUNT` 28 → 29、两处 `NAMES` 计数 28 → 29、
+    `SNAPSHOT_MISSING` 加 `jet-hub-marvis`（目录是 vendor 静态常量、本轮未重跑快照）。
+
+- `feat(vendor)`: **同步上游到 `6ad2e241`（master 头）**（自上次 pin `3812738f` 起 **7 个提交**；2026-11-10）。
+  上一轮（同日早些时候）有意停在 `3812738f`，理由是「其后的 master 只有腾讯 Marvis 一项新功能、
+  magpie 用不到」—— **这条理由被推翻了**：Marvis 是真渠道（`channel: true`、有账号池、
+  有钱包额度、有 `account.create`），接一下就能用。本次带入两块：腾讯 Marvis provider
+  （见上一条 feat(marvis)），以及 4 个纯文档提交（README 渠道表 18 → 29、
+  `docs/agent-notes/providers-marvis.md`，不进 `lib/`）。
+  `vendor/lib` 从 1138 → **1170** 个文件（新增 32 个 `lib/marvis*` 文件，无删除），
+  上游另改 41 个既有文件（`jet-hub-rpc.js` / `jet-hub-store.js` / `provider-registry.js` /
+  `provider-credits.js` / `canonical-models.js` 等）。10 个补丁文件全部重打到位
+  （`jet-hub-rpc.js` 与 `types.d.ts` 按语义移植，其余 8 个上游源码未动、原样保留），
+  与上游 `6ad2e241` 原版构建逐字节比对：**恰差 10 个补丁文件**，`locale/` /
+  `package.json` / `LICENSE` 三者上游无变化（`package.json` 只多一条 `test:e2e:marvis`
+  脚本，本仓没取 —— vendored 快照不跑它自己的测试）。
+
+- `feat(vendor)`: **同步上游到 `3812738f`**（自上次 pin `498a76e` 起 **10 个提交**；2026-11-10）。
+  本次带入三块：
+  - **Qoder 企业资源包解析**：企业账号（`userType=enterprise`）的额度在 `orgResourcePackage`
+    而非个人积分桶，含 cap 兜底 / 到期未知 / available 三个边界修正 —— 纯 vendor 侧修复，
+    插件层零改动。
+  - **「严格手动顺序」开关**（默认关 = 升级前行为逐字节一致）：修「拖拽/序号排序时灵时不灵」——
+    分档渠道的选号器先按积分到期档位、档内才看手动顺序，卡片序号对它们只是一半真话。
+  - **PR #52 的 DSH 宿主 UI**（页头按钮搬侧边栏 / 设置弹窗 / 供应商开关）：改的是 `lib/client/`
+    bundle，magpie 有自己的控制台、不执行那份代码，纯随快照带入的 inert 代码。
+  `vendor/lib` 仍是 1138 个文件；10 个补丁文件全部重打到位（其中 `jet-hub-rpc.js` 与
+  `types.d.ts` 上游有真改动，补丁按语义移植；其余 8 个上游源码未动、补丁版原样保留），
+  与上游 3812738f 原版构建逐字节比对：**恰差 10 个补丁文件**，locale/package.json/LICENSE
+  三者上游无变化。取源改走 Gitee 镜像归档包（`iJetLi/deepseek-harness-codearts`，与 GitHub
+  同历史同 commit）—— git clone 常断，见 `docs/vendor.md` 的取法。
+
+- `feat(console)`: **账号面板新增「严格按手动顺序选号」开关**（接上行的 vendor 开关）。
+  账号卡片一直写着「序号 = 自动选号优先级」，但对 14 家走余额到期分档的渠道
+  （buddy / workbuddy / lobsterai / qoder / qodercn / trae / loomy / minimax / minimaxintl /
+  autoclaw / autoclawintl / magicrew / magicrewintl / astudio）实际执行的是「先按档位、档内
+  才看序号」，用户把某号拖到首位、只要它不再持有临期积分，请求就**静默**落到别的号上。
+  开关挂在账号面板操作条（仅这 14 家渲染，`BALANCE_TIERED_PROVIDERS` 必须与
+  `vendor/lib/provider-registry.js:1221` 一一对应）：**开** = 序号是唯一优先级判据
+  （档位只判可用性，「锁定永久积分」照旧生效）；**关**（缺省）= 升级前行为。写回以后端
+  落盘后回读的值为准，不做乐观更新；读取失败不打断账号列表（显示层尽力而为）。
+  `tests/t-rpc-cover.mjs` 总数锚点 91 → 93（`strictManualOrder.getEnabled/setEnabled`），
+  两方法计入控制台已接（65 → 67）。
+
+- `fix(plugin)`: **冷启动时后台刷新没有 in-flight 去重，最多 58 条链并发**。
+  `currentAll()` 的判据是 `allModels === undefined || fullModels === undefined || stale`，
+  而**干净机器上没有磁盘缓存**（`readCache()` 返回 `{}`）⇒ 前两项恒为真，每次调用都新起
+  一条 `refreshInBackground()`。而 magpie 宿主 `providers()` 是
+  `Promise.all([...auths()].map(row))` —— 29 家**并行**各调一次 `provider.models()`，
+  `config` 钩子另外 29 次串行。次生故障：① `container._absorbModels()` 的
+  `modelMeta.clear()` 与 `refreshFullCatalog()` 的 `set()` 并发互清 ⇒ 能力声明（上下文
+  窗口 / 图片 / 推理档位）随机丢；② 上千次 `rpc('model.list')` 打满容器；③ 58 次**同步**
+  写盘；④ 20 秒超时到点，magpie 拿到的是空列表 —— 而**没有任何错误**。
+  用户看到的就是「新装的插件第一次打开 magpie，模型列表是空的」。
+  修法：加 `refreshing` 标记，一次只跑一条链，`finally` 里清空（用 `finally` 而不是
+  `then` —— 失败也要能重试，否则一次网络抖动就把刷新永久卡死）。`tests/` 里
+  `refreshInBackground|currentAll` 此前**零命中**。
+
+- `fix(plugin)`: **oauth 型 `authorize()` 的目录拉取没套超时，Key 型套了**。
+  `liveAll` / `refreshFullCatalog` 内部走 `container.rpc()`，那条路径**不会自己超时**
+  （`route.fetch(req)` 没有 AbortSignal）。Key 型的 `addAccount` 分支早就为此套了
+  `withDeadline` 并写了注释「实测上游挂住时 authorize() 能一直不返回（60 秒没回）」，
+  oauth 这条**没修** —— 同样的两条调用、同样的风险，行为却不一致，上游挂住时「Sign in」
+  按钮永远转圈。现在两条一起套 `START_TIMEOUT_MS`；目录拉不到不影响签入本身
+  （凭据已经在池里），超时只记一行日志、按「没有目录」继续。
+
+- `fix(plugin)`: **`usage()` / `checkin()` 的 RPC 无超时，也不吃宿主的 `signal`**。
+  宿主 `usageOf(provider, account, signal)` 把 `{ signal }` 作为**第三参数**传给
+  `a.usage(getAuth, info, { signal })`，而插件只声明了一个形参 —— signal 直接丢掉，
+  `container.rpc()` 又不吃它。于是上游一挂住：用量卡永远转圈、promise 永远不 settle
+  （泄漏）、`balanceCache` 也永远不写。表现是「点开账号卡片，余额那一行一直是空的」。
+  现在两条都接住 `{ signal }`（入口先看一眼，已取消就不发请求），并套
+  `USAGE_TIMEOUT_MS = 20_000`（`credits.balances` 要为**每个账号**发一次上游请求，
+  比单次 `login.poll` 慢一档）。
+
+- `fix(plugin)`: **`toMagpieCheckin()` 的 `failed` 分支透传空串**。`message ?? (…)` 在
+  `message === ''`（上游偶尔回空串，不是 `undefined`）时求值就是 `''` ⇒ 落盘
+  `{outcome:'failed', message:''}`，用户看到一张**空白**的失败卡，连「为什么失败」都没有。
+  改成 `String(message ?? '').trim() || …`：空串 / 纯空白都算「没说到」，
+  退回 `kind` 或兜底文案。
+
+- `fix(plugin)`: **`windows[].display` 没走 `fmtNum`，且注释对宿主的描述是错的**。
+  注释写「magpie 对 `windows[].display` 会自己按数字格式化」，但核过宿主 `_mp_host.js`：
+  `display: text(w?.display)` 与 `balance: text(u.balance)` 走的是**同一条** `text()`，
+  都不格式化。同一条 officeace 数据会显示成 `balance:"10000 积分"` +
+  `display:"4584.442685714286 / 10000 积分"` —— 一个整齐、一个满屏小数。现在两处都收敛。
+
+- `fix(plugin)`: **`usage()` 的 catch 路径缺 `plan`**。同文件其它 4 条 `usage` 返回路径
+  都带 `plan`，宿主 `plan: text(u.plan)` 缺失即空串 ⇒ 一张**没有标题**的错误卡 ——
+  而它恰好是用户最可能看到的那条（网络故障）。
+
+- `fix(console)`: **`loadAccounts()` 失败时不清空旧卡片 ⇒ 跨 provider 误删账号（不可逆）**。
+  `setProvider()` 是**同步**改 `#accProvider` 的，`loadAccounts()` 是异步的 —— 两者一旦
+  在失败路径上分叉，页面就进入「标题是 B、卡片是 A」的混合态。而 `onAccAction()` 取的是
+  `$('#accProvider').value`（B）、`btn.dataset.id` 却是 A 家的 accountId ⇒ 点「删除」会
+  真的删掉 **A 家**的账号，并连带 `credentials.unset`（**没有 undo**）。
+  触发条件只是「任何一次 `account.list` 失败」（本地服务重启 / 端口漂移到 18501+ /
+  上游超时），而 `rpc()` 是裸 fetch、没有 `AbortSignal` / 超时，失败窗口**不是毫秒级而是
+  无限长**。修法：`loadAccounts()` 开头发请求**之前**先清场（`ACC` / `BAL` 清空 +
+  渲染空态），失败时把空态文案换成「读取失败：…」（两种情况都渲染成空列表，但含义
+  完全相反 —— 一个是真的没号，一个是没读到，文案不能混）。
+  顺带修 `account.update` 的 `a?.enabled === false`：`ACC.find()` 返回 `undefined` 时
+  求值是 `false` = **停用**，方向正好反 —— 卡片不在列表里时点一下反而把活号停掉。
+  现在找不到就抛错让用户重试。
+
+- `fix(console)`: **`loadStrictOrder()` 的 `catch` 分支缺 provider 守卫**。
+  切到 buddy 发请求 → 切到 zcode（zcode 的 `getEnabled` 成功、开关打开且可交互）→
+  buddy 的请求超时失败 —— 没有守卫时，buddy 的失败回包会无条件把
+  `checked=false; disabled=true` 写到**当前**的 `#accStrict` 上，用户看到「zcode 的严格
+  手动顺序被关掉了」。成功路径早就有这道守卫（`if ($('#accProvider').value !== provider) return`），
+  失败路径漏了。`tests/t-console-strict-order.mjs` 的 3.3 / 3.4 只覆盖了成功路径的守卫与
+  「本来就没切走」的失败，这条竞态是测试盲区。
+
+- `fix(console)`: **`saveSetting()` 失败后不把控件拨回 ⇒ 四个设置项停在假保存状态**。
+  `#setSearch` / `#setSession` 是 checkbox、`#setPanel` 是 select、`#setXff` 是 input，
+  全由 `change` 事件触发 —— 落盘失败时浏览器已经把控件改掉了，`catch` 只写一条红字，
+  控件**保持在用户刚改出来的位置**。下次进设置页之前，「渠道原生搜索 = 开」都是假的。
+  同文件的 `saveStrictOrder()` 做对了（「落盘失败就把开关拨回去，别让界面停在假状态」），
+  而且 `t-console-strict-order.mjs` 的 3.7 已经把「失败后回读」锁定成契约。
+  现在 `saveSetting()` 也回读（先 `loadSettings()` 再覆盖错误消息 —— 错误比「读取中」重要）。
+
+- `fix(console)`: **`loadSettings()` 用 `.catch(() => ({}))` 吞掉四个 RPC 失败 ⇒ 假状态 +
+  死代码**。四个 `.catch` 把失败压成空对象，于是「读不到」被渲染成「确认是关的」：
+  用户在设置页看到「渠道原生搜索：关」，实际可能是开的，他会去点一下「开」，
+  反而把本来开着的**关掉**。同时外层 `catch` 是**死代码**（`Promise.all` 的四个 promise
+  都被兜住，永远不 reject），出问题时页面完全静默。现在把每一项包成
+  `{ ok, value, error }`：能读到的照常渲染，读不到的明确说「有几项没读出来」，
+  并提示「显示的可能不是真实状态」。
+
+- `fix(console)`: **`startLogin()` 的旧轮询迟到回包会停掉新登录的轮询**。
+  `setInterval` 的回调是 async，`clearInterval` 只能取消**未来**的 tick，取消不了已经
+  `await` 在飞的那一次。旧登录的 `login.poll` 若在新 `startLogin()` 之后才返回
+  `done:true`，就会：① 停掉**新**登录的轮询（新弹窗永远「等待中…」）；
+  ② 抹掉新登录的占位账号 id（之后 `closeLogin()` 不再 `reclaimPlaceholder` 它，
+  池里留一条**幽灵账号**）；③ `#lmState` 被写成「✓ 登录成功」而明明还在授权中。
+  900ms 那套 `settledId` 守卫只防住了 `setTimeout`，没防住 `await`。
+  现在每个 tick 记下自己的句柄，`await` 之后校验 `loginTimer !== myTimer` 就作废。
+
+- `fix(console)`: **`rotateFingerprint()` 的结果文案被自己的重读覆盖，且双倍 RPC**。
+  它内部 `say('#accMsg', '指纹代次 → N')` 之后立刻 `await loadAccounts()`，而
+  `loadAccounts()` 开头就是 `say('#accMsg', '读取中…')` —— 用户**永远看不到**那条结果
+  （卡片上「指纹代次」那行只是数字悄悄变了，不会注意到）。而且外层 `onAccAction()`
+  还会再 `loadAccounts()` 一遍 ⇒ 双倍 `account.list` + `credits.balances`（后者要为每个
+  账号发一次上游请求）。改成 `flash` 模式（`test` / `retest` / `comp` 都是这个模式），
+  重读交给外层。
+
+- `fix(console)`: **可访问性两处**。① `#accStrict` 的文字标签在 `<label>` **外面**，
+  点「严格手动顺序」四个字（用户最自然的点击目标）不会切换开关，只有点那个 34×20px 的
+  小滑块才会；现在文字也是 `<label for="accStrict">`（配 `.swText { cursor: pointer }`）。
+  ② `#nav` 的三个按钮只有 `class="on"` 表示选中，**没有** `role="tab"` / `aria-selected`，
+  `<nav>` 也没有 `role="tablist"` —— 屏幕阅读器完全感知不到「当前在哪一页」。
+  对照 `page/index.html` 的 `#tabs` 是**有**这套语义的，两个页面同一语义不该两种实现；
+  `console.js` 的 `wireTabs()` 同步维护 `aria-selected`。
+
+- `fix(page)`: **`flash()` 的失败路径不清除 `data-done` ⇒ 「复制失败」继承上一次成功的
+  绿色**。`page.css` 有 `button.mini[data-done] { color: var(--jh-ok); … }`，而
+  `flash()` 只在成功时设 `data-done`、失败时**不清**。1.6 秒窗口内第一次点成功、
+  第二次点失败，按钮就会「绿色 + 复制失败」—— 正是注释里声称要避免的「失败看起来像成功」。
+  这是个「状态机少了一条边」，补上 `else delete btn.dataset.done`。
+
+- `test(console)`: **上面三条前端静默缺陷各补一格断言**（原来都是测试盲区）：
+  `t-console-strict-order.mjs` 新增 **3.4b** —— 失败路径的竞态（切到 buddy 发请求 →
+  切到 zcode → buddy 超时失败，不许把 zcode 的开关拨回 false 并置灰）。原有用例
+  3.3 只测了**成功**路径的守卫、3.4 只测了「本来就没切走」的失败。
+  `t-page-contract.mjs` 新增 **第 7 节** —— `flash()` 的两条边（成功变绿 / 紧接着失败
+  必须清绿），用假定时器把真函数抽出来求值。
+  `t-account-cache.mjs` 新增 **C-9a/b/c** —— 后台刷新 `refreshInBackground` 的
+  in-flight 去重（并发 10 次只启动 1 条链 / 链跑完标记复位 / 串行两次跑两条 ——
+  去重只挡并发、不挡重试）。**四条变异实测都变红**：删 catch 守卫 / 删 `else` 分支 /
+  删 `if (refreshing) return`。
+
+- `fix(test)`: **两条用例在受限沙箱下静默失败，而失败信息是一片空白**。
+  `tests/t-seed-auth.mjs` 与 `tests/t-import-backup.mjs` 都用
+  `spawnSync(process.execPath, [script, …], { encoding: 'utf8' })` —— `encoding` 是
+  **管道模式**的选项，等价于 `stdio: 'pipe'`。受限环境（Windows AppLocker / 容器 /
+  企业策略 / DSH 沙箱）**禁止创建管道**，`spawnSync` 直接给出
+  `error.code === 'EPERM'`、`status === null`，`stdout` 与 `stderr` 全空。
+  于是 `scripts/test-all.mjs` 打印的失败尾部是「`✗ --dry-run 失败:`」后面
+  **什么都没有**（`t-import-backup` 是 12 行「实际退出码 null：」），重试仍失败、
+  却给不出任何线索 —— 看起来像被测脚本坏了，实际是被测环境不给跑。
+  **为什么这条特别难查**：本机与 CI 都不限制管道，两边全绿，只有换环境才暴露。
+    不是「某台机器的特例」—— 任何把 DSH 跑在受限沙箱里的人都撞得上。
+  `scripts/test-all.mjs` 早就踩过同一个坑并改用 fd 重定向（见那里的注释），
+  这两个测试没跟上。现在把这件事收进 `tests/_iso.mjs`：
+  - 新增 `runNode(args, opts)` —— fd 重定向抓合并输出，退出码语义不变、两条流都拿得到、
+    受限环境里也能跑，并**回传 `error`**；
+  - 新增 `describeFailure(r)` —— 把「子进程压根没启动（EPERM / ENOENT）」与
+    「跑完了但退出码非 0」**分开说**，两者的处置完全不同（前者去查沙箱，后者去查实现）；
+  - 两个测试改用它，39 处断言消息一处没动（`run()` 在 `out` 为空时兜底补原因）。
+
+- `test(spawn)`: **新增 `tests/t-spawn-stdio.mjs`（3 条判据），把上面那条缺陷钉死**。
+  这是「只有换环境才暴露」的静默故障，必须用机器守：① 每个
+  `spawnSync(` / `execFileSync(` / `execSync(` 调用**必须**显式传 `stdio`（不传就是默认管道）；
+  ② `stdio` 不许是 `'pipe'`，也不许是含 `'pipe'` 的数组；③ 不许写 `encoding` ——
+  那个选项只对管道模式有意义，出现就说明有人把 fd 重定向改回了旧写法。扫 `tests/` +
+  `scripts/` + `src/` 的全部调用点（`scripts/import-backup.mjs` 的 `stdio: 'inherit'`
+  是合法写法，收敛后由本用例一并守住）。
+  **三条变异实测都变红**：改回 `encoding: 'utf8'` / 显式写 `'pipe'` / 干脆删掉 `stdio`。
+  ⚠ 第二条变异抓出一个真缺陷：初版只拿「涂空后的源码」判，而 `'pipe'` 的**内容**已被
+  涂成空格 ⇒ 显式写管道**绿着通过**。现在括号配对用涂空副本、取实参回原始源码（两者等长）。
+
+- `chore(pkg)`: **补上 `scripts` 标准入口**。原来 `package.json` 一个 `scripts` 都没有，
+  `npm test` 直接报缺脚本 —— 而来这个仓库的人第一件事就是跑测试。现在转发到
+  `scripts/` 里真正的那条：`test` / `test:all` / `verify:vendor` / `snapshot` / `console`。
+  ⚠ `files` 白名单里没有 `scripts/` 与 `tests/`，所以这几个入口只对**从源码 clone**
+  的目录有效（发布出去的插件包里不需要测试）；`docs/testing.md` 里一并写明了。
+
+- `fix(test)`: **`isolate()` 建的沙箱目录永不回收**。`tests/_iso.mjs` 的 `isolate()`
+  只 `mkdtemp` 不清理，每跑一次全量测试就在 `%TEMP%` 留 5 个 `jet-hub-test-*`
+  （2026-11-11 实测：连跑三次留下 **15 个目录 / 0.52 MB**）。单次不大，但**永不回收**
+  —— 开发机跑几个月就是几百个目录，而且里面是测试造出来的**真凭据假副本**
+  （`access_token` / `refresh_token` 形状与真实一致）。现在在 `isolate()` 里挂
+  `process.once('exit')` 同步 `rmSync` 掉。
+  为什么用 `exit` 而不是 `afterEach`：这里没有测试框架，且要覆盖「用例里
+  `process.exit(1)` 直接退」那条路（好几个用例就是这么写的）；`exit` 回调只能跑
+  同步代码，`rmSync` 正好是同步的。实测：全量跑完残留数**不再增长**（15 → 15）。
+
+- `chore(index)`: **`JetHubMarvisPlugin` 缺 JSDoc 注释**。`index.mjs` 里 29 个工厂
+  都带一致的 `/** 本体 xxx（magpie id xxx）。 */`，只有 `1d12f80` 同步 Marvis 时
+  漏了这一行 —— 后续维护者按模式扫过去会以为「这个是有意不同的」。补上。
+
+- `test(page)`: **新增 `tests/t-page-contract.mjs`（36 条断言），把侧栏页「静默失效」的
+  几类钉死**。侧栏页跑在 magpie 的窗口沙箱里（CSP `connect-src 'none'` + opaque origin），
+  任何网络调用都**不报错、只哑掉** —— 用户看到的是「这个页面坏了」，而这条链路原来
+  **一条自动化断言都没有**（`ui-check.cjs` 要真跑 magpie web，不进单测）。六类判据：
+  ① `page.js` 里不许有 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` /
+  `eval` / `new Function`；② `index.html` 无内联 `on*=`；③ `data-tab` 与
+  `data-panel` 集合相等（对不上时点标签什么都不发生）；④ 每个 `data-copy="#id"` 的目标
+  真的存在；⑤ 四种 `data-snippet` 各有**专属**实现 —— ⚠ 只判「非空 + 带网关」会被
+  「删掉分支后落回 curl 默认分支」骗过（本文件第一版就是这样，变异实测发现的），所以每种
+  语言再钉一个独有标记、并断言四项两两不同；⑥ 控制台地址**优先取快照**
+  `JET_HUB_CATALOG.console`（缺快照才退 18500，非 http 不认），`otherHosts` 只报
+  别的宿主。五条变异（加 fetch / 改 data-tab / 删 node 分支 / 改 conUrl / 加内联 onclick）
+  都实测变红。
+
+- `test(console)`: **新增 `tests/t-console-strict-order.mjs`（36 条断言），把「严格手动顺序」
+  开关的契约钉死**。这个开关是同步 `1d12f80` 时接进来的，回答的是「拖拽排序到底算不算数」
+  —— **关着**的时候走余额分档的渠道会**盖过**卡片顺序，正是「拖拽时灵时不灵」那条报障的根，
+  接反了用户得到的结论正好相反。原来**零覆盖**。三类判据：① 本体侧 RPC 契约（`enabled` 回包
+  是对象不是裸布尔、`setEnabled` 只接布尔且**不猜默认值**、两参顺序）；② 控制台接线
+  （按供应商存、`setProvider` 切家重读、`change` 不是 `click`）；③ 六个运行时行为 ——
+  严格 `=== true`（`1` / `"yes"` 不算开启）、**await 期间用户切走时不许把上家的值盖到新
+  渠道**、问不出来就置灰（「没有这个能力」而不是「点了没反应」）、空 provider 一个请求都不发、
+  成功/失败文案、**失败后回读把开关拨回真实状态**。五条变异（删竞态守卫 / 失败不置灰 /
+  `=== true` 改 truthy / 失败不回读 / 切家不重读）都实测变红。
+
+- `fix(vendor)`: **`verify-vendor.mjs` 的「逐字节一致 1159」在本机必然失败**（2026-11-10 复核
+  发现）。脚本把 `identical` 硬编码成 1159，但本仓 `package.json` 声明 `esbuild ^0.24.0`，
+  而 `lib/client/jet-hub.js` 由 `plugin-src/client/build.mjs` 用 esbuild 打包、`__export`
+  的变量名取入口 basename（`entryPoints: [index.js]`）—— 0.24 给 `client_exports`，上游作者
+  用的更新版本给 `index_exports`，**差 3 字节**。⇒ 任何人按文档重建都会得到 **1158**，
+  而脚本把 `client/jet-hub.js` 归进「手改或污染」并 exit 1 —— **一条必然误报的基线等于没有**。
+    不是「整份文件豁免」—— 那会**把真手改一起吞掉**（2026-11-10 一审实测：改 1 个字符仍
+    exit 0、还打印「无污染」）。正确做法是**归一化后仍要求逐字节相等**：把这个变量名
+    抹平成 `EXPORTS` 再比 —— 干净快照仍算「一致」（1159 成立）；**另外单独钉「两种拼写恰
+    有一个出现 3 次、另一个 0 次」**，因为混合拼写（3 处里改 1 处）归一化后仍相等，而那是
+    `ReferenceError`（插件完全无法加载）。
+  `docs/vendor.md` 的「它做四件事」同步补这句说明。
+
+- `chore(snapshot)`: **`page/models.js` 重跑**（894 → **979** 个模型 / 28 → **29** 家，含
+  `jet-hub-marvis/main-auto`）。上一版 PR 里写「需要加载了新 vendor 的宿主在跑，所以没硬跑」——
+  但宿主早已重启（`:18500` 的 `magpie-bun` 是 22:25 起的，`/__meta` 报 29 家、`fullCatalogAt`
+  就是当天），理由不成立。重跑后 `tests/t-new-account.mjs` 的 `SNAPSHOT_MISSING` 白名单
+  **三条全部如约变红**（`magicrew` / `magicrewintl` 的凭据已恢复、`marvis` 也有目录了），
+  按那个反向锚点的设计清空 —— 这条白名单的用途就是「能拿到时必须删掉」，留着等于永久
+  掩盖真缺失。
+
+- `chore(vendor)`: **新增 `scripts/verify-vendor.mjs`，把「1170 个文件 / 1159 个与上游逐字节一致 / 11 个补丁」
+  这条快照基线变成一条可执行命令**。原来 `docs/vendor.md` 的「怎么自己核一遍」
+  只有一堆 shell，而临时目录一清就说不清「这 11 个差异到底是补丁还是被人手改过」——
+  这条基线是整份快照**唯一**可复核的地方。现在四件事一次核完：① `lib/` 逐文件 sha256，
+  文件数与一致数必须对上文档；② 差异集合必须**恰好等于**补丁表那 11 个文件，**且每个补丁文件的 sha256 指纹必须与 `PATCH_SHA256` 一致**（否则「补丁被人手改」看不见；有意改补丁时跑 `--print-hashes` 更新那 11 行）—— 少一个
+  说明补丁被同步覆盖（静默故障），多一个说明快照被污染；③ `lib/*.map` 584 个 / 4.00 MiB、
+  `locale/` 2 个逐字节一致；④ `vendor/package.json` 版本号与上游同提交一致，并打出依赖树
+  （换机漏依赖的表现是「控制台打不开」）。两条变异（把补丁文件换回上游原样 / 手改一个
+  非补丁文件）都实测退出码 1。
+
+- `test(vendor)`: **新增 `tests/t-vendor-patches.mjs`（13 条断言），把「同步会把补丁整片覆盖」
+  里最静默的两类钉成断言**。`vendor/` 那 11 个补丁文件在「版本怎么升」第 2 步会被整片
+  覆盖，而其中两类**没有任何测试**（`docs/vendor.md` 原来只承认 gemini 一条）：
+  ① gemini 的两个默认 OAuth client 常量必须「拆成两段」—— 恢复成整串明文时本地一切
+  正常，**只有 `git push` 那一刻被 push protection 拒**，所以判据刻意用**源码形态**
+  （`.js` 单引号 / `.d.ts` 双引号各一条）加「拼出来的长度 73 / 35」**再加 sha256 指纹**，
+  把整串 client id 写进断言等于把这条补丁要躲的东西原样搬回来；② `lib/types.d.ts` 的
+  两处 `closeProvider?: boolean`，以及两个 magicrew `.d.ts` 的声明
+  （`CDP_CREDENTIAL_EXPRESSION: string`、`leveldbTextFor(…, hostname?: string)`、
+  `idbCredentialsIn`）必须跟实现对齐 —— 2026-11-08 P2-4 就是「实现改了、声明没跟上」
+  的复发面。三条变异（改回明文 / 少一个参数 / 删空目录守卫）都实测变红。
+
+- `fix(test)`: **`t-rpc-cover` 第 8 节的「全关即意图」判据补上空目录守卫**。原来那条正则
+  只钉 `catalog.complete`，把 `catalog.ids.length > 0` 删掉照样全绿 —— 而空目录下
+  `every()` **恒真**，正是「关一个模型就关掉整个供应商」那个缺陷的入口。现在整段
+  `complete && ids.length > 0 && ids.every(…)` 一起钉，删任意一项立刻红。
+
+- `docs(vendor)`: **npm 口径与「6 类」的定义一起对齐**。① `npm view deepseek-harness-codearts version`
+  现在是 `2.21.261109`（不是文档里写的 `2.14.261103`），`lib/` **1138** 个文件；与
+  vendor 的 1170 个比，少的 32 个正是 `marvis-*`，两边都有的文件里 **79 个不同** =
+  11 个本仓补丁 + 68 个上游在 npm 发布之后又往前走的提交（`package.json` 的
+  `upstream.version` / `upstream.note` 一并更新）。② 「6 类」原来只在两处各写一半
+  （表格按行铺、正文按逗号列，数出来是 5 项），现在 ①–⑥ 逐类点名并与顶部差异表
+  一一对应；「哪几类有测试盯着」那半句也按新用例重写（唯一没有自动断言的是
+  「`.d.ts.map` 不重生成」—— 它只影响编辑器跳转行号，按基线人工核）。
+
+- `feat(vendor)`: **同步上游到 `1d12f80`，接入腾讯 Marvis（家数 28 → 29）**。
+  `vendor/lib` 1138 → **1170** 文件（+32：`marvis-*` 8 个源文件各自的 `.js` / `.d.ts` / `.map`），
+  逐字节一致 1127 → **1159**（补丁仍是 11 个文件 / 6 类）。上游这 13 个提交里对我们
+  **零影响**的几个源文件（`magicrew-*` / `leveldb-sstable` / `backup` / `gemini-oauth`）
+  直接沿用已打补丁的版本，只有 `types.ts` / `jet-hub-rpc.ts` 需要手工重打。
+
+  上游这一版的重点：
+  - **腾讯 Marvis**（QQ / 微信 OAuth + `auto` 槽位 + 钱包额度）。它**没有**模型目录
+    端点（9 条候选全 404），目录只能静态兜底，且只有一个 `main-auto` 槽位 ——
+    真实模型 id（`deepseek-v4-1-flash-261017`）不能直传，上游回 400「无效模型id」。
+  - 「严格手动顺序」开关（`strictManualOrder.getEnabled` / `setEnabled`）。它回答的是
+    「拖拽排序到底算不算数」：关着时走余额分档的渠道会**盖过**卡片顺序 —— 那正是
+    「拖拽时灵时不灵」这条报障的根。**按供应商存**，所以接在账号页而不是设置页。
+  - qoder 企业账号额度在 `orgResourcePackage` 里（补解析 + 三个边界）。
+  - 页头按钮搬进侧边栏底部操作行 + 「设置」弹窗 + 供应商开关。
+
+  同步点（加/减 provider 时必须一起改的地方全部同步到 29）：`src/plugin.mjs` 的
+  `DSH_PROVIDERS` / `NAMES` / `FALLBACK_MODELS`、`index.mjs` 的具名工厂、
+  `src/icons.mjs`（Marvis 自绘：品牌蓝 + 对话气泡里一颗星）、`scripts/snapshot-models.mjs`
+  的 `NAMES`、`console/console.js` 的「严格手动顺序」开关、`tests/t-plugin.mjs` 的
+  `EXPECTED_PROVIDER_COUNT`、`tests/t-new-account.mjs` 的两处 `=== 29` 与
+  `SNAPSHOT_MISSING`（Marvis 本机没凭据 ⇒ 快照里没有它）、`tests/t-rpc-cover.mjs` 的
+  `EXPECTED_RPC_METHOD_COUNT` 91 → **93**（控制台接 65 → **67**）。
+
+  全量 **31 通过 / 0 失败 / 0 跳过**（新增 `t-vendor-patches` 一条）。
+
+- `fix(vendor)`: **修掉 `lib/magicrew-browser-login.d.ts` 的 `CDP_CREDENTIAL_EXPRESSION` 声明失配**
+  （2026-11-08 gitee 重审 P2-4）。上游源码是 `` `JSON.stringify({...})` ``（只读 `localStorage`），
+  本仓补丁早就换成了读 IndexedDB 的 **async IIFE**，但 `.d.ts` 仍停在旧值 ⇒ 声明的字面量类型
+  让整个表达式在编辑器里**看不见**（`declare const` 的初始值按 TS 规范只能是字面量，
+  而真实值是一段几百行的 IIFE，写成字面量既不现实也没意义）。改成 `string`。
+  补丁文件 10 → **11 个**（6 类改动数不变），逐字节一致 1128 → **1127**。
+- `docs(vendor)`: **`docs/vendor.md` 的两处上游信息写错**（同一轮 gitee 重审发现）。
+  ① **上游仓库地址写成了 GitHub 镜像** —— `498a76e` 只在
+  [`gitee.com/iJetLi/deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)，
+  `gh api repos/iJetLi/dsh-providers-hub/commits/498a76e` 返回 **422 No commit found**
+  （`5042cec` 才是 200）；而同一份文档别处又写「上游同步到 `5042cec` 后」，两个 sha 打架。
+  照文档 `git checkout 498a76e` **必然失败**。改为主仓 gitee + 注明 GitHub 是落后镜像，
+  两处 `git clone` 命令跟着改。
+  ② **补丁归属写错** —— `indexedDbRawTextOfDir` 不在 `lib/leveldb-sstable.js`
+  （那里只有 `readWalRecords`），在 `lib/magicrew-local-browser.js`。拆成两句各说各的，
+  免得下次同步的人按文档去 `leveldb-sstable.js` 找 IndexedDB 读取。
 - `fix(plugin)`: **冷启动时后台刷新没有 in-flight 去重，最多 58 条链并发**。
   `currentAll()` 的判据是 `allModels === undefined || fullModels === undefined || stale`，
   而**干净机器上没有磁盘缓存**（`readCache()` 返回 `{}`）⇒ 前两项恒为真，每次调用都新起

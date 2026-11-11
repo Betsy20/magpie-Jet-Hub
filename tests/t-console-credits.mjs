@@ -256,5 +256,74 @@ console.log("--- 7) 每次调用重置（换渠道不能沿用上一家的读数
   ok(h.getBAL().size === 0, '换渠道后 BAL 清空（不残留上一家的账号）')
 }
 
+/* ── 8. 量纲：token 计的渠道要压量级，积分逐字不动 ───────────────────
+ *
+ * 背景（2026-11-11 用户报障）：Marvis 的 `avail_tokens` 是千万级，控制台「积分」
+ * 行原来直接输出 `bal.total` 原始整数 —— 卡片上是 `9999976`（且无单位），
+ * 而账号徽标显示 `9.99MToken`，同一条账号两处读数对不上。
+ *
+ * ⚠️ 这段的判据必须与 `src/plugin.mjs` 的 `fmtScaled` **同口径**：两边是两个
+ * 独立实现，分叉了用户就会看到同一个号两个数。下面把两边都抽出来跑同一组输入
+ * 做对照，而不是各测各的。
+ */
+console.log('--- 8) 令牌量级收敛（控制台与控制台徽标同口径）---')
+{
+  const h = makeHarness()
+  h.setRpc(async () => ({
+    accounts: [
+      // Marvis 真实形状：包是 token、余额 9999976 / 总额 10000000
+      { accountId: 'mv', balance: { total: 9999976, expiredTotal: 0, packages: [{ name: '令牌用量', unit: 'token', remaining: 9999976, total: 10000000, used: 24, active: true }] } },
+      // OfficeAce 报的是首字母大写的 'Token'
+      { accountId: 'oa', balance: { total: 100, packages: [{ name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true }] } },
+      // 积分渠道：没有 packages 字段也要按积分处理（旧回包就是这样）
+      { accountId: 'cr', balance: { total: 5100, expiringTotal: 1400 } },
+      // 积分渠道但带 packages（unit 为 credit）
+      { accountId: 'cr2', balance: { total: 817.04, packages: [{ name: '充值积分', unit: 'credit', remaining: 817.04, total: 817.04, used: 0, active: true }] } },
+    ],
+  }))
+  await h.loadBalances('marvis')
+  const bal = h.getBAL()
+  ok(bal.get('mv')?.unit === 'token', "Marvis 的 unit 判成 'token'")
+  ok(bal.get('oa')?.unit === 'token', "大写 'Token' 也判成 token（不分大小写）")
+  ok(bal.get('cr')?.unit === 'credit', '缺 packages 的回包按积分处理（不误判成 token）')
+  ok(bal.get('cr2')?.unit === 'credit', 'packages[0].unit 为 credit 时是 credit')
+  ok(bal.get('mv')?.total === 9999976, 'total 本身仍是原始数值（只改渲染，不改数据）')
+
+  // 抽真实实现求值 —— 一个字符都不改
+  const fmtSrc = sliceFn('function formatScaledAmount(')
+  // `src/plugin.mjs` 的同口径实现（fmtScaled 依赖 fmtNum，一并截）
+  const pluginSrc = fs.readFileSync(path.join(ROOT, 'src', 'plugin.mjs'), 'utf8').replace(/\r\n/g, '\n')
+  const grabPluginFn = (name) => {
+    const i = pluginSrc.indexOf(`function ${name}(`)
+    if (i < 0) throw new Error(`截不到 src/plugin.mjs 的 ${name}`)
+    return pluginSrc.slice(i, pluginSrc.indexOf('\n}\n', i) + 3)
+  }
+  const fmtPlugin = new Function(`${grabPluginFn('fmtNum')}\n${grabPluginFn('fmtScaled')}\nreturn fmtScaled`)()
+  const fmtConsole = new Function(`${fmtSrc}\nreturn formatScaledAmount`)()
+
+  // ① 关键读数：9999976 不能舍入成 10M（那与「满额没用过」逐字相同）
+  ok(fmtConsole(9999976, 'token') === '9.99M', `9999976 → 9.99M（实际 ${fmtConsole(9999976, 'token')}）`)
+  ok(fmtConsole(10000000, 'token') === '10M', `10000000 → 10M 而不是 1M（实际 ${fmtConsole(10000000, 'token')}）`)
+  ok(fmtConsole(9560586, 'token') === '9.56M', `9560586 → 9.56M（实际 ${fmtConsole(9560586, 'token')}）`)
+  ok(fmtConsole(945390, 'token') === '945.39K', `945390 → 945.39K（实际 ${fmtConsole(945390, 'token')}）`)
+  ok(fmtConsole(24, 'token') === '24', `小数值原样（实际 ${fmtConsole(24, 'token')}）`)
+  ok(fmtConsole(999, 'token') === '999', `999 不进 K 档（实际 ${fmtConsole(999, 'token')}）`)
+
+  // ② 积分逐字不动 —— 旧渲染是什么样，现在还是什么样
+  ok(fmtConsole(5100, 'credit') === '5100', `积分整数原样（实际 ${fmtConsole(5100, 'credit')}）`)
+  ok(fmtConsole(817.04, 'credit') === '817.04', `积分小数原样（实际 ${fmtConsole(817.04, 'credit')}）`)
+  ok(fmtConsole(5100, undefined) === '5100', '缺 unit 时按积分原样（旧回包兼容）')
+
+  // ③ 两处实现必须逐字同口径
+  const same = [[9999976, 'token'], [10000000, 'token'], [9560586, 'token'], [945390, 'token'], [1000, 'token'], [24, 'token'], [8.5, 'token'], [0, 'token'], [9999999, 'token'], [100000, 'Token']]
+  const diffs = same.filter(([n, u]) => fmtConsole(n, u) !== fmtPlugin(n, u))
+  ok(diffs.length === 0, `控制台与账号徽标同口径（分叉项 ${JSON.stringify(diffs.map(([n, u]) => [n, u, fmtConsole(n, u), fmtPlugin(n, u)]))}）`)
+
+  // ④ 渲染接线：合计行不能再裸输出 `bal.total`
+  ok(/formatScaledAmount\(bal\.total, bal\.unit\)/.test(src), '合计值走 formatScaledAmount')
+  ok(!/<span class="creditTotal">\$\{bal\.total\}<\/span>/.test(src), '渲染处不再裸贴 bal.total')
+  ok(/creditUnit/.test(src), 'token 渠道补 ` token` 后缀（否则会被读成积分）')
+}
+
 console.log(`\n${bad === 0 ? '✓ 全部通过' : `✗ ${bad} 项失败`}（${total} 项）`)
 if (bad > 0) process.exit(1)

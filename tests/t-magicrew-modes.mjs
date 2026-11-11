@@ -56,9 +56,28 @@ if (/^\s*export\s/m.test(body)) {
 const factory = new Function(
   'startNewAccount',
   'MAGICREW_CREATE_MODES',
+  // `startNewAccountSmart()` 的第一行是 `BROWSER_MODE_PROVIDERS.has(provider)`
+  // （monkeycode / monkeycodeintl / baizhi 走 `mode: 'browser'`，见 `4782e3a` /
+  // `84eb848`）。不注入它，截出的段一求值就 ReferenceError。
+  'BROWSER_MODE_PROVIDERS',
   `${body}\nreturn startNewAccountSmart`,
 )
-const smart = factory
+const rawSmart = factory
+
+/**
+ * 三个 provider 走 `mode: 'browser'`（`4782e3a` monkeycode、`84eb848` baizhi）。
+ * 这里从源码里把那行集合**原样取出来**求值，而不是照抄一份 —— 照抄会让这条
+ * 测试在集合变更时假装还是绿的。
+ */
+const browserModeLine = src.match(/^const BROWSER_MODE_PROVIDERS = new Set\(\[([^\]]*)\]\)/m)
+if (browserModeLine === null) {
+  console.error('✗ 源码里找不到 `const BROWSER_MODE_PROVIDERS = new Set([...])`')
+  process.exit(1)
+}
+const BROWSER_MODE_SET = new Set([...browserModeLine[1].matchAll(/'([^']+)'/g)].map((m) => m[1]))
+
+/** 保持原调用点 `smart(startNewAccount, MODES)` 不变，把集合补在第三参。 */
+const smart = (startNewAccount, modes) => rawSmart(startNewAccount, modes, BROWSER_MODE_SET)
 
 /* ── 2. 假容器：记录每次调用的 (provider, mode)，按脚本抛错 ── */
 

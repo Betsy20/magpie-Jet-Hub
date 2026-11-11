@@ -192,13 +192,47 @@ if (live()) {
     const { toMagpieUsage, windowName, dateLabel } = new Function(
       'NAMES',
       'humanizeUsageError',
+      // 切片范围（groupName…writeCache）不含这两个 —— 每日额度基线在文件更前面。
+      // 桩语义与 src 一致：**首见额度即分母**，之后不再变（测试里用全局表模拟）。
+      'isDailyPool',
+      'dailyTotalOf',
+      'isWalletWindowPool',
+      'walletPeakOf',
+      'WALLET_WINDOW_POOLS',
       body + String.fromCharCode(10) + 'return { mergePackages, toMagpieUsage, windowName, dateLabel }',
-    )(NAMES_FIXTURE, (x) => String(x))
+    )(
+      NAMES_FIXTURE,
+      (x) => String(x),
+      (name) => ['每日积分', '每日赠送', '每日额度', '每日签到奖励'].includes(String(name ?? '').trim()),
+      // 每个 key 记住第一次见到的余额当分母；之后只抬不降（与 src 的 dailyTotalOf 同语义）
+      (() => {
+        const base = new Map()
+        return (key, remaining) => {
+          if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+          return base.get(key)
+        }
+      })(),
+      // 白名单判定桩：与 src 的 isWalletWindowPool 同表（百智云「充值积分」）。
+      (p, name) => ({ baizhi: ['充值积分'] }[String(p ?? '')] ?? []).includes(String(name ?? '').trim()),
+      // 水位桩：与 src 的 walletPeakOf 同语义 —— 只抬不降。
+      (() => {
+        const base = new Map()
+        return (key, remaining) => {
+          if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+          return base.get(key)
+        }
+      })(),
+      { baizhi: ['充值积分'] },
+    )
 
-    const big = { name: '每月登录赠送', unit: 'credits', remaining: 500, total: 500, used: 0, active: true, deductionEndTime: 1793462399000 }
+    // 到期时间一律用**相对当前时间的未来值**：渲染期会按 deductionEndTime
+    // 重算过期（过期组改 text 窗口），写死绝对时间戳会让夹具在某天悄悄变过期。
+    const T0 = Date.now()
+    const DAY = 86400000
+    const big = { name: '每月登录赠送', unit: 'credits', remaining: 500, total: 500, used: 0, active: true, deductionEndTime: T0 + 30 * DAY }
     const small = Array.from({ length: 20 }, (_, i) => ({
       name: '签到奖励', unit: 'credits', remaining: 100, total: 100, used: 0, active: true,
-      deductionEndTime: 1793292923000 + i * 86400000,
+      deductionEndTime: T0 + DAY + i * DAY,
     }))
     const dead = { name: '已过期包', unit: 'credits', remaining: 0, total: 0, active: false }
     const u6 = toMagpieUsage(
@@ -215,8 +249,8 @@ if (live()) {
     ok(bonus && String(bonus.name).includes('到期'), `合并条目名字应带到期日（用户要求「能看到过期时间」），实际 ${bonus?.name}`)
     // 排序首判据是**到期时间**，不是额度。
     //
-    // 本夹具里 small 的到期日从 1793292923000 起逐日递增、big（主套餐）是
-    // 1793462399000 ⇒ 小包组最早那一天比主套餐更早，小包组排前面。
+    // 本夹具里 small 的到期日从 T0+DAY 起逐日递增、big（主套餐）是
+    // T0+30*DAY ⇒ 小包组最早那一天比主套餐更早，小包组排前面。
     //
     // 这与旧断言（「主套餐应排第一」）相反，是**需求变更后的预期结果**：
     // 用户 m07331 明确要求「按到期顺序展示」，额度退为同档内的次判据。
@@ -224,12 +258,12 @@ if (live()) {
     // （主套餐更早过期时它照样排第一）。
     ok(
       String(ws[0]?.name).startsWith('签到奖励'),
-      `到期更早的组应排第一（该组最早 1793292923000 早于主套餐 1793462399000），实际第一条是 ${ws[0]?.name}`,
+      `到期更早的组应排第一（该组最早 T0+DAY 早于主套餐 T0+30*DAY），实际第一条是 ${ws[0]?.name}`,
     )
     ok(ws.every((w) => w.limit > 0), '合并后不该留下 0/0 的空包')
 
     // 到期时间取合并组里最早的那个（最近要过期的先提醒）
-    ok(bonus && bonus.resetsAt === 1793292923000, `合并组 resetsAt 应取最早，实际 ${bonus?.resetsAt}`)
+    ok(bonus && bonus.resetsAt === T0 + DAY, `合并组 resetsAt 应取最早，实际 ${bonus?.resetsAt}`)
 
     // aside 压到最后
     const u7 = toMagpieUsage(
@@ -295,11 +329,11 @@ if (live()) {
         balance: {
           total: 1200,
           packages: [
-            // 主套餐 500 到期 11-10；小包 20 个 100 到期 11-20 起。
-            { name: '主套餐', unit: 'c', total: 500, remaining: 500, active: true, deductionEndTime: 1794216000000 },
+            // 主套餐 500 到期 T0+5d；小包 20 个 100 到期 T0+15d 起。
+            { name: '主套餐', unit: 'c', total: 500, remaining: 500, active: true, deductionEndTime: T0 + 5 * DAY },
             ...Array.from({ length: 20 }, (_, i) => ({
               name: '小包', unit: 'c', total: 100, remaining: 100, active: true,
-              deductionEndTime: 1795080000000 + i * 86400000,
+              deductionEndTime: T0 + 15 * DAY + i * DAY,
             })),
           ],
         },
@@ -318,11 +352,11 @@ if (live()) {
         balance: {
           total: 5500,
           packages: [
-            // 主套餐 500 到期 11-20... 更晚；小包 50 个 100 到期 11-10 起。
-            { name: '主套餐', unit: 'c', total: 500, remaining: 500, active: true, deductionEndTime: 1795080000000 },
+            // 主套餐 500 到期 T0+30d 更晚；小包 50 个 100 到期 T0+DAY 起。
+            { name: '主套餐', unit: 'c', total: 500, remaining: 500, active: true, deductionEndTime: T0 + 30 * DAY },
             ...Array.from({ length: 50 }, (_, i) => ({
               name: '小包', unit: 'c', total: 100, remaining: 100, active: true,
-              deductionEndTime: 1794216000000 + i * 86400000,
+              deductionEndTime: T0 + DAY + i * DAY,
             })),
           ],
         },
@@ -400,10 +434,38 @@ if (live()) {
   const fn2 = new Function(
     'NAMES',
     'humanizeUsageError',
+    // 切片范围不含每日额度基线（它在文件更前面），必须注入桩，否则 ReferenceError。
+    'isDailyPool',
+    'dailyTotalOf',
+    'isWalletWindowPool',
+    'walletPeakOf',
+    'WALLET_WINDOW_POOLS',
     // 起点要在 mergePackages 之前：toMagpieUsage 会调它，截漏就 ReferenceError。
     // 起点要在 groupName 之前：它被 mergePackages 调用，截漏就 ReferenceError。
     src2.slice(src2.indexOf('function groupName('), b2) + String.fromCharCode(10) + 'return { toMagpieUsage, groupName }',
-  )({ officeace: 'OfficeAce' }, (x) => `已人化:${x}`)
+  )(
+    { officeace: 'OfficeAce' },
+    (x) => `已人化:${x}`,
+    (name) => ['每日积分', '每日赠送', '每日额度', '每日签到奖励'].includes(String(name ?? '').trim()),
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    // 白名单判定桩：与 src 的 isWalletWindowPool 同表（百智云「充值积分」）。
+    (p, name) => ({ baizhi: ['充值积分'] }[String(p ?? '')] ?? []).includes(String(name ?? '').trim()),
+    // 水位桩：与 src 的 walletPeakOf 同语义 —— 只抬不降。
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    { baizhi: ['充值积分'] },
+  )
 
   const withSnapshot = {
     provider: 'officeace',
@@ -412,7 +474,15 @@ if (live()) {
     // 上游在「有快照 + 本次失败」时就是这个形状：数据在，另带一条 error。
     balance: {
       total: 100,
-      packages: [{ name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true }],
+      packages: [{
+        name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true,
+        // ⚠️ 必须有周期字段：本节的断言是「旧快照的数据别丢」，需要一个**确定是配额**
+        // 的包。没有周期的 `total===remaining && used===0` 包与钱包同形，会被
+        // toMagpieUsage 判成 wallet（只报 `N left`、不画分母），那时 display/used
+        // 本来就不该有 —— 那是另一条契约，见 t-usage.mjs 后面的钱包小节。
+        cycleStartTime: '2026-11-01 00:00:00',
+        cycleEndTime: '2026-11-30 23:59:59',
+      }],
     },
     error: '本次查询失败，显示的是上一次成功读到的数据（可能已过期）',
   }
@@ -438,6 +508,46 @@ if (live()) {
   ok(
     Number.isFinite(uSnap.windows?.[0]?.used),
     `used 必须仍是数字（实际 ${JSON.stringify(uSnap.windows?.[0]?.used)}）`,
+  )
+
+  // ── 过期桶渲染期重算（2026-11-09 用户截图回归）──
+  //
+  // OfficeAce 凭据失效走 stale 快照时，上游把过期每日桶的 active 冻成 true、
+  // remaining 冻成 100 ⇒ 旧码画成「100 / 100 · 剩余 100%」，还因到期最早排第一
+  // 占住卡片前两行。deductionEndTime 才是「这批积分何时作废」的硬事实，
+  // 渲染期必须按当前时间重算：过期组改 text 窗口、aside 压后。
+  const uExpired = fn2.toMagpieUsage(
+    {
+      provider: 'officeace',
+      accountId: 'officeace-exp',
+      balance: {
+        total: 4100,
+        packages: [
+          // 故意 active:true（stale 快照冻住的形状）+ 到期在过去
+          { name: '每日签到有礼', unit: 'Token', remaining: 100, total: 100, used: 0, active: true, deductionEndTime: Date.now() - 86400000 },
+          { name: '新用户专属福利', unit: 'Token', remaining: 1314.48, total: 4000, used: 2685.52, active: true, deductionEndTime: Date.now() + 4 * 86400000 },
+        ],
+      },
+      error: '本次查询失败，显示的是上一次成功读到的数据（可能已过期）',
+    },
+    'officeace',
+  )
+  const wsExp = uExpired.windows ?? []
+  ok(wsExp.length === 2, `过期桶不该被丢掉（实际 ${wsExp.length} 条）`)
+  ok(
+    String(wsExp[0]?.name ?? '').startsWith('新用户专属福利'),
+    `过期桶必须压后、活跃包占第一行（实际第一条 ${JSON.stringify(wsExp[0]?.name)}）`,
+  )
+  const expW = wsExp.find((w) => String(w?.name ?? '').includes('每日签到有礼'))
+  ok(expW !== undefined && String(expW.text ?? '').includes('过期'), `过期桶应改 text 窗口报「已过期作废」（实际 ${JSON.stringify(expW)}）`)
+  ok(
+    expW !== undefined && expW.limit === undefined && expW.used === undefined && expW.amount === undefined,
+    `过期桶不该再画进度条（limit/used/amount 必须缺席，实际 ${JSON.stringify(expW)}）`,
+  )
+  ok(expW?.aside === true, '过期桶应带 aside 标记')
+  ok(
+    String(wsExp[0]?.name ?? '').includes('本次未刷新'),
+    `stale 标注应落在第一条（现在是活跃包）上（实际 ${JSON.stringify(wsExp[0]?.name)}）`,
   )
 
   // 多个套餐时只该标第一条：magpie 行内只画前 2 条，全标就是噪音。
@@ -490,6 +600,9 @@ if (live()) {
   ok(gn('Free Plan Subscription') === 'Free Plan Subscription', 'Free Plan 不能被误剥')
   ok(gn(' 2026/10/9') === '2026/10/9', '只由日期组成的名字剥空后要退回原名（不能变成空串）')
 
+  // 到期时间用相对当前时间的未来值（渲染期会重算过期，绝对时间戳会某天悄悄变过期）
+  const T1 = Date.now()
+  const DAY1 = 86400000
   const uMiniPkgs = [
           ...Array.from({ length: 20 }, (_, i) => ({
             name: `积分包 2026/10/${9 + i}`,
@@ -498,7 +611,7 @@ if (live()) {
             total: 400,
             used: 0,
             active: true,
-            deductionEndTime: Date.UTC(2026, 10, 3 + i),
+            deductionEndTime: T1 + i * DAY1,
           })),
           ...Array.from({ length: 2 }, (_, i) => ({
             name: `积分包 2026/11/${1 + i}`,
@@ -507,7 +620,7 @@ if (live()) {
             total: 1000,
             used: 0,
             active: true,
-            deductionEndTime: Date.UTC(2026, 10, 28 + i),
+            deductionEndTime: T1 + (25 + i) * DAY1,
           })),
         ]
   const uMini = fn2.toMagpieUsage(
@@ -545,16 +658,20 @@ if (live()) {
     'minimax',
   )
   ok(
-    uShuffled.until === Date.UTC(2026, 10, 3),
-    `乱序输入时 until 仍要取最早（实际 ${JSON.stringify(uShuffled.until)}，期望 ${Date.UTC(2026, 10, 3)}）`,
+    uShuffled.until === T1,
+    `乱序输入时 until 仍要取最早（实际 ${JSON.stringify(uShuffled.until)}，期望 ${T1}）`,
   )
   ok(
-    uMini.until === Date.UTC(2026, 10, 3),
+    uMini.until === T1,
     `升序输入时 until 同样是最早（实际 ${JSON.stringify(uMini.until)}）`,
   )
 
   // 余额是纯文本，magpie 原样贴 —— 上游给的是原始浮点，不过 fmtNum 就是 12 位小数
   // 的 `4584.442685714286 Token`（2026-11-01 用户截图）。
+  //
+  // 2026-11-11 起走 `fmtScaled`：token 单位的读数先压量级再留两位
+  // ⇒ `4.58K Token`（截断，不是四舍五入成 4.59 —— 剩余量宁可少报）。
+  // 这条最初断言的是 `4584.44 Token`，`507035b` 加量级压缩时漏改了它。
   const uLong = fn2.toMagpieUsage(
     {
       provider: 'officeace',
@@ -567,7 +684,7 @@ if (live()) {
     'officeace',
   )
   ok(
-    uLong.balance === '4584.44 Token',
+    uLong.balance === '4.58K Token',
     `余额最多两位小数（实际 ${JSON.stringify(uLong.balance)}）`,
   )
 
@@ -655,6 +772,347 @@ if (live()) {
       !warns.some((w) => w.includes("reading 'id'")),
       `credits.status 侧也不该抛 product.id（实际 warn：${JSON.stringify(warns)}）—— 两处守卫都要在`,
     )
+  }
+}
+
+// 钱包 vs 配额：没有初始总额就不能编分母（2026-11-09 用户报「剩余永远 100%」）。
+//
+// magpie 画进度条用 `limit` 当分母、文案「剩余 N%」。上游只给余额时我们把
+// remaining 冗余填进 total ⇒ 分母==余额 ⇒ 永远 100%。契约依据
+// `vendor/lib/credits.d.ts:184-196`（totalKnown:false 时面板不得并列显示）。
+// 判据：① 上游明说 totalKnown:false；② 组内每份都无周期 且 used==0 且 total==remaining
+//       ⇒ wallet（只给 balance，不给 limit/used，magpie 只写「N left」不画进度条）。
+{
+  console.log('')
+  const fs3 = await import('node:fs')
+  const src3 = fs3.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8').replace(/\r\n/g, String.fromCharCode(10))
+  const e3 = src3.indexOf('function writeCache(')
+  const fn3 = new Function(
+    'NAMES',
+    'humanizeUsageError',
+    'isDailyPool',
+    'dailyTotalOf',
+    'isWalletWindowPool',
+    'walletPeakOf',
+    'WALLET_WINDOW_POOLS',
+    src3.slice(src3.indexOf('function groupName('), e3) + String.fromCharCode(10) + 'return { toMagpieUsage }',
+  )(
+    { baizhi: '百度云', cline: 'Cline', codearts: 'CodeArts' },
+    (x) => String(x),
+    (name) => ['每日积分', '每日赠送', '每日额度', '每日签到奖励'].includes(String(name ?? '').trim()),
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    // 白名单判定桩：与 src 的 isWalletWindowPool 同表（百智云「充值积分」）。
+    (p, name) => ({ baizhi: ['充值积分'] }[String(p ?? '')] ?? []).includes(String(name ?? '').trim()),
+    // 水位桩：与 src 的 walletPeakOf 同语义 —— 只抬不降。
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    { baizhi: ['充值积分'] },
+  )
+  // ⚠️ 每个用例用独立 accountId：基线/水位桩是**跨调用共享**的 Map，
+  // 同一个账号复用会把上一个用例抬上去的水位带进下一个，断言就成了假红。
+  const one = (pkgs, provider = 'x', accountId = 'a') => fn3.toMagpieUsage(
+    { provider, accountId, nickname: 'n', balance: { total: 0, packages: pkgs } }, provider,
+  )
+
+  // 反例：**不在白名单**的渠道 + 典型钱包形状 ⇒ 仍然是钱包（只给 balance）。
+  // 百智云的「充值积分」已经改走水位窗口（见下一段），所以这里用 provider='x'
+  // 验证「白名单之外的渠道一个都不动」这条边界。
+  const uBz = one([{ name: '充值积分', unit: 'credit', remaining: 817.04, total: 817.04, used: 0, totalKnown: false, active: true }])
+  const bz = uBz.windows[0]
+  ok(bz && bz.balance === 817.04, `非白名单渠道的「充值积分」应保持钱包 balance=817.04（实际 ${JSON.stringify(bz?.balance)}）`)
+  ok(bz && bz.limit === undefined && bz.used === undefined,
+    `钱包不得给 limit/used（否则 magpie 画出 817.04/817.04 剩余 100%），实际 limit=${JSON.stringify(bz?.limit)} used=${JSON.stringify(bz?.used)}`)
+
+  // 正例：白名单渠道（baizhi）「充值积分」⇒ 水位分母，画进度条
+  // 首见无水位历史 ⇒ 分母==余额，此时理应显示 100%（这是诚实的：还没消耗过）
+  const uBzPk = one([{ name: '充值积分', unit: 'credit', remaining: 500, total: 500, used: 0, totalKnown: false, active: true }], 'baizhi', 'pk1')
+  const bzPk = uBzPk.windows[0]
+  ok(bzPk && bzPk.balance === undefined,
+    `百智「充值积分」不能给 balance（给了 magpie 就不画进度条，等于没改），实际 ${JSON.stringify(bzPk?.balance)}`)
+  ok(bzPk && bzPk.limit === 500 && bzPk.amount === 500,
+    `首见应给 500 / 500（分母=余额=500），实际 limit=${JSON.stringify(bzPk?.limit)} amount=${JSON.stringify(bzPk?.amount)}`)
+  ok(bzPk && bzPk.display === '500 / 500 credit', `展示串应为 500 / 500 credit，实际 ${JSON.stringify(bzPk?.display)}`)
+
+  // 消耗后：余额 420，水位仍是 500 ⇒ 已用 16%
+  const uBzPk2 = one([{ name: '充值积分', unit: 'credit', remaining: 420, total: 420, used: 0, totalKnown: false, active: true }], 'baizhi', 'pk1')
+  const bzPk2 = uBzPk2.windows[0]
+  ok(bzPk2 && bzPk2.limit === 500 && bzPk2.amount === 420,
+    `消耗后应显示 420 / 500（水位不跟着余额掉），实际 ${JSON.stringify(bzPk2?.amount)}/${JSON.stringify(bzPk2?.limit)}`)
+  ok(bzPk2 && bzPk2.used === 16, `420/500 ⇒ 已用 16%，实际 ${JSON.stringify(bzPk2?.used)}%`)
+
+  // 充值后：余额 820 > 水位 500 ⇒ 水位抬到 820（用户说的「充值会让窗口扩大」）
+  const uBzPk3 = one([{ name: '充值积分', unit: 'credit', remaining: 820, total: 820, used: 0, totalKnown: false, active: true }], 'baizhi', 'pk1')
+  const bzPk3 = uBzPk3.windows[0]
+  ok(bzPk3 && bzPk3.limit === 820 && bzPk3.used === 0,
+    `充值后水位应抬到 820、已用 0%，实际 ${JSON.stringify(bzPk3?.limit)}/${JSON.stringify(bzPk3?.used)}`)
+
+  // 合计行也带分母（用户 m01511 选的「总额度 + 充值积分 都加」）。
+  // 实机形状：充值积分 500 + 每日积分 199.96 ⇒ 未消耗时 699.96 / 699.96。
+  const uBzSum = one([
+    { name: '充值积分', unit: 'credit', remaining: 500, total: 500, used: 0, totalKnown: false, active: true },
+    { name: '每日积分', unit: 'credit', remaining: 199.96, total: 199.96, used: 0, totalKnown: false, active: true },
+  ], 'baizhi', 'sum1')
+  ok(String(uBzSum.balance ?? '') === '699.96 / 699.96 credit',
+    `合计行应为 699.96 / 699.96 credit（总额度窗口），实际 ${JSON.stringify(uBzSum.balance)}`)
+
+  // 消耗后：充值 420（水位 500）+ 每日 100/199.96 ⇒ 520 / 699.96 —— 分母不动、分子变小。
+  // 先做一次「未消耗」读数，把水位与当天首见额度种进桩（模拟昨天查过一次）。
+  one([
+    { name: '充值积分', unit: 'credit', remaining: 500, total: 500, used: 0, totalKnown: false, active: true },
+    { name: '每日积分', unit: 'credit', remaining: 199.96, total: 199.96, used: 0, totalKnown: false, active: true },
+  ], 'baizhi', 'sum4')
+  const uBzSum4 = one([
+    { name: '充值积分', unit: 'credit', remaining: 420, total: 420, used: 0, totalKnown: false, active: true },
+    { name: '每日积分', unit: 'credit', remaining: 100, total: 100, used: 0, totalKnown: false, active: true },
+  ], 'baizhi', 'sum4')
+  ok(String(uBzSum4.balance ?? '') === '520 / 699.96 credit',
+    `消耗后合计行应为 520 / 699.96 credit（分母来自水位与首见额度），实际 ${JSON.stringify(uBzSum4.balance)}`)
+
+  // 只要有一条窗口没分母 ⇒ 合计行不加分母（拿部分分母拼总和就是编数字）。
+  // 这里用「赠送积分」（非白名单包名、上游只说余额）当那条没分母的窗口。
+  const uBzSum2 = one([
+    { name: '充值积分', unit: 'credit', remaining: 500, total: 500, used: 0, totalKnown: false, active: true },
+    { name: '赠送积分', unit: 'credit', remaining: 30, total: 30, used: 0, totalKnown: false, active: true },
+  ], 'baizhi', 'sum2')
+  ok(!String(uBzSum2.balance ?? '').includes('/'),
+    `有一条窗口没分母时合计行不加 /，实际 ${JSON.stringify(uBzSum2.balance)}`)
+
+  // aside 的包（冻结/过期作废）不进分子分母：只剩它时不加 /。
+  const uBzSum3 = one([
+    { name: '冻结积分', unit: 'credit', remaining: 10, total: 10, used: 0, active: false },
+  ], 'baizhi', 'sum3')
+  ok(!String(uBzSum3.balance ?? '').includes('/'),
+    `只剩 aside 包时合计行不加 /，实际 ${JSON.stringify(uBzSum3.balance)}`)
+
+  // Cline 账户余额 / ModelScope 魔粒 / Raccoon 奖励积分：无周期、used=0、total==remaining
+  const uCl = one([{ name: 'Cline 账户余额', unit: 'USD', remaining: 5, total: 5, used: 0, active: true }])
+  ok(uCl.windows[0]?.balance === 5, `Cline 账户余额（无周期、恰好没用过）应判钱包（实际 ${JSON.stringify(uCl.windows[0]?.balance)}）`)
+
+  // 反例：codearts 赠送积分包 —— cycleEndTime 为空但 used=4.48，是真配额，必须仍画进度条
+  const uCa = one([{ name: '赠送积分包', unit: 'credit', remaining: 17095.52, total: 17100, used: 4.48, active: true }])
+  const ca = uCa.windows[0]
+  ok(ca && ca.limit === 17100 && ca.amount === 17095.52,
+    `codearts 赠送积分包（无周期但有消耗）必须仍是配额，实际 limit=${JSON.stringify(ca?.limit)} amount=${JSON.stringify(ca?.amount)}`)
+  ok(ca && ca.used === 0, `17100 里只用了 4.48 ⇒ 已用 0%（四舍五入），实际 ${JSON.stringify(ca?.used)}`)
+
+  // 反例：有周期的配额（WorkBuddy Free Plan）即便 total==remaining、used=0 也必须画进度条
+  const uWb = one([{ name: 'Free Plan', unit: 'credits', remaining: 100, total: 100, used: 0, active: true,
+    cycleStartTime: '2026-11-01 00:00:00', cycleEndTime: '2026-11-30 23:59:59' }])
+  ok(uWb.windows[0]?.limit === 100 && uWb.windows[0]?.balance === undefined,
+    `有周期的 Free Plan（未使用）必须仍是配额，实际 limit=${JSON.stringify(uWb.windows[0]?.limit)}`)
+
+  // 每日积分桶：分母 = **当天首见额度**（用户 2026-11-09 定的口径）。
+  // 百智云每日发放额不固定：实测梨花 100、其余 4 个账号 200（上游
+  // `temporary_credit_cents: 19996`）。而 baizhi-credits 里
+  // `dailyTotal = max(100, temporary)` ⇒ 200 的账号分母==余额 ⇒ 永远 100%。
+  // 首次读到 199.96 时就以它为分母；后续消耗才算得出百分比。
+  // ⚠️ totalKnown:false 是关键：百智云发放额超过写死的 100 时，vendor 的
+  // `buildBaizhiBalance` 会标 totalKnown:false（dailyExcess 分支）—— 只有这种
+  // 「上游没给可信总额」的情况才走自采基线。给了真总额的每日桶（MonkeyCode
+  // 的 10000000）必须直接用上游值，见本文件后面的回归断言。
+  const uD1 = one([{ name: '每日积分', unit: 'credit', remaining: 199.96, total: 199.96, used: 0, totalKnown: false, active: true }])
+  ok(uD1.windows[0]?.limit === 199.96 && uD1.windows[0]?.amount === 199.96,
+    `每日积分首见 199.96 ⇒ 分母取 199.96（不能用写死的 100），实际 limit=${JSON.stringify(uD1.windows[0]?.limit)}`)
+
+  // 同一账号第二次读数：余额降到 150、上游 total 仍给 199.96 ⇒ 分母**必须还是 199.96**
+  // 且已用 = (199.96-150)/199.96 ≈ 25%，不能变成「150/150 剩余 100%」。
+  const uD2 = fn3.toMagpieUsage({
+    provider: 'x', accountId: 'a', nickname: 'n',
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 150, total: 150, used: 0, totalKnown: false, active: true }] },
+  }, 'x')
+  ok(uD2.windows[0]?.limit === 199.96,
+    `同账号第二次读数分母应保持首见值 199.96，实际 ${JSON.stringify(uD2.windows[0]?.limit)}`)
+  ok(uD2.windows[0]?.used === 25,
+    `已用应为 25%（(199.96-150)/199.96），实际 ${JSON.stringify(uD2.windows[0]?.used)}%`)
+
+  // 当天中途补发（余额超过首见值）⇒ 基线抬高，避免「已用为负」
+  const uD3 = fn3.toMagpieUsage({
+    provider: 'x', accountId: 'a', nickname: 'n',
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 260, total: 260, used: 0, totalKnown: false, active: true }] },
+  }, 'x')
+  ok(uD3.windows[0]?.limit === 260 && uD3.windows[0]?.used === 0,
+    `余额涨到 260 ⇒ 基线抬到 260 且已用 0，实际 limit=${JSON.stringify(uD3.windows[0]?.limit)} used=${JSON.stringify(uD3.windows[0]?.used)}`)
+
+  // 不同账号各有各的发放额：另一个账号首见 99.48 ⇒ 分母 99.48（不串号）
+  const uD4 = fn3.toMagpieUsage({
+    provider: 'x', accountId: 'other', nickname: 'n',
+    balance: { total: 0, packages: [{ name: '每日积分', unit: 'credit', remaining: 99.48, total: 100, used: 0.52, totalKnown: false, active: true }] },
+  }, 'x')
+  ok(uD4.windows[0]?.limit === 99.48,
+    `另一个账号首见 99.48 ⇒ 分母 99.48（基线按账号隔离），实际 ${JSON.stringify(uD4.windows[0]?.limit)}`)
+}
+
+// 回归：有真实总额的每日桶**不能**被自采基线覆盖；负余额要保留且不画进度条。
+//
+// 用户 2026-11-09 报「这都变成负数了，还不如之前的」—— 两处都是我先引入的：
+//  ① 第一版对**所有**每日桶采基线 ⇒ MonkeyCode「每日额度」（真总额 10000000、
+//     已用 439414）被写成基线 9560586（当时残值）⇒ `9560586 / 9560586 · 剩余 0%`，
+//     比修复前的 `9560586 / 10000000 · 剩余 4%` 更糟。
+//  ② 过滤 `total>0 || remaining>0` 把 MonkeyCode 欠费账号的
+//     `积分余额 total=-10.402` **整条丢掉** ⇒ 卡片上毫无欠费痕迹。
+{
+  console.log('')
+  const fs4 = await import('node:fs')
+  const src4 = fs4.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8').replace(/\r\n/g, String.fromCharCode(10))
+  const f4 = src4.indexOf('function writeCache(')
+  const fn4 = new Function(
+    'NAMES', 'humanizeUsageError', 'isDailyPool', 'dailyTotalOf',
+    'isWalletWindowPool', 'walletPeakOf', 'WALLET_WINDOW_POOLS',
+    src4.slice(src4.indexOf('function groupName('), f4) + String.fromCharCode(10) + 'return { toMagpieUsage }',
+  )(
+    { monkeycode: 'MonkeyCode' },
+    (x) => String(x),
+    (name) => ['每日积分', '每日赠送', '每日额度', '每日签到奖励'].includes(String(name ?? '').trim()),
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    // 白名单判定桩：与 src 的 isWalletWindowPool 同表（百智云「充值积分」）。
+    (p, name) => ({ baizhi: ['充值积分'] }[String(p ?? '')] ?? []).includes(String(name ?? '').trim()),
+    // 水位桩：与 src 的 walletPeakOf 同语义 —— 只抬不降。
+    (() => {
+      const base = new Map()
+      return (key, remaining) => {
+        if (!base.has(key) || remaining > base.get(key)) base.set(key, remaining)
+        return base.get(key)
+      }
+    })(),
+    { baizhi: ['充值积分'] },
+  )
+
+  // ① MonkeyCode 正常账号：每日额度有真总额 ⇒ 必须直接用 10000000
+  const mc = fn4.toMagpieUsage({
+    provider: 'monkeycode', accountId: 'mc1', nickname: 'n',
+    balance: { total: 146.341, packages: [
+      { name: '积分余额', unit: 'credit', remaining: 146.341, total: 146.341, used: 0, totalKnown: false, active: true },
+      { name: '每日额度', unit: 'token', remaining: 9560586, total: 10000000, used: 439414, active: true },
+    ] },
+  }, 'monkeycode')
+  const day = mc.windows.find((w) => String(w.name).startsWith('每日额度'))
+  ok(day && day.limit === 10000000,
+    `有真总额的每日额度必须用上游 10000000 当分母（不能被首见残值 9560586 覆盖），实际 ${JSON.stringify(day?.limit)}`)
+  ok(day && day.amount === 9560586 && day.used === 4,
+    `应显示 9560586 / 10000000 · 已用 4%，实际 amount=${JSON.stringify(day?.amount)} used=${JSON.stringify(day?.used)}`)
+
+  // ② MonkeyCode 欠费账号：负数包必须保留，且用 text 窗口（不画进度条）
+  const od = fn4.toMagpieUsage({
+    provider: 'monkeycode', accountId: 'mc2', nickname: 'n',
+    balance: { total: -10.402, packages: [
+      { name: '积分余额', unit: 'credit', remaining: -10.402, total: -10.402, used: 0, totalKnown: false, active: true },
+      { name: '每日额度', unit: 'token', remaining: 0, total: 10000000, used: 10000000, active: true },
+    ] },
+  }, 'monkeycode')
+  const owed = od.windows.find((w) => String(w.name).startsWith('积分余额'))
+  ok(owed !== undefined, '欠费账号的负数「积分余额」不能被过滤掉（否则卡片毫无欠费痕迹）')
+  ok(owed && typeof owed.text === 'string' && owed.text.includes('欠费'),
+    `负数包应给 text「已欠费 …」，实际 ${JSON.stringify(owed?.text)}`)
+  ok(owed && owed.limit === undefined && owed.used === undefined && owed.balance === undefined,
+    `负数包不得带 limit/used/balance（负值会让百分比失控），实际 limit=${JSON.stringify(owed?.limit)} used=${JSON.stringify(owed?.used)} balance=${JSON.stringify(owed?.balance)}`)
+  // 汇总 balance 行不铺负数（否则整家渠道看起来像坏了）
+  ok(od.balance === undefined,
+    `合计为负时不写 balance 行（交给各包自己报），实际 ${JSON.stringify(od.balance)}`)
+
+  // ③ 恰为 0/0 的空包仍必须被丢掉（astudio 的「会员积分」实测形状）
+  const empty = fn4.toMagpieUsage({
+    provider: 'astudio', accountId: 'a', nickname: 'n',
+    balance: { total: 7200, packages: [
+      { name: '会员积分', unit: 'credit', remaining: 0, total: 0, used: 0, active: true },
+      { name: '赠送积分', unit: 'credit', remaining: 7200, total: 7200, used: 0, active: true,
+        cycleStartTime: '2026-11-01 00:00:00', cycleEndTime: '2026-11-30 23:59:59' },
+    ] },
+  }, 'astudio')
+  ok(empty.windows.length === 1 && !empty.windows.some((w) => String(w.name).includes('会员积分')),
+    `0/0 空包仍必须丢弃（否则画出「0/0、可用 100%」），实际 ${JSON.stringify(empty.windows.map((w) => w.name))}`)
+}
+
+// MonkeyCode「近 30 天收入之和为总窗口」（用户 2026-11-09 口径）。
+//
+// 上游没有积分包概念：`/wallet/credits` 等包接口全 404，流水
+// `inout_type/kind/amount/amount_balance/amount_daily/remark/created_at`
+// 不含任何到期时间；`/wallet` 只给标量 balance（单位千分之一积分，可为负）。
+// 账目实测吻合：4 个负余额账号的 balance 与「30 天收入 − 30 天支出」逐位相等。
+//
+// 这里测**纯函数部分**（不联网）：把 withRollingIncomeWindow 的改写逻辑抽出来
+// 求值，覆盖「负余额按 0」「分母=30天收入」「拿不到收入不改写」三条。
+{
+  console.log('')
+  const fs5 = await import('node:fs')
+  const src5 = fs5.readFileSync(new URL('../src/plugin.mjs', import.meta.url), 'utf8').replace(/\r\n/g, String.fromCharCode(10))
+
+  // 从源码里截 withRollingIncomeWindow（它依赖 fmtNum，一并带上）
+  const iFn = src5.indexOf('async function withRollingIncomeWindow(')
+  ok(iFn > 0, '从 src/plugin.mjs 截到 withRollingIncomeWindow')
+  if (iFn > 0) {
+    const endFn = src5.indexOf('\n}\n', iFn)
+    const body = src5.slice(iFn, endFn + 3)
+    const iFmt = src5.indexOf('function fmtNum(')
+    const endFmt = src5.indexOf('\n}\n', iFmt)
+    const fmtBody = src5.slice(iFmt, endFmt + 3)
+    // 桩：credentialOfAccount 返回假凭据，monkeycodeIncome30d 返回指定收入
+    const make = (income) => new Function('fmtNum', 'MONKEYCODE_WINDOW_TTL_MS', 'monkeycodeWindowCache',
+      'credentialOfAccount', 'monkeycodeIncome30d',
+      fmtBody + String.fromCharCode(10) + body + String.fromCharCode(10) + 'return { withRollingIncomeWindow }',
+    )(
+      (n) => (Number.isInteger(n) ? String(n) : Number(n).toFixed(2)),
+      60_000,
+      new Map(),
+      async () => ({ session_cookie: 'x' }),
+      async () => income,
+    ).withRollingIncomeWindow
+
+    const mkBase = (unit, balance, text) => ({
+      plan: 'MonkeyCode',
+      windows: [
+        { name: '积分余额', unit, ...(balance === undefined ? {} : { balance }), ...(text === undefined ? {} : { text }) },
+        { name: '每日额度', unit: 'token', used: 0, display: '9560586 / 10000000 token', amount: 9560586, limit: 10000000 },
+      ],
+    })
+
+    // ① 负余额 ⇒ 剩余按 0，分母 700
+    const r1 = await make(700_000)(mkBase('credit', -16.616), 'monkeycode', {}, 'acc1', () => {})
+    const w1 = r1.windows.find((w) => w.name === '积分余额')
+    ok(w1 && w1.amount === 0, `负余额应显示 0（不是 -16.616），实际 ${JSON.stringify(w1?.amount)}`)
+    ok(w1 && w1.limit === 700, `分母应为 30 天收入 700，实际 ${JSON.stringify(w1?.limit)}`)
+    ok(w1 && w1.used === 100, `负余额 ⇒ 已用 100%，实际 ${JSON.stringify(w1?.used)}`)
+    ok(w1 && w1.display === '0.00 / 700.00 credit', `展示串应含 0 / 700，实际 ${JSON.stringify(w1?.display)}`)
+
+    // ② 正余额 ⇒ 正常算百分比
+    const r2 = await make(700_000)(mkBase('credit', 146.341), 'monkeycode', {}, 'acc2', () => {})
+    const w2 = r2.windows.find((w) => w.name === '积分余额')
+    ok(w2 && w2.amount === 146.341 && w2.limit === 700, `正余额应给 146.341/700，实际 ${JSON.stringify(w2?.amount)}/${JSON.stringify(w2?.limit)}`)
+    ok(w2 && w2.used === 79, `146.341/700 ⇒ 已用 79%，实际 ${JSON.stringify(w2?.used)}%`)
+
+    // ③ 每日额度（token）不能被改写 —— 它有上游真总额
+    const dayW = r2.windows.find((w) => w.name === '每日额度')
+    ok(dayW && dayW.limit === 10000000, `每日额度必须保持上游总额 10000000，实际 ${JSON.stringify(dayW?.limit)}`)
+
+    // ④ 拿不到收入 ⇒ 原样返回（退回钱包语义，不编分母）
+    const base4 = mkBase('credit', -16.616)
+    const r4 = await make(undefined)(base4, 'monkeycode', {}, 'acc4', () => {})
+    ok(r4 === base4, '拿不到 30 天收入时必须原样返回 base（不编造分母）')
+
+    // ⑤ 收入为 0 ⇒ 同样不改写（除以 0 会出 Infinity）
+    const r5 = await make(0)(base4, 'monkeycode', {}, 'acc5', () => {})
+    ok(r5 === base4, '收入为 0 时也不改写（避免除零）')
+
+    // ⑥ text 形态（负数走 text 窗口时的兜底解析）
+    const r6 = await make(700_000)(mkBase('credit', undefined, '已欠费 16.6 credit'), 'monkeycode', {}, 'acc6', () => {})
+    const w6 = r6.windows.find((w) => w.name === '积分余额')
+    ok(w6 && w6.amount === 0, `text 形态的负数也应解析成 0，实际 ${JSON.stringify(w6?.amount)}`)
   }
 }
 
