@@ -1077,16 +1077,19 @@ const KEY_ACCOUNT_RPC = new Map([
 const MAGICREW_CREATE_MODES = ['browser', 'local-browser']
 
 /**
- * **必须**带 `mode: 'browser'` 才会进自家分支的渠道：`monkeycode` / `monkeycodeintl`。
+ * **必须**带 `mode: 'browser'` 才会进自家分支的渠道：
+ * `monkeycode` / `monkeycodeintl` / `baizhi`。
  *
  * ⚠️⚠️ 这是一个**真缺陷**的修法（2026-11-11 真机踩到）。本体 `case 'account.create'`
- * 里 MonkeyCode 的分支条件写的是：
+ * 里这几家的分支条件都把 `mode` 当成**分支判据**而不是可选参数：
  *
  * ```js
+ * // vendor/lib/jet-hub-rpc.js:4345
  * if (monkeycodeProduct !== undefined && monkeycodeAuthOf !== undefined && req.mode === 'browser')
+ * // vendor/lib/jet-hub-rpc.js:4510
+ * if (provider === BAIZHI.id && req.mode === 'browser')
  * ```
  *
- * （`vendor/lib/jet-hub-rpc.js:4345`）—— `mode` 是**分支判据**而不是可选参数。
  * 而 `startNewAccountSmart()` 此前**只**给超级麦吉两站传 `mode`，其余一律裸传
  * `{ provider }`。
  *
@@ -1100,19 +1103,19 @@ const MAGICREW_CREATE_MODES = ['browser', 'local-browser']
  *    积分、签到失败、模型被按「额度耗尽」打冷却标签；
  * 4. ⇒ 用户看到的是「MonkeyCode 用不了 / 显示不出积分」，而根因是「加不了账号」。
  *
- * MonkeyCode 只有「开一次性独立 profile 的浏览器窗口让用户自己登」这一条路（与超级
+ * 这几家都只有「开一次性独立 profile 的浏览器窗口让用户自己登」这一条路（与超级
  * 麦吉的 `browser` 腿同型），没有 `local-browser` 那样的第二条腿可退，所以只传
  * `browser`、不重试别的 mode。
  *
- * ⚠️ 国际站（`monkeycodeintl`）在同一张表里：两站共用同一个 `handleMonkeycodeRpc`
- * 与同一段分支判据（`vendor/lib/jet-hub-rpc.js:4345` 对两个 product 都生效），漏一个
- * 就是国际站面板同样弹出 `unknown provider: monkeycodeintl`。
+ * ⚠️ 国际站（`monkeycodeintl`）与国内站共用同一段分支判据（`:4345` 对两个 product
+ * 都生效），漏一个就是国际站面板同样弹出 `unknown provider: monkeycodeintl`。
  *
- * ⚠️ `baizhi`（百智云）的 `account.create` 也有同样的 `req.mode === 'browser'` 判据
- * （`:4510`），但**本次刻意不动它** —— 用户只要求先修猴子云；百智云另有
- * `baizhi.startSession`（给已有账号补 cookie）可用，不在这次范围内。
+ * ⚠️ `baizhi`（百智云）在 2026-11-11 一并纳入：它 `account.create` 的判据与上面
+ * 逐字同型（`:4510`），不传 `mode` 就是 `unknown provider: baizhi` —— 面板上
+ * 「新建账号 → 百智云」同样是死路。纳入后不影响 `baizhi.startSession`（那是给
+ * **已有**账号补 cookie 的另一条入口，走自己的 RPC，与本表无关）。
  */
-const BROWSER_MODE_PROVIDERS = new Set(['monkeycode', 'monkeycodeintl'])
+const BROWSER_MODE_PROVIDERS = new Set(['monkeycode', 'monkeycodeintl', 'baizhi'])
 
 /** 轮询 `login.poll` 的间隔（本体登录流程最短也要一两秒，2 秒够用且不吵）。 */
 const LOGIN_POLL_MS = 2_000
@@ -1835,6 +1838,33 @@ function fmtNum(n) {
 }
 
 /**
+ * 按**量级**收敛：`token` 计的大数字压成 `9.93M` / `945.39K`，其余仍走 `fmtNum`。
+ *
+ * 为什么光有 `fmtNum` 不够：它只收敛小数位、不压缩量级，于是 Marvis 的
+ * 千万级令牌被逐位写全 —— 卡片上就是 `余额 9999976 token`（2026-11-11 用户
+ * 报障「我这里显示的不是1m而是每个数字都写出来了」）。位数差三个数量级，
+ * 一眼读不出这号还剩多少。
+ *
+ * ⚠️ **只对 `unit === 'token'` 生效**。积分（credit）实测都是两位数
+ * （`146.341` / `4584.44`），压成 `0.15K` 只会让读数更难核对。
+ *
+ * 阈值与 `vendor/lib/credits.js` 的 `formatTokenAmount`（进而与客户端
+ * `formatTokens`）一致：`>= 1e6` → M、`>= 1e3` → K、其余取整。唯一差别是
+ * **去掉末尾的 0**，沿用 `fmtNum` 那条卡片惯例（`10000000` → `10M` 而不是
+ * `10.00M`），跟同一行里的其余读数写法对齐。
+ */
+function fmtScaled(n, unit) {
+  const v = Number(n)
+  if (!Number.isFinite(v)) return String(n)
+  if (String(unit ?? '').trim() !== 'token') return fmtNum(v)
+  const abs = Math.abs(v)
+  const trim = (s) => s.replace(/\.?0+$/, '')
+  if (abs >= 1e6) return `${trim((v / 1e6).toFixed(2))}M`
+  if (abs >= 1e3) return `${trim((v / 1e3).toFixed(2))}K`
+  return String(Math.round(v))
+}
+
+/**
  * 把毫秒时间戳写成卡片一行放得下的日期（本地时区）。
  *
  * 平时只写 `10-30`；但**不是今年的必须带年份** —— 否则 `2034-12-28` 会显示成
@@ -2271,7 +2301,7 @@ function toMagpieUsage(reading, provider) {
         name: windowName(p),
         unit: u,
         // 「-10.4 credit」+ 说明，别写 left（负数说 left 读着是反的）
-        text: `已欠费 ${fmtNum(Math.abs(remaining))} ${u}`.trim(),
+        text: `已欠费 ${fmtScaled(Math.abs(remaining), u)} ${u}`.trim(),
       }
       if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
       return w
@@ -2298,7 +2328,7 @@ function toMagpieUsage(reading, provider) {
       // （`quotaNoShare(w)` 的 `w.balance != null` 分支）。
       const base = p.walletPeak
       w.used = Math.min(100, Math.max(0, Math.round(((base - remaining) / base) * 100)))
-      w.display = `${remaining} / ${base} ${p?.unit ?? ''}`.trim()
+      w.display = `${fmtScaled(remaining, p?.unit)} / ${fmtScaled(base, p?.unit)} ${p?.unit ?? ''}`.trim()
       w.amount = remaining
       w.limit = base
     } else if (wallet && !isDaily) {
@@ -2310,7 +2340,7 @@ function toMagpieUsage(reading, provider) {
       const base = p.dailyTotal
       const dayUsed = Math.max(0, Math.round((base - remaining) * 100) / 100)
       w.used = Math.min(100, Math.round((dayUsed / base) * 100))
-      w.display = `${remaining} / ${base} ${p?.unit ?? ''}`.trim()
+      w.display = `${fmtScaled(remaining, p?.unit)} / ${fmtScaled(base, p?.unit)} ${p?.unit ?? ''}`.trim()
       w.amount = remaining
       w.limit = base
     } else {
@@ -2319,7 +2349,7 @@ function toMagpieUsage(reading, provider) {
       //    自相矛盾的卡片（显示剩余 0、进度条却是满的）。
       w.used = total > 0 ? Math.round((used / total) * 100) : 0
       // display 是**剩余 / 总额**（magpie 自己的文案就是「剩余 x%」，这里对齐它）
-      w.display = `${remaining} / ${total} ${p?.unit ?? ''}`.trim()
+      w.display = `${fmtScaled(remaining, p?.unit)} / ${fmtScaled(total, p?.unit)} ${p?.unit ?? ''}`.trim()
       w.amount = remaining
       w.limit = total
     }
@@ -2368,7 +2398,7 @@ function toMagpieUsage(reading, provider) {
    * `credit`、合计却是 token 计的数字，旧码因此显示成「146.34 token」）。
    * 合计为 0/负时干脆不写 balance，交给 windows 各行自己带单位。
    */
-  const balanceText = total > 0 ? `${fmtNum(total)} ${unit}`.trim() : ''
+  const balanceText = total > 0 ? `${fmtScaled(total, unit)} ${unit}`.trim() : ''
   /**
    * 合计行也带分母（用户 m01511 选的「总额度 + 充值积分 都加」）。
    *
@@ -3334,6 +3364,36 @@ async function marvisFinishSignIn({ container, log, plan, loginType, pasted }) {
   )
   log?.(`[marvis] 授权码已兑换成凭据（${loginType === '2' ? '微信' : 'QQ'}，openid ${String(credential.openid).slice(0, 8)}…）`)
 
+  /**
+   * 补昵称（2026-11-11 真机报障）：本腿走的是 `mode: 'code'`，不是 vendor 的
+   * `loginViaBrowser()` —— 后者在兑换之后还会做「资料接口 + openid 前 8 位」两级
+   * 兜底（`marvis-auth.js:382-392`），而 `exchangeCode()` **只**带出回调 cookie 里的
+   * `nickname`。cookie 没给时 `marvisAccountLabel(undefined,'1')` 退化成字面量
+   * `"QQ"`（`marvis.js:269`）⇒ 面板上一排账号全叫「QQ」，无法区分。
+   *
+   * ⚠️ **必须在这里补，不能指望别处回填**：全仓 `pool.updateAccount({nickname})`
+   *    只在建号 / 判重合并时写一次，续期（`refreshAccountCredential`）只更新
+   *    `access_token` / `expiresAt` ⇒ 昵称在**建号那一刻**定型，之后永远是它。
+   *
+   * ⚠️ `fetchUserProfile` **失败返回空对象、绝不抛**（vendor 的纪律），但这里仍
+   *    再包一层 `.catch(() => ({}))`：容器里拿到的 `marvisAuth` 是宿主注入的实例，
+   *    不能假设它一定是 vendor 那个实现（缺方法时 `undefined is not a function`
+   *    会挡掉整个登录）。昵称只是展示名，取不到不该挡登录。
+   *
+   * ⚠️ 兜底顺序与 vendor 同一条纪律：资料接口 → cookie → **openid 前 8 位**。
+   *    最后那一级不能省 —— 它就是为「多个 QQ 账号无法区分」而写的。
+   */
+  const profile = typeof auth.fetchUserProfile === 'function'
+    ? await auth.fetchUserProfile(credential).catch(() => ({}))
+    : {}
+  const nickname = (() => {
+    if (typeof profile?.nickname === 'string' && profile.nickname.trim() !== '') return profile.nickname.trim()
+    if (typeof credential.nickname === 'string' && credential.nickname.trim() !== '') return credential.nickname.trim()
+    if (typeof credential.openid === 'string' && credential.openid !== '') return credential.openid.slice(0, 8)
+    return undefined
+  })()
+  log?.(`[marvis] 昵称：${nickname === undefined ? '（上游未提供，卡片将显示平台名）' : nickname}`)
+
   // 形状必须与 `importCredentialFromMagpie()` 逐字对上：`access`/`refresh` 为非空
   // 字符串、`metadata.openid` + `metadata.guid` 必填、`loginType` 是 `'1'`/`'2'`、
   // `expires` 是**数字**（vendor 只认 number，字符串会被当成「没有有效期」丢掉）。
@@ -3345,7 +3405,7 @@ async function marvisFinishSignIn({ container, log, plan, loginType, pasted }) {
       openid: credential.openid,
       guid: credential.guid ?? plan.guid,
       loginType: credential.login_type ?? loginType,
-      ...(typeof credential.nickname === 'string' ? { nickname: credential.nickname } : {}),
+      ...(nickname === undefined ? {} : { nickname }),
     },
     ...(Number.isFinite(expires) ? { expires } : {}),
   }
