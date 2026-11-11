@@ -1972,6 +1972,18 @@ function monkeycodeBaseUrl(provider) {
   return provider === 'monkeycodeintl' ? 'https://monkeycode-ai.net' : 'https://monkeycode-ai.com'
 }
 
+/**
+ * 取该渠道的**产品常量**（`MONKEYCODE` / `MONKEYCODE_INTL`）。
+ *
+ * ⚠️ 必须按渠道给对：两个站的 `platformBaseUrl` / `apiKeysPath` 都不同 ——
+ * 拿错一个就是「国内站登录态打到国际站恒 401」。兑换 Key、读资料、读钱包
+ * 都吃这个对象，所以只在建号入口处取一次往下传。
+ */
+async function monkeycodeProductOf(provider) {
+  const { MONKEYCODE, MONKEYCODE_INTL } = await import('../vendor/lib/monkeycode-product.js')
+  return provider === 'monkeycodeintl' ? MONKEYCODE_INTL : MONKEYCODE
+}
+
 /** 从凭据对象里取会话 cookie（与 vendor 的归一化规则同源）。 */
 async function monkeycodeCookieOf(credential) {
   if (credential === null || typeof credential !== 'object') return undefined
@@ -3344,14 +3356,16 @@ function monkeycodePasteMethod(dshProvider, container, log) {
      */
     async authorize() {
       return {
-        // ⚠️ 不写具体子路径：平台的「OhMyAgent」页不是独立路由（实测 `/ohmyagent`
-        // 之类一律回 200，那是 SPA 的 catch-all 吐同一个壳，不是真页面）。
-        // 给站根最稳，路径由 instructions 里的文字指路。
+        // ⚠️ 不写「OhMyAgent」之类子路径：那不是独立路由（实测一律回 200，是
+        // SPA 的 catch-all 吐同一个壳）。给站根最稳 —— 用户登录完自然停在 console。
         url: base,
-        instructions: `在打开的 ${name} 页面里登录，然后进入「OhMyAgent」页面，复制两样东西粘到下面：`
-          + '① API Key（oma_ 开头）'
-          + '；② 同一页面给的 signing_secret（48 位）。'
-          + '先 Key 后 secret，用空格或换行隔开都行；只粘 Key 也能建号，只是查不到积分。',
+        instructions: `在打开的 ${name} 页面里登录。登录完成后，把这个账号的网页登录态粘到下面，`
+          + '插件会自己换出网关 Key（不用你去找 Key）：'
+          + '① 按 F12 打开开发者工具 → Application（应用）→ Cookies → 选中该站点，'
+          + '找到 monkeycode_ai_session 那一行，双击它的 Value 复制；'
+          + '② 或者从开发者工具的 Network 里任意一条请求把整条 Cookie 复制过来，也认。'
+          + '手里已经有 oma_ 开头的 API Key 时，也可以直接粘 Key（可与 signing_secret 用空格隔开），'
+          + '但只有 Key 读不到积分。',
         method: 'code',
         callback: (pasted) => monkeycodeFinishPaste({
           container, log, dshProvider, pasted: monkeycodeTextOf(pasted),
@@ -3362,36 +3376,90 @@ function monkeycodePasteMethod(dshProvider, container, log) {
 }
 
 /**
- * 把用户粘回来的文本拆成 `{ apiKey, signingSecret }`，再交给本体的 `addAccount`。
+ * 收下用户粘回来的内容，落成一个 MonkeyCode 账号。
  *
- * 认这几种写法（都是从官网那页复制出来的自然形态）：
+ * ## 两种粘贴形态，一条路径
+ *
+ * 用户可能粘的是**网页登录态**（`monkeycode_ai_session=…`，或整条 Cookie 头），
+ * 也可能已经自己拿到了**网关 Key**（`oma_…`，可带 `signing_secret`）。前者的
+ * 处理更好，所以优先按 Cookie 认：
  *
  * ```
- *   oma_abcdefghijklmnop  3f9c…（48 位）
- *   oma_abcdefghijklmnop
- *   3f9c…（48 位）
- *   API Key: oma_abcdefghijklmnop
- *   signing_secret: 3f9c…
+ *   粘的是 cookie  → POST /api/v1/users/api-keys 兑换出 oma_… + signing_secret
+ *                    （`exchangeMonkeycodeSessionForKey`，body {}、Cookie 认证），
+ *                    同时把 cookie 一起落进凭据 ⇒ 积分/额度/签到全都读得出来
+ *   粘的是 Key     → 直接建号（能发消息，但查不到积分，面板「改 Key」可后补 cookie）
  * ```
  *
- * ⚠️ **不能靠「长度」硬猜**：`signing_secret` 是 48 位、`oma_…` 的 Key 也可能很长，
- * 两者长度区间重叠。所以按**前缀**认 Key（`oma_` 或 `sk-`，与本体
- * `monkeycode-rpc.js` 的错误文案「请粘贴 oma_ 开头的 Key」一致），剩下那段当 secret。
+ * ## 为什么优先走 cookie 兑换，而不是让用户自己去抄 Key
+ *
+ * ① 用户手上通常只有登录态，没有 Key —— 「OhMyAgent」页要自己找，而 console
+ *    里随手一开 F12 就有 cookie；
+ * ② **只有 cookie 才读得到积分**：平台的 `/api/v1/users/*` 一律只认网页登录态，
+ *    带 API Key 会 401（`monkeycode-credits.js` 模块头写得很清楚）。让用户抄
+ *    Key 等于亲手把「面板显示不了积分」这个原始痛点留在了原地；
+ * ③ 兑换是平台自己的接口，Key 由平台签发，用户不用理解 `signing_secret` 是什么。
+ *
+ * ⚠️ 兑换**每次签发新的一对**（上游无幂等键），只在建号时调一次 ——
+ * 不要在续期里反复调，那会在用户账号下堆一长串 key。
  */
 async function monkeycodeFinishPaste({ container, log, dshProvider, pasted }) {
   const raw = String(pasted ?? '').trim()
   if (raw === '') {
-    throw new Error('没收到任何内容：请把官网那页的 API Key（oma_ 开头）粘到框里')
+    throw new Error('没收到任何内容：请把网页登录态（monkeycode_ai_session 的值）或 API Key 粘到框里')
   }
-  const { apiKey, signingSecret } = monkeycodePastedPairOf(raw)
-  if (apiKey === '') {
-    throw new Error(
-      '没在这段文本里找到 API Key：它应该以 oma_（或 sk-）开头。'
-        + '请到官网「OhMyAgent」页面复制「API Key」那一行',
-    )
+
+  const product = await monkeycodeProductOf(dshProvider)
+  // 先看是不是 Key：`oma_` / `sk-` 前缀很显眼，粘 Key 的人不会被当成 cookie。
+  const byKey = monkeycodePastedPairOf(raw)
+  let apiKey = byKey.apiKey
+  let signingSecret = byKey.signingSecret
+  let sessionCookie = ''
+
+  if (apiKey === '' || !/^(oma_|sk-)/i.test(apiKey)) {
+    // 当登录态处理。`normalizeSessionCookie` 认整条 Cookie 头，也认裸的 cookie 值
+    // （缺名字时补 `monkeycode_ai_session=`）。
+    const { normalizeSessionCookie } = await import('../vendor/lib/session-cookie.js')
+    const { MONKEYCODE_SESSION_COOKIE_NAME } = await import('../vendor/lib/monkeycode-browser-login.js')
+    const normalized = normalizeSessionCookie(raw, [MONKEYCODE_SESSION_COOKIE_NAME], MONKEYCODE_SESSION_COOKIE_NAME)
+    if (normalized === undefined) {
+      throw new Error(
+        '这段内容既不像 API Key（oma_ 开头），也不像网页登录态。'
+          + '请到站内按 F12 → Application → Cookies 复制 monkeycode_ai_session 的值，'
+          + '或直接粘贴整条 Cookie。',
+      )
+    }
+    const { exchangeMonkeycodeSessionForKey } = await import('../vendor/lib/monkeycode-credits.js')
+    log?.(`[${dshProvider}] 收到网页登录态，正在向平台兑换网关 Key…`)
+    const issued = await exchangeMonkeycodeSessionForKey(normalized, {}, product)
+    if (issued.ok !== true) {
+      // 兑换失败最常见的原因就是会话过期 —— 把平台原话带上，别自己编。
+      throw new Error(
+        `换取网关 Key 失败：${issued.error}。`
+          + '如果是登录态过期，请在浏览器里重新登录后再复制一次 cookie。',
+      )
+    }
+    apiKey = issued.key.apiKey
+    signingSecret = issued.key.signingSecret
+    sessionCookie = normalized
+    log?.(`[${dshProvider}] 平台已签发网关 Key（尾 4 位 ${apiKey.slice(-4)}）`
+      + (issued.key.keyId === undefined ? '' : `，记录 id ${issued.key.keyId}`))
+  } else {
+    log?.(`[${dshProvider}] 收到粘贴的 API Key（尾 4 位 ${apiKey.slice(-4)}）`
+      + (signingSecret === '' ? '，没有 signing_secret' : '，含 signing_secret'))
   }
-  log?.(`[${dshProvider}] 收到粘贴的 Key（尾 4 位 ${apiKey.slice(-4)}）`
-    + (signingSecret === '' ? '，没有 signing_secret' : '，含 signing_secret'))
+
+  // 昵称：优先问平台（登录态在手就能读），读不到再用粘贴里显式写的，
+  // 都没有就交给本体自己的 `accountLabel()` 兜底。
+  let nickname = nicknameOfPaste(raw)
+  const { fetchMonkeycodeProfile } = await import('../vendor/lib/monkeycode-credits.js')
+  const cookieForProfile = sessionCookie === '' ? undefined : sessionCookie
+  if (cookieForProfile !== undefined) {
+    const profile = await fetchMonkeycodeProfile(cookieForProfile, product, {}).catch(() => undefined)
+    if (typeof profile?.nickname === 'string' && profile.nickname.trim() !== '') {
+      nickname = profile.nickname.trim()
+    }
+  }
 
   // 建号是一次本地写盘，但容器可能还没起（冷启动 20–30 秒）——
   // 与 `KEY_ACCOUNT_RPC` 那条同预算（magpie 给 code 型 callback 2 分钟）。
@@ -3402,7 +3470,8 @@ async function monkeycodeFinishPaste({ container, log, dshProvider, pasted }) {
     {
       apiKey,
       ...(signingSecret === '' ? {} : { signingSecret }),
-      ...(nicknameOfPaste(raw) === undefined ? {} : { nickname: nicknameOfPaste(raw) }),
+      ...(nickname === undefined ? {} : { nickname }),
+      ...(sessionCookie === '' ? {} : { sessionCookie }),
     },
     CREATE_TIMEOUT_MS,
     `新建 ${dshProvider} 账号`,
