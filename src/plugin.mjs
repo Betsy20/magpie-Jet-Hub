@@ -3614,6 +3614,18 @@ function marvisOauthMethod(dshProvider, container, log) {
   return {
     type: 'oauth',
     label: `扫码新建一个 ${name} 账号（QQ / 微信）`,
+    /**
+     * 只为让宿主把 `inputs` 递给 `authorize()` 而声明，真正的问题由下面的
+     * `ask()` 出（宿主 `nextPrompt()` 先看 `ask`，有就直接返回，不会走到这里）。
+     *
+     * 宿主调 `authorize` 是这么写的：
+     *   m.authorize(m.prompts?.length ? inputs ?? {} : undefined, { signal })
+     * —— 只有声明了 `prompts` 的方法才拿得到 inputs。本方法问的是 `ask()`，
+     * 早先没有 `prompts` ⇒ 宿主递 `undefined` ⇒ `authorize` 里
+     * `inputs?.marvis_login_type === '2'` 恒假 ⇒ 面板上点「微信扫码」也落 QQ
+     * （2026-11-11 真机报障：两个按钮都是 QQ 登录页）。
+     */
+    prompts: [{ type: 'select', key: 'marvis_login_type', message: '登录方式', options: [] }],
     async ask(inputs = {}) {
       // 唯一一问：登录方式。两条腿的凭据不通用（login_type 不同、续期端点不认
       // 另一边的 refresh），必须让用户当场挑 —— 这就是面板上的「选择登录方式」屏。
