@@ -76,6 +76,16 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 除这 10 个文件之外，本仓库对上游代码**没有其它改动**。
 
+> **2026-11-11 追加的第 11 处**：`lib/baizhi-rpc.js` 与 `.d.ts` 新增 `baizhi.setSession`
+> —— 与 `monkeycode.setSession` 逐条同型，只把控制台网页登录态（`sl-session` +
+> `baizhi_session`）写进凭据的 `session_cookie`，**不碰账号条目**。
+> 上游只有 `addAccount` / `setApiKey`（都要人手工抄 `sk-`），而积分 / 签到**只认 cookie**
+> （拿 Key 打 `/api/v1/user/*` 恒 401），浏览器登录又必须在**可见**窗口里真人操作
+> ⇒ 装在服务器上时「贴 Key 能建号、但积分永远读不出来」。语义照抄 monkeycode：
+> 字段缺失 = 只读不写（回报 `hasSession`）、传空串 = 清除会话；写入是**合并**
+> （`{...previous}` 再覆盖 `session_cookie`），丢了 `access_token` 账号就再也发不出消息。
+> ⇒ 逐字节一致基线从 **1160/1170** 变成 **1158/1170**（`.js` 与 `.d.ts` 各少一个）。
+
 > **已退役的一条**：本表原有一条「`lib/jet-hub-rpc.js` 的 `product.id` 判空守卫」。
 > 2026-11-04 同步到 `fddb875` 时上游自己修了（`1b03f33 fix(jet-hub): product 恒为
 > undefined，凭据未配置时抛 TypeError（15 家共用）`，两处都改成

@@ -2882,6 +2882,12 @@ export function makePlugin(dshProvider) {
               // 改成「打开官网 + 粘贴 Key」：只要用户手里有 Key，任何机器都能加号。
               : MONKEYCODE_PROVIDERS.has(dshProvider)
                 ? [monkeycodePasteMethod(dshProvider, container, log)]
+              // 百智云同理，且**比 MonkeyCode 更需要这条路**：浏览器登录要开一个可见
+              // 窗口读控制台 cookie（`baizhi-browser-login.js` 文件头），服务器上跑
+              // 不起来；而积分/签到只认那两枚 cookie，只贴 `sk-` 的账号「能发消息
+              // 但看不到积分」—— 正是用户最早报的那个毛病。
+              : dshProvider === 'baizhi'
+                ? [baizhiPasteMethod(dshProvider, container, log)]
               : [{
               type: 'oauth',
               label: `在浏览器里新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`,
@@ -3579,6 +3585,251 @@ function monkeycodePastedPairOf(raw) {
 function nicknameOfPaste(raw) {
   const m = /(?:nickname|昵称)\s*[:：=]\s*([^\s,，;；]{1,32})/iu.exec(String(raw ?? ''))
   return m === null ? undefined : m[1]
+}
+
+/**
+ * 百智云的新建方法：**打开官网 + 粘贴网页登录态 / API Key**，与 MonkeyCode 同款。
+ *
+ * ## 为什么不能像 CodeArts / Gemini 那样「开个链接就好」
+ *
+ * 百智云控制台是 **Cookie 鉴权**（`/api/v1/user/profile`、`/wallet/balance`
+ * 匿名一律 401），登录后地址栏停在 console 路由上、不带任何凭据 —— 粘 URL
+ * 拿不到任何东西（这一点与 MonkeyCode 完全相同，见那边的注释）。
+ *
+ * 而插件自带的浏览器登录（`baizhi-browser-login.js`）要 spawn 一个**可见**的
+ * Chromium 窗口、真人坐在 magpie 所在机器前操作 —— 装在服务器上永远走不通
+ * （2026-11-11 hcss8141 真机报的就是「找不到可用的浏览器」）。
+ *
+ * ⇒ 唯一能在服务器上跑通的形态，就是让用户在自己的浏览器里登录、把登录态粘回来。
+ *
+ * ## ⚠️ 百智云比 MonkeyCode 多一个坑：要**两枚** cookie
+ *
+ * 控制台同时下发 `sl-session`（设备/风控会话）与 `baizhi_session`（登录会话），
+ * 实测**两枚都要带上**才能通过（只带 `baizhi_session` 时 `/api/v1/user/profile`
+ * 会 401）。所以粘贴提示特意写了「两条都要复制」，并且归一化时认这两个名字。
+ *
+ * 只粘一条也能建号（用户手上要是有 `sk-` Key 也一样），只是积分读不出来 ——
+ * 面板上会显示「未登录」，用户再点一次「改 Key」补上即可。
+ */
+function baizhiPasteMethod(dshProvider, container, log) {
+  const name = NAMES[dshProvider] ?? dshProvider
+  return {
+    type: 'oauth',
+    label: `打开 ${name} 官网，粘贴网页登录态建号`,
+
+    async authorize() {
+      return {
+        url: 'https://baizhi.cloud',
+        instructions: `在打开的 ${name} 页面里登录。登录完成后，把这个账号的网页登录态粘到下面，`
+          + '插件会自己去控制台换出 `sk-` 密钥（不用你手工找 Key）：'
+          + '① 按 F12 打开开发者工具 → Application（应用）→ Cookies → 选中 baizhi.cloud，'
+          + '把 sl-session 和 baizhi_session 这两条的 Value 都复制下来（两条都要，缺一条读不到积分）；'
+          + '② 或者从开发者工具的 Network 里任意一条请求把整条 Cookie 复制过来，也认。'
+          + '手里已经有 sk- 开头的模型 Key 时，直接粘 Key 也可以（能发消息，但查不到积分）。',
+        method: 'code',
+        callback: (pasted) => baizhiFinishPaste({
+          container, log, dshProvider, pasted: monkeycodeTextOf(pasted),
+        }),
+      }
+    },
+  }
+}
+
+/**
+ * 收下用户粘回来的内容，落成一个百智云账号。
+ *
+ * ## 两条腿，一次粘贴
+ *
+ * ```
+ *   粘的是 cookie  → GET ai-models.app.baizhi.cloud/api/console/api-keys（cookie 认证）
+ *                    取第一把 status === 'active' 的 sk-…（`exchangeBaizhiSessionForKey`）
+ *                    再 `baizhi.setSession` 把 cookie 一起落进凭据 ⇒ 积分/签到读得出来
+ *   粘的是 sk- Key → 直接建号（能发消息，查不到积分）
+ * ```
+ *
+ * ## 为什么一定要把 cookie 也存下来
+ *
+ * 百智云是**两套凭据**：`sk-` 走 `x-api-key` 打模型网关；积分 / 签到只认控制台
+ * cookie，拿 Key 打 `/api/v1/user/*` 一律 401。只存 Key 的账号「能发消息但看不到
+ * 积分」—— 那正是用户最初报的毛病，不能又亲手造回来。
+ *
+ * ⚠️ 控制台「API Keys」页自己签发的 `bzy_` 前缀 Key（15 位）打不通模型网关，
+ * 实测恒 401「API Key 无效」；能用的只有大模型商店 `api/console/api-keys` 下发的
+ * `sk-…`（67 位）。`exchangeBaizhiSessionForKey` 已经做了前缀与状态过滤。
+ */
+/**
+ * 把用户粘回来的百智云登录态整理成一条 `Cookie` 头（**纯函数**，便于单测）。
+ *
+ * ## 为什么要区分「带名字」与「裸值」
+ *
+ * 用户从 F12 的 Cookies 表格里复制时，最常见的动作是**选两行、复制 Value 列**，
+ * 拿到的是两个裸值 `AAA BBB`。如果一律 `join('; ')` ⇒ `AAA; BBB`，平台会把它们
+ * 当成两条**没有名字**的 cookie 直接忽略 ⇒ 恒 401，而用户完全看不出哪里错。
+ * （`session-cookie.js` 的 `normalizeSessionCookie` 只给**单条**裸值补名字，
+ * 多条不管 —— 它没法猜哪条是哪个名字。）
+ *
+ * ⇒ 全裸值时按**位置**补名字，顺序取控制台实际下发顺序：`sl-session` 在前、
+ * `baizhi_session` 在后（`baizhi-browser-login.js` 文件头的实测记录）。只有一条
+ * 时补 `baizhi_session` —— 那才是登录会话本身（`sl-session` 是设备/风控会话）。
+ *
+ * 混着来的（一条带名字、一条裸值）只信带名字的那条：裸值分不清名字，猜错会
+ * 把风控会话当登录会话发出去，同样是静默 401。
+ */
+function baizhiPastedCookieOf(raw) {
+  const parts = String(raw ?? '')
+    .split(/[\s,，、;；\n]+/u)
+    .map((t) => t.trim())
+    .filter((t) => t !== '')
+  if (parts.length === 0) return ''
+  const named = parts.filter((t) => t.includes('='))
+  if (named.length === parts.length) return parts.join('; ')
+  if (named.length > 0) return named.join('; ')
+  const slName = 'sl-session'
+  const bsName = 'baizhi_session'
+  return parts
+    .slice(0, 2)
+    .map((v, i) => (i === 0 && parts.length >= 2 ? `${slName}=${v}` : `${bsName}=${v}`))
+    .join('; ')
+}
+
+async function baizhiFinishPaste({ container, log, dshProvider, pasted }) {
+  const raw = String(pasted ?? '').trim()
+  if (raw === '') {
+    throw new Error('没收到任何内容：请把百智云的网页登录态（sl-session + baizhi_session）或 sk- 开头的 Key 粘到框里')
+  }
+
+  const {
+    exchangeBaizhiSessionForKey, fetchBaizhiProfile,
+    BAIZHI_SESSION_COOKIE_NAME, BAIZHI_SL_SESSION_COOKIE_NAME,
+  } = await import('../vendor/lib/baizhi-credits.js')
+  const { normalizeSessionCookie } = await import('../vendor/lib/session-cookie.js')
+
+  /**
+   * 先判 Key：`sk-` 前缀很显眼，粘 Key 的人不该被当成 cookie 去兑换。
+   *
+   * ⚠️ 不用 `baizhiPastedKeyOf()` 之类「取第一段长 token」的猜法：cookie 值本身
+   * 就是长 token，猜错会把 cookie 当 Key 写进凭据 ⇒ 之后每次推理 401，而用户
+   * 只看到一句英文报错。这里只认**显式前缀**。
+   */
+  let apiKey = ''
+  let sessionCookie = ''
+
+  if (/^sk-[A-Za-z0-9_-]{16,}$/u.test(raw)) {
+    apiKey = raw
+    log?.(`[${dshProvider}] 收到粘贴的 API Key（尾 4 位 ${apiKey.slice(-4)}），`
+      + '没有网页登录态 ⇒ 能发消息，但读不到积分')
+  } else {
+    // 当登录态处理：认整条 Cookie 头，也认裸值（两条各自粘、中间用空格/分号隔开都行）。
+    const joined = baizhiPastedCookieOf(raw)
+    const normalized = normalizeSessionCookie(
+      joined,
+      [BAIZHI_SESSION_COOKIE_NAME, BAIZHI_SL_SESSION_COOKIE_NAME],
+      BAIZHI_SESSION_COOKIE_NAME,
+    )
+    if (normalized === undefined) {
+      throw new Error(
+        '这段内容既不像 API Key（sk- 开头），也不像网页登录态。'
+          + '请到 baizhi.cloud 按 F12 → Application → Cookies 复制 sl-session 与 '
+          + 'baizhi_session 两条的 Value，或直接粘贴整条 Cookie。',
+      )
+    }
+    sessionCookie = normalized
+    log?.(`[${dshProvider}] 收到网页登录态，正在向控制台换取 sk- 密钥…`)
+    const issued = await exchangeBaizhiSessionForKey(normalized, undefined, {})
+    if (issued.ok !== true) {
+      // 兑换失败最常见的原因是「登录态还没生效」或「账号下还没有 Key」——
+      // 把平台原话带上，别自己编。
+      throw new Error(
+        `换取 sk- 密钥失败：${issued.error}。`
+          + '如果是登录态过期，请在浏览器里重新登录后再复制一次 cookie。',
+      )
+    }
+    apiKey = issued.key.apiKey
+    log?.(`[${dshProvider}] 控制台密钥已取到（尾 4 位 ${apiKey.slice(-4)}`
+      + (issued.key.keyName === undefined ? '' : `，名称 ${issued.key.keyName}`) + '）')
+  }
+
+  /**
+   * 昵称：登录态在手就问控制台（`GET /api/v1/user/profile` 的 `name`），
+   * 问不到再退回粘贴里显式写的，都没有就交给本体的 `defaultNickname()`（Key 尾 6 位）。
+   */
+  let nickname = nicknameOfPaste(raw)
+  if (sessionCookie !== '') {
+    const profile = await fetchBaizhiProfile(sessionCookie).catch(() => undefined)
+    if (profile?.ok === true && typeof profile.name === 'string' && profile.name.trim() !== '') {
+      nickname = profile.name.trim()
+    }
+  }
+
+  // 建号是一次本地写盘，但容器可能还没起（冷启动 20–30 秒）——
+  // 与 `KEY_ACCOUNT_RPC` 那条同预算（magpie 给 code 型 callback 2 分钟）。
+  await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+  const v = await withRpcDeadline(
+    container,
+    `${dshProvider}.addAccount`,
+    { apiKey, ...(nickname === undefined ? {} : { nickname }) },
+    CREATE_TIMEOUT_MS,
+    `新建 ${dshProvider} 账号`,
+  )
+  const accountId = String(v?.accountId ?? '').trim()
+  if (accountId === '') {
+    throw new Error(`本体没有返回账号 id（${dshProvider}.addAccount 回：${JSON.stringify(v)}）`)
+  }
+
+  /**
+   * ⚠️ **补登录态这一步失败不能把建号判成失败**：账号已经建好了（凭据里已有
+   * 可用的 `sk-`），此时抛错会让用户以为「什么都没成」，而面板上其实已经多出
+   * 一张能发消息的卡。只记日志，用户随时可以再点「补登录态」。
+   */
+  let sessionLanded = false
+  if (sessionCookie !== '') {
+    try {
+      const saved = await withRpcDeadline(
+        container,
+        `${dshProvider}.setSession`,
+        { accountId, sessionCookie },
+        CREATE_TIMEOUT_MS,
+        `补 ${dshProvider} 网页登录态`,
+      )
+      sessionLanded = saved?.hasSession === true
+    } catch (error) {
+      log?.(`[${dshProvider}] 账号已建好，但补登录态失败：`
+        + `${error instanceof Error ? error.message : String(error)}（可稍后点「改 Key」再补）`)
+    }
+  }
+
+  // 新建的号还没进 `account.list` 的 15 秒缓存，不然后面用量卡会拿旧列表。
+  accountsCache.delete(dshProvider)
+
+  try {
+    await withDeadline(
+      (async () => {
+        await liveAll(container, log)
+        fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+        writeCache(log)
+      })(),
+      START_TIMEOUT_MS,
+      '建号后刷新目录',
+    )
+  } catch { /* 目录拉不到不影响建号 */ }
+
+  const hit = await accountById(container, dshProvider, accountId, log)
+  const landed = await landedAccountOf(container, dshProvider, accountId, hit, log)
+  const signedId = landed.id
+  let wide = 0
+  try {
+    wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
+  } catch { /* 缓存没读到就当 0 */ }
+
+  return {
+    type: 'success',
+    key: `jet-hub-local:${dshProvider}/${signedId}`,
+    accountId: `${accountLabel(landed.hit ?? { id: signedId })}·已新建`
+      + (wide > 0 ? `·上游 ${wide} 个模型` : '')
+      + (sessionLanded ? '' : '·未读到登录态（积分不可见）'),
+    uid: signedId,
+    metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: signedId },
+  }
 }
 
 /**
