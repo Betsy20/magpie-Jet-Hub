@@ -7,18 +7,21 @@
 > 代码层已经补上两道守卫；**换 key 与清史必须人工执行**（动线上配置和 force-push，
 > 不适合无人值守自动做）。本文件只给可照抄的命令。
 
-## 0. 先说结论（2026-11-12 实测）
+## 0. 先说结论
 
-| 结论 | 证据 |
-|---|---|
-| 泄露的**面板 key 现在仍然有效** | 带 key 请求 `https://<实例>:3430/?k=<key>` → **303** + 下发会话 cookie；不带 / 伪造 → **401** |
-| 但它**不是**「未来会被利用」的风险，而是**现在可被登录** | 同一个 key 在**两个实例**上都返回 303（两机共用一把 key） |
-| 上游 main **没有被明文 key 污染** | PR #31 合入的版本已经在源码里改成环境变量注入；上游只有 1 笔相关提交 |
-| 但 fork main **至今明文暴露** | `raw.githubusercontent.com` 匿名 200，文件里是 18 位明文 key + IP + root |
-| 私钥**本体**从未进仓库 | `git log -S 'BEGIN OPENSSH PRIVATE KEY'` = 0 |
+| 结论 | 证据 | 状态 |
+|---|---|---|
+| 泄露的面板 key **曾经仍然有效** | 带 key 请求 `https://<实例>:3430/?k=<key>` → **303** + 会话 cookie；不带 / 伪造 → **401** | ✅ **已轮换**（2026-11-13，两台均 401） |
+| 它**不是**「未来会被利用」的风险，而是**当时可被登录** | 同一把 key 在**两个实例**上都返回 303（两机共用一把） | ✅ 已消除 |
+| 会话 cookie **就是 key 本身** | cookie 值与 key 逐字符相同；故换 key 会同时作废所有旧会话 | ✅ 已利用这一点 |
+| magpie **启动时把 key 明文写进日志** | `magpie.log` 启动横幅：`…/?k=<key>`，两台日志各有几十行 | ✅ 已清洗 |
+| 上游 main **没有被明文 key 污染** | PR #31 合入的版本已在源码里改成环境变量注入 | — |
+| fork main 头**已不可匿名下载** | `raw/…/main/scripts/deploy-plugin-*.sh` → **404** | ✅ 已删 |
+| 但 fork **历史提交仍可下载** | 5 笔相关 commit 的 `.patch` 全部 **200**；`9003611` 含明文 key | ⚠️ 需清史 |
+| 私钥**本体**从未进仓库 | `git log -S 'BEGIN OPENSSH PRIVATE KEY'` = 0 | — |
 
-**所以最紧急的不是清史，是换 key。** 清史只让「以后下载不到」，
-挡不住已经下载的人 —— 而实测表明这把 key 现在就能登进去。
+**处置顺序之所以是「先轮换、后清史」**：清史只让「以后下载不到」，
+挡不住已经下载过的人 —— 而实测表明那把 key 当时就能登进去。
 
 ## 1. 泄露了什么、泄露到哪
 
@@ -56,10 +59,14 @@
   三篇有价值的 `plan-*.md` **保留**，只把里面的主机别名与实例绝对路径换成占位符
   （它们是插件行为的上游实测记录，删掉等于逼下一个人重踩坑）。
 
-## 3. 必须人工做的第一件事：轮换（最紧急）
+## 3. 第一件事：轮换（最紧急）—— ✅ 2026-11-13 已执行
 
-**历史清理之前、之后都不影响这一条 —— key 已经公开两天多了，按已泄露处理。**
-这是唯一真正能「止损」的动作；其余都是防止复发。
+**历史清理之前、之后都不影响这一条 —— key 已公开两天多，按已泄露处理。**
+这一步是唯一真正能「止损」的动作；其余都是防止复发。
+
+> **执行结果**：两台实例已于 2026-11-13 02:00–02:02 完成轮换。
+> 外网复测：旧 key `401`、新 key `303`，两台一致。旧 key 的备份残留与日志明文均已清零。
+> 下面的步骤保留下来，供下次轮换照做；三个「以为换完了其实没换」的坑见本节末尾。
 
 这个 key 是 `MAGPIE_WEB_KEY` 环境变量固定的（`magpie web --help`：给了它就
 「keeps one, signed in for 400 days」；不给则每次启动随机）。它写在 systemd unit 的
@@ -83,9 +90,35 @@ curl -sk -o /dev/null -w 'old=%{http_code} (期望 401)\n' "https://<实例>:343
 curl -sk -o /dev/null -w 'new=%{http_code} (期望 303)\n' "https://<实例>:3430/?k=${NEW}"
 ```
 
-⚠️ 旧 key 还残留在**本机若干备份文件**里（`/etc/systemd/system/magpie.service.bak-*`、
-`/root/unit-backups-*/`、`/root/archive/*.md`）—— 它们不公开，但换 key 后应一并用
-新值覆盖或删除，否则「轮换」只是前门换了锁、后门还留着备用钥匙。
+### 实测补充：三个会让人以为「换完了」其实没换的地方
+
+**① 会话 cookie 就是 key 本身。**
+登录后下发的 session cookie 值与 key **逐字符相同**。好消息：换 key 会同时让所有
+旧会话失效（实测换完后旧 key 返回 401）。坏消息：任何人手上拿到的 cookie 等价于
+一把 key，光看访问日志很难区分「持有 cookie」和「持有 key」。
+
+**② magpie 启动时会把 key 明文写进日志横幅。**
+每次启动都会打印 `magpie web on http://127.0.0.1:3430/?k=<key>` 与
+`on the network https://<域名>:3430/?k=<key>` —— 实测两台机器的 `magpie.log` 里
+各有几十行明文。**轮换后必须一并清洗**，否则旧 key 还躺在日志里：
+
+```bash
+K=$(systemctl show magpie -p Environment | tr ' ' '\n' | sed -n 's/^MAGPIE_WEB_KEY=//p')
+sed -i "s|$K|***REDACTED***|g" /var/log/magpie.log
+# 别忘 logrotate 出的旧档；也别留未清洗的 .presanitize 副本
+grep -rlF -- "$K" /var/log/ 2>/dev/null
+```
+
+**③ 旧 key 还残留在备份文件里**（`/etc/systemd/system/magpie.service.bak-*`、
+`/root/unit-backups-*/`、`/root/archive/*.md`）。它们不公开，但换 key 后应一并用
+新值覆盖或删除，否则「轮换」只是前门换了锁、后门还留着备用钥匙：
+
+```bash
+for f in /etc/systemd/system/magpie.service.bak-* /root/unit-backups-*/* /root/archive/*.md; do
+  [ -f "$f" ] && grep -qF -- "$OLD" "$f" && sed -i "s|$OLD|$NEW|g" "$f"
+done
+grep -rlF -- "$OLD" /etc/systemd /root 2>/dev/null   # 期望空
+```
 
 同时建议：
 - 两台机器上确认 `root` 直登是否必要。若必须留，改为密钥登录 + `PermitRootLogin
