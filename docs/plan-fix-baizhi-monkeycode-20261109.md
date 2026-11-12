@@ -16,7 +16,7 @@
 - 修复原语：`exchangeMonkeycodeSessionForKey(cookie, deps, product)`（vendor/lib/monkeycode-credits.js），POST `/api/v1/users/ohmyagent/api-keys`，**每次签发全新一对**（上游无幂等键），每账号只调一次。
 
 ## 接入方式
-- SSH：`ssh -i /mnt/workspace/.ssh/hcss_dc2f -o IdentitiesOnly=yes -o BatchMode=yes root@1.95.121.143`（钥匙在本容器 NAS，已验证可用）。
+- SSH：`ssh -i <私钥路径> -o IdentitiesOnly=yes -o BatchMode=yes root@<服务器地址>`（钥匙在本容器 NAS，已验证可用）。
 - 脚本传输：本地写好 → `scp` 到远端 `/tmp/` → 远端执行。**运行时用 `/opt/magpie/cache/magpie/bun/1.4.4/magpie-bun`**（远端 node 22.9 的 zlib 缺 zstd，加载 undici 8 即崩；插件 import 一律写绝对路径 `/opt/magpie/config/magpie/plugins/node_modules/magpie-jet-hub/...`）。
 - 网关：systemd `magpie.service`，API 127.0.0.1:3425，日志 /var/log/magpie.log。凭据服务按 mtime+size 失效缓存，**改凭据文件不需要重启**。
 

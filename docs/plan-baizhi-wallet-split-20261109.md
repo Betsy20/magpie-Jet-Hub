@@ -42,7 +42,7 @@
    本次纯本仓 console 层改动，不新增 vendor 差异。
 5. **部署即生效，无需重启 magpie。** 控制台静态文件每请求读盘、`cache-control: no-store`
    （`src/hub-server.mjs:208-211`）。hcss2 插件目录覆盖 console 两文件后浏览器硬刷新即可。
-6. **实机核验路径**：hcss2（1.95.121.143）plugin-host 控制台 `127.0.0.1:18500`
+6. **实机核验路径**：hcss2（<服务器地址>）plugin-host 控制台 `127.0.0.1:18500`
    （`/__meta` 验活）；SSH 母本见 /mnt/workspace/AGENTS.md §12；远端跑 node 用
    `/opt/magpie/cache/magpie/bun/1.4.4/magpie-bun`（远端 node 22.9 缺 zstd）。
 

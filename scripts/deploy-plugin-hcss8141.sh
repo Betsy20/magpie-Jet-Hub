@@ -9,7 +9,7 @@
 # 本脚本把插件源换成用户自己的 fork `https://github.com/hnlinyh/magpie-Jet-Hub`。
 #
 # 与 deploy-plugin-hcss2.sh 的差异（只有这些，流程完全一致）：
-#   · REMOTE_HOST   1.95.121.143 -> 111.91.17.201（hcss8141）
+#   · REMOTE_HOST   <hcss2 的地址> -> <hcss8141 的地址>（从环境变量注入，见下）
 #   · SSH_KEY       服务器侧没有 /mnt/workspace，走本机 ~/.ssh/config 的 hcss8141
 #   · REPO_DIR      脚本从任意 cwd 跑，用脚本自身所在仓库
 #   · BAK_SUFFIX    加时间戳，避免与 hcss2 那份混淆
@@ -38,8 +38,11 @@ set -Eeuo pipefail
 
 GH_URL="https://github.com/hnlinyh/magpie-Jet-Hub"
 MANIFEST_KEY="magpie-jet-hub"
-REMOTE_HOST="111.91.17.201"
-REMOTE_USER="root"
+# ⚠ 这两项**必须**从环境变量注入（2026-11-11 三审 P0）：本仓库是 **public**，
+#   把生产机地址 / root 账号写进仓库等于把攻击面清单一起发出去。
+#   用法：REMOTE_HOST=<服务器地址> bash scripts/deploy-plugin-hcss8141.sh
+REMOTE_HOST="${REMOTE_HOST:?必须设 REMOTE_HOST=<服务器地址>（仓库是 public，别写死）}"
+REMOTE_USER="${REMOTE_USER:-root}"
 # 连接一律走 ~/.ssh/config 里的别名：密钥（~/.ssh/hcss_ecs_8141）、端口、User
 # 都写在 config 里，显式写 user@IP 会绕过 config ⇒ Permission denied (publickey)。
 REMOTE_NAME="hcss8141"
@@ -49,7 +52,11 @@ REMOTE_STATE_DIR="/opt/magpie/config/magpie"
 BAK_SUFFIX="20261111-hcss8141"
 MAGPIE_BUN="/opt/magpie/cache/magpie/bun/1.4.4/magpie-bun"
 MAGPIE_ENV="HOME=/opt/magpie/home XDG_CONFIG_HOME=/opt/magpie/config XDG_DATA_HOME=/opt/magpie/data XDG_STATE_HOME=/opt/magpie/state XDG_CACHE_HOME=/opt/magpie/cache"
-PROBE_WEB_KEY="516946187516946187"
+# ⚠ 生产 magpie web 面板的登录 key —— **绝不入仓库**（2026-11-11 三审 P0）。
+#   仓库自己的 `scripts/test-all.mjs:65` 与 `docs/testing.md:102` 都写着
+#   「内置 key 曾随仓库公开过一次……别把 key 写进任何脚本或文档」。
+#   用法：PROBE_WEB_KEY=<key> REMOTE_HOST=... bash scripts/deploy-plugin-hcss8141.sh
+PROBE_WEB_KEY="${PROBE_WEB_KEY:?必须设 PROBE_WEB_KEY=<magpie web 登录 key>（仓库是 public，别写死）}"
 PROBE_MODEL="jet-hub-baizhi/deepseek-v4-flash"
 # 本次修复的特征串（校验装到的是新代码，不是旧版）
 FEATURE_A="BROWSER_MODE_PROVIDERS"   # src/plugin.mjs

@@ -30,12 +30,15 @@
 #   然后 bun install + restart。
 set -Eeuo pipefail
 
-REPO_DIR="/root/project/magpie-Jet-Hub"
+REPO_DIR="${REPO_DIR:-/root/project/magpie-Jet-Hub}"
 GH_URL="https://github.com/hnlinyh/magpie-Jet-Hub"
 MANIFEST_KEY="magpie-jet-hub"
-REMOTE_HOST="1.95.121.143"
-REMOTE_USER="root"
-SSH_KEY="/mnt/workspace/.ssh/hcss_dc2f"
+# ⚠ 这三项**必须**从环境变量注入（2026-11-11 三审 P0）：本仓库是 **public**，
+#   把生产机地址 / root 账号 / 私钥路径写进仓库等于把攻击面清单一起发出去。
+#   用法：REMOTE_HOST=1.2.3.4 SSH_KEY=~/.ssh/id_ed25519 bash scripts/deploy-plugin-hcss2.sh
+REMOTE_HOST="${REMOTE_HOST:?必须设 REMOTE_HOST=<服务器地址>（仓库是 public，别写死）}"
+REMOTE_USER="${REMOTE_USER:-root}"
+SSH_KEY="${SSH_KEY:?必须设 SSH_KEY=<私钥路径>（仓库是 public，别写死）}"
 SSH_OPTS=(-i "${SSH_KEY}" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new)
 REMOTE_PLUGINS="/opt/magpie/config/magpie/plugins"
 REMOTE_STATE_DIR="/opt/magpie/config/magpie"
@@ -253,7 +256,7 @@ if [[ "${NO_RESTART}" == "1" ]]; then
 else
   log "[6/7] 检查在途流（:3425 established）"
   busy_snapshot() {
-    rsh "ss -tn state established '( sport = :3425 )' 2>/dev/null | awk 'NR>1 && \$5 != \"127.0.0.1:3425\" && \$5 != \"1.95.121.143:3425\" {print \$5}' | sort -u" || true
+    rsh "ss -tn state established '( sport = :3425 )' 2>/dev/null | awk 'NR>1 && \$5 != \"127.0.0.1:3425\" && \$5 != \"${REMOTE_HOST}:3425\" {print \$5}' | sort -u" || true
   }
   ACTIVE="$(busy_snapshot)"
   if [[ -n "${ACTIVE}" ]]; then

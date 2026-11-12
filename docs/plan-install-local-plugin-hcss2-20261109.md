@@ -4,7 +4,7 @@
 
 ## 0. 现状（队长已核实）
 
-- hcss2（1.95.121.143）`/opt/magpie/config/magpie/plugins/package.json`：
+- hcss2（<服务器地址>）`/opt/magpie/config/magpie/plugins/package.json`：
   `"magpie-jet-hub": "https://github.com/Betsy20/magpie-Jet-Hub"`；
   bun.lock 锁在 `github:Betsy20/magpie-Jet-Hub#9bf913d`（上游 commit，**不含**本仓未推送的修复）。
 - 同目录 `dist/` 已有本地 tgz 先例：`@magpie-community/opencode-*-auth` 三家走

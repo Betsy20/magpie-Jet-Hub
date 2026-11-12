@@ -3,7 +3,7 @@
 //
 //   node scripts/verify-vendor.mjs /path/to/upstream     # upstream = 跑过 npm install 的上游仓库根
 //
-// 为什么需要它：`docs/vendor.md` 里「1170 个文件、其中 1159 个与上游逐字节一致」这条
+// 为什么需要它：`docs/vendor.md` 里「1170 个文件、其中 1157 个与上游逐字节一致」这条
 // 基线是**整份快照唯一可复核的地方**。原来只能手动 `find … sha256sum | sort | diff`，
 // 一旦临时目录被清掉就再也说不清「这 13 个差异到底是补丁还是被人手改了」。这个脚本
 // 把两件事钉死：
@@ -104,13 +104,13 @@ const EXPECT = { libFiles: 1170, identical: 1157, localeFiles: 2, maps: 584, map
  * | 0.27+ | 另外多一条 `@__PURE__` 注解 |
  *
  * ⇒ 直接比 sha256 会把 `lib/client/jet-hub.js` 报成「手改或污染」（实测：任何按
- * `docs/vendor.md` 取法 `npm install` 的人都拿到 1158 而不是 1159）。
+ * `docs/vendor.md` 取法 `npm install` 的人都拿到 1156 而不是 1157）。
  *
  * ## ⚠️⚠️ 修法：归一化后仍要求**逐字节相等**，**不是**整份文件豁免
  *
  * 2026-11-10 一审实测：`BUILD_ARTIFACTS` 式的「白名单豁免」会把**真手改**一起吞掉
  * （改 1 个字符仍然 exit 0、还打印「无污染」）。正确做法是把这个变量名抹平成
- * `EXPORTS` **再比** —— 干净快照仍然算「一致」（文档 1159 成立），手改一位就红。
+ * `EXPORTS` **再比** —— 干净快照仍然算「一致」（文档 1157 成立），手改一位就红。
  */
 const BUILD_ARTIFACTS = new Set(['client/jet-hub.js'])
 const normalizeExports = (buf) => buf.toString('latin1').replace(/\b(?:client|index)_exports\b/g, 'EXPORTS')

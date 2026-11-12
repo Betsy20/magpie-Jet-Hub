@@ -43,6 +43,21 @@ const ok = (cond, msg) => {
 
 // 行尾归一化成 \n，否则 indexOf 的定位串一个都对不上
 const src = fs.readFileSync(PLUGIN, 'utf8').replace(/\r\n/g, '\n')
+
+/**
+ * 剥掉 `//` 与 `/* … *\/` 注释（**保留字符串字面量里的内容**）。
+ *
+ * ⚠️ 为什么必须有（2026-11-11 三审 P1）：本文件全部是「从源码切一段、断言里面有
+ * 某个字符串」的形态，而**注释里也会出现同样的字符串** —— `baizhiPasteMethod` 的
+ * JSDoc 就写着「`method: 'code'` 是那个粘贴框存在的前提」。不剥注释的话，把真实的
+ * `method: 'code',` 那一行删掉，断言照样从注释里匹配到 ⇒ **假绿**（实测：删除后
+ * 含注释仍有 2 处命中、剥注释只剩 0 处）。
+ *
+ * 实现照抄 `tests/t-new-account.mjs:555-556`：`^\\s*\\/\\/` 只认**行首**的
+ * `//`，所以 `https://baizhi.cloud` 这类 URL 不会被误删。
+ */
+const stripComments = (t) =>
+  t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 const rpcSrc = fs.readFileSync(RPC, 'utf8').replace(/\r\n/g, '\n')
 
 // 真实现：归一化规则由 vendor 提供，不在测试里手写
@@ -188,7 +203,8 @@ console.log('\n【5】插件壳接线（面板路径真的指向新方法）')
     'methods 分发里 baizhi 落到 paste 方法（不是通用 oauth）')
 
   // 粘贴框必须提到**两枚** cookie，否则用户只复制一条 ⇒ 积分读不出来
-  const methodBody = src.slice(src.indexOf('function baizhiPasteMethod'), src.indexOf('async function baizhiFinishPaste'))
+  // ⚠️ 必须剥注释（理由见 `stripComments`）：段首 JSDoc 里就写着 `method: 'code'`。
+  const methodBody = stripComments(src.slice(src.indexOf('function baizhiPasteMethod'), src.indexOf('async function baizhiFinishPaste')))
   ok(methodBody.includes('sl-session') && methodBody.includes('baizhi_session'),
     '粘贴提示同时点名 sl-session 与 baizhi_session')
   ok(/两条都要/.test(methodBody), '明确写了「两条都要」（只带一条会静默读不到积分）')

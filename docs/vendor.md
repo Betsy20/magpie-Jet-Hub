@@ -11,7 +11,7 @@
 | 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交） |
 | 许可 | MIT，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](../vendor/LICENSE) |
 
-**为什么不用 npm 包**：npm 上的版本（最新 `2.21.261109`，`lib/` **1138** 个文件）落后于仓库 `master` 的 `1d12f80`（`lib/` **1170** 个）—— 少的 32 个正是 `marvis` + `marvis-*` 共 8 个模块各自的 `.js` / `.d.ts` / `.js.map` / `.d.ts.map`；两边都有的文件里 **79 个不同**，其中 13 个是本仓库的补丁（见下节），另外 68 个是上游在 npm 发布之后又往前走的部分。而本仓库要的是「渠道最全」的那一版。这一版是从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
+**为什么不用 npm 包**：npm 上的版本（最新 `2.21.261109`，`lib/` **1138** 个文件）落后于仓库 `master` 的 `1d12f80`（`lib/` **1170** 个）—— 少的 32 个正是 `marvis` + `marvis-*` 共 8 个模块各自的 `.js` / `.d.ts` / `.js.map` / `.d.ts.map`；两边都有的文件里 **79 个不同**，其中 13 个是本仓库的补丁（见下节），另外 **66 个**是上游在 npm 发布之后又往前走的部分。而本仓库要的是「渠道最全」的那一版。这一版是从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
 
 取法（2026-11-10 实测：git clone 常断，走 Gitee 归档包 + npmmirror 装依赖更稳）：
 
@@ -39,7 +39,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 与上游构建产物的差异
 
-`lib/` 共 1170 个文件，其中 **1157 个与上游逐字节一致**（按下面「取法」自己 `git clone` + `npm install` 构建时）；`locale/` 2 个全部一致。⚠️ 若改成拿 **npm 包**来比（上游作者用 esbuild 0.25.x 构建），`lib/client/jet-hub.js` 会差 3 字节 —— 那时是「真逐字节 **1156** + 归一化 **1** = 一致 **1157**」，见下节。剩下 13 个（7 类改动；`lib/gemini-oauth.*`、`lib/backup.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的三处改动落在 `lib/magicrew-browser-login.js` + `.d.ts`（两类）、`lib/magicrew-local-browser.js` + `.d.ts`、`lib/leveldb-sstable.js` 上）：
+`lib/` 共 1170 个文件，其中 **1157 个与上游逐字节一致**（按下面「取法」自己 `git clone` + `npm install` 构建时）；`locale/` 2 个全部一致。⚠️ 若改成拿 **npm 包**来比（上游作者用 esbuild 0.25.x 构建），`lib/client/jet-hub.js` 会差 3 字节 —— 那时是「真逐字节 **1156** + 归一化 **1** = 一致 **1157**」，见下节。剩下 13 个（7 类改动；`lib/gemini-oauth.*`、`lib/backup.*`、`lib/baizhi-rpc.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的三处改动落在 `lib/magicrew-browser-login.js` + `.d.ts`（两类）、`lib/magicrew-local-browser.js` + `.d.ts`、`lib/leveldb-sstable.js` 上）：
 
 | 差异 | 原因 |
 |---|---|
@@ -67,8 +67,9 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 > ⇒ 装在服务器上时「贴 Key 能建号、但积分永远读不出来」。语义照抄 monkeycode：
 > 字段缺失 = 只读不写（回报 `hasSession`）、传空串 = 清除会话；写入是**合并**
 > （`{...previous}` 再覆盖 `session_cookie`），丢了 `access_token` 账号就再也发不出消息。
-> ⇒ 逐字节一致基线从 **1159/1170**（上游口径，含 1 个归一化）变成 **1157/1170**
-> （`.js` 与 `.d.ts` 各少一个；真逐字节 1158 → 1156）。
+> ⇒ **一致**基线从 **1159/1170** 变成 **1157/1170**（`.js` 与 `.d.ts` 各少一个）。
+> ⚠ 注意两个口径别混：按「取法」自己构建时「一致」= 真逐字节（1159 → **1157**）；
+> 拿 **npm 包**比时才分裂成「真逐字节 1158 → **1156** + 归一化 1」。
 
 > **已退役的一条**：本表原有一条「`lib/jet-hub-rpc.js` 的 `product.id` 判空守卫」。
 > 2026-11-04 同步到 `fddb875` 时上游自己修了（`1b03f33 fix(jet-hub): product 恒为
@@ -101,7 +102,7 @@ cd /path/to/magpie-Jet-Hub && node scripts/verify-vendor.mjs /tmp/up2
    而那是 `ReferenceError`（插件完全无法加载），2026-11-10 对抗审查 P1-1）；
 2. 差异集合必须**恰好等于**补丁表那 13 个文件 —— 少一个 = 补丁被同步覆盖（静默故障），
    多一个 = 快照被别的动作污染过。**每个补丁文件还核 sha256 指纹**（`PATCH_SHA256`），
-   所以「补丁文件被人手改」也抓得到 —— 有意改补丁时跑 `--print-hashes` 更新那 11 行；
+   所以「补丁文件被人手改」也抓得到 —— 有意改补丁时跑 `--print-hashes` 更新那 13 行；
 3. `lib/*.map` **584 个 / 4.00 MiB**、`locale/` 2 个逐字节一致（两个数都是断言，不是只打印）；
 4. `vendor/package.json` 的版本号与上游同一次提交一致（并打出依赖树，换机漏依赖就
    表现成「控制台打不开」）。
@@ -143,11 +144,13 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
    ③ 开窗前回收一次性 profile（同一个 `lib/magicrew-browser-login.js`）；④ `lib/backup.js` 的
    `keepDisabledModels`（配 `.d.ts`）；⑤ `lib/jet-hub-rpc.js` 的「黑名单覆盖全量即补设供应商关闭意图」
    与 `lib/leveldb-sstable.js` 的 WAL 分片重组；⑥ `lib/types.d.ts` 的
-   `RpcModelSetDisabledManyRequest.closeProvider` 类型 —— 外加上面那条「三个 `.d.ts` 的 `.map` 不重生成」的决策。
+   `RpcModelSetDisabledManyRequest.closeProvider` 类型；⑦ `lib/baizhi-rpc.js` / `.d.ts` 新增
+   `baizhi.setSession`（给已有账号补网页登录态；字段缺失 = 只读、空串 = 清除、合并写不丢 `access_token`）
+   —— 外加上面那条「三个 `.d.ts` 的 `.map` 不重生成」的决策。
    **7 类都有测试盯着，漏打的直接红**：`t-backup-keep`（④）、`t-magicrew-creds`（②③与
    `leveldb-sstable`）、`t-rpc-cover` 第 8 节（⑤的意图补丁与空目录守卫）、`t-vendor-patches`
    （①的「拆成两段」形态与拼出来的长度、⑥的 `closeProvider` 两处、以及 ② 的两个 `.d.ts` 声明
-   是否跟上实现）。唯一**没有**自动断言的是「`.d.ts.map` 不重生成」—— 它只影响编辑器跳转行号，
+   是否跟上实现）、`t-baizhi-paste-session`【4】（⑦的 `setSession` 三态与合并写）。唯一**没有**自动断言的是「`.d.ts.map` 不重生成」—— 它只影响编辑器跳转行号，
    判据是「与上游逐字节一致」，按上一条的基线人工核。
 3. 加/减 provider 时：`src/plugin.mjs` 的 `DSH_PROVIDERS` + `NAMES` + `FALLBACK_MODELS`、`index.mjs` 的具名工厂、`src/icons.mjs`、`scripts/snapshot-models.mjs` 的 `NAMES`、`tests/t-plugin.mjs` 的 `EXPECTED_PROVIDER_COUNT`、`tests/t-new-account.mjs` 的两处 `=== N`
 4. 跑 `node scripts/test-all.mjs` 与 `node scripts/snapshot-models.mjs`（后者需要有一个加载了**新** vendor 的宿主在跑；magpie 不热重载插件，旧宿主还在时用 `JET_HUB_META_PORT=<新容器端口>` 指定）

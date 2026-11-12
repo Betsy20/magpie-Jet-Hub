@@ -1321,15 +1321,17 @@ async function startNewAccount(container, provider, log, mode) {
 /**
  * 起一个登录流程，按 provider 决定要不要按顺序试多种 `mode`。
  *
- * 腾讯 Marvis 是第三种形状：单次调用、但**必须**带 `mode: 'browser'`（另有
- * `marvisLoginType`），见下面那条分支的注释。
+ * 三种形状：
  *
- * 除超级麦吉两站外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
- * 超级麦吉两站两条腿都失败时，**报第一条腿（`browser`）的错误**，并把其余腿的
- * 原因附在括号里 —— 用户点的是「新建」，先看到那条腿为什么不行才定位得到问题。
- *
- * 腾讯 Marvis 也不走这里：它不用本机浏览器，走宿主 `mode: 'code'` 那条通道，
-
+ *   1. **`BROWSER_MODE_PROVIDERS`（monkeycode / monkeycodeintl / baizhi）**：单次调用、
+ *      必须带 `mode: 'browser'` —— 它们的 `account.create` 分支判据里带着
+ *      `req.mode === 'browser'`，不传就掉进 `unknown provider: xxx`。
+ *   2. **超级麦吉两站**：两条腿（`browser` → `local-browser`）按序试，都失败时
+ *      **报第一条腿（`browser`）的错误**，并把其余腿的原因附在括号里 —— 用户点的
+ *      是「新建」，先看到那条腿为什么不行才定位得到问题。
+ *   3. **其余**（含腾讯 Marvis）：单次调用、`mode === undefined`（payload 里不带
+ *      这个字段）。Marvis 走宿主 `mode: 'code'` 那条通道（见 `marvisOauthMethod`），
+ *      **不经过本函数的 mode 分支**。
  *
  * ⚠️ 这里的「失败」只指 `startNewAccount` 抛出来的**`account.create` RPC 错误**
  * （超时 / 账号池写失败 / 返回体里 `accountId` 缺失或为空）。**不包括**「窗口起不来」「授权
@@ -1902,10 +1904,17 @@ function fmtNum(n) {
  * 阈值与 `vendor/lib/credits.js` 的 `formatTokenAmount`（进而与客户端
  * `formatTokens`）一致：`>= 1e6` → M、`>= 1e3` → K、其余取整。两处刻意的差别：
  *
- * ① **向下截断，不四舍五入**。剩余量舍入会向上虚报，最坏情况是把
+ * ① **M / K 两档向下截断，不四舍五入**。剩余量舍入会向上虚报，最坏情况是把
  *    `9999976 / 10000000`（已用 24，几乎没动）渲染成 `10M / 10M · 剩余 100%`
- *    —— 读数与「满额未用」逐字相同，等于把用掉的量抹掉。截断最多少报到
- *    一个 0.01 单位，方向永远是「我不比实际多」。
+ *    —— 读数与「满额未用」逐字相同，等于把用掉的量抹掉。
+ *
+ *    ⚠ **这个不变量只在 `|v| >= 1e3` 时成立**（2026-11-11 三审实测）：
+ *      · `|v| < 1e3` 走的是下面的 `fmtNum`，它用 `toFixed(2)` 是**四舍五入**
+ *        （`999.999 → "1000"`）；
+ *      · 负数段 `Math.trunc` 是**向零**截断，绝对值变小 ⇒ 余额反而**多报**
+ *        （`-1501 → "-1.5K"` 反解 -1500）。
+ *    这两段都是个位 / 十位量级，差 1 不影响「还剩多少」的判断；真正会误导的是
+ *    M 档（差 10000），而 M 档严格向下。
  * ② **去掉末尾的 0**，沿用 `fmtNum` 那条卡片惯例（`10000000` → `10M` 而不是
  *    `10.00M`），跟同一行里的其余读数写法对齐。
  *
@@ -3851,27 +3860,39 @@ function nicknameOfPaste(raw) {
  *
  * ⇒ 唯一能在服务器上跑通的形态，就是让用户在自己的浏览器里登录、把登录态粘回来。
  *
- * ## ⚠️ 为什么是 `type: 'api'` + `ask()`，而不是 `type: 'oauth'` + `method: 'code'`
+ * ## 为什么是 `type: 'oauth'` + `method: 'code'`（两屏），而不是 `type: 'api'` 单屏
  *
- * MonkeyCode 那边用的是 oauth/code 型（宿主渲染一个链接 + 一个粘贴框），在真机上
- * 确实跑通了。但它有一个**实测暴露的缺陷**（2026-11-11 hcss8141）：
+ * 先记住宿主的渲染顺序（`internal/gui/assets/app.js`）：**prompt → 开窗 → 粘贴框**。
  *
- *   · 宿主只在 `openError` 为空时才渲染我们返回的 `instructions`
- *     （`internal/gui/assets/app.js:13075` —— 条件链里 `signing.openError ===
- *     openBlocked` 排在 `sub.plugin ? signing.instructions : …` **前面**）；
- *   · 而 `authorize()` 里没有任何用户手势，浏览器很容易把那个 `window.open`
- *     判成弹窗拦掉；服务器上更是必然失败（没有浏览器可开）。
- *   ⇒ 那一刻「要粘哪两枚 cookie」这段说明**整段不显示**，粘贴框只剩一个
- *     「验证码」标签，用户完全不知道该粘什么。
+ * ⚠ 一开始想省掉第二屏，把「要粘哪两枚 cookie」整段写进 `authorize().instructions` ——
+ * **不行**（2026-11-11 hcss8141 实测）：
  *
- * `type: 'api'` + `ask()` 这条路（modelscope / opencode / qiniu 三家已在用）没有
- * 上面任何一环：**不开窗、不等回调、说明文字由 `prompt.message` 承载**，而
- * prompt 的 `message` 是无条件渲染的（`app.js:12750` 的 `inLang(q.messages, q.message)`）。
+ *   · 宿主只在 `openError` 为空时才渲染 `signing.instructions`
+ *     （`app.js:13076-13082` —— 条件链里 `signing.openError` 排在
+ *     `sub.plugin ? (signing.instructions || …)` **前面**）；
+ *   · 而 `authorize()` 里没有用户手势，浏览器很容易把那个 `window.open` 判成弹窗
+ *     拦掉（`app.js:12545-12549` 的 `openSignInPage` 在 `web` 模式下走 `window.open`，
+ *     被拦时 `reject(openBlocked)`，`openError` 就被填上）。
+ *   ⇒ 那一刻说明**整段不显示**，粘贴框只剩一个「验证码」标签，用户完全不知道该粘什么。
  *
- * `keyless: true` 的理由同 {@link KEY_ACCOUNT_RPC} 那三条：magpie 对 api 型会先弹
- * 它自己的 personal-key 框，且**不把值传给 `authorize(inputs)`** —— 我们要自己收，
- * 所以 `ask()` 出面，`keyless` 让宿主跳过它那个框
- * （`PluginAPIKey` 里 `strings.TrimSpace(key) == ""` 时只有 keyless/keyAsked 才放行）。
+ * 反过来，纯 `type: 'api'` + `ask()` 也不行：**网页不会自动打开** —— api 型没有
+ * `url` 这一环（`app.js:12637-12642` 的 `if (ms[method].type === "api")` 直接
+ * `return pluginKey(sub, "")`，根本不走开窗分支）。
+ *
+ * ⇒ **只能两屏**：
+ *   1. 第一屏 `ask()` 出 `select` —— `prompt.message` 是**无条件**渲染的
+ *      （`app.js:12728-12737`），写清「去哪登录、登录完粘什么」，并给一个
+ *      「打开官网去登录」按钮；
+ *   2. 第二屏 `authorize()` 返 `url`（宿主自动开窗）+ `method: 'code'`
+ *      （`app.js:13130` 的 `if (signing.pasteCallback || signing.pasteCode ||
+ *      `signing.pasteKey)` 是粘贴框的**唯一**渲染点）。
+ *
+ * ⚠⚠ **别「顺手」把 `type` 改成 `'api'`** —— 一改粘贴框就消失，整条新建流程断掉。
+ * `tests/t-baizhi-paste-session.mjs` 里 `ok(/type: 'oauth'/.test(...))` 就是钉这个的
+ * （2026-11-11 三审 P1：这段注释此前写反了，论证的是「为什么用 api」而实现是 oauth）。
+ *
+ * 为什么**不用** `keyless`：那是 api 型才有的字段（`app.js:12639` 的
+ * `ms[method].keyless === true`）；oauth 型本来就不弹 personal-key 框。
  *
  * ## ⚠️ 百智云比 MonkeyCode 多一个坑：要**两枚** cookie
  *
