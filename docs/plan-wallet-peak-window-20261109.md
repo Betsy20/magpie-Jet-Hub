@@ -6,7 +6,7 @@
 
 用户在选型问题里选了「总额度 + 充值积分 都加」。
 
-## 上游事实（已在 hcss2 实测，本轮不改 vendor）
+## 上游事实（已在 `<部署实例>` 实测，本轮不改 vendor）
 
 - `GET https://baizhi.cloud/api/v1/user/wallet/balance` 只回 6 个字段：
   `user_id, temporary_credit_cents, permanent_credit_cents, frozen_credit_cents,
@@ -44,10 +44,10 @@
 沿用 `~/.config/magpie/jet-hub-daily-baseline.json`（env `JET_HUB_DAILY_BASELINE` 可覆盖），
 条目加 `kind` 字段：
 
-```json
+``json
 { "<provider>\u0000<acct>\u0000<池名>": { "kind": "daily", "day": "2026-11-09", "total": 199.96 },
   "p\u0000<provider>\u0000<acct>\u0000<池名>": { "kind": "peak", "day": "", "total": 500 } }
-```
+``
 
 - 老文件（只有 `{day,total}`）一律按 `daily` 解析 ⇒ 现有 4 个百智云每日基线**不丢**。
 - 落盘时：`peak` 条目永久保留；`daily` 条目只留当天。
@@ -65,7 +65,7 @@
   - 让 `loadDailyBaseline` 丢弃无 `kind` 的老条目 ⇒ **1 红**（老文件兼容断言）。
   - ⚠️ 踩到的假绿：只读不写时水位根本不经过 `saveDailyBaseline` 的保留条件，反证不会变红。
     所以第 ② 组必须先刷一次每日桶触发落盘，才有判别力。
-- hcss2 部署后核 `quotas.json` 实渲染（2026-11-09 22:13，commit `0f9bd7f`）：
+- `<部署实例>` 部署后核 `quotas.json` 实渲染（2026-11-09 22:13，commit `0f9bd7f`）：
   `{"name":"充值积分","used":0,"display":"500 / 500 credit","amount":500,"limit":500,"unit":"credit"}`
   （无 `balance`），合计行 `699.96 / 699.96 credit`；梨花不写诗为
   `650.39 / 650.39 credit` + 每日 `used:100`（已用光），合计行 `650.39 / 750.39 credit`。

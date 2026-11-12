@@ -1,0 +1,61 @@
+# gitleaks 配置 —— 本仓口径。
+#
+# ⚠️ 为什么必须自定义规则（2026-11-12 实测）：
+#   把本次事故的两个部署脚本单独丢给 gitleaks 默认规则，结果是 **0 命中**。
+#   默认规则认的是「云厂商 key 形状」（AKIA…、ghp_…、高熵 base64），而这次
+#   泄露的是：
+#     · `PROBE_WEB_KEY="516…"` —— 18 位**纯数字**，熵极低；
+#     · `REMOTE_HOST="<服务器地址>"` —— 一个 IP；
+#     · `远程登录账号设成 root` —— 一个用户名；
+#     · `SSH_KEY="<本机工作区>/.ssh/…"` —— 一个路径。
+#   也就是说：**默认规则对这次事故完全无效**。只挂 workflow 而不管规则，
+#   等于装了个不响的报警器。所以下面写了 3 条本仓专用规则。
+#
+# 实现注意：gitleaks 走 RE2，**不支持后向断言**（`(?<!…)` 会让进程 panic）。
+#   所以「前面不能是数字/点」用前导字符类 `[^0-9./]` + `secretGroup` 表达，
+#   不要改回 lookbehind。
+#
+# 豁免只有一条：`vendor/`。
+#   它是被代理产品（jet-hub 本体）的原样拷贝，它的 appId / appKey /
+#   accessKeySecret 是那些客户端里本来就硬编码的**静态认证参数** —— 插件要能
+#   工作就必须带着。改 vendor 任何字节都会让 `tests/t-vendor-patches.mjs` 与
+#   `scripts/verify-vendor.mjs` 的指纹对不上（那两条守的正是「与上游逐字节一致」）。
+#   它们属于上游，不属于本仓作者的运维环境；当成本仓泄露处理只会让扫描长期飘红，
+#   最后被人 `|| true` 掉 —— 那比不扫更糟。
+#
+# 不要为了「先让 CI 绿」给 deploy 脚本开白名单：那两个文件已从仓库删除，
+# 历史里的副本只能靠清史处理（见 docs/security-incident-20261112.md）。
+[allowlist]
+paths = ['''vendor/.*''']
+
+# ── ① 硬编码的面板 key ────────────────────────────────────────────────────────
+# 本仓的 magpie web 面板 key 是 18 位数字（`internal/gui.NewWebKey` 生成）。
+# 只认两种**真的写死**的形态：带引号的赋值、URL 里的 `?k=` 参数；
+# 占位符 `<…>` / `${VAR}` 不命中。
+[[rules]]
+id = 'magpie-web-key-hardcoded'
+description = '硬编码的 magpie web 面板 key（18 位数字，必须走 MAGPIE_WEB_KEY 环境变量）'
+regex = '''(?i)(?:PROBE_WEB_KEY|MAGPIE_WEB_KEY)\s*=\s*[\x60'"](\d{18})[\x60'"]|\?k=(\d{18})\b'''
+secretGroup = 1
+entropy = 0
+keywords = ['web_key', '?k=']
+
+# ── ② 生产主机的部署坐标 ─────────────────────────────────────────────────────
+# 「钥放在哪 / 用什么账号 / 装在哪」三件套，任一件单独出现都算。
+[[rules]]
+id = 'deploy-host-coordinates'
+description = '部署坐标（私钥路径 / root 登录 / 生产绝对路径）'
+# RE2 没有否定前瞻（`(?!…)` 会让 gitleaks panic），所以「只认具体钥文件名」
+# 换个写法：先粗匹配，再用 [allowlist.rules] 放掉 config / known_hosts。
+regex = '''(?i)(?:(?:~|/mnt/workspace|/home/[A-Za-z0-9._-]+)/\.ssh/[A-Za-z0-9._-]+|REMOTE_USER\s*=\s*[\x60'"]root[\x60'"]|/(?:opt|srv|data)/magpie/(?:home|config|cache)/)'''
+entropy = 0
+keywords = ['.ssh/', 'REMOTE_USER', '<实例根目录>/']
+
+# 规则 ② 的放行项：`~/.ssh/config` / `known_hosts` 是通用文件，不指向任何钥，
+# 算违规只会让正常文档乱响然后被 `|| true` 掉。
+# 注意 TOML 语义：`[rules.allowlist]` 作用于**上面最近那条** `[[rules]]`。
+[rules.allowlist]
+regexes = [
+  '''/\.ssh/config$''',
+  '''/\.ssh/known_hosts$''',
+]

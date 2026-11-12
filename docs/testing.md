@@ -77,6 +77,7 @@ npm run test:all                 # 等价于第二条
 | `t-error-shape.mjs` | 错误出口三件套：不支持的路径回 **501**（不是 404，否则 magpie 只搁置模型、换个同样坏的端点重试）、`errorResponse` 抛错也带 code、上游 404/503 原样透传、`jsonResponse` 形状 |
 | `t-hub-cors.mjs` | 控制台跨站防线：只认实际绑定的那一个端口、只认 `http`、`Host` 必须回环（挡 DNS rebinding）、跨站 Origin 与 `null`、跨站导航 403、写操作连 `same-site` 也拒、多值 `Sec-Fetch-Site` 绕不过；同源不误伤，被拦的请求不进 handler |
 | `t-spawn-stdio.mjs` | 子进程 stdio 守卫：`spawnSync` / `execFileSync` / `execSync` **一律不许**用默认管道（受限沙箱禁管道 ⇒ EPERM、`status=null`、两条流全空，失败信息退化成一片空白），且不许写只对管道有效的 `encoding`；扫 `tests/` + `scripts/` + `src/` 全部调用点 |
+| `t-repo-purity.mjs` | **仓库纯洁性**：本仓只许有插件本身，不许有「某台机器」的坐标与凭据。8 条内容规则（IPv4 字面量 / PEM 私钥头 / `~/.ssh/<具体名>` 路径 / GitHub+AWS token 前缀 / 硬编码凭据 / 主机别名 / 生产根下的 `home|config|cache` 路径）+ 1 条结构规则（不许有 `scripts/deploy-*.sh`，`.example` 模板除外）。带 **19 条匹配器自检样本** —— 删任一条规则、或把正则改坏到永远不命中，自检立刻红，防「扫了 0 处却报绿」。2026-11-12 部署脚本把面板 key（实测发现时仍有效）/ 两个服务器地址 / root 账号 / 私钥路径写进 public 历史后新增。第二道防线是 `.github/workflows/secret-scan.yml` 的 gitleaks（扫历史） |
 
 **ENV（要真环境，`--all` 才跑）**
 

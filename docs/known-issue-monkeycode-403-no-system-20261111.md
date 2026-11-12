@@ -41,7 +41,7 @@ prompt ⇒ 回 `403 {"error":"invalid ohmyagent request"}`。
 > payload 没有 `system`，`monkeycodeSigningPrompt()` 对空串签名，网关必回 403
 
 所以这不是凭据问题，重登、换号、重新浏览器登录都不会好。2026-11-11 在
-hcss2 上用 5 个账号的 `access_token` + `signing_secret` 逐一实测确认过：
+部署实例上用 5 个账号的 `access_token` + `signing_secret` 逐一实测确认过：
 带 system 的 prompt 全部 200，对空串签名全部 403。
 
 ## 哪些请求会缺 system

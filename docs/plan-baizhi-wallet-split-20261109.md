@@ -6,11 +6,11 @@
 
 用户截图（百智云官方控制台 → 钱包）：
 
-```
+``
 当前可用积分 916.68
 每日积分     99.64  | 零点过期
 充值积分    817.04  | 长期有效
-```
+``
 
 用户原话：「百智云窗口显示的不对分为每日和长期」——我们的窗口（Jet Hub 控制台
 账号卡「积分」行）只显示合计 916.68，没有像官方钱包那样拆成「每日（零点过期）」
@@ -41,10 +41,10 @@
 4. **vendor 不动。** vendor 是上游快照（docs/vendor.md：1128 逐字节一致 + 10 补丁），
    本次纯本仓 console 层改动，不新增 vendor 差异。
 5. **部署即生效，无需重启 magpie。** 控制台静态文件每请求读盘、`cache-control: no-store`
-   （`src/hub-server.mjs:208-211`）。hcss2 插件目录覆盖 console 两文件后浏览器硬刷新即可。
-6. **实机核验路径**：hcss2（<服务器地址>）plugin-host 控制台 `127.0.0.1:18500`
-   （`/__meta` 验活）；SSH 母本见 /mnt/workspace/AGENTS.md §12；远端跑 node 用
-   `/opt/magpie/cache/magpie/bun/1.4.4/magpie-bun`（远端 node 22.9 缺 zstd）。
+   （`src/hub-server.mjs:208-211`）。`<部署实例>` 插件目录覆盖 console 两文件后浏览器硬刷新即可。
+6. **实机核验路径**：`<部署实例>`（<服务器地址>）plugin-host 控制台 `127.0.0.1:18500`
+   （`/__meta` 验活）；SSH 母本见 `<本机工作区>/AGENTS.md §12；远端跑 node 用
+   `<实例根目录>/cache/magpie/bun/1.4.4/magpie-bun`（远端 node 22.9 缺 zstd）。
 
 ## 2. 改动设计（dev1 独占写）
 
@@ -54,7 +54,7 @@
 注释注明口径来源 `vendor/lib/client/jet-hub.js:4795` DAILY_POOL_NAMES /
 formatPoolSplitLine，以及「只复刻每日桶这一最小语义，通用三档仍不碰」）：
 
-```js
+``js
 const BAIZHI_DAILY_POOL_NAMES = ['每日赠送', '每日积分']  // 与上游逐字一致
 function formatBaizhiPoolSplit(packages) {
   // 非数组 / 找不到每日桶 ⇒ null（调用方回退旧渲染，绝不编造）
@@ -64,7 +64,7 @@ function formatBaizhiPoolSplit(packages) {
   //       「今日尚未领取（每日 +100）」），缺失时 ''
   // 数值不在这里格式化（调用方用 formatCreditAmount，与客户端 formatCredits 同形）
 }
-```
+``
 
 - `loadBalances`：签名加第 4 参 `known`（`loadBalances(provider, prefetched, force, splitPools)`，
   仅 `provider === 'baizhi'` 时消费）。成功行（b 为对象）调
@@ -128,7 +128,7 @@ harness，不复制粘贴实现），断言条数自数。
 
 1. 读 diff：契约符合 §2；vendor 零改动（`git status` 核对）。
 2. `node scripts/test-all.mjs` 全绿（含新用例；t-console-credits 旧断言不红）。
-3. **实机**：SSH hcss2，备份远端 `console/console.js|css`（`.bak-20261109-split`）后
+3. **实机**：SSH `<部署实例>`，备份远端 `console/console.js|css`（`.bak-20261109-split`）后
    覆盖两文件（no-store，无需重启）；远端 CDP（magpie-bun + 系统 chromium/headless，
    若无浏览器则退化为 RPC 形状核验 + 本地 DOM 桩截图）打开 18500 控制台 → baizhi
    账号卡，断言 DOM 出现「长期 817.04 · 每日 99.64」同形拆分（数以实机钱包为准，
