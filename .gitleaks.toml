@@ -62,7 +62,16 @@ description = '部署坐标（私钥路径 / root 登录 / 生产绝对路径）
 # ⚠ 注释里**也不能写完整路径** —— `t-repo-purity.mjs` 的 `env-path` 规则会扫到本文件
 #   （2026-11-12 实测：写了真路径就让它红了 2 处）。要么写成 `<实例根>`，要么
 #   像下面正则那样用 `[\/]` 字符类转义。
-regex = '''(?i)(?:(?:~|/mnt/workspace|/home/[A-Za-z0-9._-]+|/root)/\.ssh/[A-Za-z0-9._-]+|REMOTE_USER\s*=\s*[\x60'"]root[\x60'"]|[\/]opt[\/]magpie)'''
+#
+# ⚠ 不再匹配裸的 `/opt/magpie`（2026-11-13 实测）：那是**产品默认安装路径**，
+#   不是任何一台机器的坐标 —— magpie 自己就装在这，模板默认值、文档说明、
+#   甚至本文件之外的所有正常引用都会写它。把它算违规的结果是 CI 恒红：
+#     · `scripts/deploy-plugin.sh.example:58` `MAGPIE_HOME:-<实例根>`（模板默认值）
+#     · `CHANGELOG.md:102` 「`/opt/magpie` 里 8 个社区登录插件全这么写」（说明文字）
+#   这两个都不是秘密，却让 `tree` job 每次都失败 —— 长期红等于没有检查。
+#   真坐标仍然抓得住：实例根目录 + 它的子目录（如 `<实例根>/home`、`<实例根>/config`），
+#   以及 `.ssh/<钥名>` / 远程登录账号（`root`） 这两类。
+regex = '''(?i)(?:(?:~|/mnt/workspace|/home/[A-Za-z0-9._-]+|/root)/\.ssh/[A-Za-z0-9._-]+|REMOTE_USER\s*=\s*[\x60'"]root[\x60'"]|[\/]opt[\/]magpie[\/](?:home|config|cache|tls|plugins))'''
 entropy = 0
 keywords = ['.ssh/', 'REMOTE_USER', 'magpie/']
 
