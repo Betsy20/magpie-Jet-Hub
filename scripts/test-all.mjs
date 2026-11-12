@@ -48,7 +48,7 @@ const all = process.argv.includes('--all')
 // t-rpc-cover 自己认 `--all` 这个参数来开探活，但它只收到自己的文件路径，
 // 收不到本脚本的命令行 —— 所以必须在这里显式补 `--probe`。
 // 踩过的坑（2026-10-28）：本文件注释写着「--all 会补 --probe」，代码却没补，
-// 于是 `test-all.mjs --all` 里那条最关键的「78 个方法真发请求都不回 unknown」
+// 于是 `test-all.mjs --all` 里那条最关键的「94 个方法真发请求都不回 unknown」
 // 从来没跑过，探活那条一直是空跑。注释和代码对不上就是缺陷。
 const extraArgs = (f) => (all && f === 't-rpc-cover.mjs' ? ['--probe'] : [])
 const cases = all

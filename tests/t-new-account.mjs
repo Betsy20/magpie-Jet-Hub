@@ -1214,6 +1214,12 @@ console.log('\noauth 方法形状：')
         ok(from > 0 && to > from, '能从 scripts/snapshot-models.mjs 切出 NAMES 表')
         const body = snapNamesSrc.slice(from, to)
         for (const m of body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)) snapNames.set(m[1], m[2])
+        // ⚠ **必须单独数原始行数**（2026-11-11 三审 P1）：`Map.set()` 对重复键是**静默覆盖**，
+        //    `size === 29` 在「30 行 1 重复」时照样成立 ⇒ 光看 size 抓不到 merge 残留的重复键。
+        //    实测：注入一条同名重复键后，`size` 仍 29、`nameDrift` 仍空，整套 254 项全绿。
+        const rawRows = [...body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)].length
+        ok(rawRows === snapNames.size,
+          `scripts/snapshot-models.mjs 的 NAMES 有重复键（原始 ${rawRows} 行 / 去重后 ${snapNames.size} 个）`)
       }
       ok(pluginNames.size === 29, `src/plugin.mjs 的 NAMES 应正好 29 家，实际 ${pluginNames.size}`)
       ok(snapNames.size === 29, `scripts/snapshot-models.mjs 的 NAMES 应正好 29 家，实际 ${snapNames.size}`)

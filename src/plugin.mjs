@@ -1254,10 +1254,10 @@ async function withRpcDeadline(container, method, payload, ms, what) {
  * 有效期。所以这里返回的 `accountId` 此时还只是个占位，不能当成「已登录」。
  */
 async function startNewAccount(container, provider, log, mode) {
-  // 只有三类 provider 需要 `mode`：
+  // 只有这**四家**需要 `mode`（分两类）：
   //  · 超级麦吉两站 —— 必须是 `browser` 或 `local-browser`（见 `MAGICREW_CREATE_MODES`）；
-  //  · `monkeycode` / `monkeycodeintl` —— 必须是 `browser`
-  //    （见 `BROWSER_MODE_PROVIDERS`，漏传就是那句 `unknown provider: monkeycode`）。
+  //  · `monkeycode` / `monkeycodeintl` / `baizhi` —— 必须是 `browser`
+  //    （见 `BROWSER_MODE_PROVIDERS`，漏传就是那句 `unknown provider: xxx`）。
   // 其余各家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
   //
   // 腾讯 Marvis 不走这里：它不需要本机浏览器，走宿主 `mode: 'code'` 那条通道，

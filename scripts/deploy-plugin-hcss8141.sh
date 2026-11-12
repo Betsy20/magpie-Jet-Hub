@@ -43,7 +43,7 @@ MANIFEST_KEY="magpie-jet-hub"
 #   用法：REMOTE_HOST=<服务器地址> bash scripts/deploy-plugin-hcss8141.sh
 REMOTE_HOST="${REMOTE_HOST:?必须设 REMOTE_HOST=<服务器地址>（仓库是 public，别写死）}"
 REMOTE_USER="${REMOTE_USER:-root}"
-# 连接一律走 ~/.ssh/config 里的别名：密钥（~/.ssh/hcss_ecs_8141）、端口、User
+# 连接一律走 ~/.ssh/config 里的别名：密钥（`~/.ssh/config` 里配的名称）、端口、User
 # 都写在 config 里，显式写 user@IP 会绕过 config ⇒ Permission denied (publickey)。
 REMOTE_NAME="hcss8141"
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new)
@@ -372,4 +372,6 @@ esac
 
 info ""
 info "部署完成：服务器插件源 = ${GH_URL}（commit ${LOCAL_HEAD:0:12}）"
-info "面板地址：https://magipe.ccwu.cc:3430/?k=${PROBE_WEB_KEY}"
+# ⚠ 不要把 key 原样打印（2026-11-11 三审：终端历史 / CI 日志 / 录屏都会留痕）。
+#   面板域名同样走环境变量：仓库是 public，写死等于把「哪台机器跑着什么」一起发出去。
+info "面板地址：https://${PANEL_HOST:-<面板域名>}:3430/?k=***（已打码 —— 完整值只在环境变量里，别回显）"

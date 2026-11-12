@@ -626,7 +626,7 @@ const callable = { checked: 0, unknown: [], errors: [], skipped: [] }
 
 // 单请求超时 5s（旧版 15s × 78 串行 = 最坏 19 分钟，正是「挂住」的来源）。
 const REQUEST_TIMEOUT = Number(process.env.JET_HUB_PROBE_TIMEOUT || 5_000)
-// 限并发 6：本地 HTTP 服务扛得住，78 个方法从「分钟级」降到「秒级」。
+// 限并发 6：本地 HTTP 服务扛得住，94 个方法从「分钟级」降到「秒级」。
 const CONCURRENCY = Math.max(1, Number(process.env.JET_HUB_PROBE_CONCURRENCY || 6))
 
 async function callOne(base, method, timeoutMs = REQUEST_TIMEOUT) {
@@ -776,7 +776,7 @@ if (!PROBE) {
         + `${ctl.hits}/${ctl.quietable} 次内容自己变了`)
       if (ctl.hits > 0) {
         // 基线噪声非零 ⇒ 这套归因在本环境下没有分辨力，直接放弃归因、判为外部写方。
-        // 不做 69 个方法的串行复验（那要 2 分钟以上，且结论不可信）。
+        // 不做 94 个方法的串行复验（那要 2 分钟以上，且结论不可信）。
         console.log('  ⇒ 基线噪声非零，本轮放弃副作用归因（判为外部并发写方，不判任何方法有副作用）')
       } else {
         console.log('  ⚠ 探活期间状态文件内容变了，进入隔离复验（串行，逐个方法等静默窗口、两次命中才算）')
