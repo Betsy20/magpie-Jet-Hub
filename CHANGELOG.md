@@ -11,6 +11,40 @@
 
 ## 1.0.0（未发布）
 
+- `chore(security)`: **移除运维坐标与凭据，补两道机器守卫**（2026-11-12 安全事件）。
+
+  `scripts/deploy-plugin-*.sh`（两个）是**本地部署脚本**，
+  不是插件的一部分 —— 但它们把 magpie web 面板的 **18 位明文 key**、两台生产服务器的
+  **公网 IP**、`REMOTE_USER="root"`、服务器上**私钥的绝对路径与文件名**一起带进了这个
+  public 仓库（提交 `9003611` / `4fb5459`）。`raw.githubusercontent.com` 与 `.patch`
+  都匿名可读，**泄露在推送那一刻就已发生**。
+
+  同仓自己早就写过两条禁令（`scripts/test-all.mjs` 的 `PRECONDITION` 注释、
+  `docs/testing.md`「别把 key 写进任何脚本或文档」）—— 但「写在文档里」不是机制，
+  没人会在 `git add -A` 时想起它。
+
+  - **删**：两个 `deploy-plugin-*.sh` + `docs/plan-install-local-plugin-*.md`
+  - **补** `scripts/deploy-plugin.sh.example`：同样的流程，主机 / 账号 / 私钥 / 面板 key
+    全部从环境变量读。原脚本里真正有价值的不是机器坐标，是那 6 条踩过的坑
+    （`magpie plugin add <tarball>` 换源 → 502、`bun.lock` 锁旧 sha 静默装旧版、
+    bun 写 7 位短 sha 只能前缀比、重启硬切在途 SSE、`--no-restart` 下要跳过「新增日志」
+    探针、面板 key 不要回显），一条不落搬进了注释
+  - **守卫** `tests/t-repo-purity.mjs`：8 条内容规则 + 1 条结构规则，
+    带 **19 条匹配器自检样本**（删规则或把正则改坏到永不命中 ⇒ 自检立刻红，
+    专防「扫了 0 处却报绿」）
+  - **守卫** `.github/workflows/secret-scan.yml` + `.gitleaks.toml`：扫 git 历史。
+    实测 gitleaks **默认规则对这两个脚本 0 命中**（18 位纯数字 key / IP / root 都不是
+    「云厂商 key 形状」），所以写了本仓专用规则。拆成 `tree`（必过，拦新泄露）与
+    `history`（定时跑，历史欠账的进度条）两个 job —— 只有一个 job 的话会从今天起长期红，
+    大家学会忽略它，新泄露也看不见
+  - `.gitignore` 按形状挡凭据：`.ssh/` / `id_rsa*` / `*.pem` / `.env` /
+    `scripts/deploy-*.sh` 等 27 行（当时一条都没有，`git add -A` 想拦也拦不住）
+
+  > ⚠️ **这个 PR 只清理工作区**。已经被提交过的副本仍在历史里，需要 `git filter-repo`
+  > + force-push（破坏性操作，不在本 PR 里做）。完整命令见
+  > `docs/security-incident-20261112.md`。**轮换 key 才是唯一实质补救** ——
+  > 清史挡不住已经下载过的人。
+
 - `fix(usage)`: **令牌量级收敛——千万级额度不再逐位写全**（2026-11-11 用户报障「我这里显示的
   不是 1m 而是每个数字都写出来了」，截图上是 `余额 9999976 token` 与
   `24 / 10,000,000 token`）。根因在 `fmtNum()`：它只 `toFixed(2)` 收小数位、**压量级为零**，

@@ -1,9 +1,9 @@
-# 施工计划书：修复 hcss2 网关百智云 / MonkeyCode 不可用（2026-11-09）
+# 施工计划书：修复 `<部署实例>` 网关百智云 / MonkeyCode 不可用（2026-11-09）
 
 ## 诊断结论（队长已核实，证据在案）
 
 ### 百智云（baizhi）——凭据文件损坏，纯数据问题
-- `/opt/magpie/home/.dsh/.credentials.yaml` 第 56 行 `BAIZHI_ACCOUNT_6E40BB58:` 的值是**未闭合单引号标量**（行尾字符 `;`，无闭合 `'`）。
+- `<实例根目录>/home/.dsh/.credentials.yaml` 第 56 行 `BAIZHI_ACCOUNT_6E40BB58:` 的值是**未闭合单引号标量**（行尾字符 `;`，无闭合 `'`）。
 - 插件的 `parseRefs`（src/credentials.mjs）按 YAML 多行标量规则继续吞行，把后续 **12 条 ref** 并进 baizhi 的值（2450 字符坏 JSON）⇒ baizhi 槽序列为空 ⇒ 502「还没有可用的 API Key」。
 - 被吞的 12 条：WORKBUDDY_ACCOUNT_F2E7795D, BUDDY_ACCOUNT_A57A96AD, TRAE_ACCOUNT_7787D188, BUDDY_ACCOUNT_94D719F4, ZCODE_ACCOUNT_650E9520, LOBSTERAI_ACCOUNT_91211F38, OPENCODE_ANON_C837C2B7, ASTUDIO_ACCOUNT_E645845A, MINIMAXINTL_ACCOUNT_4066BF2E, QODER_ACCOUNT_4A5E602D, QODER_ACCOUNT_F67EDF91, CODEARTS_ACCOUNT_5544E3DC（这些渠道同样受害，修一处全好）。
 - 完好值在备份里：`/root/magpie-pool-backup-20261107-1212/.credentials.yaml` 与 `/root/dsh-before-plugin-import-20261106/.credentials.yaml` 的 baizhi 值均为合法 JSON（access_token 67 字符 sk- 开头，含 session_cookie/nickname/user_id）。
@@ -17,11 +17,11 @@
 
 ## 接入方式
 - SSH：`ssh -i <私钥路径> -o IdentitiesOnly=yes -o BatchMode=yes root@<服务器地址>`（钥匙在本容器 NAS，已验证可用）。
-- 脚本传输：本地写好 → `scp` 到远端 `/tmp/` → 远端执行。**运行时用 `/opt/magpie/cache/magpie/bun/1.4.4/magpie-bun`**（远端 node 22.9 的 zlib 缺 zstd，加载 undici 8 即崩；插件 import 一律写绝对路径 `/opt/magpie/config/magpie/plugins/node_modules/magpie-jet-hub/...`）。
+- 脚本传输：本地写好 → `scp` 到远端 `/tmp/` → 远端执行。**运行时用 `<实例根目录>/cache/magpie/bun/1.4.4/magpie-bun`**（远端 node 22.9 的 zlib 缺 zstd，加载 undici 8 即崩；插件 import 一律写绝对路径 `<实例根目录>/config/magpie/plugins/node_modules/magpie-jet-hub/...`）。
 - 网关：systemd `magpie.service`，API 127.0.0.1:3425，日志 /var/log/magpie.log。凭据服务按 mtime+size 失效缓存，**改凭据文件不需要重启**。
 
 ## 铁律
-1. 动手前先备份：`cp -a /opt/magpie/home/.dsh/.credentials.yaml /opt/magpie/home/.dsh/.credentials.yaml.bak-20261109-fix`（远端）。
+1. 动手前先备份：`cp -a `<实例根目录>/home/.dsh/.credentials.yaml `<实例根目录>/home/.dsh/.credentials.yaml.bak-20261109-fix`（远端）。
 2. 任何输出/日志/报告**不得出现凭据原文**（key/token/secret/cookie）；诊断只打印结构特征（长度、键名、HTTP 状态）。
 3. 写凭据文件必须**原子写**（写 `.tmp-<pid>` → `rename`），只改目标行，其余字节原样保留；单引号标量转义规则：值内 `'` → `''`，整体包 `'...'`。
 4. 不重启 magpie、不改代码、不动其他渠道的凭据值。
@@ -33,7 +33,7 @@
 3. 验证（全部通过才算完成）：
    - `parseRefs` 读出 66 条 ref（修复前 54）；12 条被吞 ref 全部回归且各自 JSON 可解析（no access_token 的渠道按原样，不强求）。
    - baizhi 值 JSON 合法、access_token 67 字符。
-   - 经网关实测：`POST http://127.0.0.1:3425/v1/chat/completions`，model=`jet-hub-baizhi/deepseek-v4-flash`，max_tokens=16，caller key 从 `/opt/magpie/config/magpie/caller-keys.json` 第 0 条读（不打印）。期望 HTTP 200 有内容；若上游回额度/限流类错误，如实记录（那属账号层，不算施工失败）。
+   - 经网关实测：`POST http://127.0.0.1:3425/v1/chat/completions`，model=`jet-hub-baizhi/deepseek-v4-flash`，max_tokens=16，caller key 从 `<实例根目录>/config/magpie/caller-keys.json` 第 0 条读（不打印）。期望 HTTP 200 有内容；若上游回额度/限流类错误，如实记录（那属账号层，不算施工失败）。
 4. 报告：改动行数、验证结果、备份路径。
 
 ## dev2 施工单：MonkeyCode 重兑凭据
@@ -84,7 +84,7 @@ scanRefKeys=66 印证文件确有 66 个 key。
 - baizhi：网关 `jet-hub-baizhi/deepseek-v4-flash` 带 system 200（返回 "Hello"）。**已解决**。
 - monkeycode：带 system 两个 model 均 200；**不带 system 仍 400**（上游 403）。
 - 两代理已冻结 stand down；远端无残留进程；脚本归档 `/tmp/jet-hub-fix-archive-20261109/`；
-  兑换账本持久化 `/opt/magpie/home/.dsh/jet-hub/monkeycode-exchange-ledger-20261109.json`。
+  兑换账本持久化 `<实例根目录>/home/.dsh/jet-hub/monkeycode-exchange-ledger-20261109.json`。
 
 ### ⚠️ 原诊断错误纠正（monkeycode）
 计划书「signing_secret 被吊销」**不成立**。dev2 差分 7 组实证：上游拒的是**空 prompt 签名**——

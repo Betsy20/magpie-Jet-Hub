@@ -1,0 +1,326 @@
+#!/usr/bin/env bash
+# deploy-plugin.sh.example — 把本仓库作为插件装到一台 **magpie 网关** 上，并核验它真的加载了。
+#
+# ── 为什么是 `.example` ─────────────────────────────────────────────────────
+#   这个文件里**没有任何**具体机器的信息：主机、端口、账号、私钥路径、面板 key
+#   全部从环境变量注入。它进 public 仓库是安全的，也正是它该在的地方。
+#
+#   2026-11-12 事故：真正的部署脚本（`scripts/deploy-plugin-*.sh`，两个文件，
+#   700 多行，几乎完全相同）被提交进了这个 public 仓库，里面写死了面板 key、
+#   两台服务器的公网 IP、root 账号和私钥绝对路径。`raw.githubusercontent.com`
+#   匿名可下载，而那个 key **实测在事故被发现时仍然有效**。
+#   结论：部署脚本要么私有、要么长成这个样子 —— 具体值只在运行时的环境里。
+#
+# ── 用法 ───────────────────────────────────────────────────────────────────
+#   cp scripts/deploy-plugin.sh.example scripts/deploy-plugin.sh   # 后者已被 .gitignore
+#   REMOTE_HOST=1.2.3.4 \
+#   SSH_KEY=~/.ssh/<你的私钥> \
+#   PROBE_WEB_KEY=$MAGPIE_WEB_KEY \
+#   bash scripts/deploy-plugin.sh
+#
+#   可选：
+#     --check          只校验本地 HEAD / 远端 main / 插件源，不动服务器
+#     --no-restart     装好但不重启（下次 magpie 重启后生效）
+#     --restart-anyway 有在途 SSE 流也强制重启
+#     DRY_RUN=1        只打印将执行的远端动作
+#
+# ── 本文档真正的价值：下面这些是踩过的坑 ────────────────────────────────────
+#   1. 别用 `magpie plugin add <tarball|URL>` 换插件源。2026-11-09 实测：它会
+#      把 tarball 路径当插件 spec 写进 plugins.json，重启时宿主把 tarball 当
+#      JS 模块加载 ⇒ exports no OpenCode plugin function；同时旧 spec 映射丢失
+#      （no such plugin: node_modules/https:/github.com/...）⇒ 整个插件不加载，
+#      所有模型请求 502（占位域名 jet-hub.invalid）。正确做法是改 manifest +
+#      plugins.json 的 spec，然后 bun install（本脚本就是这么做的）。
+#   2. 改源时必须先删 bun.lock 里的锁定条目。GitHub 依赖在 lock 里锁的是**具体
+#      commit**，manifest 只有 URL 时 bun 判定「已满足」直接 no changes ⇒
+#      **装到旧版却全程无报错**。删锁条目 + 重装 = 按 URL 重新解析 HEAD。
+#   3. bun 在 lock 里写的是**短 sha（7 位）**，本地 `git rev-parse HEAD` 是 40 位
+#      ⇒ 只能用前缀比较，等长比较会假红。
+#   4. 重启会硬切所有在途 SSE 流（magpie 无 drain/reload）。所以重启前查 :3425
+#      的 established 连接；有非本机的就等（最多 120s），仍不静默就**拒绝重启**
+#      （插件已装好，可稍后重跑）。这条不是洁癖：掐断用户正在跑的会话比慢一点更糟。
+#   5. `--no-restart` 下必须跳过「本次新增日志」类探针。没重启就没有新日志，
+#      日志起点还是初值 ⇒ 会扫整份历史，把上一轮事故当成这次的失败。
+#   6. 面板 key 不要回显。终端历史 / CI 日志 / 录屏都会留痕 —— 事故里泄露的
+#      就是它。打印时一律打码。
+set -Eeuo pipefail
+
+# ── 必填（缺一个就停，报错说清楚要什么） ─────────────────────────────────────
+REMOTE_HOST="${REMOTE_HOST:?必须设 REMOTE_HOST=<服务器地址>（本仓是 public，别写死）}"
+PROBE_WEB_KEY="${PROBE_WEB_KEY:?必须设 PROBE_WEB_KEY=<magpie web 面板 key>（本仓是 public，别写死）}"
+
+# ── 选填（都有合理默认） ─────────────────────────────────────────────────────
+REMOTE_NAME="${REMOTE_NAME:-$REMOTE_HOST}"     # 有 ~/.ssh/config 别名时用它，端口/User 都在 config 里
+SSH_KEY="${SSH_KEY:-}"                          # 空 = 交给 ssh-agent / config
+: "${GH_URL:=https://github.com/<owner>/<repo>}" # 插件源；?? 见下方校验
+GH_URL="${GH_URL/#https:\/\/github.com\/<owner>\/<repo>/${GH_URL}}"
+MANIFEST_KEY="${MANIFEST_KEY:-magpie-jet-hub}"
+MAGPIE_HOME="${MAGPIE_HOME:-/opt/magpie}"      # 实例根目录
+MAGPIE_BUN_VER="${MAGPIE_BUN_VER:-1.4.4}"
+PROBE_MODEL="${PROBE_MODEL:-}"
+BAK_SUFFIX="$(date +%Y%m%d-%H%M%S)"
+
+REMOTE_PLUGINS="${MAGPIE_HOME}/config/magpie/plugins"
+REMOTE_STATE_DIR="${MAGPIE_HOME}/config/magpie"
+MAGPIE_BUN="${MAGPIE_HOME}/cache/magpie/bun/${MAGPIE_BUN_VER}/magpie-bun"
+MAGPIE_ENV="HOME=${MAGPIE_HOME}/home XDG_CONFIG_HOME=${MAGPIE_HOME}/config XDG_DATA_HOME=${MAGPIE_HOME}/data XDG_STATE_HOME=${MAGPIE_HOME}/state XDG_CACHE_HOME=${MAGPIE_HOME}/cache"
+MAGPIE_LOG="${MAGPIE_LOG:-${MAGPIE_HOME}/../log/magpie.log}"
+
+CHECK_ONLY=0; NO_RESTART=0; RESTART_ANYWAY=0
+for arg in "$@"; do
+  case "${arg}" in
+    --check) CHECK_ONLY=1 ;;
+    --no-restart) NO_RESTART=1 ;;
+    --restart-anyway) RESTART_ANYWAY=1 ;;
+    *) printf '未知参数：%s（支持 --check / --no-restart / --restart-anyway）\n' "${arg}" >&2; exit 2 ;;
+  esac
+done
+
+case "${GH_URL}" in
+  *'<owner>'*) printf '[FAIL] GH_URL 没设：插件源必须写明，例如 GH_URL=https://github.com/you/magpie-Jet-Hub\n' >&2; exit 2 ;;
+esac
+
+LOG_MARK_LINE=1
+REMOTE_MUTATED=0
+
+log()  { printf '\n==> %s\n' "$*"; }
+info() { printf '    %s\n' "$*"; }
+warn() { printf '    [warn] %s\n' "$*" >&2; }
+
+die() {
+  printf '\n[FAIL] %s\n' "$*" >&2
+  if [[ "${REMOTE_MUTATED}" == "1" ]]; then
+    cat >&2 <<EOF
+
+    远端已改动，回滚：
+      ssh ${REMOTE_NAME}
+      cd ${REMOTE_PLUGINS}
+      cp -p package.json.bak-${BAK_SUFFIX} package.json
+      cp -p bun.lock.bak-${BAK_SUFFIX} bun.lock
+      cp -p ${REMOTE_STATE_DIR}/plugins.json.bak-${BAK_SUFFIX} ${REMOTE_STATE_DIR}/plugins.json
+      ${MAGPIE_ENV} ${MAGPIE_BUN} install
+      systemctl restart magpie
+EOF
+  fi
+  exit 1
+}
+trap 'die "第 ${LINENO} 行命令失败"' ERR
+
+SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new)
+[[ -n "${SSH_KEY}" ]] && SSH_OPTS+=(-i "${SSH_KEY}" -o IdentitiesOnly=yes)
+rsh() { ssh "${SSH_OPTS[@]}" "${REMOTE_NAME}" "$@"; }
+
+# ── [1/7] 本地 HEAD 必须已在插件源上 ────────────────────────────────────────
+log "[1/7] 校验插件的远端 main 与本地 HEAD 一致"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_DIR}"
+LOCAL_HEAD="$(git rev-parse HEAD)"
+REMOTE_MAIN="$(timeout 60 git ls-remote "${GH_URL%.git}.git" refs/heads/main | awk '{print $1}')"
+info "本地 HEAD：${LOCAL_HEAD:0:12}"
+info "远端 main：${REMOTE_MAIN:0:12}"
+[[ "${LOCAL_HEAD}" == "${REMOTE_MAIN}" ]] || die "远端 main 不是本地 HEAD —— 先 push（否则服务器会装到旧版）"
+
+[[ "${CHECK_ONLY}" == "1" ]] && { log "CHECK_ONLY：只校验，不动服务器"; exit 0; }
+
+if [[ "${DRY_RUN:-0}" == "1" ]]; then
+  log "DRY_RUN=1：将执行的远端动作"
+  cat <<EOF
+    ssh ${REMOTE_NAME}
+    cd ${REMOTE_PLUGINS} && 备份 package.json / bun.lock / plugins.json（.bak-${BAK_SUFFIX}）
+    package.json 依赖 ${MANIFEST_KEY} -> ${GH_URL}
+    plugins.json spec -> ${GH_URL}
+    删 bun.lock 里的锁定条目 -> ${MAGPIE_ENV} ${MAGPIE_BUN} install
+    校验装到的是 ${LOCAL_HEAD:0:12}
+    systemctl restart magpie（先查 :3425 在途流）
+    探针：/__meta 200、gateway 3425 非 000、console 200/303、日志无 "didn't load"
+EOF
+  exit 0
+fi
+
+# ── [2/7] 远端备份（保留既有备份，不覆盖） ─────────────────────────────────
+log "[2/7] 备份远端 package.json / bun.lock / plugins.json"
+rsh "cd '${REMOTE_PLUGINS}' && for f in package.json bun.lock; do
+       if [ -e \"\$f.bak-${BAK_SUFFIX}\" ]; then echo \"    保留 \$f.bak-${BAK_SUFFIX}\";
+       else cp -p \"\$f\" \"\$f.bak-${BAK_SUFFIX}\" && echo \"    已备份 \$f\"; fi; done"
+rsh "if [ -e '${REMOTE_STATE_DIR}/plugins.json.bak-${BAK_SUFFIX}' ]; then echo '    保留 plugins.json.bak';
+     else cp -p '${REMOTE_STATE_DIR}/plugins.json' '${REMOTE_STATE_DIR}/plugins.json.bak-${BAK_SUFFIX}' && echo '    已备份 plugins.json'; fi"
+REMOTE_MUTATED=1
+
+# ── [3/7] manifest ─────────────────────────────────────────────────────────
+log "[3/7] package.json 依赖 -> ${GH_URL}"
+rsh "python3 - '${REMOTE_PLUGINS}/package.json' '${MANIFEST_KEY}' '${GH_URL}' <<'PY'
+import json, os, sys
+p, key, url = sys.argv[1], sys.argv[2], sys.argv[3]
+j = json.load(open(p))
+j.setdefault('dependencies', {})[key] = url
+tmp = p + '.tmp'
+open(tmp, 'w').write(json.dumps(j, indent=2) + '\n')
+os.replace(tmp, p)
+print('    manifest ->', j['dependencies'][key])
+PY"
+
+# ── [4/7] plugins.json ─────────────────────────────────────────────────────
+log "[4/7] plugins.json spec -> ${GH_URL}"
+rsh "python3 - '${REMOTE_STATE_DIR}/plugins.json' '${MANIFEST_KEY}' '${GH_URL}' <<'PY'
+import json, os, sys
+p, key, url = sys.argv[1], sys.argv[2], sys.argv[3]
+j = json.load(open(p))
+def keep(x):
+    s = x.get('spec', '')
+    return not (s == key or key + '-' in s or s.startswith('https://github.com/'))
+kept = [x for x in j.get('plugins', []) if keep(x)]
+kept.insert(1, {'spec': url})
+tmp = p + '.tmp'
+open(tmp, 'w').write(json.dumps({'plugins': kept}, indent=2) + '\n')
+os.replace(tmp, p)
+print('    plugins.json ->', [x['spec'] for x in kept])
+PY"
+
+# ── [5/7] bun install（坑 2、坑 3 都在这里） ───────────────────────────────
+log "[5/7] bun install（从 GitHub 拉取）"
+# 解锁逻辑走 base64：bun.lock 是 JSONC（带尾随逗号），且 Python 里有反斜杠和引号，
+# 直接塞进 ssh 的双引号里会被 bash 层层转义弄坏。
+UNLOCK_PY="$(base64 -w0 <<'UNLOCKEOF'
+import json, os, sys
+key, p = sys.argv[1], sys.argv[2]
+raw = open(p, encoding='utf-8').read()
+
+def strip_trailing_commas(s):
+    out, in_str, esc, i = [], False, False, 0
+    while i < len(s):
+        ch = s[i]
+        if in_str:
+            out.append(ch)
+            if esc: esc = False
+            elif ch == chr(92): esc = True
+            elif ch == '"': in_str = False
+            i += 1; continue
+        if ch == '"':
+            in_str = True; out.append(ch); i += 1; continue
+        if ch == ',':
+            j = i + 1
+            while j < len(s) and s[j] in ' \t\r\n': j += 1
+            if j < len(s) and s[j] in '}]': i += 1; continue
+        out.append(ch); i += 1
+    return ''.join(out)
+
+lock = json.loads(strip_trailing_commas(raw))
+changed = []
+if key in lock: lock.pop(key); changed.append(key)
+pkgs = lock.get('packages')
+if isinstance(pkgs, dict) and key in pkgs: pkgs.pop(key); changed.append('packages.' + key)
+for wk, wv in (lock.get('workspaces') or {}).items():
+    deps = (wv or {}).get('dependencies')
+    if isinstance(deps, dict) and key in deps: deps.pop(key); changed.append('workspaces.' + str(wk))
+if changed:
+    tmp = p + '.tmp'
+    open(tmp, 'w', encoding='utf-8').write(json.dumps(lock, indent=2) + '\n')
+    os.replace(tmp, p)
+print('    已从 bun.lock 移除锁定条目：', changed or '（无需移除）')
+UNLOCKEOF
+)"
+rsh "echo '${UNLOCK_PY}' | base64 -d | python3 - '${MANIFEST_KEY}' '${REMOTE_PLUGINS}/bun.lock'"
+rsh "rm -rf '${REMOTE_PLUGINS}/node_modules/${MANIFEST_KEY}'"
+rsh "cd '${REMOTE_PLUGINS}' && ${MAGPIE_ENV} '${MAGPIE_BUN}' install 2>&1 | tail -8"
+
+log "[5b] 校验安装结果"
+INSTALLED_SHA="$(rsh "grep -o '${MANIFEST_KEY}@github:[^#]*#[0-9a-f]*' '${REMOTE_PLUGINS}/bun.lock' | head -1 | sed 's/.*#//'" || true)"
+info "bun.lock 锁定的 commit：${INSTALLED_SHA:-<none>}（本地 HEAD ${LOCAL_HEAD:0:12}）"
+# 坑 3：bun 写短 sha，只能前缀比较。
+[[ -n "${INSTALLED_SHA}" && "${LOCAL_HEAD}" == "${INSTALLED_SHA}"* ]] \
+  || die "装到的是 ${INSTALLED_SHA:-<none>}，不是本地 HEAD ${LOCAL_HEAD:0:12}（bun 用了旧 lock？）"
+info ".bun-tag：$(rsh "cat '${REMOTE_PLUGINS}/node_modules/${MANIFEST_KEY}/.bun-tag' 2>/dev/null || echo '<none>'")"
+
+# ── [6/7] 重启（坑 4：先等在途流） ─────────────────────────────────────────
+if [[ "${NO_RESTART}" == "1" ]]; then
+  log "[6/7] --no-restart：跳过重启（文件已更新，下次 magpie 重启后生效）"
+else
+  log "[6/7] 检查在途流（:3425 established）"
+  busy_snapshot() {
+    rsh "ss -tn state established '( sport = :3425 )' 2>/dev/null | awk 'NR>1 && \$5 !~ /^127\.0\.0\.1:/ {print \$5}' | sort -u" || true
+  }
+  ACTIVE="$(busy_snapshot)"
+  if [[ -n "${ACTIVE}" ]]; then
+    info "有在途连接："; printf '%s\n' "${ACTIVE}" | sed 's/^/      /'
+    if [[ "${RESTART_ANYWAY}" == "1" ]]; then
+      warn "--restart-anyway：强制重启（会掐断这些流）"
+    else
+      info "等待在途流结束（最多 120s）……"
+      waited=0
+      while [[ -n "${ACTIVE}" && "${waited}" -lt 120 ]]; do
+        sleep 5; waited=$((waited + 5)); ACTIVE="$(busy_snapshot)"
+      done
+      [[ -z "${ACTIVE}" ]] || { printf '%s\n' "${ACTIVE}" | sed 's/^/      /'; die "仍有在途连接（${waited}s）：拒绝自动重启（插件已装好，稍后重跑或 --restart-anyway）"; }
+      info "在途流已清空（等待 ${waited}s）"
+    fi
+  else
+    info "无在途连接，可以安全重启"
+  fi
+  LOG_MARK_LINE="$(rsh "wc -l < '${MAGPIE_LOG}'" | tr -d ' ')"
+  rsh "systemctl restart magpie"
+fi
+
+# ── [7/7] 探针 ─────────────────────────────────────────────────────────────
+log "[7/7] 探针"
+sleep 5
+ok=0; meta_code=""; gw_code=""; console_code=""
+for _ in $(seq 1 12); do
+  meta_code="$(rsh "curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:18500/__meta || true")"
+  gw_code="$(rsh "curl -sk -o /dev/null -m 8 -w '%{http_code}' https://127.0.0.1:3425/ || true")"
+  # ?k= 必须是 URL 编码安全的；key 长度 16+，不要在这里打印它。
+  console_code="$(rsh "curl -s -o /dev/null -m 5 -w '%{http_code}' 'http://127.0.0.1:3430/?k=${PROBE_WEB_KEY}' || true")"
+  if [[ "${meta_code}" == "200" && "${gw_code}" != "000" && -n "${gw_code}" ]]; then ok=1; break; fi
+  sleep 3
+done
+info "plugin host /__meta (18500) -> ${meta_code:-<none>}（期望 200）"
+info "gateway https     (3425)  -> ${gw_code:-<none>}（期望非 000）"
+info "console           (3430)  -> ${console_code:-<none>}（期望 200/303）"
+[[ "${ok}" == "1" ]] || die "探针失败：插件宿主或网关没恢复"
+
+# 坑 5：--no-restart 必须在这里退出，否则会拿历史日志当这次的失败。
+if [[ "${NO_RESTART}" == "1" ]]; then
+  info "--no-restart：代码已更新、未重启；跳过「新代码已加载」类探针"
+  info "装到的版本：${INSTALLED_SHA:-<none>}（下次 magpie 重启后生效）"
+  exit 0
+fi
+
+LOAD_ERR="$(rsh "tail -n +${LOG_MARK_LINE} '${MAGPIE_LOG}' | grep -c \"didn't load\" 2>/dev/null || true")"
+info "重启后 \"didn't load\"：${LOAD_ERR:-0} 条（期望 0）"
+[[ "${LOAD_ERR:-0}" == "0" ]] || die "有插件加载失败"
+
+PROVIDERS="$(rsh "curl -s -m 10 http://127.0.0.1:18500/__meta | python3 -c \"import sys,json; print(len(json.load(sys.stdin).get('providers',[])))\" 2>/dev/null || echo 0")"
+info "插件 provider 数：${PROVIDERS:-0}（期望 >0）"
+[[ "${PROVIDERS:-0}" -gt 0 ]] || die "没有 provider（插件没加载）"
+
+if [[ -n "${PROBE_MODEL}" ]]; then
+  CHAT="$(rsh "python3 - '${PROBE_MODEL}' '${MAGPIE_HOME}' <<'PY'
+import json, sys, urllib.request
+model, home = sys.argv[1], sys.argv[2]
+items = json.load(open(home + '/config/magpie/caller-keys.json'))
+if isinstance(items, dict): items = items.get('keys', [])
+key = next((k.get('secret') or k.get('key') for k in items
+            if isinstance(k, dict) and not k.get('off') and (k.get('secret') or k.get('key'))), None)
+if not key: print('NO_KEY'); raise SystemExit(0)
+req = urllib.request.Request('http://127.0.0.1:3425/v1/chat/completions',
+    data=json.dumps({'model': model,
+                     'messages': [{'role': 'user', 'content': 'say ok'}],
+                     'max_tokens': 8}).encode(),
+    headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+try:
+    body = urllib.request.urlopen(req, timeout=60).read().decode()
+    print('OK_CHOICES' if '\"choices\"' in body else 'BAD:' + body[:300])
+except Exception as e:
+    print('ERR:' + str(e)[:300])
+PY" 2>/dev/null || echo 'ERR:probe-failed')"
+  info "${PROBE_MODEL} 实调：${CHAT:-<空>}"
+  case "${CHAT}" in
+    OK_CHOICES*) info "实调成功" ;;
+    NO_KEY*)     warn "没有可用的 caller-key，跳过实调（登录态还要在面板里补）" ;;
+    *)           warn "实调没返回 choices —— 模型多半未登录；插件本身已装好，登录后复测" ;;
+  esac
+fi
+
+info ""
+info "部署完成：插件源 = ${GH_URL}（commit ${LOCAL_HEAD:0:12}）"
+# 坑 6：不要把 key 原样打印。
+info "面板地址：https://<面板域名>:3430/?k=***（已打码 —— 完整值只在环境变量里）"

@@ -216,7 +216,7 @@ console.log('\n【5】插件壳接线（面板路径真的指向新方法）')
 
   // ⚠️ 形态：**oauth + 两屏（prompt 讲说明 → authorize 开窗 + code 粘贴框）**。
   //
-  // 这条形态是三轮真机实测（2026-11-11 hcss-ecs-8141）逼出来的：
+  // 这条形态是三轮真机实测（2026-11-11 <部署实例>）逼出来的：
   //  · 只写 `instructions`：说明被 `openError` 顶掉（app.js:13075 条件链里
   //    openError 排在 instructions 前面），服务器上 `w.OpenURL()` 必然失败
   //    ⇒ 一个字都看不到。

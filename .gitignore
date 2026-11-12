@@ -21,3 +21,32 @@ _probe-*.mjs
 /explore/
 /shots/
 /style-explorer.html
+
+# 凭据与「某台机器」的坐标——永远不属于这个插件仓库。
+# 2026-11-12 事故：部署脚本把面板 key、生产 IP + root、私钥路径提进了 public 历史。
+.ssh/
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+.env
+.env.*
+!.env.example
+*.credentials.yaml
+.credentials.yaml
+credentials.json
+# ⚠ 只忽略**数据文件**，不要写成 `*caller*key*` —— 那会连
+#   `src/magpie-caller-key.mjs` 这类**源码**一起静默吞掉（二审实测）。
+**/caller-keys.json
+hosts.yml
+
+# 部署/运维脚本与手册：它们描述的是某台机器，不是插件本身。
+scripts/deploy-*.sh
+!scripts/deploy-*.sh.example
+ops/
+deploy/
