@@ -982,7 +982,7 @@ console.log('\noauth 方法形状：')
         // —— 第一屏 `ask()` 讲清「去哪登录、登录完粘什么」，第二屏
         // `authorize()` 返 url + `method:'code'` 开窗并给粘贴框。
         //
-        // 为什么必须两屏（hcss-ecs-8141 真机三轮实测）：
+        // 为什么必须两屏（<部署实例> 真机三轮实测）：
         // · 说明只写 `authorize().instructions` ⇒ 服务器上 `w.OpenURL()` 必然
         //   失败、`openError` 被填，而前端条件链里 openError 排在 instructions
         //   之前（`internal/gui/assets/app.js:13075`）⇒ 一个字都看不到；

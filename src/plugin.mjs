@@ -3856,7 +3856,7 @@ function nicknameOfPaste(raw) {
  *
  * 而插件自带的浏览器登录（`baizhi-browser-login.js`）要 spawn 一个**可见**的
  * Chromium 窗口、真人坐在 magpie 所在机器前操作 —— 装在服务器上永远走不通
- * （2026-11-11 hcss8141 真机报的就是「找不到可用的浏览器」）。
+ * （2026-11-11 真机报的就是「找不到可用的浏览器」）。
  *
  * ⇒ 唯一能在服务器上跑通的形态，就是让用户在自己的浏览器里登录、把登录态粘回来。
  *
@@ -3865,7 +3865,7 @@ function nicknameOfPaste(raw) {
  * 先记住宿主的渲染顺序（`internal/gui/assets/app.js`）：**prompt → 开窗 → 粘贴框**。
  *
  * ⚠ 一开始想省掉第二屏，把「要粘哪两枚 cookie」整段写进 `authorize().instructions` ——
- * **不行**（2026-11-11 hcss8141 实测）：
+ * **不行**（2026-11-11 真机实测）：
  *
  *   · 宿主只在 `openError` 为空时才渲染 `signing.instructions`
  *     （`app.js:13076-13082` —— 条件链里 `signing.openError` 排在
