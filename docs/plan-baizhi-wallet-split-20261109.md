@@ -6,11 +6,11 @@
 
 用户截图（百智云官方控制台 → 钱包）：
 
-``
+```
 当前可用积分 916.68
 每日积分     99.64  | 零点过期
 充值积分    817.04  | 长期有效
-``
+```
 
 用户原话：「百智云窗口显示的不对分为每日和长期」——我们的窗口（Jet Hub 控制台
 账号卡「积分」行）只显示合计 916.68，没有像官方钱包那样拆成「每日（零点过期）」
@@ -54,7 +54,7 @@
 注释注明口径来源 `vendor/lib/client/jet-hub.js:4795` DAILY_POOL_NAMES /
 formatPoolSplitLine，以及「只复刻每日桶这一最小语义，通用三档仍不碰」）：
 
-``js
+```js
 const BAIZHI_DAILY_POOL_NAMES = ['每日赠送', '每日积分']  // 与上游逐字一致
 function formatBaizhiPoolSplit(packages) {
   // 非数组 / 找不到每日桶 ⇒ null（调用方回退旧渲染，绝不编造）
@@ -64,7 +64,7 @@ function formatBaizhiPoolSplit(packages) {
   //       「今日尚未领取（每日 +100）」），缺失时 ''
   // 数值不在这里格式化（调用方用 formatCreditAmount，与客户端 formatCredits 同形）
 }
-``
+```
 
 - `loadBalances`：签名加第 4 参 `known`（`loadBalances(provider, prefetched, force, splitPools)`，
   仅 `provider === 'baizhi'` 时消费）。成功行（b 为对象）调

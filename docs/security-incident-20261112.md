@@ -7,21 +7,18 @@
 > 代码层已经补上两道守卫；**换 key 与清史必须人工执行**（动线上配置和 force-push，
 > 不适合无人值守自动做）。本文件只给可照抄的命令。
 
-## 0. 先说结论
+## 0. 先说结论（2026-11-12 实测）
 
-| 结论 | 证据 | 状态 |
-|---|---|---|
-| 泄露的面板 key **曾经仍然有效** | 带 key 请求 `https://<实例>:3430/?k=<key>` → **303** + 会话 cookie；不带 / 伪造 → **401** | ✅ **已轮换**（2026-11-13，两台均 401） |
-| 它**不是**「未来会被利用」的风险，而是**当时可被登录** | 同一把 key 在**两个实例**上都返回 303（两机共用一把） | ✅ 已消除 |
-| 会话 cookie **就是 key 本身** | cookie 值与 key 逐字符相同；故换 key 会同时作废所有旧会话 | ✅ 已利用这一点 |
-| magpie **启动时把 key 明文写进日志** | `magpie.log` 启动横幅：`…/?k=<key>`，两台日志各有几十行 | ✅ 已清洗 |
-| 上游 main **没有被明文 key 污染** | PR #31 合入的版本已在源码里改成环境变量注入 | — |
-| fork main 头**已不可匿名下载** | `raw/…/main/scripts/deploy-plugin-*.sh` → **404** | ✅ 已删 |
-| 但 fork **历史提交仍可下载** | 5 笔相关 commit 的 `.patch` 全部 **200**；`9003611` 含明文 key | ⚠️ 需清史 |
-| 私钥**本体**从未进仓库 | `git log -S 'BEGIN OPENSSH PRIVATE KEY'` = 0 | — |
+| 结论 | 证据 |
+|---|---|
+| 泄露的**面板 key 现在仍然有效** | 带 key 请求 `https://<实例>:3430/?k=<key>` → **303** + 下发会话 cookie；不带 / 伪造 → **401** |
+| 但它**不是**「未来会被利用」的风险，而是**现在可被登录** | 同一个 key 在**两个实例**上都返回 303（两机共用一把 key） |
+| 上游 main **没有被明文 key 污染** | PR #31 合入的版本已经在源码里改成环境变量注入；上游只有 1 笔相关提交 |
+| 但 fork 的**历史提交对象**至今明文暴露 | ⚠ **不是「main 的内容」**（`origin/main` = `febe312` 的树里两个脚本已经是 `${VAR:?}` 环境变量版）—— 是**历史里的 `9003611` / `4fb5459` 那两棵旧树**：`raw.githubusercontent.com/<owner>/<repo>/<旧sha>/scripts/deploy-plugin-*.sh` 匿名可下载，`.patch` 同理。**改源码撤不掉已经发出去的副本。** |
+| 私钥**本体**从未进仓库 | `git log -S 'BEGIN OPENSSH PRIVATE KEY'` = 0 |
 
-**处置顺序之所以是「先轮换、后清史」**：清史只让「以后下载不到」，
-挡不住已经下载过的人 —— 而实测表明那把 key 当时就能登进去。
+**所以最紧急的不是清史，是换 key。** 清史只让「以后下载不到」，
+挡不住已经下载的人 —— 而实测表明这把 key 现在就能登进去。
 
 ## 1. 泄露了什么、泄露到哪
 
@@ -44,10 +41,14 @@
 这一层解决的是「以后不再发生」，可随 PR 合入，不需要任何线上操作。
 
 - **`tests/t-repo-purity.mjs`（新增，已挂进 `test-all.mjs` 与 CI）**
-  8 条内容规则（IPv4 字面量 / PEM 私钥头 / `~/.ssh/<名>` 路径 / GitHub+AWS token
-  前缀 / 硬编码 key / 主机别名 / 生产绝对路径 / 数据库连接串）+ 1 条结构规则
+   8 条内容规则（IPv4 字面量 / PEM 私钥头 / `~/.ssh/<名>` 路径 / GitHub token /
+   AWS access key / 硬编码 key / 主机别名 / 生产绝对路径）+ 1 条结构规则
   （不许有 `scripts/deploy-*.sh`）。
-  带 **18 条匹配器自检样本**：删任一条规则、或把正则改坏到永远不命中，自检立刻红。
+   带 **33 条匹配器自检样本**：删任一条规则、或把正则改坏到永远不命中，自检立刻红。
+  （初版只有 19 条、且 4 条规则零负例 —— 三审实测「把 `github_pat_` 分支整个删掉
+  自检照样全过」。现按「每条规则的每个分支都配正例 + 负例」补齐，顺带修掉一个
+  真缺陷：名字段 `[A-Za-z_][\w.-]*` 强制前缀，导致 `PASSWORD=…` 这类「关键词在开头」
+  的写法全部漏报。）
   这条是为了防「扫了 0 处却报绿」——那种绿灯比没有检查更危险。
 - **`.gitleaks.toml` + `.github/workflows/secret-scan.yml`**
   第二道防线，扫 git 历史。**必须自定义规则**：实测把本次两个脚本丢给 gitleaks
@@ -59,14 +60,10 @@
   三篇有价值的 `plan-*.md` **保留**，只把里面的主机别名与实例绝对路径换成占位符
   （它们是插件行为的上游实测记录，删掉等于逼下一个人重踩坑）。
 
-## 3. 第一件事：轮换（最紧急）—— ✅ 2026-11-13 已执行
+## 3. 必须人工做的第一件事：轮换（最紧急）
 
-**历史清理之前、之后都不影响这一条 —— key 已公开两天多，按已泄露处理。**
-这一步是唯一真正能「止损」的动作；其余都是防止复发。
-
-> **执行结果**：两台实例已于 2026-11-13 02:00–02:02 完成轮换。
-> 外网复测：旧 key `401`、新 key `303`，两台一致。旧 key 的备份残留与日志明文均已清零。
-> 下面的步骤保留下来，供下次轮换照做；三个「以为换完了其实没换」的坑见本节末尾。
+**历史清理之前、之后都不影响这一条 —— key 已经公开两天多了，按已泄露处理。**
+这是唯一真正能「止损」的动作；其余都是防止复发。
 
 这个 key 是 `MAGPIE_WEB_KEY` 环境变量固定的（`magpie web --help`：给了它就
 「keeps one, signed in for 400 days」；不给则每次启动随机）。它写在 systemd unit 的
@@ -90,180 +87,105 @@ curl -sk -o /dev/null -w 'old=%{http_code} (期望 401)\n' "https://<实例>:343
 curl -sk -o /dev/null -w 'new=%{http_code} (期望 303)\n' "https://<实例>:3430/?k=${NEW}"
 ```
 
-### 实测补充：三个会让人以为「换完了」其实没换的地方
+⚠️ 旧 key 还残留在**本机若干备份文件**里（`/etc/systemd/system/magpie.service.bak-*`、
+`/root/unit-backups-*/`、`/root/archive/*.md`）—— 它们不公开，但换 key 后应一并用
+新值覆盖或删除，否则「轮换」只是前门换了锁、后门还留着备用钥匙。
 
-**① 会话 cookie 就是 key 本身。**
-登录后下发的 session cookie 值与 key **逐字符相同**。好消息：换 key 会同时让所有
-旧会话失效（实测换完后旧 key 返回 401）。坏消息：任何人手上拿到的 cookie 等价于
-一把 key，光看访问日志很难区分「持有 cookie」和「持有 key」。
+同时建议：
+- 两台机器上确认 `root` 直登是否必要。若必须留，改为密钥登录 + `PermitRootLogin
+  prohibit-password`；**私钥文件换名换路径**（泄露的正是路径与文件名）。
+- 检查面板访问日志里是否已有来自陌生 IP 的、带 `?k=` 的请求。有就是已被利用，
+  按入侵处置，不只是换 key。
 
-**② magpie 启动时会把 key 明文写进日志横幅。**
-每次启动都会打印 `magpie web on http://127.0.0.1:3430/?k=<key>` 与
-`on the network https://<域名>:3430/?k=<key>` —— 实测两台机器的 `magpie.log` 里
-各有几十行明文。**轮换后必须一并清洗**，否则旧 key 还躺在日志里：
+## 4. 必须人工做的第二件事：清史
 
-```bash
-K=$(systemctl show magpie -p Environment | tr ' ' '\n' | sed -n 's/^MAGPIE_WEB_KEY=//p')
-sed -i "s|$K|***REDACTED***|g" /var/log/magpie.log
-# 别忘 logrotate 出的旧档；也别留未清洗的 .presanitize 副本
-grep -rlF -- "$K" /var/log/ 2>/dev/null
-```
-
-**③ 旧 key 还残留在备份文件里**（`/etc/systemd/system/magpie.service.bak-*`、
-`/root/unit-backups-*/`、`/root/archive/*.md`）。它们不公开，但换 key 后应一并用
-新值覆盖或删除，否则「轮换」只是前门换了锁、后门还留着备用钥匙：
+> ⚠️ 破坏性操作，**不可逆**，且会让所有副本的 `main` 分叉。执行前：
+> 确认没有别人正在基于旧 `main` 开发；执行后通知所有协作者重新 clone。
 
 ```bash
-for f in /etc/systemd/system/magpie.service.bak-* /root/unit-backups-*/* /root/archive/*.md; do
-  [ -f "$f" ] && grep -qF -- "$OLD" "$f" && sed -i "s|$OLD|$NEW|g" "$f"
-done
-grep -rlF -- "$OLD" /etc/systemd /root 2>/dev/null   # 期望空
-```
+# ⚠ 先把 owner/repo 换成**你自己的那个**，别照抄 —— 本仓 origin 是
+#   `Betsy20/magpie-Jet-Hub`，而 PR 分支来自 fork `hnlinyh/magpie-Jet-Hub`。
+#   清错仓库的后果是：本仓一点没变，你却在另一个 fork 上重写了所有人的历史。
+OWNER_REPO="<owner>/<repo>"     # 例：Betsy20/magpie-Jet-Hub
 
-## 3.5 SSH 加固 —— [OK] 2026-11-13 已执行
-
-轮换只堵了面板那一扇门。**泄露的还有两台机器的地址、`root` 账号、私钥路径**，
-而两台机器的 sshd 当时都是 `PermitRootLogin yes` + `PasswordAuthentication yes`。
-
-实测数据（切换前）：
-
-| 机器 | 密码登录成功 | 密钥登录成功 | 密码爆破失败 |
-|---|---|---|---|
-| 实例 A | 0 | 2372 | 149,145 |
-| 实例 B | 0 | — | 数千 |
-
-- **密码登录从来没人用过**（0 次）⇒ 关掉不影响任何运维路径；
-- **爆破量 15 万次** ⇒ 这扇门一直有人撞，只是还没撞开。
-
-改动（两台一致）：
-
-```
-PasswordAuthentication no
-KbdInteractiveAuthentication no
-PermitRootLogin prohibit-password
-```
-
-> ⚠️ 实例 A 上真正生效的是 `/etc/ssh/sshd_config.d/50-cloud-init.conf`（`Include`
-> 在 sshd_config 顶部，dropin 优先）。只改主配置里的 `PasswordAuthentication`
-> 会被它盖回去 —— 改完必须 `sshd -T | grep passwordauthentication` 复核。
-
-验证（两台都做了）：
-- 密钥登录：`ssh -o BatchMode=yes root@<host> echo OK` → `OK`（没把自己锁在外面）
-- 密码登录：`ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no` →
-  `Permission denied (publickey)`
-- 业务无影响：`magpie` 服务 `active`，面板 `3430=401`，网关 `3425=200`
-
-**还剩一条没做**：私钥文件名/路径仍是泄露的那一份。换名要同步改所有引用它的
-脚本与 `~/.ssh/config`，建议下次专门做一次，别和这次混在一起。
-
-## 4. 清史 -- [OK] 2026-11-13 已执行（**但没能让旧对象消失**）
-
-已做：`git filter-repo` 把 5 个分支全部重写 —— 删掉 3 个运维文件、
-把主机别名 / 服务器地址 / 部署路径替换成占位符，然后强推。
-
-```
-分支                   提交数   旧 key   IP 残留
-main                     96       0        0
-pr/merge-into-upstream   119      0        0
-fix/repo-purity-guards   90       0        0
-dsh-67d16554-e57c        —        0        0
-feat/vendor-sync-498a76e —        0        0
-```
-
-`gitleaks git` 全历史扫描（29.7 MB）→ `no leaks found`。
-
-### ⚠️ 但这条实测结论必须记下来：**重写分支指针 ≠ 删掉对象**
-
-旧提交按 SHA 仍可匿名下载：
-
-```
-GET /hnlinyh/magpie-Jet-Hub/commit/9003611.patch          → 200（20 KB，含明文 key）
-GET raw.githubusercontent.com/.../9003611/scripts/...sh   → 200（18 KB，含 IP/root/key）
-```
-
-原因：GitHub 对**已推送过的对象按 SHA 保留**，供 reflog / 缓存 / 网络查询使用。
-分支指针没了，对象还在。**只有 GitHub 支持工单能真正删掉它**（见第 6 节）。
-
-### 更要紧的：上游也有同一个对象
-
-`Betsy20/magpie-Jet-Hub`（上游）上 `9003611.patch` 同样 **200**、同样含明文 key。
-所以**即使把 fork 整个删掉，这个对象也不会消失** —— 处置只能靠「轮换 + 加固」，
-不能指望清史。这一点决定了第 3 / 3.5 节才是真正的止损。
-
-> 上游 `main` 的**当前内容**是干净的：那两个脚本已经被改成环境变量注入
-> （`REMOTE_HOST="${REMOTE_HOST:?...}"`、`PROBE_WEB_KEY="..."`），
-> 只有 `MANIFEST_KEY="magpie-jet-hub"` 还写死 —— 那是插件名，不是凭据。
-> 即：**上游 tree 无秘密，上游历史有旧对象。**
-
-```bash
-# 在 fork（hnlinyh/magpie-Jet-Hub）的干净 clone 里做，不要在带未提交改动的目录做
-git clone https://github.com/hnlinyh/magpie-Jet-Hub.git clean && cd clean
+# 在干净 clone 里做，不要在带未提交改动的目录做
+git clone "https://github.com/${OWNER_REPO}.git" clean && cd clean
 pip install git-filter-repo   # 或 brew install git-filter-repo
+# ⚠ PEP 668 的系统（Debian 12+/Ubuntu 23+）要加 --break-system-packages
 
 # 注意：--path 只吃字面路径，通配要写成 --path-glob。
+# 除了两个部署脚本，两个 plan 文档的**旧版本**里也有生产绝对路径（15 + 2 处），
+# 只删脚本的话清史后 `history` job 仍然红。
 git filter-repo --force --invert-paths \
   --path-glob 'scripts/deploy-plugin-*.sh' \
-  --path-glob 'docs/plan-install-local-plugin-*.md'
+  --path-glob 'docs/plan-install-local-plugin-*.md' \
+  --path-glob 'docs/plan-fix-baizhi-monkeycode-*.md' \
+  --path-glob 'docs/plan-baizhi-wallet-split-*.md'
 
 # filter-repo 会主动删掉 origin 远程（防误推），推之前要加回来：
-git remote add origin https://github.com/hnlinyh/magpie-Jet-Hub.git
+git remote add origin "https://github.com/${OWNER_REPO}.git"
 git push --force origin main
 ```
 
-清完之后验证：
+清完之后验证 —— ⚠ **`git log --all` 在这里是自证题**：`filter-repo` 已经重写了**本地
+全部 ref**，它必然无输出，与远端是否干净无关。真正的验证只有「匿名取旧 sha」：
 
 ```bash
-# 期望：无输出。有输出就是没清干净。
-git log --oneline --all -- "scripts/deploy-plugin-*.sh"
-# 用本仓规则扫全历史，期望 no leaks found：
+# 真正的判据：旧的固定 sha 应该 404（把 <旧sha> 换成 9003611a… 那一串）
+curl -sI "https://raw.githubusercontent.com/${OWNER_REPO}/<旧sha>/scripts/deploy-plugin-hcss8141.sh" \
+  | head -1     # 期望 404；若是 200 / 302，说明对象还在
+
+# 本仓规则扫全历史（这条仍然要跑，但只证明「本地对象图干净」）：
 gitleaks git . --config .gitleaks.toml --redact
 ```
 
 清史后**必须**做的收尾：
-1. GitHub 上旧的 commit / PR / `.patch` 缓存可能仍可达 → 联系 GitHub Support
-   请求清理缓存，或在仓库 Settings 里确认没有残留的公开 fork。
-2. `pr/merge-into-upstream` 等分支需要 rebase 到新的 `main`，否则它们仍指向旧历史。
-3. 上游 PR #31 的 diff 若引用了旧 commit，评论里说明「历史已重写」。
-4. `history` job 变绿之后，把它的触发从 `schedule` 改成 `push`（那时它才是必过项）。
 
-## 5. 清史是怎么执行的（保留步骤，供下次照做）
+1. **🔴 `refs/pull/*` 清不掉 —— 必须联系 GitHub Support，这是必做项不是可选项。**
+   GitHub 不允许用户删除 PR ref：`git push --force origin main` 之后，
+   `refs/pull/31/head` 仍指向旧 commit，`raw.githubusercontent.com/<owner>/<repo>/<旧sha>/…`
+   依然匿名 200。**不清就白清。** 工单模板：
 
-> ⚠️ 这是破坏性操作，会让所有克隆分叉。本次执行前确认过：
-> 5 个分支都只有一个协作者，`main` 上无未合并的在途工作。
+   > Subject: Request to purge cached git objects after history rewrite
+   >
+   > Repository: `<owner>/<repo>`
+   > We rewrote history to remove accidentally committed credentials
+   > (old commits `9003611a…` / `4fb5459f…`). Those objects are still reachable via
+   > `refs/pull/31/head` and `raw.githubusercontent.com` even after the force-push.
+   > Please garbage-collect the unreachable objects and, if possible, remove the
+   > cached raw blobs for those SHAs. The exposed credential has already been rotated.
 
-```bash
-# 1 先做整份备份（含 .git），万一重写错了好回滚
-cp -a magpie-Jet-Hub magpie-Jet-Hub.bak-preclean
+2. **GitHub 上的 `.patch` / commit 缓存**：`Settings → 确认没有残留的公开 fork`
+   （fork 是独立对象图，force-push 上游不会同步过去）。
+3. `pr/merge-into-upstream` 等分支需要 rebase 到新的 `main`，否则它们仍指向旧历史。
+4. 上游 PR #31 的 diff 若引用了旧 commit，评论里说明「历史已重写」。
+5. `history` job 变绿之后，把它的触发从 `schedule` 改成 `push`（那时它才是必过项）。
 
-# 2 全新 clone 上做，别在带未提交改动的目录里做
-git clone https://github.com/<fork>.git clean-rewrite && cd clean-rewrite
+## 4.1 换 key 之前必须知道的副作用
 
-# 3 两条一起给：--invert-paths 删文件，--replace-text 改内容
-#   ⚠ --path 只吃字面路径，通配要写 --path-glob
-git filter-repo --force \
-  --invert-paths \
-  --path 'scripts/deploy-plugin-<host>.sh' \
-  --path 'docs/plan-install-local-plugin-<host>-20261109.md' \
-  --replace-text /tmp/replace.txt
+`MAGPIE_WEB_KEY` 是**会话 cookie 的签名密钥**（从 `magpie.exe` 提取的原文：
 
-# 4 验证三件事，缺一不可
-gitleaks git . --config .gitleaks.toml --redact   # 期望 no leaks found
-git log --all -S"<旧key>" --oneline | wc -l       # 期望 0
-git log --all -S"<旧 IP>" --oneline | wc -l        # 期望 0
+> `This browser's sign-in cookie holds a key that isn't this magpie web's: the key
+> changed after it signed in (MAGPIE_WEB_KEY changed, or a start without it made a new one).`
 
-# 5 每个分支分别强推（filter-repo 会删掉 remote，要重新 add）
-for b in main pr/merge-into-upstream fix/...; do
-  git push --force origin "$b:$b"
-done
-```
+）。⇒ 换 key 会**把所有已登录的浏览器会话一次性踢下线**，不只是「新登录用新 key」。
 
-`--replace-text` 的文件格式是 `匹配串==>替换值`，一行一条，长串写前面。
+- **挑维护窗口做**：两个实例共用一把 key，实例 A 重启到实例 B 重启之间，
+  「登录落到 A、刷新落到 B」会立刻看到上面那条 `the key changed` 错误。
+- **两台上都要换**，且换完用 `systemctl cat magpie | grep MAGPIE_WEB_KEY` 核对**生效值**
+  —— 下面的 `sed` 只匹配 `^Environment=MAGPIE_WEB_KEY=`，unit 若写成
+  `Environment="MAGPIE_WEB_KEY=…"`（带引号）会**静默不生效**。
+- ⚠ **key 的格式**：magpie 自己的提示是
+  `MAGPIE_WEB_KEY takes letters, digits and - . _ ~ only (openssl rand -hex 16 makes one)`
+  —— 即 **32 位 hex 也合法**。而本仓两条守卫写死了 `\d{18}`（这次事故的样本形态）。
+  ⇒ **若按 magpie 建议生成 hex key，gitleaks 规则 ① 从此抓不到它的泄露。**
+  改规则时按 magpie 的**校验口径**写（`[A-Za-z0-9._~-]{16,}`），不要只按这一次的样本写。
 
-**踩到的两个坑**：
-1. `filter-repo` 结束会**删掉 `origin` remote**（防止误推），后续 push 前要
-   `git remote add origin ...` 重新加；
-2. 只重写 `main` 不够 —— 分叉的 feature 分支同样带着旧对象。本次是逐个分支
-   比对 `git log -S` 才找全 5 个。
+## 5. 为什么没有自动执行清史
+
+`git push --force` 到 `main` 会重写所有协作者的历史，且无法回滚。
+本 PR 是在无人值守的情况下完成的 —— 这种不可逆操作不该自动做。
+按第 4 节命令执行，全程约 5 分钟。
 
 ## 6. 复盘：为什么没早发现
 
@@ -273,36 +195,3 @@ done
 
 三条都已经在上面补掉。真正值得记住的是最后一条：
 **「与插件无关的东西不该进这个仓库」这条规矩，之前只存在于口头。**
-
-## 7. 唯一剩下的外部动作：让 GitHub 删除旧对象
-
-分支重写后旧对象仍按 SHA 可达（第 4 节实测）。**仓库侧没有任何操作能删掉它** ——
-这是 GitHub 的服务端行为，只能走工单。
-
-要提交的信息（模板）：
-
-```
-Repository: hnlinyh/magpie-Jet-Hub (public fork)
-Parent repo also affected: Betsy20/magpie-Jet-Hub
-Exposed object: 9003611a92695ab30f3ec41fcef21674bd14e725
-
-A private SSH deploy script was committed with:
-  - a live web-console access key
-  - two production server IPs with root SSH access
-  - the private key path used for that access
-The script has been removed and all branch refs rewritten (git filter-repo),
-but the blob is still served at:
-  https://github.com/hnlinyh/magpie-Jet-Hub/commit/9003611.patch
-  https://raw.githubusercontent.com/hnlinyh/magpie-Jet-Hub/9003611/scripts/...
-
-Request: please purge this unreachable object (and its caches) so the URLs 404.
-
-Mitigations already applied: key rotated on both hosts (old key -> 401),
-password SSH disabled, backup/log copies of the key overwritten.
-```
-
-工单路径：<https://support.github.com/contact> → *Repository removal* /
-*Sensitive data*。GitHub 通常要求**先轮换凭据**才处理 —— 这一点已经满足。
-
-**在工单处理完之前，不要把「已清史」当成「已止损」**：前者只是让分支上看不到，
-后者只能靠第 3 / 3.5 节的轮换与加固。

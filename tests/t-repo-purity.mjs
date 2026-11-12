@@ -55,9 +55,16 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', 'vendor', '.cache'])
 // ── 匹配器 ────────────────────────────────────────────────────────────────────
 
 // IPv4：前后必须是非数字非点的分隔符。这一条同时挡掉
-//   SVG `d="…0 .133.108.236.223.247l…"`（点后接点再数字）
-//   与 `Chrome/131.0.0.0`（前面是 `/`）。
-const IPV4 = /(?<![0-9./])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![0-9])(?!\.\d)/g
+//   SVG `d="…0 .133.108.236.223.247l…"`（点后接点再数字）。
+//
+// ⚠ **不能把 `/` 也加进前置排除**（2026-11-12 三审 P1 实测）：事故泄露的形态正是
+//   `https://<生产机 IP>:3430/?k=…` —— 加了 `/` 之后 URL 里的 IP 一个都命不中，
+//   真泄露反而不报。原来那条 `/` 是为了排 `Chrome/131.0.0.0`，
+//   改成定长回顾 `(?<!Chrome\/)` 精确排除（UA 串只有这一种形态）。
+//
+//   ⚠ 注释里**也不能写真值** —— 本文件自己也在扫描范围内（`EXTS` 含 `.mjs`），
+//     写一个真 IP 就会让这条守卫抓到自己（2026-11-12 实测：写了 3 处，红了 4 处）。
+const IPV4 = /(?<![0-9.])(?<!Chrome\/)(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?![0-9])(?!\.\d)/g
 
 /** 允许出现的地址：回环/通配 + RFC 5737 文档段 + 常见占位符。 */
 function allowedIp(o) {
@@ -96,7 +103,11 @@ const RULES = [
     // `~/.ssh/config` 与 `~/.ssh/known_hosts` 是人人都会用的通用文件，
     // 不指向任何一把钥 —— 把它们算违规只会让这条规则在正常文档里乱响，
     // 然后被 `|| true` 掉。真正该拦的是**具体的钥文件名**。
-    find: (text) => indices(text, /(?:~|\/mnt\/workspace|\/home\/[A-Za-z0-9._-]+)\/\.ssh\/(?!config\b|known_hosts\b)[A-Za-z0-9._-]+/g),
+    //
+    // ⚠ 必须含 `/root/`（2026-11-12 三审 P1）：事故里泄露的就是 `root@<IP>` 的登录
+    //    方式，而原正则只认 `~` / `/mnt/workspace` / `/home/<user>` ——
+    //    `/root/.ssh/<钥名>` 这种**最该报的**反而漏了。
+    find: (text) => indices(text, /(?:~|\/mnt\/workspace|\/home\/[A-Za-z0-9._-]+|\/root)\/\.ssh\/(?!config\b|known_hosts\b)[A-Za-z0-9._-]+/g),
   },
   {
     id: 'gh-token',
@@ -120,19 +131,54 @@ const RULES = [
     // （`<…>` / `${VAR}` / `…` / `...` / `%s`）与文档保留地址一律放行。
     find(text) {
       const out = []
-      const re = /(?:^|[\s;'"`{(])([A-Za-z_][A-Za-z0-9_.-]*(?:KEY|TOKEN|SECRET|PASS|PASSWORD|PWD)[A-Za-z0-9_.-]*)\s*[:=]\s*(['"])([^'"\n]*)\2/g
+      // ⚠ 三个口径缺口（2026-11-12 三审 P1/P2 实测，都补上了）：
+      //   ① 原来只认**带引号**的 `NAME="value"` ⇒ `.env` 的标准写法 `NAME=value`
+      //      （无引号）一个都命不中，而 `.env` 正是凭据最常见的落点；
+      //   ② 原来名字部分**大小写敏感** ⇒ `probe_web_key` / `web_key`（全小写）漏；
+      //   ③ 原来完全不认 `?k=<值>` 查询串形态（事故里 key 就是这么进 URL 的）。
+      //   `i` 标志解决 ②，`(?:['"]…['"]|…无引号…)` 解决 ①，单独一条解决 ③。
+      // ⚠ 名字里允许的字符用 `\w` + `.-` 表达（`\w` ≡ `[A-Za-z0-9_]`）。
+      //   别改回显式字符类 —— 2026-11-12 实测：显式写法会被某些工具的
+      //   「疑似凭据」脱敏器改写（`0-9` 那段被替换掉），正则静默退化成只认数字，
+      //   于是 `PASSWORD=…` / `API_TOKEN=…` 全部漏报，而自检**发现不了**
+      //   （它只看「命中/不命中」，退化成永不命中需要正例才暴露）。
+      // 名字段分两档 —— 这不是啰嗦，是**两个相反方向的缺陷**逼出来的：
+      //
+      //   ① 只用 `[A-Za-z_][\w.-]*` 强制前缀（原写法）⇒ 「关键词就在开头」的
+      //      `PASSWORD=…` / `PASSWD=…` 全部漏报：`[A-Za-z_]` 先吃掉 `P`，
+      //      剩下 `ASSWORD` 里不含任何关键词，正则**无法退回**把 `P` 还给交替组。
+      //      只有带前缀的（`DB_PASS` / `API_TOKEN` / `PROBE_WEB_KEY`）才命中 ——
+      //      而样本里原本恰好只有那几个，缺陷一直没暴露。
+      //
+      //   ② 改成可空的 `[\w.-]*` ⇒ 通用词 `key = pbkdf2Sync(…)` / `{ key: '…' }`
+      //      全部误报（实测 14 处）。
+      //
+      //   ⇒ 拆成两条：**强关键词**（`PASSWORD` / `PASSWD` / `SECRET`，整个名字就是它）
+      //      可以无前缀；**弱关键词**（`KEY` / `TOKEN` / `PASS` / `PWD`，`pass` / `key`
+      //      这类日常词）必须有前缀。两条的值都排除函数调用（`(` / `)` / `,`）。
+      const reStrong = /(?:^|[\s;'"`{(])((?:PASSWORD|PASSWD|SECRET)\w*)\s*[:=]\s*(?:['"]([^'"\n]*)['"]|([^\s'"`#(),]+))/gi
+      const re = /(?:^|[\s;'"`{(])([A-Za-z_][\w.-]*(?:KEY|TOKEN|PASS|PWD)[\w.-]*)\s*[:=]\s*(?:['"]([^'"\n]*)['"]|([^\s'"`#(),]+))/gi
+      const reQuery = /\?k=([A-Za-z0-9._~-]{16,})\b/g
+      const consider = (val) => {
+        const v = val.trim()
+        if (!v) return false
+        if (/^[<${%]/.test(v)) return false // <占位> / ${VAR} / %s
+        if (/^(?:\.{3}|…)$/.test(v)) return false // 省略号占位
+        if (/^(?:1\.2\.3\.4|null|undefined|true|false)$/i.test(v)) return false
+        if (/^https?:/.test(v)) return false // 公网端点不是本机坐标（且已被 ipv4 规则覆盖）
+        const hasLetter = /[A-Za-z]/.test(v)
+        const hasDigit = /\d/.test(v)
+        // 'PWNED' / 'wrong-passphrase' 这类夹具不算：要求 ≥16 位且含数字。
+        return v.length >= 16 && hasDigit && (hasLetter || /^\d+$/.test(v))
+      }
+      for (const m of text.matchAll(reStrong)) {
+        if (consider(m[2] ?? m[3] ?? '')) out.push(m.index)
+      }
       for (const m of text.matchAll(re)) {
-        const val = m[3].trim()
-        if (!val) continue
-        if (/^[<${%]/.test(val)) continue // <占位> / ${VAR} / %s
-        if (/^(?:\.{3}|…)$/.test(val)) continue // 省略号占位
-        if (/^(?:1\.2\.3\.4|null|undefined|true|false)$/i.test(val)) continue
-        if (/^https?:/.test(val)) continue // 公网端点不是本机坐标（且已被 ipv4 规则覆盖）
-        const hasLetter = /[A-Za-z]/.test(val)
-        const hasDigit = /\d/.test(val)
-        const looksReal = val.length >= 16 && ((hasLetter && hasDigit) || !hasLetter)
-        if (!looksReal) continue // 'PWNED' / 'wrong-passphrase' 这类夹具不算
-        out.push(m.index)
+        if (consider(m[2] ?? m[3] ?? '')) out.push(m.index)
+      }
+      for (const m of text.matchAll(reQuery)) {
+        if (consider(m[1])) out.push(m.index)
       }
       return out
     },
@@ -140,7 +186,17 @@ const RULES = [
   {
     id: 'host-alias',
     why: '生产主机别名（与本机拓扑绑定）',
-    find: (text) => indices(text, /\bhcss\d+\b/g),
+    // ⚠ 必须认「带 `-ecs-` 中缀」的实例名（2026-11-12 三审 P1）：华为云 ECS 的实例名
+    //    长这样，而原正则 `\bhcss\d+\b` 要求 `hcss` 后**紧跟数字** ⇒ 这种形态漏报
+    //    （仓库里当时就有 2 处，正是「守卫的洞」与「真实残留」对上的假绿）。
+    //
+    //    ⚠ 注释里**不能写出完整实例名** —— 本文件自己也在扫描范围内，写一个就红一处
+    //      （2026-11-12 实测）。要举例就拆成 `hcss` + `-ecs-` + 数字。
+    // ⚠ 排除 `…hcss<N>.sh`（2026-11-12 三审实测）：那是**已删除脚本的文件名**，
+    //    不是主机别名。文档里必须能写「`scripts/deploy-plugin-*.sh` 曾泄露」，
+    //    否则守卫会逼人把文件名也打码 —— 那就从「防泄露」变成「防记录」了。
+    //    文件名本身已被 `.gitignore` 挡住，不会再出现第二次。
+    find: (text) => indices(text, /\bhcss(?:-ecs)?-?\d+\b(?!\.sh)/g),
   },
   {
     id: 'env-path',
@@ -182,6 +238,31 @@ const SELFTEST = [
   ['host-alias', '在 hc' + 'ss2 上实测过', true],
   ['host-alias', '在部署实例上实测过', false],
   ['env-path', '跑 /opt/' + 'magpie/cache/bun', true],
+
+  // ── 负例补齐（2026-11-12 三审 P2 实测）────────────────────────────────────
+  // 原来有 4 条规则**零负例**（ssh-key-body / gh-token / aws-key / env-path），
+  // 另外 gh-token 的 `github_pat_` 分支、hardcoded-secret 的 `PASS` 关键词、
+  // 以及「`https:` 豁免」「`<挂载点>/workspace/` 分支」都**没有任何样本覆盖**。
+  // 后果实测：把它们整个删掉，自检照样 19 条全过 —— 那这条自检就成了新的假绿。
+  // 下面每个「分支」都配一条正例 + 一条负例，删/改宽任一个都会红。
+  ['ssh-key-body', '-----BEGIN ' + 'PUBLIC KEY-----\nAAAA', false],
+  ['gh-token', 'token=ghp_' + 'short', false],
+  ['gh-token', 'token=github_pat_' + 'a'.repeat(82), true],
+  ['gh-token', 'token=github_pat_' + 'a'.repeat(10), false],
+  ['aws-key', 'AKIA' + '123', false],
+  ['hardcoded-secret', 'DB_PASS="' + 'z'.repeat(20) + '9"', true],
+  // ⚠ 单独 `pass` 不命中是**设计如此**（名字部分要求 `PASS` 前还有前缀字符，
+  //    否则 `compass` / `bypass` 这类单词会误报）。要测小写就用 `PASSWORD`。
+  ['hardcoded-secret', 'PASSWORD="' + 'z'.repeat(20) + '9"', true],
+  ['hardcoded-secret', 'password="' + 'z'.repeat(20) + '9"', true],
+  ['hardcoded-secret', 'API_TOKEN="https://example.com/' + 'a'.repeat(30) + '"', false],
+  ['env-path', '跑 /mnt/' + 'workspace/Project/magpie', true],
+  ['env-path', '跑 /opt/' + 'other/path', false],
+  // 新增：无引号 `.env` 形态（三审 P1：原来只认带引号，标准写法全漏）
+  ['hardcoded-secret', 'PROBE_WEB_KEY=' + '5'.repeat(18), true],
+  ['hardcoded-secret', 'probe_web_key=' + '5'.repeat(18), true],
+  // 新增：`?k=` 查询串形态（三审 P1）
+  ['hardcoded-secret', 'https://h:3430/?k=' + '5'.repeat(18), true],
 ]
 
 const broken = []
@@ -205,7 +286,14 @@ function walk(dir, out = []) {
   let rows
   try { rows = readdirSync(dir, { withFileTypes: true }) } catch { return out }
   for (const d of rows) {
-    if (SKIP_DIRS.has(d.name) || d.name.startsWith('.') && d.name !== '.github') continue
+    // ⚠ **隐藏目录跳过，隐藏文件必须扫**（2026-11-12 三审 P1 实测）：
+    //   原写法 `d.name.startsWith(' . ')` 把**所有以点开头的条目**都跳过了 ——
+    //   而本仓的凭据防线配置恰好都是隐藏文件（`.gitleaks.toml`、`.gitignore`）。
+    //   结果：`.gitleaks.toml` 里那条真实 IP 示例从头到尾没被扫到，
+    //   守卫报「无服务器地址」但自己扫了 96 个文件（真实是 97 个）⇒ **假绿**。
+    //   `.github` 例外是因为 workflow 要扫。
+    if (SKIP_DIRS.has(d.name)) continue
+    if (d.isDirectory() && d.name.startsWith('.') && d.name !== '.github') continue
     const p = path.join(dir, d.name)
     if (d.isDirectory()) walk(p, out)
     else if (EXTS.has(path.extname(d.name))) out.push(p)

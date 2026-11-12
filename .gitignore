@@ -40,7 +40,9 @@ id_dsa*
 *.credentials.yaml
 .credentials.yaml
 credentials.json
-*caller*key*
+# ⚠ 只忽略**数据文件**，不要写成 `*caller*key*` —— 那会连
+#   `src/magpie-caller-key.mjs` 这类**源码**一起静默吞掉（二审实测）。
+**/caller-keys.json
 hosts.yml
 
 # 部署/运维脚本与手册：它们描述的是某台机器，不是插件本身。

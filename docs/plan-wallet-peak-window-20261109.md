@@ -44,10 +44,10 @@
 沿用 `~/.config/magpie/jet-hub-daily-baseline.json`（env `JET_HUB_DAILY_BASELINE` 可覆盖），
 条目加 `kind` 字段：
 
-``json
+```json
 { "<provider>\u0000<acct>\u0000<池名>": { "kind": "daily", "day": "2026-11-09", "total": 199.96 },
   "p\u0000<provider>\u0000<acct>\u0000<池名>": { "kind": "peak", "day": "", "total": 500 } }
-``
+```
 
 - 老文件（只有 `{day,total}`）一律按 `daily` 解析 ⇒ 现有 4 个百智云每日基线**不丢**。
 - 落盘时：`peak` 条目永久保留；`daily` 条目只留当天。
