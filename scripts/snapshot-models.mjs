@@ -129,7 +129,7 @@ const REGISTERED = new Set(DSH_PROVIDERS.map(idOf))
  * 把「本体 provider 名」或「已带前缀的 magpie id」归一成 magpie 侧分段；不是本插件的就返 null。
  *
  * 为什么不能只用其中一种判据：网关 `/v1/models` 同时会返回两种形态（实测 2026-10-31：
- * `jet-hub-magicrew/…` 这类 28 条 + `workbuddy/…` 、`officeace/…` 这类 16 条），而两组**不重叠**。
+ * `jet-hub-magicrew/…` 这类 29 条 + `workbuddy/…` 、`officeace/…` 这类 16 条），而两组**不重叠**。
  *
  * @param {string} seg id 里 `/之前的那一段
  * @returns {string|null}
@@ -166,7 +166,7 @@ const NAMES = {
   'jet-hub-loomy':         ['Loomy (讯飞)', '讯飞 Loomy'],
   'jet-hub-magicrew':      ['超级麦吉 (MagiCrew)', '超级麦吉（MagiCrew）'],
   'jet-hub-magicrewintl':  ['MagiCrew (国际版)', 'MagiCrew 国际站（与国内站账号体系隔离）'],
-  'jet-hub-marvis':         ['腾讯 Marvis', '腾讯 Marvis（QQ / 微信 OAuth 登录）'],
+  'jet-hub-marvis':        ['腾讯 Marvis', '腾讯 Marvis（QQ / 微信 OAuth 登录）'],
   'jet-hub-minimax':       ['MiniMax Code (中国版)', 'MiniMax Code 国内站'],
   'jet-hub-minimaxintl':   ['MiniMax Code (国际版)', 'MiniMax Code 国际版'],
   'jet-hub-modelscope':    ['ModelScope (魔搭)', '魔搭社区'],
@@ -292,12 +292,12 @@ async function main() {
       const body = await res.json()
       const all = Array.isArray(body?.data) ? body.data : []
       // ⚠️ 网关返回的分段**两种形态都有**（2026-10-31 实测 56 条）：
-      //   ① 已是 magpie 侧形态：`jet-hub-magicrew/…`、`jet-hub-workbuddy/…`（共 28 条）；
+      //   ① 已是 magpie 侧形态：`jet-hub-magicrew/…`、`jet-hub-workbuddy/…`（共 29 条）；
       //   ② 仍是本体名：`workbuddy/…`、`officeace/…`、`zcode/…`（共 16 条）。
       // 两组**不重叠**，所以判据必须是并集：先试「分段本身在白名单里」（①），
       // 再试「加上前缀后在白名单里」（②）。只用其一会少收一半：
       // 只用② 就是上一版的 bug（`idOf('jet-hub-x')` 拼成 `jet-hub-jet-hub-x`，
-      // ① 那 28 条全丢）；只用① 会把 ② 那 16 条全丢。
+      // ① 那 29 条全丢）；只用① 会把 ② 那 16 条全丢。
       rows = all
         .map((m) => ({ id: String(m?.id || ''), name: '', disabled: false }))
         .filter((r) => magpieIdOfSegment(String(r.id).split('/')[0]) !== null)

@@ -57,6 +57,23 @@ export interface RpcBaizhiSetApiKeyResponse {
      */
     renamed: boolean;
 }
+/** `baizhi.setSession` 的入参。 */
+export interface RpcBaizhiSetSessionRequest {
+    accountId: string;
+    /**
+     * 控制台网页登录态（`sl-session` + `baizhi_session` 拼成的 `Cookie` 头）。
+     *
+     * ⚠️ **字段缺失与空串语义相反**（照抄 monkeycode 三审）：缺失 = 本次只读不写、
+     * 只回报 `hasSession`；传空串 = 清除会话。
+     */
+    sessionCookie?: string;
+}
+/** `baizhi.setSession` 的出参。 */
+export interface RpcBaizhiSetSessionResponse {
+    accountId: string;
+    /** 该账号此刻是否持有网页登录态（积分 / 签到要用）。 */
+    hasSession: boolean;
+}
 /** 账号池的最小依赖面（结构化类型，避免绑定具体类）。 */
 export interface BaizhiPoolLike {
     listAccountsByProvider(provider: string): Array<{

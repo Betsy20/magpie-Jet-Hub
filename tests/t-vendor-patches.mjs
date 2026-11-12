@@ -2,7 +2,7 @@
  * `vendor/` 的本地补丁**还在不在** —— 只覆盖那些没有别处盯着的。
  *
  * `docs/vendor.md` 的「版本怎么升」写着：升级 = clone 上游 → `npm install` 构建 →
- * **重打 6 类补丁（11 个文件）**。那一步是「整片覆盖」，而且每一类都**静默**：
+ * **重打 7 类补丁（13 个文件）**。那一步是「整片覆盖」，而且每一类都**静默**：
  * 不报错，只出症状。其余几类各有自己的用例（`t-backup-keep` 的 `keepDisabledModels`、
  * `t-magicrew-creds` 的 IndexedDB 读取与 `leveldb-sstable`、`t-rpc-cover` 第 8 节的
  * 「全关即意图」），本文件只补两条**原来零覆盖**的：

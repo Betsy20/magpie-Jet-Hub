@@ -11,6 +11,135 @@
 
 ## 1.0.0（未发布）
 
+- `fix(usage)`: **令牌量级收敛——千万级额度不再逐位写全**（2026-11-11 用户报障「我这里显示的
+  不是 1m 而是每个数字都写出来了」，截图上是 `余额 9999976 token` 与
+  `24 / 10,000,000 token`）。根因在 `fmtNum()`：它只 `toFixed(2)` 收小数位、**压量级为零**，
+  于是 Marvis 的 `avail_tokens` 原样贴出去；而 `balance` 是纯文本字段，magpie 逐字照搬
+  （卡片那一行因此位数差三个数量级，一眼读不出还剩多少）。
+  - 新增 `fmtScaled(n, unit)`：`unit === 'token'` 时 `>= 1e6` → `M`、`>= 1e3` → `K`，
+    其余仍走 `fmtNum`。**积分（credit）刻意不走量级压缩**——实测都是两位数
+    （`146.341` / `4584.44`），压成 `0.15K` 只会更难核对；`unit` 比较**不分大小写**
+    （OfficeAce 报的是 `'Token'`）。
+  - 两处刻意的偏离 `vendor/lib/credits.js:487` 的 `formatTokenAmount`：
+    ① **向下截断而非四舍五入** —— 这一行报的是剩余额度，舍入会向上虚报，最坏把
+    `9999976 / 10000000`（只用了 24）渲染成 `10M / 10M · 剩余 100%`，与「满额未用」逐字相同，
+    等于抹掉已用量；② **去掉尾零**（`10M` 而不是 `10.00M`），与同一行其余读数同一写法。
+  - 5 个拼接点全部换到 `fmtScaled`：合计行 `balanceText`、钱包水位窗口、每日桶窗口、
+    默认配额窗口、欠费 `text` 行。（`windowedTotal` 保持 `fmtNum`：它只服务
+    `WALLET_WINDOW_POOLS` 那几家 credit 渠道，不在本次范围。）
+  - 控制台同一问题一并修掉：`console/console.js` 的「积分」行原本直接输出 `bal.total`
+    原始整数（`9931000`，且**无单位**），与账号徽标的 `9.93MToken` 两处读数对不上。
+    现在走 `formatScaledAmount(value, unit)`（同一口径、同样向下截断），token 计渠道
+    另补一个弱化的 ` token` 后缀（`.creditUnit`），免得被读成积分。
+  - `tests/t-console-baizhi-split.mjs` 同步：断言从裸 `${bal.expired}` 改为
+    `formatScaledAmount(bal.expired, bal.unit)`，并新增一条钉住合计值也走该函数。
+    文案与落位不变，credit 渠道对非 token 走 `String(value)` ⇒ 旧串逐字保留。
+
+- `fix(usage)`: **用量卡分母口径整套重做**（用户 2026-11-09 连续反馈：先是「剩余永远是 100%」，
+  再是「这都变成负数了」，最后是「总额度也要有窗口」）。根因是插件一直把 `remaining` 冗余填进
+  `limit`，而 magpie 用 `limit` 当进度条分母 ⇒ 分母 == 余额 ⇒ 刚查完就是 100%。
+  `vendor/lib/credits.d.ts:184-196` 早写死了契约：`totalKnown:false` 时面板**不得**把
+  `remaining / total` 并列显示。现在按数据来源分四种口径：
+  - **钱包**（上游只给余额）：只给 `w.balance`，magpie 见到 balance 即不画进度条、只写「N left」。
+  - **每日额度**（`每日积分`/`每日赠送`/`每日额度`/`每日签到奖励`，且上游没给可信总额）：
+    分母 = **当天首见的余额**，跨天重置；余额中途上涨则抬基线（防「已用为负」）。
+  - **MonkeyCode 积分余额**：没有积分包概念（`/wallet/credits` 等 7 个端点全 404），只有
+    `/wallet/transaction` 流水 ⇒ 分母 = **近 30 天收入之和**（严格滚动、实时拉流水、翻页上限 5 页、
+    60 秒缓存）。上游余额本来就可能为负（实测 -16.616，即 30 天收入 − 支出），负值时剩余显示 0。
+  - **百智云「充值积分」**：长期积分，上游 `/balance` 只回 6 个字段、无初始总额无累计充值
+    （~45 个流水/订单端点全 404，控制台 SPA 分包里也无相关 API 字面量）⇒ 分母 = **历史水位**
+    （只抬不降，充值即抬），等价于「充值会让窗口扩大」。白名单 `WALLET_WINDOW_POOLS` 控制范围，
+    其它渠道的钱包语义一律不动。
+  - 行内配额只画前 2 条窗口（`ws.slice(0, 2)`），所以「总额度」不另开窗口，而是写进合计行
+    （`699.96 / 699.96 credit`）；任一条窗口缺分母则合计行不加 `/`。
+  - 负数与已过期积分改走 `text` 窗口（magpie 的 `balance` 会被 `Math.max(0, …)` clamp 且
+    「说了 0」）；`text` 形态的「已欠费 10.4」解析时须补回负号（`parseFloat` 会丢掉）。
+  - 新增 `tests/t-baseline-store.mjs` 锁持久化契约（水位跨天存活 / 每日基线按天失效 /
+    老文件缺 `kind` 兼容）；`t-usage.mjs` 扩到 10 组分母断言。两处均做过反证（改坏代码必红）。
+
+- `feat(marvis)`: **接入腾讯 Marvis**（2026-11-10）。上游 `5aad869 → 1d12f80` 引入的新渠道，
+  这次连 vendor 一起追到 master 头 `6ad2e241` 并把它注册成第 **29** 家 magpie provider。
+  - **登录不碰本机浏览器**：上游 marvis 的登录是「自己拉一个 Chromium，用 CDP 在
+    `marvis_oauth` 请求发出**前一刻** `Fetch.fulfillRequest` 截下来」，前提是机器上有
+    headful Chromium + X display（`--headless=new` 与 `chrome-headless-shell` 实测恒
+    `F001`）。只有 sshd 的服务器上这个前提永远不成立 —— 用户点「新建账号」只收到
+    「Marvis 找不到可用的浏览器」（2026-11-10 报障）。
+    现在改走宿主自带的 `mode: 'code'` 通道（`internal/provider/pluginsignin_paste.go`；
+    `/opt/magpie` 里 8 个社区登录插件全这么写）：`authorize()` 用 `authorizeUrlOf()`
+    纯函数算出授权页地址返回给 magpie，由宿主显示「登录链接 + 粘贴框」，用户把登录后
+    那个页面的**整条地址栏**（或只 code 那串）粘回来，`callback(pasted)` 里
+    `marvisCodeOf()` 抠出 code、带 `Ual-Access-Guid` 调 `container.ctx.get('marvisAuth').exchangeCode()`
+    兑换凭据，再拼成 `importCredentialFromMagpie()` 认的形状交给
+    `account.create { mode: 'magpie-import', magpieCredential }` 落库（同一条腿、同一套
+    openid 判重、同一套写池写凭据，宿主侧零改动）。
+    能这么做的依据是三条实测：授权页地址是纯函数；`exchangeCode` **先校参数后兑 code**
+    （不带 guid 头一律 `-109 RC_PARAMS_INVALID`，故浏览器那次跳转不烧 code，我们再兑一次仍有效）；
+    宿主对 `mode: 'code'` 就是这么用的。
+    **删掉了原来那条 `mode: 'browser'` 腿**：`startNewAccount` 去掉了 `extra` 形参、
+    `startNewAccountSmart` 去掉了 marvis 分流 —— 现在 29 家里只有超级麦吉两站要试多种 mode。
+  - **`account.create` 的两条 marvis 腿仍都以 `req.mode` 为条件**（`magpie-import` / `browser`），
+    不带 `mode` 会一路落到 `unknown provider: marvis` —— 本插件只走 `magpie-import`。
+  - **QQ / 微信各占一个新建方法**（`marvisOauthMethods()`）：面板先弹「用哪种方式登录」，
+    用户当场挑 QQ 授权或微信扫码。两家凭据不通用（`login_type` 不同、续期端点不认另一边
+    的 refresh），让用户自己选，比猜一个默认值再让他去开关里改更不会选错。
+    **不能**做成 oauth 方法的 `ask()` —— `tests/t-new-account.mjs` 钉着「有 oauth 方法的
+    provider 必须 `m.ask === undefined`」；多个方法不需要 magpie 侧任何改动。
+  - **模型目录只有一条**（`main-auto`，展示名 DeepSeek V4.1 Flash）：上游实测 9 个远端
+    目录端点全 404，目录就是 vendor 里的静态常量，真实 id `deepseek-v4-1-flash-261017`
+    不能直传。`contextWindow` 声明 1_000_000、收图，刻意不声明 `maxTokens`
+    （32k/65k/131k/1M 都返 200，上游不校验上界）。
+  - **凭据 / 额度**：`MARVIS_ACCOUNT_DEFAULT` 前缀；钱包走 `/v3/marvis_get_wallet`
+    （只有余额、无到期时间 ⇒ `expiryUnknown`）；续期走 `/marvis_client_login/marvis_refresh_token`
+    （refresh_token 一次性轮换、可能回空串 ⇒ vendor 侧保留旧值）。
+    **推理腿绝不能带 `Ual-Access-Signature`**（带了会 403 伪装成 401），业务腿 `/v3/*` 必须带 ——
+    这些都在 vendor 的 marvis 模块里，插件层不碰 HTTP。
+  - 本轮插件层 8 处接线：`DSH_PROVIDERS` / `NAMES`（`腾讯 Marvis`）/ `FALLBACK_MODELS`
+    （`marvis/main-auto`）/ `index.mjs` 具名工厂 / `src/icons.mjs`（上游只有占位图：蓝底白 M）/
+    `console/icons.js`（29 → 30 条）/ `scripts/snapshot-models.mjs` 的 `NAMES` / oauth 方法的 `mode: 'code'` 分支。
+  - 测试侧：`EXPECTED_PROVIDER_COUNT` 28 → 29、两处 `NAMES` 计数 28 → 29、
+    `SNAPSHOT_MISSING` 加 `jet-hub-marvis`（目录是 vendor 静态常量、本轮未重跑快照）。
+
+- `feat(vendor)`: **同步上游到 `6ad2e241`（master 头）**（自上次 pin `3812738f` 起 **7 个提交**；2026-11-10）。
+  上一轮（同日早些时候）有意停在 `3812738f`，理由是「其后的 master 只有腾讯 Marvis 一项新功能、
+  magpie 用不到」—— **这条理由被推翻了**：Marvis 是真渠道（`channel: true`、有账号池、
+  有钱包额度、有 `account.create`），接一下就能用。本次带入两块：腾讯 Marvis provider
+  （见上一条 feat(marvis)），以及 4 个纯文档提交（README 渠道表 18 → 29、
+  `docs/agent-notes/providers-marvis.md`，不进 `lib/`）。
+  `vendor/lib` 从 1138 → **1170** 个文件（新增 32 个 `lib/marvis*` 文件，无删除），
+  上游另改 41 个既有文件（`jet-hub-rpc.js` / `jet-hub-store.js` / `provider-registry.js` /
+  `provider-credits.js` / `canonical-models.js` 等）。10 个补丁文件全部重打到位
+  （`jet-hub-rpc.js` 与 `types.d.ts` 按语义移植，其余 8 个上游源码未动、原样保留），
+  与上游 `6ad2e241` 原版构建逐字节比对：**恰差 10 个补丁文件**，`locale/` /
+  `package.json` / `LICENSE` 三者上游无变化（`package.json` 只多一条 `test:e2e:marvis`
+  脚本，本仓没取 —— vendored 快照不跑它自己的测试）。
+
+- `feat(vendor)`: **同步上游到 `3812738f`**（自上次 pin `498a76e` 起 **10 个提交**；2026-11-10）。
+  本次带入三块：
+  - **Qoder 企业资源包解析**：企业账号（`userType=enterprise`）的额度在 `orgResourcePackage`
+    而非个人积分桶，含 cap 兜底 / 到期未知 / available 三个边界修正 —— 纯 vendor 侧修复，
+    插件层零改动。
+  - **「严格手动顺序」开关**（默认关 = 升级前行为逐字节一致）：修「拖拽/序号排序时灵时不灵」——
+    分档渠道的选号器先按积分到期档位、档内才看手动顺序，卡片序号对它们只是一半真话。
+  - **PR #52 的 DSH 宿主 UI**（页头按钮搬侧边栏 / 设置弹窗 / 供应商开关）：改的是 `lib/client/`
+    bundle，magpie 有自己的控制台、不执行那份代码，纯随快照带入的 inert 代码。
+  `vendor/lib` 仍是 1138 个文件；10 个补丁文件全部重打到位（其中 `jet-hub-rpc.js` 与
+  `types.d.ts` 上游有真改动，补丁按语义移植；其余 8 个上游源码未动、补丁版原样保留），
+  与上游 3812738f 原版构建逐字节比对：**恰差 10 个补丁文件**，locale/package.json/LICENSE
+  三者上游无变化。取源改走 Gitee 镜像归档包（`iJetLi/deepseek-harness-codearts`，与 GitHub
+  同历史同 commit）—— git clone 常断，见 `docs/vendor.md` 的取法。
+
+- `feat(console)`: **账号面板新增「严格按手动顺序选号」开关**（接上行的 vendor 开关）。
+  账号卡片一直写着「序号 = 自动选号优先级」，但对 14 家走余额到期分档的渠道
+  （buddy / workbuddy / lobsterai / qoder / qodercn / trae / loomy / minimax / minimaxintl /
+  autoclaw / autoclawintl / magicrew / magicrewintl / astudio）实际执行的是「先按档位、档内
+  才看序号」，用户把某号拖到首位、只要它不再持有临期积分，请求就**静默**落到别的号上。
+  开关挂在账号面板操作条（仅这 14 家渲染，`BALANCE_TIERED_PROVIDERS` 必须与
+  `vendor/lib/provider-registry.js:1221` 一一对应）：**开** = 序号是唯一优先级判据
+  （档位只判可用性，「锁定永久积分」照旧生效）；**关**（缺省）= 升级前行为。写回以后端
+  落盘后回读的值为准，不做乐观更新；读取失败不打断账号列表（显示层尽力而为）。
+  `tests/t-rpc-cover.mjs` 总数锚点 91 → 93（`strictManualOrder.getEnabled/setEnabled`），
+  两方法计入控制台已接（65 → 67）。
+
 - `fix(plugin)`: **冷启动时后台刷新没有 in-flight 去重，最多 58 条链并发**。
   `currentAll()` 的判据是 `allModels === undefined || fullModels === undefined || stale`，
   而**干净机器上没有磁盘缓存**（`readCache()` 返回 `{}`）⇒ 前两项恒为真，每次调用都新起

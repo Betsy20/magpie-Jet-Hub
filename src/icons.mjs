@@ -189,6 +189,10 @@ function withIntl(dataUri) {
     + `</svg>`
 }
 
+/** Marvis 占位标识：上游 `MARVIS_ICON` 里那个白色 M 字形（24×24 视口）。 */
+const MARVIS_MARK =
+  '<path d="M5 18V6h2.6l4.4 7.1L16.4 6H19v12h-2.5V9.9l-3.9 6.2h-1.2L7.5 9.9V18H5z"/>'
+
 const PROVIDER_SVG = {
   // Accio 是阿里的业务，用阿里 logo
   accio: badge(ALIBABA),
@@ -230,6 +234,10 @@ const PROVIDER_SVG = {
   workbuddy: WORKBUDDY,
   // ZCode 只有官方 PNG（智谱 GLM 那条产品线），见 src/zcode-icon.mjs
   zcode: ZCODE_URI,
+  // 腾讯 Marvis（2026-11-10 并入）：上游自己也只有占位图 —— 蓝底白 M 字形
+  // （`plugin-src/client/provider-icons.js` 的 `MARVIS_ICON`，310 字符的
+  // 纯 SVG，不是 PNG）。这里用 `badge` 复刻同一张图，底色取它那个 #0B5FFF。
+  marvis: badge(MARVIS_MARK, { bg: '#0B5FFF', mono: '#ffffff' }),
 }
 
 /**

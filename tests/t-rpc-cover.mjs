@@ -237,7 +237,11 @@ console.log(`  其中共享实现体的标签: ${fallThrough.length ? fallThroug
 // 总数锚点：上面三条解析链任何一条「少认几个」时，下面的相对判据（并发、覆盖、无重叠）
 // 可能依然全绿 —— 实测把单方法改道整段退回是 90 个仍绿、删掉一个裸名 case 是 89 个仍绿。
 // 所以这里钉死总数；上游加减方法时必须同步这个常量（它同时是「解析没退化成空」的兜底）。
-const EXPECTED_RPC_METHOD_COUNT = 93
+// 91 → 93（2026-11-10 同步上游 3812738f：新增 strictManualOrder.getEnabled / setEnabled，
+// 控制台已按 14 家分档渠道接线 —— 见 console.js 的 BALANCE_TIERED_PROVIDERS）。
+// → 94（2026-11-11 本仓新增 `baizhi.setSession`：给已有账号补网页登录态。
+// 它落在 `startsWith('baizhi.')` 前缀改道里，所以是前缀 23 → 24、主 switch 不变）。
+const EXPECTED_RPC_METHOD_COUNT = 94
 ok(methods.length === EXPECTED_RPC_METHOD_COUNT,
   `本体可调度方法总数应为 ${EXPECTED_RPC_METHOD_COUNT}，实际 ${methods.length}（上游加减方法时必须同步这个常量）`)
 // baizhi.startSession 不走 `startsWith` 前缀，是单独一条 `if (method === '…')`；
@@ -622,7 +626,7 @@ const callable = { checked: 0, unknown: [], errors: [], skipped: [] }
 
 // 单请求超时 5s（旧版 15s × 78 串行 = 最坏 19 分钟，正是「挂住」的来源）。
 const REQUEST_TIMEOUT = Number(process.env.JET_HUB_PROBE_TIMEOUT || 5_000)
-// 限并发 6：本地 HTTP 服务扛得住，78 个方法从「分钟级」降到「秒级」。
+// 限并发 6：本地 HTTP 服务扛得住，94 个方法从「分钟级」降到「秒级」。
 const CONCURRENCY = Math.max(1, Number(process.env.JET_HUB_PROBE_CONCURRENCY || 6))
 
 async function callOne(base, method, timeoutMs = REQUEST_TIMEOUT) {
@@ -772,7 +776,7 @@ if (!PROBE) {
         + `${ctl.hits}/${ctl.quietable} 次内容自己变了`)
       if (ctl.hits > 0) {
         // 基线噪声非零 ⇒ 这套归因在本环境下没有分辨力，直接放弃归因、判为外部写方。
-        // 不做 69 个方法的串行复验（那要 2 分钟以上，且结论不可信）。
+        // 不做 94 个方法的串行复验（那要 2 分钟以上，且结论不可信）。
         console.log('  ⇒ 基线噪声非零，本轮放弃副作用归因（判为外部并发写方，不判任何方法有副作用）')
       } else {
         console.log('  ⚠ 探活期间状态文件内容变了，进入隔离复验（串行，逐个方法等静默窗口、两次命中才算）')
@@ -841,7 +845,7 @@ if (!PROBE) {
     `REKEY_CHANNELS 的键（${a || '空'}）与 submitRekey 的 setApiKey 分支（${b || '空'}）必须一一对应`)
 }
 
-// ── 第 8 节：vendor 本地补丁必须还在（docs/vendor.md 的 6 类 / 11 个文件）──
+// ── 第 8 节：vendor 本地补丁必须还在（docs/vendor.md 的 7 类 / 13 个文件）──
 //
 // 这几条补丁打在**上游编译产物**上（`vendor/lib/*.js`），而 `docs/vendor.md`
 // 的同步流程是「clone 上游 → npm install → 整片拷进 vendor/」——

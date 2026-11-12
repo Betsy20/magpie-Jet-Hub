@@ -33,7 +33,7 @@ const cfgEnv = {
   JET_HUB_MODELS_CACHE: path.join(cfgSandbox, 'jet-hub-models.json'),
 }
 
-const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-deps.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-cred-alive.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-auth-sync.mjs', 't-import-backup.mjs', 't-backup-keep.mjs', 't-login-reclaim.mjs', 't-console-backup.mjs', 't-console-credits.mjs', 't-new-account.mjs', 't-key-account.mjs', 't-magicrew-creds.mjs', 't-magicrew-modes.mjs', 't-snapshot-segment.mjs', 't-model-efforts.mjs', 't-model-prices.mjs', 't-rpc-cover.mjs', 't-vendor-patches.mjs', 't-console-strict-order.mjs', 't-page-contract.mjs', 't-error-shape.mjs', 't-hub-cors.mjs', 't-spawn-stdio.mjs']
+const UNIT = ['t-writerefs.mjs', 't-cred-upsert.mjs', 't-deps.mjs', 't-dead-account.mjs', 't-account-pin.mjs', 't-account-cache.mjs', 't-cred-alive.mjs', 't-baseline-store.mjs', 't-usage.mjs', 't-checkin.mjs', 't-options.mjs', 't-attachments.mjs', 't-plugin.mjs', 't-models-nowait.mjs', 't-seed-auth.mjs', 't-auth-sync.mjs', 't-import-backup.mjs', 't-backup-keep.mjs', 't-login-reclaim.mjs', 't-console-backup.mjs', 't-console-credits.mjs', 't-console-baizhi-split.mjs', 't-baizhi-paste-session.mjs', 't-new-account.mjs', 't-key-account.mjs', 't-magicrew-creds.mjs', 't-magicrew-modes.mjs', 't-snapshot-segment.mjs', 't-model-efforts.mjs', 't-model-prices.mjs', 't-rpc-cover.mjs', 't-error-shape.mjs', 't-hub-cors.mjs', 't-vendor-patches.mjs', 't-console-strict-order.mjs', 't-page-contract.mjs', 't-spawn-stdio.mjs']
 const ENV = [
   { file: 't-console.mjs', cmd: process.execPath, label: '控制台（真容器，~40s）' },
   // 直连层回归：真起容器跑一次 chat（流式 + 非流式）。取代了原来「内嵌网关端口」
@@ -48,7 +48,7 @@ const all = process.argv.includes('--all')
 // t-rpc-cover 自己认 `--all` 这个参数来开探活，但它只收到自己的文件路径，
 // 收不到本脚本的命令行 —— 所以必须在这里显式补 `--probe`。
 // 踩过的坑（2026-10-28）：本文件注释写着「--all 会补 --probe」，代码却没补，
-// 于是 `test-all.mjs --all` 里那条最关键的「78 个方法真发请求都不回 unknown」
+// 于是 `test-all.mjs --all` 里那条最关键的「94 个方法真发请求都不回 unknown」
 // 从来没跑过，探活那条一直是空跑。注释和代码对不上就是缺陷。
 const extraArgs = (f) => (all && f === 't-rpc-cover.mjs' ? ['--probe'] : [])
 const cases = all

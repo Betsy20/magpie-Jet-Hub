@@ -40,9 +40,15 @@
  */
 
 import { JetHubContainer } from './container.mjs'
+import { parseRefs } from './credentials.mjs'
 // 上游的**积分/签到能力表** —— 由它直接回答「这家有没有签到」，
 // 而不是在插件里再抄一份名单（抄了必然漂移）。
 import { createProviderCredits, creditsOf } from '../vendor/lib/provider-credits.js'
+// 腾讯 Marvis 的授权页地址 + 设备 guid：两个**纯函数**，不碰浏览器。
+// 登录因此能走宿主 `mode: 'code'`（给链接 + 收粘贴的 code）那条通道，
+// 不依赖本机有没有 Chromium —— 见 `marvisOauthMethod()` 的长注释。
+import { authorizeUrlOf } from '../vendor/lib/marvis-browser-login.js'
+import { newMarvisDeviceGuid } from '../vendor/lib/marvis-device.js'
 import { iconFor } from './icons.mjs'
 import { syncAuthQuietly } from './auth-sync.mjs'
 // 模型目录价（USD / 1M tokens）。由 `node scripts/gen-model-prices.mjs` 生成，
@@ -73,6 +79,26 @@ export const ACCOUNT_INPUT = 'dshAccount'
  * 的 `ask()` 误以为已经答过而直接跳过提问。
  */
 export const KEY_INPUT = 'apiKey'
+
+/**
+ * 「粘贴网页登录态」用的输入键。与 {@link KEY_INPUT} **刻意分开**。
+ *
+ * 理由同上面那条：两条方法不共用键，否则用户在一条里答过的值会让另一条的
+ * `ask()` 误以为已经答过而直接跳过提问。而这里更要紧的是**语义**：
+ * `apiKey` 位在别的渠道是「一把 `sk-` Key」，而这里粘进来的通常是 cookie ——
+ * 混用会让「用户到底给了什么」在日志与错误文案里彻底看不清。
+ */
+export const SESSION_INPUT = 'sessionPaste'
+
+/**
+ * 「开始登录」那一步的输入键 —— 只为让宿主把说明屏渲染出来、并记住用户已确认。
+ *
+ * 存在的理由是**顺序**：宿主先问 `ask()` 的问题、再调 `authorize()` 开窗、最后
+ * 才给粘贴框。而「粘什么」这件事必须讲在**开窗之前**（否则用户看到粘贴框时
+ * 还不知道要开官网），而「粘登录态」这件事必须发生在**登录之后**。
+ * ⇒ 拆成两屏：第一屏讲清楚 + 一个「开始」，第二屏才是粘贴框。
+ */
+export const SESSION_START_INPUT = 'sessionStart'
 
 /**
  * Key 输入框的占位提示，按渠道给一句「去哪拿」。
@@ -238,6 +264,11 @@ const FALLBACK_MODELS = {
   'baizhi/deepseek-v4-flash': { name: '百智云 · DeepSeek V4 Flash' },
   'monkeycode/monkeycode-basic/deepseek-flash': { name: 'MonkeyCode · DeepSeek Flash (basic)' },
   'monkeycodeintl/monkeycode-basic/deepseek-flash': { name: 'MonkeyCode 国际 · DeepSeek Flash (basic)' },
+  // 2026-11-10 并入腾讯 Marvis。它**没有**远端模型目录（9 个目录端点全 404），
+  // 目录就是 vendor 里那条静态常量（`vendor/lib/marvis-product.js` 的
+  // `MARVIS_FALLBACK_MODELS`），所以这条 id 不会随上游变、也不会出现在
+  // `page/models.js` 快照里（快照是历史产物，见 t-new-account 的白名单）。
+  'marvis/main-auto': { name: 'Marvis · DeepSeek V4.1 Flash' },
 }
 
 /** DSH 家目录（凭据所在处）。可用插件 options 的 `home` 覆盖。 */
@@ -679,6 +710,167 @@ const BALANCE_TTL_MS = 90_000
 /** @type {Map<string, {at:number, reading:object|undefined}>} */
 const balanceCache = new Map()
 
+/* ── 每日额度基线（当天首见额度当分母）────────────────────────────────────
+ *
+ * 用户 2026-11-09 定的口径：「每日限时的积分以首次获取的额度作为窗口」。
+ *
+ * 为什么需要它：百智云的每日积分发放额**不是固定 100** —— 实测同一时刻
+ * 梨花不写诗 100、其余 4 个账号 200（上游 `temporary_credit_cents: 19996`）。
+ * 而 `vendor/lib/baizhi-credits.js:259` 把分母写死成
+ * `Math.max(100, temporary)` ⇒ 200 的账号显示 `199.96 / 199.96`，
+ * 分母还是等于余额 ⇒ 进度条永远 100%，与「分母跟着余额跑」是同一个病。
+ *
+ * 解法：每天第一次读到某个每日额度包时，把那一刻的 `remaining` 记下来当分母，
+ * 当天后续都按它算。跨天（本地日期变了）基线重置 —— 因为每日额度是零点重置的。
+ *
+ * ⚠️ 只对**每日桶**生效（名字精确等于「每日积分/每日赠送/每日额度」之一，
+ * 与上游客户端 `DAILY_POOL_NAMES` 同口径）。充值/长期包不走这里 ——
+ * 它们没有周期重置，首见值不是分母（那是钱包，交给 balance 语义）。
+ *
+ * 存储位置：与模型缓存同目录的 `jet-hub-daily-baseline.json`（容器层，
+ * 丢了最多让当天第一次读数退化成钱包语义，不影响正确性）。
+ */
+const DAILY_POOL_NAMES = ['每日积分', '每日赠送', '每日额度', '每日签到奖励']
+/**
+ * 哪些渠道的哪些**钱包型**池子可以用「历史最高余额」当下限分母。
+ *
+ * ## 为什么需要（用户 m01511「总额度也要有窗口」）
+ *
+ * 百智云的「充值积分」（`permanent_credit_cents`）是长期积分：上游 `/balance`
+ * 只回当前值，**没有初始总额、没有累计充值**（45 个候选流水/订单端点全 404，
+ * 控制台 SPA 分包里也没有充值流水 API 字面量，2026-11-09 实证）。所以它只能
+ * 按钱包显示「剩余 500 credit」—— 没有分母、没有进度条，用户看不到消耗比例。
+ *
+ * 又不能像 MonkeyCode 那样用「近 30 天收入」：百智云没有流水接口。唯一可算的
+ * `app-credit-usage?period=month` 是**整月总消耗**（每日桶也含在内），拿它反推
+ * 期初会把其余天的每日消耗算进充值桶（`vendor/lib/baizhi-credits.js` 里
+ * 2026-11-05 审计 P0-1/P0-2 已否决这条路）。
+ *
+ * ⇒ 只能插件侧自采**水位**（每天首次见到的余额里取历史最高）：充值时余额上涨
+ * ⇒ 水位跟着涨 ⇒ 分母变大，等价于用户说的「充值会让窗口扩大」；长期积分不过期，
+ * 所以水位**永不回落**。首见当天是 `500 / 500 · 剩余 100%`，之后每笔消耗都能
+ * 算出真实百分比（这正是用户否掉的「分母跟着余额跑、永远 100%」的反面）。
+ *
+ * ⚠️ 只对**白名单里的池子**生效：其它渠道的「积分余额 / 奖励积分 / 魔粒」语义
+ * 各异（有的每日重置、有的按包过期），拿水位当分母会把它们全部改出进度条，
+ * 属于没人要求的连带改动。要加渠道就往这里加一行。
+ */
+const WALLET_WINDOW_POOLS = { baizhi: ['充值积分'] }
+/** @type {Map<string, {kind:'daily'|'peak', day:string, total:number}>} */
+const dailyBaseline = new Map()
+let dailyBaselineLoaded = false
+
+const dailyBaselineFileOf = () =>
+  process.env.JET_HUB_DAILY_BASELINE
+  || join(homedir(), '.config', 'magpie', 'jet-hub-daily-baseline.json')
+
+/** 本地日历日（YYYY-MM-DD）。每日额度按**本地**零点重置，不能用 UTC。 */
+function localDay(now = Date.now()) {
+  const d = new Date(now)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function loadDailyBaseline() {
+  if (dailyBaselineLoaded) return
+  dailyBaselineLoaded = true
+  try {
+    const j = JSON.parse(readFileSync(dailyBaselineFileOf(), 'utf8'))
+    if (j !== null && typeof j === 'object' && !Array.isArray(j)) {
+      for (const [k, v] of Object.entries(j)) {
+        if (v && typeof v.day === 'string' && Number.isFinite(Number(v.total))) {
+          // ⚠️ 老文件没有 `kind`（第一版只存每日基线）⇒ 一律按 daily 解析，
+          // 否则升级后已经把 199.96 采下来的 4 个百智云账号基线会全部丢失，
+          // 当天的每日窗口立刻退回「分母==余额 · 永远 100%」。
+          const kind = v.kind === 'peak' ? 'peak' : 'daily'
+          dailyBaseline.set(k, { kind, day: v.day, total: Number(v.total) })
+        }
+      }
+    }
+  } catch { /* 没有文件是正常情况（首次运行） */ }
+}
+
+function saveDailyBaseline() {
+  try {
+    const out = {}
+    const today = localDay()
+    for (const [k, v] of dailyBaseline) {
+      // 每日基线只留今天的（每日额度零点重置，昨天的必然失效）；
+      // 水位**永久保留** —— 长期积分不过期，昨天的高水位今天照样是上限下限，
+      // 删掉就等于把分母退回余额，「永远 100%」立刻复发。
+      if (v.kind === 'peak' || v.day === today) out[k] = v
+    }
+    mkdirSync(dirname(dailyBaselineFileOf()), { recursive: true })
+    writeFileSync(dailyBaselineFileOf(), JSON.stringify(out, null, 2))
+  } catch { /* 写不进去不影响读数正确性，下次重新采基线即可 */ }
+}
+
+/**
+ * 取（或采）某个每日额度包今天的基线分母。
+ *
+ * @param {string} key  `<provider>|<accountId>|<包名>`
+ * @param {number} remaining 当下余额
+ * @returns {number} 今天的分母（≥ remaining，保证「已用」不会是负数）
+ */
+function dailyTotalOf(key, remaining) {
+  loadDailyBaseline()
+  const today = localDay()
+  const hit = dailyBaseline.get(key)
+  // 跨天 ⇒ 重置：今天第一次读到就是今天的新基线
+  if (hit === undefined || hit.day !== today) {
+    dailyBaseline.set(key, { kind: 'daily', day: today, total: remaining })
+    saveDailyBaseline()
+    return remaining
+  }
+  // 余额**超过**首见值（当天中途补发/叠加活动）⇒ 抬高基线，
+  // 否则会出现「剩余 120 / 基线 100」这种已用为负的倒挂。
+  if (remaining > hit.total) {
+    hit.total = remaining
+    saveDailyBaseline()
+  }
+  return hit.total
+}
+
+/** 这条包名是不是「每日额度」桶（精确匹配，与上游 DAILY_POOL_NAMES 同口径）。 */
+function isDailyPool(name) {
+  return DAILY_POOL_NAMES.includes(String(name ?? '').trim())
+}
+
+/** 这个渠道的这个池子是否允许用「历史水位」当分母（见 WALLET_WINDOW_POOLS 注释）。 */
+function isWalletWindowPool(provider, name) {
+  const list = WALLET_WINDOW_POOLS[String(provider ?? '')]
+  if (!Array.isArray(list)) return false
+  return list.includes(String(name ?? '').trim())
+}
+
+/**
+ * 取（或抬）某个钱包型池子的历史水位 —— 只在**涨**的时候更新，永不回落。
+ *
+ * 与 `dailyTotalOf` 的区别：那个按天重置（每日额度零点清零），这个永久保留
+ * （长期积分不过期）。水位只增不减，所以消耗多少都能算出真实百分比；充值把
+ * 余额顶上去，水位跟着上抬 —— 用户说的「充值会让窗口扩大」就是这一条。
+ *
+ * @param {string} key  `<provider>|<accountId>|<包名>`
+ * @param {number} remaining 当下余额（调用方已保证 > 0）
+ * @returns {number} 水位（≥ remaining）
+ */
+function walletPeakOf(key, remaining) {
+  loadDailyBaseline()
+  const hit = dailyBaseline.get(key)
+  // 老版本可能把同一个 key 存成了 daily（不会 —— 白名单是新增的包名），
+  // 但即便撞上也要以「取大值」为准，不然分母会比余额小、进度条溢出。
+  if (hit === undefined || hit.kind !== 'peak') {
+    const total = hit !== undefined && Number(hit.total) > remaining ? Number(hit.total) : remaining
+    dailyBaseline.set(key, { kind: 'peak', day: localDay(), total })
+    saveDailyBaseline()
+    return total
+  }
+  if (remaining > hit.total) {
+    hit.total = remaining
+    saveDailyBaseline()
+  }
+  return hit.total
+}
+
 /* ── 按账号：列出 / 解析 ──────────────────────────────────────────────────
  *
  * magpie 侧「一个 provider 多个账号」要求插件能做两件事：
@@ -909,6 +1101,47 @@ const KEY_ACCOUNT_RPC = new Map([
  */
 const MAGICREW_CREATE_MODES = ['browser', 'local-browser']
 
+/**
+ * **必须**带 `mode: 'browser'` 才会进自家分支的渠道：
+ * `monkeycode` / `monkeycodeintl` / `baizhi`。
+ *
+ * ⚠️⚠️ 这是一个**真缺陷**的修法（2026-11-11 真机踩到）。本体 `case 'account.create'`
+ * 里这几家的分支条件都把 `mode` 当成**分支判据**而不是可选参数：
+ *
+ * ```js
+ * // vendor/lib/jet-hub-rpc.js:4345
+ * if (monkeycodeProduct !== undefined && monkeycodeAuthOf !== undefined && req.mode === 'browser')
+ * // vendor/lib/jet-hub-rpc.js:4510
+ * if (provider === BAIZHI.id && req.mode === 'browser')
+ * ```
+ *
+ * 而 `startNewAccountSmart()` 此前**只**给超级麦吉两站传 `mode`，其余一律裸传
+ * `{ provider }`。
+ *
+ * 后果链（用户在 magpie 面板点「新建账号 → MonkeyCode」实测）：
+ *
+ * 1. `account.create` 不带 `mode` ⇒ MonkeyCode 分支被跳过 ⇒ 落到 `case` 末尾的
+ *    `return { ok: false, error: { message: 'unknown provider: monkeycode' } }`；
+ * 2. 面板弹出「登录未完成 / unknown provider: monkeycode」，而**日志里什么都没有**
+ *    （分支根本没进，没有任何 warn）—— 这就是为什么这个 bug 藏了这么久；
+ * 3. ⇒ 永远没法重新抓 `monkeycode_ai_session` ⇒ 老会话一路 401 过期 ⇒ 面板读不到
+ *    积分、签到失败、模型被按「额度耗尽」打冷却标签；
+ * 4. ⇒ 用户看到的是「MonkeyCode 用不了 / 显示不出积分」，而根因是「加不了账号」。
+ *
+ * 这几家都只有「开一次性独立 profile 的浏览器窗口让用户自己登」这一条路（与超级
+ * 麦吉的 `browser` 腿同型），没有 `local-browser` 那样的第二条腿可退，所以只传
+ * `browser`、不重试别的 mode。
+ *
+ * ⚠️ 国际站（`monkeycodeintl`）与国内站共用同一段分支判据（`:4345` 对两个 product
+ * 都生效），漏一个就是国际站面板同样弹出 `unknown provider: monkeycodeintl`。
+ *
+ * ⚠️ `baizhi`（百智云）在 2026-11-11 一并纳入：它 `account.create` 的判据与上面
+ * 逐字同型（`:4510`），不传 `mode` 就是 `unknown provider: baizhi` —— 面板上
+ * 「新建账号 → 百智云」同样是死路。纳入后不影响 `baizhi.startSession`（那是给
+ * **已有**账号补 cookie 的另一条入口，走自己的 RPC，与本表无关）。
+ */
+const BROWSER_MODE_PROVIDERS = new Set(['monkeycode', 'monkeycodeintl', 'baizhi'])
+
 /** 轮询 `login.poll` 的间隔（本体登录流程最短也要一两秒，2 秒够用且不吵）。 */
 const LOGIN_POLL_MS = 2_000
 
@@ -1021,12 +1254,19 @@ async function withRpcDeadline(container, method, payload, ms, what) {
  * 有效期。所以这里返回的 `accountId` 此时还只是个占位，不能当成「已登录」。
  */
 async function startNewAccount(container, provider, log, mode) {
-  // 只有超级麦吉两站要带 `mode`（见下方 `MAGICREW_CREATE_MODES` 的说明），
-  // 其余 24 家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
+  // 只有这**四家**需要 `mode`（分两类）：
+  //  · 超级麦吉两站 —— 必须是 `browser` 或 `local-browser`（见 `MAGICREW_CREATE_MODES`）；
+  //  · `monkeycode` / `monkeycodeintl` / `baizhi` —— 必须是 `browser`
+  //    （见 `BROWSER_MODE_PROVIDERS`，漏传就是那句 `unknown provider: xxx`）。
+  // 其余各家多传一个未知字段会被本体忽略，但没必要冒这个险 —— 不传就不带。
+  //
+  // 腾讯 Marvis 不走这里：它不需要本机浏览器，走宿主 `mode: 'code'` 那条通道，
+  // 见 `marvisOauthMethod()` 的长注释。
+  const payload = mode === undefined ? { provider } : { provider, mode }
   const v = await withRpcDeadline(
     container,
     'account.create',
-    mode === undefined ? { provider } : { provider, mode },
+    payload,
     CREATE_TIMEOUT_MS,
     'account.create',
   )
@@ -1081,9 +1321,17 @@ async function startNewAccount(container, provider, log, mode) {
 /**
  * 起一个登录流程，按 provider 决定要不要按顺序试多种 `mode`。
  *
- * 除超级麦吉两站外都是单次调用（`mode === undefined`，payload 里不带这个字段）。
- * 超级麦吉两站两条腿都失败时，**报第一条腿（`browser`）的错误**，并把其余腿的
- * 原因附在括号里 —— 用户点的是「新建」，先看到那条腿为什么不行才定位得到问题。
+ * 三种形状：
+ *
+ *   1. **`BROWSER_MODE_PROVIDERS`（monkeycode / monkeycodeintl / baizhi）**：单次调用、
+ *      必须带 `mode: 'browser'` —— 它们的 `account.create` 分支判据里带着
+ *      `req.mode === 'browser'`，不传就掉进 `unknown provider: xxx`。
+ *   2. **超级麦吉两站**：两条腿（`browser` → `local-browser`）按序试，都失败时
+ *      **报第一条腿（`browser`）的错误**，并把其余腿的原因附在括号里 —— 用户点的
+ *      是「新建」，先看到那条腿为什么不行才定位得到问题。
+ *   3. **其余**（含腾讯 Marvis）：单次调用、`mode === undefined`（payload 里不带
+ *      这个字段）。Marvis 走宿主 `mode: 'code'` 那条通道（见 `marvisOauthMethod`），
+ *      **不经过本函数的 mode 分支**。
  *
  * ⚠️ 这里的「失败」只指 `startNewAccount` 抛出来的**`account.create` RPC 错误**
  * （超时 / 账号池写失败 / 返回体里 `accountId` 缺失或为空）。**不包括**「窗口起不来」「授权
@@ -1091,6 +1339,12 @@ async function startNewAccount(container, provider, log, mode) {
  * 只会变成 `login.poll` 的终态，根本不在本函数的 errors 数组里。
  */
 async function startNewAccountSmart(container, provider, log) {
+  // ⚠️⚠️ 这里曾漏了 monkeycode / monkeycodeintl（2026-11-11 真机踩到）：
+  //    它们的 `account.create` 分支判据里带着 `req.mode === 'browser'`，不传 `mode`
+  //    就直接掉进 `unknown provider: xxx`。详见 `BROWSER_MODE_PROVIDERS` 的长注释。
+  //    这两家只有一条腿，所以要**先**判，别落到下面重试 `local-browser` 的循环里。
+  if (BROWSER_MODE_PROVIDERS.has(provider)) return startNewAccount(container, provider, log, 'browser')
+
   if (provider !== 'magicrew' && provider !== 'magicrewintl') return startNewAccount(container, provider, log)
 
   const errors = []
@@ -1239,6 +1493,64 @@ function credentialAliveOf(container, ref) {
   } catch {
     return true
   }
+}
+
+/**
+ * 这次新建的账号，最后该把哪一条签进 magpie。
+ *
+ * ## 为什么不能直接用新建的那个 id
+ *
+ * 容器层登录成功后会按云端身份判重（`jet-hub-rpc.js` 的 officeace / zcode 分支）：
+ * 同一个云号已经在池里 ⇒ 新凭据**转写给老卡**、新卡的凭据被 `unset`、新卡标成
+ * `…（重复，已停用）`。而 `login.poll` 只回 `{done:true,success:true}`，不告诉插件
+ * 「存活的是哪一条」。于是老写法把新壳卡的 id 编进 key/uid 交给宿主 `save()`：
+ * magpie 里就多出一张指向空壳的登录卡 —— 显示成 `API key …eae7`（宿主拿不到名字
+ * 时的兜底），点它必报「积分查询失败（凭据已失效）」，删了插件池的壳卡也清不掉它
+ * （2026-11-09 实测，用户连着踩了三次）。
+ *
+ * ## 判据与找法
+ *
+ * 壳卡有两个同时成立的特征：`enabled === false` **且**凭据已不在。只看 `enabled`
+ * 会把用户自己停用的号也算进来；只看凭据会把「凭据文件一时读不到」误判成壳。
+ *
+ * 存活卡靠**昵称里的云号前缀**认：容器层给壳卡写的是
+ * `OfficeAce <云号前 8 位>（重复，已停用）`，存活卡是 `OfficeAce <同一前 8 位>`。
+ * 前缀相同且凭据还在的那条就是它。认不出来（云号不足 8 位、昵称被用户改过、
+ * 存活卡凭据也读不到）⇒ 退回新卡 id：宁可留一张壳卡，也不能把登录签给**别的号**。
+ *
+ * ⚠️ 判重的「反转形态」（老卡原本是停用的）里，容器层把**新卡**留成存活卡、
+ * 老卡标重复停用 —— 那时新卡 `enabled:true` 且凭据在，这里的判据不成立，原样返回。
+ */
+async function landedAccountOf(container, provider, accountId, hit, log) {
+  const fallback = { id: accountId, hit }
+  if (hit === undefined || hit.enabled !== false) return fallback
+  if (credentialAliveOf(container, hit.credentialRef)) return fallback
+
+  // 壳卡昵称形如 `OfficeAce 01a0a421（重复，已停用）`：取「（」之前那截的最后一段。
+  const nick = String(hit.nickname ?? '').trim()
+  const head = nick.split('（')[0].trim()
+  const cloud = head.includes(' ') ? head.slice(head.lastIndexOf(' ') + 1) : ''
+  if (cloud.length < 8) return fallback
+
+  const rows = await listAccountsOf(container, provider, log)
+  const alive = rows.filter(
+    (a) =>
+      a !== null &&
+      typeof a === 'object' &&
+      String(a.id ?? '') !== accountId &&
+      a.enabled !== false &&
+      credentialAliveOf(container, a.credentialRef) &&
+      // 整段相等，不是 `endsWith`：`…101a0a421` 也以 `01a0a421` 收尾，那是**另一个号**。
+      String(a.nickname ?? '').split('（')[0].trim().split(' ').pop() === cloud,
+  )
+  // 只认唯一命中：两条都像 ⇒ 分不清是哪条，退回新卡（不猜）。
+  if (alive.length !== 1) return fallback
+  const survivor = alive[0]
+  log?.(
+    `[${provider}] 新账号 ${accountId} 被判重转写给了 ${survivor.id}（同一个云号 ${cloud}…）` +
+      '，签入改用存活的那条 —— 否则 magpie 里会留一张没有凭据的空壳登录卡',
+  )
+  return { id: String(survivor.id), hit: survivor }
 }
 
 /**
@@ -1504,6 +1816,18 @@ function mergePackages(list) {
     const used = Number(p?.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
     const until = Number(p?.deductionEndTime)
     const hasUntil = Number.isFinite(until) && until > 0
+    // 这一份包**有没有周期/到期**信息（三者任一非空即算有）。
+    // 它是「这是配额还是钱包」的关键判据之一，见下面 wallet 的注释。
+    const hasCycle =
+      hasUntil ||
+      String(p?.cycleStartTime ?? '').trim() !== '' ||
+      String(p?.cycleEndTime ?? '').trim() !== '' ||
+      String(p?.expiredTime ?? '').trim() !== ''
+    // ⚠️ `totalKnown === false` 是**上游明说**「只有余额、没有初始总额」。
+    // `vendor/lib/credits.d.ts:184-196` 的契约原文：此时 `total` 只能冗余填
+    // `remaining`，面板**不得**把两者并列显示，否则每次消耗后都是 `100/100 →
+    // 98/98` 这种「分母跟着余额跑」的假读数（用户 2026-11-05 报障）。
+    const totalKnownFalse = p?.totalKnown === false
     const key = `${name}\u0000${unit}`
     const cur = byKey.get(key)
     if (cur === undefined) {
@@ -1520,6 +1844,10 @@ function mergePackages(list) {
         until: hasUntil ? until : undefined,
         // 组内每个包的到期时间（去重升序）。合并后仍要能逐个报出来。
         untils: hasUntil ? [until] : [],
+        // 组内**任一份**是钱包 ⇒ 整组按钱包显示（合并只会让 total/remaining 更不可信）
+        anyTotalUnknown: totalKnownFalse,
+        // 组内**每一份**都没有周期信息 ⇒ 才有可能是钱包（见 toMagpieUsage）
+        allCycleless: !hasCycle,
       })
       continue
     }
@@ -1529,6 +1857,8 @@ function mergePackages(list) {
     cur.count += 1
     if (total > cur.each) cur.each = total
     cur.allInactive = cur.allInactive && p?.active === false
+    cur.anyTotalUnknown = cur.anyTotalUnknown || totalKnownFalse
+    cur.allCycleless = cur.allCycleless && !hasCycle
     if (hasUntil) {
       cur.untils.push(until)
       if (cur.until === undefined || until < cur.until) cur.until = until
@@ -1558,6 +1888,51 @@ function fmtNum(n) {
   if (!Number.isFinite(v)) return String(n)
   // 先截到两位，再去掉末尾的 0 与孤立的小数点（`100.00` → `100`、`8.50` → `8.5`）
   return v.toFixed(2).replace(/\.?0+$/, '')
+}
+
+/**
+ * 按**量级**收敛：`token` 计的大数字压成 `9.93M` / `945.39K`，其余仍走 `fmtNum`。
+ *
+ * 为什么光有 `fmtNum` 不够：它只收敛小数位、不压缩量级，于是 Marvis 的
+ * 千万级令牌被逐位写全 —— 卡片上就是 `余额 9999976 token`（2026-11-11 用户
+ * 报障「我这里显示的不是1m而是每个数字都写出来了」）。位数差三个数量级，
+ * 一眼读不出这号还剩多少。
+ *
+ * ⚠️ **只对 `unit === 'token'` 生效**。积分（credit）实测都是两位数
+ * （`146.341` / `4584.44`），压成 `0.15K` 只会让读数更难核对。
+ *
+ * 阈值与 `vendor/lib/credits.js` 的 `formatTokenAmount`（进而与客户端
+ * `formatTokens`）一致：`>= 1e6` → M、`>= 1e3` → K、其余取整。两处刻意的差别：
+ *
+ * ① **M / K 两档向下截断，不四舍五入**。剩余量舍入会向上虚报，最坏情况是把
+ *    `9999976 / 10000000`（已用 24，几乎没动）渲染成 `10M / 10M · 剩余 100%`
+ *    —— 读数与「满额未用」逐字相同，等于把用掉的量抹掉。
+ *
+ *    ⚠ **这个不变量只在 `|v| >= 1e3` 时成立**（2026-11-11 三审实测）：
+ *      · `|v| < 1e3` 走的是下面的 `fmtNum`，它用 `toFixed(2)` 是**四舍五入**
+ *        （`999.999 → "1000"`）；
+ *      · 负数段 `Math.trunc` 是**向零**截断，绝对值变小 ⇒ 余额反而**多报**
+ *        （`-1501 → "-1.5K"` 反解 -1500）。
+ *    这两段都是个位 / 十位量级，差 1 不影响「还剩多少」的判断；真正会误导的是
+ *    M 档（差 10000），而 M 档严格向下。
+ * ② **去掉末尾的 0**，沿用 `fmtNum` 那条卡片惯例（`10000000` → `10M` 而不是
+ *    `10.00M`），跟同一行里的其余读数写法对齐。
+ *
+ * `unit` 比较**不分大小写**：OfficeAce 那家报的是 `'Token'`（首字母大写），
+ * 而 `claimUnitLabel` 也同时认 `'token'` / `'Token'` 两种写法。
+ */
+function fmtScaled(n, unit) {
+  const v = Number(n)
+  if (!Number.isFinite(v)) return String(n)
+  if (String(unit ?? '').trim().toLowerCase() !== 'token') return fmtNum(v)
+  const abs = Math.abs(v)
+  // 只去**小数**尾部的 0：`10.00` → `10`，但 `10` 必须原样留下
+  // （`/\.?0+$/` 那种写法会把整数的尾零也吃掉，`10` 变成 `1`）。
+  const trim = (s) => (s.includes('.') ? s.replace(/0+$/, '').replace(/\.$/, '') : s)
+  // 先放大 100 倍再截断，等价于「保留两位、向零取整」
+  if (abs >= 1e6) return `${trim(String(Math.trunc((v / 1e6) * 100) / 100))}M`
+  if (abs >= 1e3) return `${trim(String(Math.trunc((v / 1e3) * 100) / 100))}K`
+  return fmtNum(v)
 }
 
 /**
@@ -1609,6 +1984,234 @@ function windowName(pkg) {
 }
 
 /**
+ * MonkeyCode 两站：上游**只有收支净额**，没有「积分包 + 有效期」。
+ *
+ * ## 为什么不能照 MiniMax 那套做
+ *
+ * MiniMax 的 `credit/details` 会回 `details[]`，**每笔发放各带 `expire_at_ms`**，
+ * 余额 = Σ 各包 `remaining_amount` ⇒ 过期的包自动退出累加，窗口自然收缩
+ *（`vendor/lib/minimax-credits.js:590-650`）。这正是理想的「有效积分累积」模型。
+ *
+ * MonkeyCode 没有这条路（2026-11-09 实测）：
+ *  - `/wallet/credits`、`/wallet/credit`、`/users/credits`、`/credit/details`、
+ *    `/wallet/details`、`/wallet/packages`、`/wallet/grants` → **全部 404**
+ *  - 唯一可用的是 `/wallet/transaction`（流水），字段只有
+ *    `inout_type / kind / amount / amount_balance / amount_daily / remark / created_at`
+ *    ——**没有任何到期时间**
+ *  - `/wallet` 只给一个标量 `balance`（单位千分之一积分），且**可以是负数**
+ *
+ * ## 用户定的口径（2026-11-09）
+ *
+ * 「近 30 天的收入之和为总窗口」+「余额为负时显示 0」+「实时拉流水」。
+ * 账目实测吻合：4 个负余额账号的 `wallet.balance` 与
+ * 「30 天收入 − 30 天支出」**逐位相等**（-16.616 / -10.402 / -10.402 / -39.721），
+ * 说明这个 balance 就是收支滚出来的净额，不是「欠费」而是「滚到负数」。
+ *
+ * ⇒ 剩信用 `max(0, balance)`（负的按 0 即「已用尽」），分母用 30 天收入之和。
+ *
+ * ## 开销
+ *
+ * 流水必须翻页（默认一页 10 条，`?page=N&size=100` 才给 100 条；实测单账号
+ * 最多 103 条）。这里限制**最多 5 页**并把结果按 60 秒缓存 —— 与
+ * `BALANCE_TTL_MS`（90 秒）同一量级，避免 magpie 反复重绘卡片时打爆上游。
+ * 拉取失败**不当作错误**：退回原有的钱包语义（只报余额），绝不因为「算不出
+ * 分母」让整个用量卡变成错误。
+ */
+const MONKEYCODE_PROVIDERS = new Set(['monkeycode', 'monkeycodeintl'])
+/** 30 天窗口（秒）。 */
+const MONKEYCODE_WINDOW_SEC = 30 * 86400
+/** 单账号最多翻几页流水（每页 100 条，5 页 = 500 条，实测最多 103 条）。 */
+const MONKEYCODE_MAX_PAGES = 5
+/** 窗口读数的缓存时长 —— 与 `BALANCE_TTL_MS` 同量级。 */
+const MONKEYCODE_WINDOW_TTL_MS = 60_000
+/** @type {Map<string, {at:number, income:number|undefined}>} */
+const monkeycodeWindowCache = new Map()
+
+/** 取该渠道的平台根地址（`monkeycode` / `monkeycodeintl` 两套部署）。 */
+function monkeycodeBaseUrl(provider) {
+  return provider === 'monkeycodeintl' ? 'https://monkeycode-ai.net' : 'https://monkeycode-ai.com'
+}
+
+/**
+ * 取该渠道的**产品常量**（`MONKEYCODE` / `MONKEYCODE_INTL`）。
+ *
+ * ⚠️ 必须按渠道给对：两个站的 `platformBaseUrl` / `apiKeysPath` 都不同 ——
+ * 拿错一个就是「国内站登录态打到国际站恒 401」。兑换 Key、读资料、读钱包
+ * 都吃这个对象，所以只在建号入口处取一次往下传。
+ */
+async function monkeycodeProductOf(provider) {
+  const { MONKEYCODE, MONKEYCODE_INTL } = await import('../vendor/lib/monkeycode-product.js')
+  return provider === 'monkeycodeintl' ? MONKEYCODE_INTL : MONKEYCODE
+}
+
+/** 从凭据对象里取会话 cookie（与 vendor 的归一化规则同源）。 */
+async function monkeycodeCookieOf(credential) {
+  if (credential === null || typeof credential !== 'object') return undefined
+  const raw = credential.session_cookie
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined
+  const { MONKEYCODE_SESSION_COOKIE_NAME } = await import('../vendor/lib/monkeycode-browser-login.js')
+  const { normalizeSessionCookie } = await import('../vendor/lib/session-cookie.js')
+  return normalizeSessionCookie(raw, [MONKEYCODE_SESSION_COOKIE_NAME], MONKEYCODE_SESSION_COOKIE_NAME)
+}
+
+/**
+ * 拉近 30 天的收入合计（千分之一积分）。
+ *
+ * @returns {Promise<number|undefined>} 拿不到（会话失效/网络失败）时 undefined，
+ *   调用方据此退回钱包语义 —— **不编造分母**。
+ */
+async function monkeycodeIncome30d(provider, credential, log) {
+  const cookie = await monkeycodeCookieOf(credential)
+  if (cookie === undefined) return undefined
+  const baseUrl = monkeycodeBaseUrl(provider)
+  const headers = {
+    cookie,
+    accept: 'application/json',
+    referer: `${baseUrl}/`,
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+      + '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  }
+  const cutoff = Math.floor(Date.now() / 1000) - MONKEYCODE_WINDOW_SEC
+  let income = 0
+  let seen = 0
+  try {
+    for (let page = 1; page <= MONKEYCODE_MAX_PAGES; page += 1) {
+      const res = await fetch(
+        `${baseUrl}/api/v1/users/wallet/transaction?page=${page}&size=100`,
+        { headers, signal: AbortSignal.timeout(15_000) },
+      )
+      if (!res.ok) return undefined
+      const body = await res.json()
+      const txs = Array.isArray(body?.data?.transactions) ? body.data.transactions : []
+      if (txs.length === 0) break
+      seen += txs.length
+      let crossedWindow = false
+      for (const t of txs) {
+        const at = Number(t?.created_at)
+        if (!Number.isFinite(at) || at < cutoff) {
+          // 流水按时间倒序：一旦越过窗口边界，后面的都不用看了
+          if (Number.isFinite(at)) crossedWindow = true
+          continue
+        }
+        // 收入 = 非 model_consumption 的一切（实测有 checkin）。金额单位与
+        // wallet.balance 一致，都是千分之一积分。
+        if (t?.kind !== 'model_consumption') {
+          const amount = Number(t?.amount)
+          if (Number.isFinite(amount) && amount > 0) income += amount
+        }
+      }
+      if (crossedWindow || txs.length < 100) break
+    }
+  } catch (e) {
+    log?.(`[${provider}] 流水拉取失败（退回钱包语义）：${e?.message ?? e}`)
+    return undefined
+  }
+  // 一条流水都没读到 ⇒ 不是「收入 0」，而是「读不到」⇒ 不编分母
+  if (seen === 0) return undefined
+  return income
+}
+
+/**
+ * 取某账号的真实凭据（含 `session_cookie`）。
+ *
+ * ⚠️ `getAuth()` 给的记录**不含凭据**：实测 `plugin-auth.json` 里 MonkeyCode
+ * 记录只有 `{type, key, accountId, uid, metadata}` —— `key` 是引用串
+ * （`jet-hub-local:monkeycode/monkeycode-xxxx`），不是 cookie 本体。
+ * 真正的 cookie 在 DSH 的 `.credentials.yaml` 里，要按
+ * `metadata.dshAccountId` → 池条目的 `credentialRef` → 凭据文件取值 这条链拿。
+ *
+ * ⚠️ 不走 `ctx.credentials.resolve()`：那个 ctx 只在容器内部账号池包装闭包里，
+ * 插件侧拿不到（`usage()` 闭包里的 `container` 是 `JetHubContainer` 实例，
+ * 只暴露 `rpc` / `credentialFile` / `credentialAlive`）。
+ * ⇒ 直接读凭据文件 + `parseRefs`（与 `credentialAlive` 同一条读法）。
+ * 任何一环断掉都返回 undefined（调用方退回钱包语义，不编分母）。
+ */
+async function credentialOfAccount(container, provider, accountId, log) {
+  const want = String(accountId ?? '').trim()
+  if (want === '') return undefined
+  try {
+    const rows = await listAccountsOf(container, provider, log)
+    const hit = rows.find((a) => String(a?.id ?? '') === want)
+    const ref = hit?.credentialRef
+    if (typeof ref !== 'string' || ref.trim() === '') return undefined
+    const refs = parseRefs(readFileSync(container.credentialFile(), 'utf8'))
+    const raw = refs.get(ref)
+    if (typeof raw !== 'string' || raw.trim() === '') return undefined
+    return JSON.parse(raw)
+  } catch (e) {
+    log?.(`[${provider}] 取账号 ${want} 的凭据失败（退回钱包语义）：${e?.message ?? e}`)
+    return undefined
+  }
+}
+
+/**
+ * 把 MonkeyCode 的用量读数改成「剩余 / 30 天收入」。
+ *
+ * 只在拿到收入合计时才改写；拿不到就**原样返回** `base`（钱包语义：
+ * 只报「N credit left」），保证「算不出分母」不会污染读数。
+ *
+ * @param {object} base `toMagpieUsage` 的结果
+ * @param {string} provider
+ * @param {object} container 用来解析账号凭据
+ * @param {string} accountId DSH 账号 id（`usage(getAuth)` 里认出来的那个）
+ */
+async function withRollingIncomeWindow(base, provider, container, accountId, log) {
+  const packages = Array.isArray(base?.windows) ? base.windows : []
+  if (packages.length === 0) return base
+  const key = `${provider}\u0000${String(accountId ?? '')}`
+  let income
+  const hit = monkeycodeWindowCache.get(key)
+  if (hit !== undefined && Date.now() - hit.at < MONKEYCODE_WINDOW_TTL_MS) {
+    income = hit.income
+  } else {
+    const credential = await credentialOfAccount(container, provider, accountId, log)
+    income = credential === undefined ? undefined : await monkeycodeIncome30d(provider, credential, log)
+    monkeycodeWindowCache.set(key, { at: Date.now(), income })
+  }
+  if (!Number.isFinite(income) || income <= 0) return base
+
+  const totalCredit = income / 1000
+  return {
+    ...base,
+    windows: packages.map((w) => {
+      // 只改「积分余额」那条（单位 credit）；每日额度（token）有上游真总额，不动
+      if (String(w?.unit ?? '') !== 'credit') return w
+      /**
+       * 取「剩余」原值。
+       *
+       * ⚠️ `text` 形态（负数包被 `toMagpieUsage` 转成「已欠费 10.4 credit」）里
+       * **负号已经丢了** —— 那串文字是 `已欠费 <绝对值>`。这里若直接 parseFloat
+       * 会得到 +10.4，把「透支」误读成「还剩 10.4」。
+       * ⇒ 先判文案里有没有「欠费」，有就返回负数。
+       */
+      let rawLeft
+      if (typeof w.balance === 'number') {
+        rawLeft = w.balance
+      } else if (typeof w.text === 'string') {
+        const num = Number.parseFloat(w.text.replace(/[^\d.-]/g, ''))
+        rawLeft = Number.isFinite(num) && /欠费/.test(w.text) ? -Math.abs(num) : num
+      } else {
+        rawLeft = Number.NaN
+      }
+      // 负余额按 0 处理（用户口径：显示 0 = 已用尽，不显示成欠费）
+      const left = Number.isFinite(rawLeft) ? Math.max(0, rawLeft) : 0
+      const used = Math.min(100, Math.round(((totalCredit - left) / totalCredit) * 100))
+      return {
+        name: w.name,
+        unit: 'credit',
+        // 分母 = 近 30 天收入之和（滚动窗口：老收入自然退出，等价于 minimax 的包过期）
+        used,
+        // `fmtNum` 会把 `700` 渲染成 `700`（整数不带 .00），所以这里统一两位小数，
+        // 免得出现「0 / 700 credit」这种一边有小数一边没有的读法。
+        display: `${left.toFixed(2)} / ${totalCredit.toFixed(2)} credit`,
+        amount: left,
+        limit: totalCredit,
+      }
+    }),
+  }
+}
+
+/**
  * 把本体的余额读数翻译成 magpie 的 `auth.usage` 返回形状。
  */
 function toMagpieUsage(reading, provider) {
@@ -1636,10 +2239,19 @@ function toMagpieUsage(reading, provider) {
   // ⚠️ 过滤 total=0 的空套餐：本体照样会返回 `{total:0, remaining:0}` 的条目
   //    （astudio 的「会员积分」实测就是这样），画成卡片就是「0/0、可用 100%」，
   //    纯误导。有 remaining 没有 total 的（按量计费）保留。
+  //
+  // ⚠️⚠️ **负数必须保留**（2026-11-09 用户报「都变成负数了，还不如之前的」）：
+  //    MonkeyCode 欠费账号的「积分余额」上游给的是 `total=-10.402,
+  //    remaining=-10.402`（实测 3 个账号：-10.402 / -39.721 / -16.616）。
+  //    旧过滤式只留 `> 0`，把这条**整个丢掉** ⇒ 卡片上一点欠费痕迹都没有，
+  //    用户反而看不到「这个号已经透支了」。⇒ 改成只掐掉「恰好都是 0」的空包。
   const packages = mergePackages(
-    (Array.isArray(b.packages) ? b.packages : []).filter(
-      (p) => (Number(p?.total) || 0) > 0 || (Number(p?.remaining) || 0) > 0,
-    ),
+    (Array.isArray(b.packages) ? b.packages : []).filter((p) => {
+      const t = Number(p?.total) || 0
+      const r = Number(p?.remaining) || 0
+      // 空包判定：total 与 remaining **都为 0** 才丢（负数是真实欠费，要留）
+      return t !== 0 || r !== 0
+    }),
   )
   // 排序：**快到期的排前面**，aside（已失效）压到最后。
   //
@@ -1659,9 +2271,16 @@ function toMagpieUsage(reading, provider) {
   //   主套餐会被压到小包后面（2026-10-29 三审指出的脆弱点）。
   // · 最大值天然把「至少有一个大包」的组排在「全是一堆小包」的组前面。
   const untilRank = (p) => (Number.isFinite(p.until) && p.until > 0 ? p.until : Number.POSITIVE_INFINITY)
+  // 渲染期过期重算：上游的 `active`/`expired` 在快照路径会冻结（officeace 的
+  // stale 缓存原样返回，过期每日桶仍 active=true；trae 干脆硬编码 true），
+  // 只有 `deductionEndTime` 是「这批积分何时作废」的硬事实（credits.d.ts:245-263）。
+  // 在这里按当前时间重算，过期组与 allInactive 一样压后、改 text 窗口，
+  // 否则过期桶会画成「100 / 100 · 剩余 100%」还占住卡片前两行（2026-11-09 用户截图）。
+  const now = Date.now()
+  for (const g of packages) g.expired = Number.isFinite(g.until) && g.until > 0 && g.until <= now
   packages.sort((a, b2) => {
-    const aAside = a.allInactive ? 1 : 0
-    const bAside = b2.allInactive ? 1 : 0
+    const aAside = a.allInactive || a.expired ? 1 : 0
+    const bAside = b2.allInactive || b2.expired ? 1 : 0
     if (aAside !== bAside) return aAside - bAside
     const au = untilRank(a)
     const bu = untilRank(b2)
@@ -1673,19 +2292,149 @@ function toMagpieUsage(reading, provider) {
     const total = Number(p.total) || 0
     const remaining = Number(p.remaining) || 0
     const used = Number(p.used) || (total > 0 ? Math.max(0, total - remaining) : 0)
+    /**
+     * 这一条是**钱包**（只知道还剩多少）还是**配额**（知道总量、能算百分比）？
+     *
+     * ## 为什么必须分（2026-11-09 用户截图：所有渠道「剩余永远 100%」）
+     *
+     * magpie 画进度条用的是 `limit`（总量）当分母，文案是「剩余 N%」。当上游
+     * **只给余额、没有初始总额**时，我们把 `remaining` 冗余填进 `total` ⇒
+     * 分母 == 余额 ⇒ 刚查完就是 100%，消耗完又变 100%，**永远 100%**
+     * （截图里的 `817.04 / 817.04 · 剩余 100%`、`0 / 500` 全是这一条）。
+     *
+     * `vendor/lib/credits.d.ts:184-196` 早写死了这条契约：`totalKnown:false`
+     * 时面板**不得**把 `remaining` 与 `total` 并列。magpie 自己也有对应语义：
+     * 窗口给 `balance` 就只显示「N left」，**不画进度条**
+     * （`quotaNoShare(w)` 里 `w.balance != null` 即成立）。
+     *
+     * 判定（三者满足其一即钱包）：
+     *  ① 上游明说 `totalKnown === false`（百智充值积分、MonkeyCode 积分余额）；
+     *  ② 组内**每一份**都没有任何周期/到期字段（`cycleStart/End/expired/deductionEnd`
+     *     全空）—— 有周期的是配额（WorkBuddy Free Plan、Cline 的日额度等都有）；
+     *  ③ `total === remaining` 且 `used` 为 0 且无周期：从没扣减过的「总量=余额」
+     *     只可能是余额型（Cline 账户余额、ModelScope 魔粒、Raccoon 奖励积分…）。
+     *
+     * ⚠️ 反过来**不能**一刀切「无周期就当钱包」：codearts 的「赠送积分包」
+     * `cycleEndTime` 为空但有 `used=4.48`，那是真配额（`17100` 里扣了 4.48），
+     * 误判成钱包会让它丢掉进度条。
+     */
+    const wallet =
+      p.anyTotalUnknown === true ||
+      (total > 0 && p.allCycleless === true && used === 0 && total === remaining)
     const w = {
       // 名字带到期日（`签到奖励 ×31 · 10-30 到期`），理由见 windowName 的注释
       name: windowName(p),
+      unit: String(p?.unit ?? ''),
+    }
+    /**
+     * 每日额度桶：分母用**当天首见额度**，不用上游那个不可信（或缺失）的 total。
+     *
+     * 用户 2026-11-09 定的口径：「每日限时的积分以首次获取的额度作为窗口」。
+     * 例：百智云每日发放 200 的账号，`buildBaizhiBalance` 给的是
+     * `total = max(100, 199.96) = 199.96` ⇒ 分母==余额 ⇒ 永远 100%。
+     * 这里改用那天第一次看到的余额（199.96）当分母，之后消耗才算得出百分比。
+     *
+     * ⚠️ 只对**每日桶**（名字精确匹配 DAILY_POOL_NAMES）生效；充值/长期包
+     * 没有周期重置，首见值不是分母 —— 那是钱包，走上面的 balance 语义。
+     * ⚠️ 基线 key 必须带账号：同家渠道多个账号各有各的发放额（100 / 200 不等）。
+     */
+    const acctId = String(reading?.accountId ?? reading?.id ?? '')
+    const dailyKey = `${provider}\u0000${acctId}\u0000${p.name}`
+    const isDaily = isDailyPool(p.name)
+    /**
+     * 只有**上游没给可信总额**的每日桶才需要自采基线。
+     *
+     * ⚠️⚠️ 2026-11-09 回归（用户报「都变成负数了，还不如之前的」）：
+     * 第一版对**所有**每日桶都采基线 ⇒ MonkeyCode 的「每日额度」（上游给了真总额
+     * `10000000`、已用 439414）被写成基线 `9560586`（当时的**残值**）⇒ 显示
+     * `9560586 / 9560586 · 剩余 0%` —— 比修复前的
+     * `9560586 / 10000000 · 剩余 4%` 更糟，是我引入的回归。
+     *
+     * 判据：**上游 total 可信**（`total > 0` 且没被标 `totalKnown:false`）
+     * ⇒ 直接用上游的，**不采基线**。只有上游没给真总额（百智云那种
+     * `total = max(100, 余额)` 的假分母）才需要自采当天首见值。
+     */
+    const upstreamTotalTrusted = total > 0 && p.anyTotalUnknown !== true
+    if (isDaily && remaining > 0 && !upstreamTotalTrusted) {
+      // 采/取当天基线；它必然 ≥ remaining（见 dailyTotalOf 的抬高逻辑）
+      p.dailyTotal = dailyTotalOf(dailyKey, remaining)
+    }
+    /**
+     * 长期积分（百智云「充值积分」）用**历史水位**当分母 —— 用户 m01511
+     * 「总额度也要有窗口」。上游不给初始总额，只能自采；白名单见
+     * `WALLET_WINDOW_POOLS`，理由见那段注释。
+     */
+    const isWalletWindow = isWalletWindowPool(provider, p.name)
+    if (isWalletWindow && remaining > 0) {
+      p.walletPeak = walletPeakOf(dailyKey, remaining)
+    }
+    /**
+     * 欠费（余额为负）：上游真的会下发负数 —— MonkeyCode 实测
+     * `total=-10.402, remaining=-10.402`（透支扣费）。
+     *
+     * 这种包**不能**按金额画进度条（负的 amount/limit 会让 magpie 的百分比
+     * 计算失控），也不该被隐藏（用户要知道这个号已经透支）。用 magpie 的
+     * `text` 窗口：它只显示这行文字，不画进度条、不参与百分比。
+     * ⚠️ `text` 优先于一切（`quotaNoShare` 的 `!!w.text` 第一条件），
+     * 所以这里必须**提前返回**，不要再去填 amount/limit。
+     */
+    if (remaining < 0) {
+      const u = String(p?.unit ?? '').trim()
+      const w = {
+        name: windowName(p),
+        unit: u,
+        // 「-10.4 credit」+ 说明，别写 left（负数说 left 读着是反的）
+        text: `已欠费 ${fmtScaled(Math.abs(remaining), u)} ${u}`.trim(),
+      }
+      if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
+      return w
+    }
+    /**
+     * 已过期作废：`deductionEndTime` 已过，这批积分（哪怕快照里 remaining>0）
+     * 已经花不出去。画进度条就是谎报「还有 100% 可用」—— 2026-11-09 用户截图
+     * 里 11-06 到期的每日签到有礼被 stale 快照冻成 `100 / 100 · 剩余 100%`。
+     * 与欠费同款处置：`text` 窗口只报事实，不画条、不参与百分比；aside 压后。
+     */
+    if (p.expired) {
+      const w = {
+        name: windowName(p),
+        unit: String(p?.unit ?? ''),
+        text: '已过期作废',
+        aside: true,
+      }
+      if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
+      return w
+    }
+    if (isWalletWindow && p.walletPeak > 0) {
+      // 长期积分：分母 = 历史水位（≥ 余额）。这里**不能**填 balance ——
+      // magpie 见到 balance 就退回「N left」、不画进度条，等于白改
+      // （`quotaNoShare(w)` 的 `w.balance != null` 分支）。
+      const base = p.walletPeak
+      w.used = Math.min(100, Math.max(0, Math.round(((base - remaining) / base) * 100)))
+      w.display = `${fmtScaled(remaining, p?.unit)} / ${fmtScaled(base, p?.unit)} ${p?.unit ?? ''}`.trim()
+      w.amount = remaining
+      w.limit = base
+    } else if (wallet && !isDaily) {
+      // 钱包：只报「还剩多少」，不给 limit/used —— magpie 见到 balance 就不画
+      // 进度条，只写「N left」。这是唯一诚实的显示：没有总量就不该编分母。
+      w.balance = remaining
+    } else if (isDaily && p.dailyTotal > 0) {
+      // 每日桶：分母 = 当天首见额度（不是上游那个可能等于余额的 total）
+      const base = p.dailyTotal
+      const dayUsed = Math.max(0, Math.round((base - remaining) * 100) / 100)
+      w.used = Math.min(100, Math.round((dayUsed / base) * 100))
+      w.display = `${fmtScaled(remaining, p?.unit)} / ${fmtScaled(base, p?.unit)} ${p?.unit ?? ''}`.trim()
+      w.amount = remaining
+      w.limit = base
+    } else {
       // used 是**已用百分比**（0–100），magpie 用它画进度条并写「剩余 100%」。
       // ⚠️ 别填 remaining —— 实测 astudio 会变成「0 / 6,200 · 剩余 100%」这种
       //    自相矛盾的卡片（显示剩余 0、进度条却是满的）。
-      used: total > 0 ? Math.round((used / total) * 100) : 0,
-      // display 是**剩余 / 总额**（magpie 自己的文案就是「剩余 x%」，这里对齐它）。
-      // ⚠ 必须过 `fmtNum` —— 理由见它的注释（宿主 `text()` 不格式化数字）。
-      display: `${fmtNum(remaining)} / ${fmtNum(total)} ${p?.unit ?? ''}`.trim(),
-      amount: remaining,
-      limit: total,
-      unit: String(p?.unit ?? ''),
+      w.used = total > 0 ? Math.round((used / total) * 100) : 0
+      // display 是**剩余 / 总额**（magpie 自己的文案就是「剩余 x%」，这里对齐它）
+      w.display = `${fmtScaled(remaining, p?.unit)} / ${fmtScaled(total, p?.unit)} ${p?.unit ?? ''}`.trim()
+      w.amount = remaining
+      w.limit = total
     }
     // 到期：`deductionEndTime` 是毫秒时间戳，`cycleEndTime` 是本地时间串
     if (Number.isFinite(p.until) && p.until > 0) w.resetsAt = p.until
@@ -1715,11 +2464,54 @@ function toMagpieUsage(reading, provider) {
   const unit = packages[0]?.unit ?? '积分'
   // 最早到期的那一份：magpie 用它显示「订阅到 X 到期」
   const untils = windows.map((w) => w.resetsAt).filter((t) => Number.isFinite(t) && t > 0)
+  /**
+   * 合计行：`balance` 是 magpie 卡片右上那行「余额 N 单位」。
+   *
+   * ⚠️⚠️ 2026-11-09 回归（用户报「都变成负数了」）：MonkeyCode 的
+   * `balance.total` 是上游逐账号汇总值，**欠费账号本来就是负的**
+   * （实测 -10.402 / -39.721 / -16.616，上游原样下发）。这不是我们算错，
+   * 但直接把负号铺在最显眼的合计行上，用户会以为整个渠道坏了。
+   *
+   * 处置：合计行**不再单列一个可能为负的汇总数**，改成按包逐个报 ——
+   * 这正是用户当初要的「看得懂」：MonkeyCode 卡片显示
+   * `积分余额 -10.4 credit`、`每日额度 0 / 10,000,000 token · 剩余 0%`，
+   * 负数只出现在**它真正所属的那个包**上，不再冒充整家渠道的总余额。
+   *
+   * ⚠️ 单位也别拿 `packages[0].unit` 硬套历史合计（MonkeyCode 第一个包是
+   * `credit`、合计却是 token 计的数字，旧码因此显示成「146.34 token」）。
+   * 合计为 0/负时干脆不写 balance，交给 windows 各行自己带单位。
+   */
+  const balanceText = total > 0 ? `${fmtScaled(total, unit)} ${unit}`.trim() : ''
+  /**
+   * 合计行也带分母（用户 m01511 选的「总额度 + 充值积分 都加」）。
+   *
+   * magpie 的行内配额只画**前 2 条**窗口（`ws.slice(0, 2)`），其余进 tooltip ——
+   * 所以硬塞一个「总额度」窗口当第三条，会被挤进 tooltip 并把「每日积分」
+   * 从行内顶掉。改在这里：合计行本来就是「整家渠道一眼看多少」，给它加分母
+   * 等价于「总额度窗口」，且不占配额行的名额。
+   *
+   * 口径：**每个窗口都必须有可信分母**（`limit > 0`）才加。百智云是
+   * `充值积分（水位）+ 每日积分（当天首见）` 恰好两条都有；将来某家渠道出现
+   * 「只有余额、没分母」的窗口就整体跳过 —— 拿部分分母拼总和就是编数字。
+   */
+  const windowedTotal = (() => {
+    if (!Object.hasOwn(WALLET_WINDOW_POOLS, provider)) return ''
+    // aside 的是冻结/过期作废之类，本就不算「可用额度」，不进分子分母
+    const counted = windows.filter((w) => w.aside !== true)
+    if (counted.length === 0) return ''
+    if (!counted.every((w) => Number.isFinite(w.limit) && w.limit > 0)) return ''
+    if (!counted.every((w) => Number.isFinite(w.amount) && w.amount >= 0)) return ''
+    const den = counted.reduce((s, w) => s + w.limit, 0)
+    const amt = counted.reduce((s, w) => s + w.amount, 0)
+    if (!(den > 0) || !(amt <= den)) return ''
+    return `${fmtNum(amt)} / ${fmtNum(den)} ${unit}`.trim()
+  })()
   return {
     plan,
     user: reading?.nickname !== undefined ? String(reading.nickname) : '',
-    // `total` 是原始浮点，必须过 fmtNum —— 见它的注释（magpie 不格式化 balance）
-    balance: `${fmtNum(total)} ${unit}`.trim(),
+    ...(windowedTotal !== ''
+      ? { balance: windowedTotal }
+      : balanceText === '' ? {} : { balance: balanceText }),
     ...(untils.length ? { until: Math.min(...untils) } : {}),
     windows,
   }
@@ -2231,7 +3023,25 @@ export function makePlugin(dshProvider) {
            */
           ...(NO_NEW_ACCOUNT.has(dshProvider)
             ? []
-            : [{
+            : dshProvider === 'marvis'
+              // 腾讯 Marvis 给两条腿（QQ / 微信），各一个方法：面板上直接是两个可点的
+              // 选项，不用先去开关里选。两条腿的凭据不通用，所以必须让用户当场挑。
+              ? [marvisOauthMethod(dshProvider, container, log)]
+              // MonkeyCode 两站：**不再走「宿主开浏览器抓 cookie」那条腿**。
+              // 那条腿要求 magpie 所在机器上有一个可见的 Chromium 窗口、并且真人
+              // 就坐在那台机器前（见 `monkeycode-browser-login.js` 的「窗口必须可见」），
+              // 装在服务器上时永远走不通 —— 2026-11-11 真机报的就是
+              // 「找不到可用的浏览器（网页版登录需要本机有一个 Chromium 内核浏览器）」。
+              // 改成「打开官网 + 粘贴 Key」：只要用户手里有 Key，任何机器都能加号。
+              : MONKEYCODE_PROVIDERS.has(dshProvider)
+                ? [monkeycodePasteMethod(dshProvider, container, log)]
+              // 百智云同理，且**比 MonkeyCode 更需要这条路**：浏览器登录要开一个可见
+              // 窗口读控制台 cookie（`baizhi-browser-login.js` 文件头），服务器上跑
+              // 不起来；而积分/签到只认那两枚 cookie，只贴 `sk-` 的账号「能发消息
+              // 但看不到积分」—— 正是用户最早报的那个毛病。
+              : dshProvider === 'baizhi'
+                ? [baizhiPasteMethod(dshProvider, container, log)]
+              : [{
               type: 'oauth',
               label: `在浏览器里新建一个 ${NAMES[dshProvider] ?? dshProvider} 账号（授权后自动接入）`,
 
@@ -2259,6 +3069,7 @@ export function makePlugin(dshProvider) {
                 // 30 秒 + `MAGICREW_PROFILE_TIMEOUT_MS` 6 秒 ⇒ 最坏约 36 秒），`browser` 腿
                 // 起完后台任务**立刻**返回（不等用户登录）⇒ 现实最坏约 12 + 36 ≈ 48 秒，仍在闸内。
                 await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+
                 const { accountId, loginUrl, reused, incognitoOpened } = await startNewAccountSmart(
                   container,
                   dshProvider,
@@ -2308,6 +3119,10 @@ export function makePlugin(dshProvider) {
                     }
 
                     const hit = await accountById(container, dshProvider, accountId, log)
+                    // 判重可能把凭据转写给了老卡、把这条新卡留成空壳。签入必须跟着
+                    // **存活的那条**走，否则 magpie 里多一张点不动的 `API key …` 卡。
+                    const landed = await landedAccountOf(container, dshProvider, accountId, hit, log)
+                    const signedId = landed.id
                     let wide = 0
                     // ⚠ 同样要套超时（2026-11-11 三审 P1）：`refreshFullCatalog` 走
                     //    `container.rpc()`，那条路径**不会自己超时**（`route.fetch(req)`
@@ -2332,11 +3147,11 @@ export function makePlugin(dshProvider) {
                       type: 'success',
                       // key 里编进账号 id：`dshAccountIdOf()` 靠它认回「这条 magpie 账号是哪个
                       // DSH 账号」，同时宿主 `settle()` 的 secret 分支（比 key 字符串）据此判重。
-                      key: `jet-hub-local:${dshProvider}/${accountId}`,
-                      accountId: `${accountLabel(hit ?? { id: accountId })}·已新建`
+                      key: `jet-hub-local:${dshProvider}/${signedId}`,
+                      accountId: `${accountLabel(landed.hit ?? { id: signedId })}·已新建`
                         + (wide > 0 ? `·上游 ${wide} 个模型` : ''),
-                      uid: accountId,
-                      metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: accountId },
+                      uid: signedId,
+                      metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: signedId },
                     }
                   },
                 }
@@ -2589,7 +3404,15 @@ export function makePlugin(dshProvider) {
                 ],
               }
             }
-            return toMagpieUsage(reading, dshProvider)
+            const base = toMagpieUsage(reading, dshProvider)
+            // MonkeyCode 两站：上游只给「收支净额」，没有积分包/有效期
+            //（`/wallet/credits` 等包接口全 404，交易流水也只有
+            // `inout_type/kind/amount/amount_balance/amount_daily/remark/created_at`）
+            // ⇒ 用**近 30 天收入之和**当总窗口，balance 当剩余。用户 2026-11-09 定的口径。
+            if (MONKEYCODE_PROVIDERS.has(dshProvider)) {
+              return await withRollingIncomeWindow(base, dshProvider, container, want, log)
+            }
+            return base
           } catch (e) {
             // ⚠ 必须带 `plan`（2026-11-11 审计发现）：宿主 `plan: text(u.plan)` 缺失
             // 就是空串 ⇒ 一张**没有标题**的错误卡。同文件其它 4 条 `usage` 返回路径
@@ -2683,6 +3506,907 @@ export function makePlugin(dshProvider) {
       _internal: { container, dshProvider, toUpstreamModel, toMagpieCheckin, toMagpieUsage },
     }
   }
+}
+
+/**
+ * MonkeyCode 两站的新建方法：**打开官网 + 粘贴 Key**，走宿主的「code 型」签入。
+ *
+ * ## 为什么不用 vendor 自带的「浏览器登录」
+ *
+ * `monkeycode-browser-login.js` 的整条思路是「在 magpie 那台机器上开一个**可见**
+ * Chromium 窗口，让真人在那里登录，再用 CDP 读 HttpOnly 的 `monkeycode_ai_session`」
+ * （文件头注释原文：「⚠️⚠️ 窗口必须可见（`hideWindow: false`）：用户要在这个窗口里
+ * 自己登录」）。这个前提在服务器上直接不成立：
+ *
+ *   1. 绝大多数 Linux 服务器上没有 Chromium —— 2026-11-11 真机报
+ *      「MonkeyCode: 找不到可用的浏览器（网页版登录需要本机有一个 Chromium 内核
+ *      浏览器）」，9 条候选路径全落空；
+ *   2. 就算装上了，也没有人坐在那台机器前点「同意」；
+ *   3. `chromium-session.js` 的实测表写明 `--headless=new` 一律 `F001` ⇒ 无头替不了。
+ *
+ * 而 MonkeyCode 的推理凭据本来就**是用户能自己拿到的两串文本**：`oma_…` +
+ * `signing_secret`，在平台站内「OhMyAgent」页面同一次生成（见
+ * `vendor/lib/client/jet-hub.js` 的弹窗文案：「signing_secret 与 API Key 同时生成
+ * （48 位随机串）」）。所以让用户在自己的浏览器里打开官网、复制两串、粘回来，
+ * 就完全绕开了「magpie 那台机器上必须有浏览器」这个死结。
+ *
+ * ## 为什么是 `method: 'code'` 而不是 `ask()`
+ *
+ * 宿主的 `authorize()` 返回对象里那个字段叫 `method`（`Authorization.Method`，
+ * `host.js` 按 `a.method === "code"` 判定），取 `"code"` 时 GUI 会把 `url` 渲染成
+ * **一段带复制按钮的链接**，并给一个粘贴框；用户粘进去后宿主调
+ * `callback(code)`（2 分钟预算，比 authorize 的 1 分钟宽）。这正是要的形态：
+ * 一个链接 + 一个输入框，不依赖任何本地程序。
+ *
+ * ⚠️ 字段名是 `method`，不是 `mode` —— 写成 `mode: 'code'` 宿主不认（会当成
+ * auto 型，去等一个永远不来的回调）。腾讯 Marvis 那条踩过同一个坑。
+ *
+ * ## 粘贴框收两个值怎么办
+ *
+ * 粘贴框是**单行 input**（`internal/gui/assets/app.js` 里 `input(...)`，`type` 只
+ * 在 pasteKey 时才是 password），但它是普通文本框 —— 用户在浏览器里从官网那页
+ * 连续复制两行、粘进来的就是一串带换行/空白的文本。`monkeycodePastedPaire()` 按
+ * 「先 Key 后 signing_secret」的顺序认，也容忍 `API Key: xxx` 这种带标签的写法。
+ * 只粘了一把 Key 时照样建号 —— 能发消息，只是查不到余额/积分（`fetchMonkeycodeWallet`
+ * 会明确说「未配置会话」）；之后可以用面板上的「改 Key」补 session cookie。
+ *
+ * ## 为什么不做「新建 + 立刻验一把」
+ *
+ * 建号只是一次本地写盘（`monkeycode.addAccount` 不访问上游）。真去发一次请求会
+ * 在 Key 有误时把错误推迟到用户第一次聊天时，但也会让「刚建完就想改」变得很别扭：
+ * 验失败要不要回滚？回滚掉用户刚粘的 Key 吗？这里选择**不回滚、不预验** ——
+ * 与仓库里 modelscope / opencode / qiniu 那三条贴 Key 的路径保持同一纪律
+ * （它们同样只在建号时校验形状）。
+ */
+function monkeycodePasteMethod(dshProvider, container, log) {
+  const name = NAMES[dshProvider] ?? dshProvider
+  const base = monkeycodeBaseUrl(dshProvider)
+  return {
+    type: 'oauth',
+    label: `打开官网，粘贴网页登录态新建一个 ${name} 账号`,
+
+    /**
+     * 第一屏：讲清「去哪登录、登录完粘什么」，一个「打开官网去登录」按钮。
+     *
+     * ## 为什么需要这一屏（这是真机两轮实测逼出来的，不是冗余）
+     *
+     * 宿主的顺序是固定的：**先问 `ask()` 的问题 → 再调 `authorize()` 开窗 →
+     * 最后才渲染粘贴框**（`internal/gui/assets/app.js` 的 `startPluginSignIn`）。
+     * 而粘贴框只在 `pasteCode` / `pasteCallback` / `pasteKey` 为真时才出现
+     * （`app.js:13122`），也就是说**想「登录之后再粘」，就只能是 `method:'code'`
+     * 那条路** —— 代价是那个框的标签被写死成「验证码」（`what = flow.pasteCode
+     * ? t("Code") : …`），用户根本猜不到该往里粘 cookie。
+     *
+     * 说明又**不能**只写在 `authorize().instructions` 里：宿主在 `openError`
+     * 非空时会用「浏览器拦下了登录页面」把它整段顶掉（`app.js:13075` 条件链里
+     * `openError` 排在 `instructions` 前面），而 `window.open` 出现在 await 之后、
+     * 没有用户手势，被拦是常态。
+     *
+     * ⇒ 唯一能保证「说明一定被看到」的位置是 prompt 的 `message`
+     * （`app.js:12750` 的 `inLang(q.messages, q.message)`，无条件渲染）。
+     * 而 prompt 又一定在开窗之前。所以把它放在这里，正好也符合
+     * 「先知道要干什么，再去干」的自然顺序。
+     *
+     * 用 `select` 而不是 `text`：`text` 的提交按钮在输入为空时是禁用的
+     * （`submit.disabled = … || !url.value.trim()`），逼用户随手敲一个字符很难看。
+     */
+    prompts: [{ type: 'select', key: SESSION_START_INPUT, message: '开始登录', options: [] }],
+    async ask(inputs = {}) {
+      // 已经点过「打开官网去登录」就收手：宿主会拿 `inputs` 再问一轮，
+      // 不返 null 就死循环（Marvis 那条踩过同一个坑）。
+      if (inputs?.[SESSION_START_INPUT] !== undefined) return null
+      return {
+        type: 'select',
+        key: SESSION_START_INPUT,
+        message: `点下面的按钮会打开 ${base}。在那边登录 ${name} 之后，`
+          + '按 F12 → Application（应用）→ Cookies → 选中该站点，'
+          + '找到 monkeycode_ai_session 那一行，双击它的 Value 复制。'
+          + '然后把复制的值粘到**下一步的输入框**里（那个框标着「验证码」，名字是宿主写死的，'
+          + '往里粘 Cookie 就行，不用管它叫什么）。'
+          + '插件会自己去平台换出网关 Key，不用你手工找。'
+          + '手里已经有 oma_ 开头的 API Key 时，直接粘 Key 也能建号'
+          + '（可与 signing_secret 用空格隔开），但只有 Key 读不到积分。',
+        options: [{ value: 'go', label: '打开官网去登录' }],
+      }
+    },
+
+    /**
+     * 开窗 + 等用户粘回登录态。
+     *
+     * `method: 'code'` 是必须的：它让宿主渲染那个粘贴框
+     * （`pluginsignin.go` 里 `if a.Method == "code" { s.st.PasteCode, s.plugin = … }`），
+     * 且 `callback` 会拿到用户粘进来的文本。不带它 ⇒ 宿主立刻
+     * `go plugin.Finish(wait, a.Session, "")`，paste 框永远不出现。
+     *
+     * `instructions` 也照写一遍：开窗成功时它会被显示，是第二处提醒。
+     * 开窗失败被顶掉也无妨 —— 关键说明已经在上一步的 prompt 里显示过了。
+     */
+    async authorize(inputs = {}) {
+      const pasted = monkeycodeTextOf(inputs?.[SESSION_INPUT])
+      return {
+        url: base,
+        instructions: `登录完成后，按 F12 → Application（应用）→ Cookies，选中该站点，`
+          + '复制 monkeycode_ai_session 的 Value，粘到下面的输入框里'
+          + '（标签写的是「验证码」，那是宿主写死的，粘 Cookie 就行）。',
+        method: 'code',
+        callback: (code) => monkeycodeFinishPaste({
+          // 优先用 callback 收到的（= 用户粘贴框里的内容）；prompt 那一屏
+          // 理论上是空的，但两条都兜住，避免某一版前端换了行为就整条断掉。
+          container, log, dshProvider, pasted: monkeycodeTextOf(code) || pasted,
+        }),
+      }
+    },
+  }
+}
+
+/**
+ * 收下用户粘回来的内容，落成一个 MonkeyCode 账号。
+ *
+ * ## 两种粘贴形态，一条路径
+ *
+ * 用户可能粘的是**网页登录态**（`monkeycode_ai_session=…`，或整条 Cookie 头），
+ * 也可能已经自己拿到了**网关 Key**（`oma_…`，可带 `signing_secret`）。前者的
+ * 处理更好，所以优先按 Cookie 认：
+ *
+ * ```
+ *   粘的是 cookie  → POST /api/v1/users/api-keys 兑换出 oma_… + signing_secret
+ *                    （`exchangeMonkeycodeSessionForKey`，body {}、Cookie 认证），
+ *                    同时把 cookie 一起落进凭据 ⇒ 积分/额度/签到全都读得出来
+ *   粘的是 Key     → 直接建号（能发消息，但查不到积分，面板「改 Key」可后补 cookie）
+ * ```
+ *
+ * ## 为什么优先走 cookie 兑换，而不是让用户自己去抄 Key
+ *
+ * ① 用户手上通常只有登录态，没有 Key —— 「OhMyAgent」页要自己找，而 console
+ *    里随手一开 F12 就有 cookie；
+ * ② **只有 cookie 才读得到积分**：平台的 `/api/v1/users/*` 一律只认网页登录态，
+ *    带 API Key 会 401（`monkeycode-credits.js` 模块头写得很清楚）。让用户抄
+ *    Key 等于亲手把「面板显示不了积分」这个原始痛点留在了原地；
+ * ③ 兑换是平台自己的接口，Key 由平台签发，用户不用理解 `signing_secret` 是什么。
+ *
+ * ⚠️ 兑换**每次签发新的一对**（上游无幂等键），只在建号时调一次 ——
+ * 不要在续期里反复调，那会在用户账号下堆一长串 key。
+ */
+async function monkeycodeFinishPaste({ container, log, dshProvider, pasted }) {
+  const raw = String(pasted ?? '').trim()
+  if (raw === '') {
+    throw new Error('没收到任何内容：请把网页登录态（monkeycode_ai_session 的值）或 API Key 粘到框里')
+  }
+
+  const product = await monkeycodeProductOf(dshProvider)
+  // 先看是不是 Key：`oma_` / `sk-` 前缀很显眼，粘 Key 的人不会被当成 cookie。
+  const byKey = monkeycodePastedPairOf(raw)
+  let apiKey = byKey.apiKey
+  let signingSecret = byKey.signingSecret
+  let sessionCookie = ''
+
+  if (apiKey === '' || !/^(oma_|sk-)/i.test(apiKey)) {
+    // 当登录态处理。`normalizeSessionCookie` 认整条 Cookie 头，也认裸的 cookie 值
+    // （缺名字时补 `monkeycode_ai_session=`）。
+    const { normalizeSessionCookie } = await import('../vendor/lib/session-cookie.js')
+    const { MONKEYCODE_SESSION_COOKIE_NAME } = await import('../vendor/lib/monkeycode-browser-login.js')
+    const normalized = normalizeSessionCookie(raw, [MONKEYCODE_SESSION_COOKIE_NAME], MONKEYCODE_SESSION_COOKIE_NAME)
+    if (normalized === undefined) {
+      throw new Error(
+        '这段内容既不像 API Key（oma_ 开头），也不像网页登录态。'
+          + '请到站内按 F12 → Application → Cookies 复制 monkeycode_ai_session 的值，'
+          + '或直接粘贴整条 Cookie。',
+      )
+    }
+    const { exchangeMonkeycodeSessionForKey } = await import('../vendor/lib/monkeycode-credits.js')
+    log?.(`[${dshProvider}] 收到网页登录态，正在向平台兑换网关 Key…`)
+    const issued = await exchangeMonkeycodeSessionForKey(normalized, {}, product)
+    if (issued.ok !== true) {
+      // 兑换失败最常见的原因就是会话过期 —— 把平台原话带上，别自己编。
+      throw new Error(
+        `换取网关 Key 失败：${issued.error}。`
+          + '如果是登录态过期，请在浏览器里重新登录后再复制一次 cookie。',
+      )
+    }
+    apiKey = issued.key.apiKey
+    signingSecret = issued.key.signingSecret
+    sessionCookie = normalized
+    log?.(`[${dshProvider}] 平台已签发网关 Key（尾 4 位 ${apiKey.slice(-4)}）`
+      + (issued.key.keyId === undefined ? '' : `，记录 id ${issued.key.keyId}`))
+  } else {
+    log?.(`[${dshProvider}] 收到粘贴的 API Key（尾 4 位 ${apiKey.slice(-4)}）`
+      + (signingSecret === '' ? '，没有 signing_secret' : '，含 signing_secret'))
+  }
+
+  // 昵称：优先问平台（登录态在手就能读），读不到再用粘贴里显式写的，
+  // 都没有就交给本体自己的 `accountLabel()` 兜底。
+  let nickname = nicknameOfPaste(raw)
+  const { fetchMonkeycodeProfile } = await import('../vendor/lib/monkeycode-credits.js')
+  const cookieForProfile = sessionCookie === '' ? undefined : sessionCookie
+  if (cookieForProfile !== undefined) {
+    const profile = await fetchMonkeycodeProfile(cookieForProfile, product, {}).catch(() => undefined)
+    if (typeof profile?.nickname === 'string' && profile.nickname.trim() !== '') {
+      nickname = profile.nickname.trim()
+    }
+  }
+
+  // 建号是一次本地写盘，但容器可能还没起（冷启动 20–30 秒）——
+  // 与 `KEY_ACCOUNT_RPC` 那条同预算（magpie 给 code 型 callback 2 分钟）。
+  await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+  const v = await withRpcDeadline(
+    container,
+    `${dshProvider}.addAccount`,
+    {
+      apiKey,
+      ...(signingSecret === '' ? {} : { signingSecret }),
+      ...(nickname === undefined ? {} : { nickname }),
+      ...(sessionCookie === '' ? {} : { sessionCookie }),
+    },
+    CREATE_TIMEOUT_MS,
+    `新建 ${dshProvider} 账号`,
+  )
+  const accountId = String(v?.accountId ?? '').trim()
+  if (accountId === '') {
+    throw new Error(`本体没有返回账号 id（${dshProvider}.addAccount 回：${JSON.stringify(v)}）`)
+  }
+  // 新建的号还没进 `account.list` 的 15 秒缓存，不然后面用量卡会拿旧列表。
+  accountsCache.delete(dshProvider)
+
+  // 建完拉一次目录：Key 刚生效时模型列表可能刚变。拉不到不影响建号。
+  try {
+    await withDeadline(
+      (async () => {
+        await liveAll(container, log)
+        fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+        writeCache(log)
+      })(),
+      START_TIMEOUT_MS,
+      '建号后刷新目录',
+    )
+  } catch { /* 目录拉不到不影响建号 */ }
+
+  const hit = await accountById(container, dshProvider, accountId, log)
+  const landed = await landedAccountOf(container, dshProvider, accountId, hit, log)
+  const signedId = landed.id
+  let wide = 0
+  try {
+    wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
+  } catch { /* 缓存没读到就当 0 */ }
+
+  return {
+    type: 'success',
+    key: `jet-hub-local:${dshProvider}/${signedId}`,
+    accountId: `${accountLabel(landed.hit ?? { id: signedId })}·已新建`
+      + (wide > 0 ? `·上游 ${wide} 个模型` : '')
+      + (signingSecret === '' ? '·缺 signing_secret' : ''),
+    uid: signedId,
+    metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: signedId },
+  }
+}
+
+/**
+ * 归一化粘贴内容 —— 宿主给的一般是字符串，但契约没写死（Marvis 那条同理）。
+ */
+function monkeycodeTextOf(pasted) {
+  if (typeof pasted === 'string') return pasted
+  if (pasted === undefined || pasted === null) return ''
+  if (typeof pasted === 'object') {
+    // 宿主可能把粘贴框的值包成 `{ code }` / `{ value }`；也可能直接给整个 payload。
+    for (const key of ['code', 'value', 'text', 'input', 'url', 'apiKey']) {
+      const v = pasted[key]
+      if (typeof v === 'string' && v.trim() !== '') return v
+    }
+    // 兜底：把对象里的字符串值拼起来（用户在 UI 里分两个框填时是这种形态）。
+    const parts = [pasted.apiKey, pasted.signingSecret, pasted.signing_secret]
+      .filter((x) => typeof x === 'string' && x.trim() !== '')
+    return parts.join(' ')
+  }
+  return String(pasted)
+}
+
+/**
+ * 从一段自由文本里认出 `{ apiKey, signingSecret }`。
+ *
+ * 逐 token 扫：带 `oma_` / `sk-` 前缀的当 Key，剩下的第一段「够长且不是标签词」
+ * 当 secret。标签词（`apikey` / `signing_secret` 等）只是跳过，不参与判定 ——
+ * 用户从网页复制时常把标签一起带进来。
+ */
+function monkeycodePastedPairOf(raw) {
+  const tokens = String(raw)
+    .split(/[\s,，、;；]+/u)
+    .map((t) => t.replace(/^[\s"'`「」【】()（）<>]+|[\s"'`「」【】()（）<>]+$/gu, ''))
+    .map((t) => t.replace(/[:：=]+$/u, ''))
+    .filter((t) => t !== '')
+  const labels = new Set([
+    'api', 'key', 'apikey', 'api_key', 'signing', 'secret', 'signing_secret',
+    'signingsecret', '密钥', '签名', '签名密钥', '令牌',
+  ])
+  const useful = tokens.filter((t) => !labels.has(t.toLowerCase()))
+  // 按前缀认 Key：`oma_` 是官方形态，`sk-` 是本体错误文案里也提到的另一种。
+  const keyed = useful.find((t) => /^(oma_|sk-)/i.test(t))
+  if (keyed !== undefined) {
+    const rest = useful.filter((t) => t !== keyed)
+    return { apiKey: keyed, signingSecret: rest.find((t) => t.length >= 8) ?? '' }
+  }
+  // 没有带前缀的：只有一段时当 Key（让本体给出「形状不对」的原话，比我们猜更准）；
+  // 有两段时按「先 Key 后 secret」的位置约定。
+  if (useful.length === 1) return { apiKey: useful[0], signingSecret: '' }
+  if (useful.length >= 2) {
+    const [first, second] = useful
+    return { apiKey: first, signingSecret: second.length >= 8 ? second : '' }
+  }
+  return { apiKey: '', signingSecret: '' }
+}
+
+/**
+ * 从粘贴内容里猜一个昵称（可选）。
+ *
+ * 只认显式的 `nickname: xxx` / `昵称: xxx` —— 绝不拿 Key 的任何片段当昵称，
+ * 卡上显示一串密钥字符既难看也泄露信息。猜不到就返回 undefined，
+ * 由本体自己的 `accountLabel()` 兜底。
+ */
+function nicknameOfPaste(raw) {
+  const m = /(?:nickname|昵称)\s*[:：=]\s*([^\s,，;；]{1,32})/iu.exec(String(raw ?? ''))
+  return m === null ? undefined : m[1]
+}
+
+/**
+ * 百智云的新建方法：**粘贴网页登录态 / API Key 建号**，与 MonkeyCode 同源但**形态不同**。
+ *
+ * ## 为什么不能像 CodeArts / Gemini 那样「开个链接就好」
+ *
+ * 百智云控制台是 **Cookie 鉴权**（`/api/v1/user/profile`、`/wallet/balance`
+ * 匿名一律 401），登录后地址栏停在 console 路由上、不带任何凭据 —— 粘 URL
+ * 拿不到任何东西（这一点与 MonkeyCode 完全相同，见那边的注释）。
+ *
+ * 而插件自带的浏览器登录（`baizhi-browser-login.js`）要 spawn 一个**可见**的
+ * Chromium 窗口、真人坐在 magpie 所在机器前操作 —— 装在服务器上永远走不通
+ * （2026-11-11 hcss8141 真机报的就是「找不到可用的浏览器」）。
+ *
+ * ⇒ 唯一能在服务器上跑通的形态，就是让用户在自己的浏览器里登录、把登录态粘回来。
+ *
+ * ## 为什么是 `type: 'oauth'` + `method: 'code'`（两屏），而不是 `type: 'api'` 单屏
+ *
+ * 先记住宿主的渲染顺序（`internal/gui/assets/app.js`）：**prompt → 开窗 → 粘贴框**。
+ *
+ * ⚠ 一开始想省掉第二屏，把「要粘哪两枚 cookie」整段写进 `authorize().instructions` ——
+ * **不行**（2026-11-11 hcss8141 实测）：
+ *
+ *   · 宿主只在 `openError` 为空时才渲染 `signing.instructions`
+ *     （`app.js:13076-13082` —— 条件链里 `signing.openError` 排在
+ *     `sub.plugin ? (signing.instructions || …)` **前面**）；
+ *   · 而 `authorize()` 里没有用户手势，浏览器很容易把那个 `window.open` 判成弹窗
+ *     拦掉（`app.js:12545-12549` 的 `openSignInPage` 在 `web` 模式下走 `window.open`，
+ *     被拦时 `reject(openBlocked)`，`openError` 就被填上）。
+ *   ⇒ 那一刻说明**整段不显示**，粘贴框只剩一个「验证码」标签，用户完全不知道该粘什么。
+ *
+ * 反过来，纯 `type: 'api'` + `ask()` 也不行：**网页不会自动打开** —— api 型没有
+ * `url` 这一环（`app.js:12637-12642` 的 `if (ms[method].type === "api")` 直接
+ * `return pluginKey(sub, "")`，根本不走开窗分支）。
+ *
+ * ⇒ **只能两屏**：
+ *   1. 第一屏 `ask()` 出 `select` —— `prompt.message` 是**无条件**渲染的
+ *      （`app.js:12728-12737`），写清「去哪登录、登录完粘什么」，并给一个
+ *      「打开官网去登录」按钮；
+ *   2. 第二屏 `authorize()` 返 `url`（宿主自动开窗）+ `method: 'code'`
+ *      （`app.js:13130` 的 `if (signing.pasteCallback || signing.pasteCode ||
+ *      `signing.pasteKey)` 是粘贴框的**唯一**渲染点）。
+ *
+ * ⚠⚠ **别「顺手」把 `type` 改成 `'api'`** —— 一改粘贴框就消失，整条新建流程断掉。
+ * `tests/t-baizhi-paste-session.mjs` 里 `ok(/type: 'oauth'/.test(...))` 就是钉这个的
+ * （2026-11-11 三审 P1：这段注释此前写反了，论证的是「为什么用 api」而实现是 oauth）。
+ *
+ * 为什么**不用** `keyless`：那是 api 型才有的字段（`app.js:12639` 的
+ * `ms[method].keyless === true`）；oauth 型本来就不弹 personal-key 框。
+ *
+ * ## ⚠️ 百智云比 MonkeyCode 多一个坑：要**两枚** cookie
+ *
+ * 控制台同时下发 `sl-session`（设备/风控会话）与 `baizhi_session`（登录会话），
+ * 实测**两枚都要带上**才能通过（只带 `baizhi_session` 时 `/api/v1/user/profile`
+ * 会 401）。这一点写进了 `prompt.message`，也认「整条 Cookie 头」与「两条裸值
+ * 按位置补名字」两种粘贴形态（见 {@link baizhiPastedCookieOf}）。
+ *
+ * 只粘一条也能建号（用户手上有 `sk-` Key 时也一样），只是积分读不出来 ——
+ * 卡片上会标出来，用户再点「改 Key → 只填 cookie」补上即可。
+ */
+function baizhiPasteMethod(dshProvider, container, log) {
+  const name = NAMES[dshProvider] ?? dshProvider
+  return {
+    type: 'oauth',
+    label: `打开官网，粘贴网页登录态新建一个 ${name} 账号`,
+
+    /**
+     * 第一屏：讲清「去哪登录、登录完粘什么」。理由与 `monkeycodePasteMethod`
+     * 里同名字段逐条相同（宿主顺序固定：prompt → 开窗 → 粘贴框；说明只能放在
+     * prompt 的 message 里才不会被 `openError` 顶掉）。
+     *
+     * ⚠️ 百智云这里要**两枚** cookie，文案必须点名 `sl-session` 与
+     * `baizhi_session` —— 只带 `baizhi_session` 时 `/api/v1/user/profile`
+     * 仍然 401，用户会以为插件坏了。
+     */
+    prompts: [{ type: 'select', key: SESSION_START_INPUT, message: '开始登录', options: [] }],
+    async ask(inputs = {}) {
+      if (inputs?.[SESSION_START_INPUT] !== undefined) return null
+      return {
+        type: 'select',
+        key: SESSION_START_INPUT,
+        message: `点下面的按钮会打开 https://baizhi.cloud。在那边登录 ${name} 之后，`
+          + '按 F12 → Application（应用）→ Cookies → 选中 baizhi.cloud，'
+          + '把 sl-session 和 baizhi_session 这两条的 Value 都复制下来（两条都要，缺一条读不到积分）。'
+          + '然后把它们一起粘到**下一步的输入框**里（那个框标着「验证码」，名字是宿主写死的，'
+          + '粘 Cookie 就行，两条可用空格或换行分开）。'
+          + '插件会自己调控制台换出 sk- 密钥，不用你手工找 Key。'
+          + '手里已经有 sk- 开头的模型 Key 时，直接粘 Key 也能建号（能发消息，但查不到积分）。',
+        options: [{ value: 'go', label: '打开官网去登录' }],
+      }
+    },
+
+    /**
+     * 开窗 + 等用户粘回登录态。`method: 'code'` 是那个粘贴框存在的前提
+     * （`pluginsignin.go` 的 `if a.Method == "code"`），见 MonkeyCode 那条的注释。
+     */
+    async authorize(inputs = {}) {
+      const pasted = monkeycodeTextOf(inputs?.[SESSION_INPUT])
+      return {
+        url: 'https://baizhi.cloud',
+        instructions: '登录完成后，按 F12 → Application（应用）→ Cookies，选中 baizhi.cloud，'
+          + '把 sl-session 与 baizhi_session 的 Value 一起粘到下面的输入框里'
+          + '（标签写的是「验证码」，那是宿主写死的，粘 Cookie 就行）。',
+        method: 'code',
+        callback: (code) => baizhiFinishPaste({
+          container, log, dshProvider, pasted: monkeycodeTextOf(code) || pasted,
+        }),
+      }
+    },
+  }
+}
+
+/**
+ * 收下用户粘回来的内容，落成一个百智云账号。
+ *
+ * ## 两条腿，一次粘贴
+ *
+ * ```
+ *   粘的是 cookie  → GET ai-models.app.baizhi.cloud/api/console/api-keys（cookie 认证）
+ *                    取第一把 status === 'active' 的 sk-…（`exchangeBaizhiSessionForKey`）
+ *                    再 `baizhi.setSession` 把 cookie 一起落进凭据 ⇒ 积分/签到读得出来
+ *   粘的是 sk- Key → 直接建号（能发消息，查不到积分）
+ * ```
+ *
+ * ## 为什么一定要把 cookie 也存下来
+ *
+ * 百智云是**两套凭据**：`sk-` 走 `x-api-key` 打模型网关；积分 / 签到只认控制台
+ * cookie，拿 Key 打 `/api/v1/user/*` 一律 401。只存 Key 的账号「能发消息但看不到
+ * 积分」—— 那正是用户最初报的毛病，不能又亲手造回来。
+ *
+ * ⚠️ 控制台「API Keys」页自己签发的 `bzy_` 前缀 Key（15 位）打不通模型网关，
+ * 实测恒 401「API Key 无效」；能用的只有大模型商店 `api/console/api-keys` 下发的
+ * `sk-…`（67 位）。`exchangeBaizhiSessionForKey` 已经做了前缀与状态过滤。
+ */
+/**
+ * 把用户粘回来的百智云登录态整理成一条 `Cookie` 头（**纯函数**，便于单测）。
+ *
+ * ## 为什么要区分「带名字」与「裸值」
+ *
+ * 用户从 F12 的 Cookies 表格里复制时，最常见的动作是**选两行、复制 Value 列**，
+ * 拿到的是两个裸值 `AAA BBB`。如果一律 `join('; ')` ⇒ `AAA; BBB`，平台会把它们
+ * 当成两条**没有名字**的 cookie 直接忽略 ⇒ 恒 401，而用户完全看不出哪里错。
+ * （`session-cookie.js` 的 `normalizeSessionCookie` 只给**单条**裸值补名字，
+ * 多条不管 —— 它没法猜哪条是哪个名字。）
+ *
+ * ⇒ 全裸值时按**位置**补名字，顺序取控制台实际下发顺序：`sl-session` 在前、
+ * `baizhi_session` 在后（`baizhi-browser-login.js` 文件头的实测记录）。只有一条
+ * 时补 `baizhi_session` —— 那才是登录会话本身（`sl-session` 是设备/风控会话）。
+ *
+ * 混着来的（一条带名字、一条裸值）只信带名字的那条：裸值分不清名字，猜错会
+ * 把风控会话当登录会话发出去，同样是静默 401。
+ */
+function baizhiPastedCookieOf(raw) {
+  const parts = String(raw ?? '')
+    .split(/[\s,，、;；\n]+/u)
+    .map((t) => t.trim())
+    .filter((t) => t !== '')
+  if (parts.length === 0) return ''
+  const named = parts.filter((t) => t.includes('='))
+  if (named.length === parts.length) return parts.join('; ')
+  if (named.length > 0) return named.join('; ')
+  const slName = 'sl-session'
+  const bsName = 'baizhi_session'
+  return parts
+    .slice(0, 2)
+    .map((v, i) => (i === 0 && parts.length >= 2 ? `${slName}=${v}` : `${bsName}=${v}`))
+    .join('; ')
+}
+
+async function baizhiFinishPaste({ container, log, dshProvider, pasted }) {
+  const raw = String(pasted ?? '').trim()
+  if (raw === '') {
+    throw new Error('没收到任何内容：请把百智云的网页登录态（sl-session + baizhi_session）或 sk- 开头的 Key 粘到框里')
+  }
+
+  const {
+    exchangeBaizhiSessionForKey, fetchBaizhiProfile,
+    BAIZHI_SESSION_COOKIE_NAME, BAIZHI_SL_SESSION_COOKIE_NAME,
+  } = await import('../vendor/lib/baizhi-credits.js')
+  const { normalizeSessionCookie } = await import('../vendor/lib/session-cookie.js')
+
+  /**
+   * 先判 Key：`sk-` 前缀很显眼，粘 Key 的人不该被当成 cookie 去兑换。
+   *
+   * ⚠️ 不用 `baizhiPastedKeyOf()` 之类「取第一段长 token」的猜法：cookie 值本身
+   * 就是长 token，猜错会把 cookie 当 Key 写进凭据 ⇒ 之后每次推理 401，而用户
+   * 只看到一句英文报错。这里只认**显式前缀**。
+   */
+  let apiKey = ''
+  let sessionCookie = ''
+
+  if (/^sk-[A-Za-z0-9_-]{16,}$/u.test(raw)) {
+    apiKey = raw
+    log?.(`[${dshProvider}] 收到粘贴的 API Key（尾 4 位 ${apiKey.slice(-4)}），`
+      + '没有网页登录态 ⇒ 能发消息，但读不到积分')
+  } else {
+    // 当登录态处理：认整条 Cookie 头，也认裸值（两条各自粘、中间用空格/分号隔开都行）。
+    const joined = baizhiPastedCookieOf(raw)
+    const normalized = normalizeSessionCookie(
+      joined,
+      [BAIZHI_SESSION_COOKIE_NAME, BAIZHI_SL_SESSION_COOKIE_NAME],
+      BAIZHI_SESSION_COOKIE_NAME,
+    )
+    if (normalized === undefined) {
+      throw new Error(
+        '这段内容既不像 API Key（sk- 开头），也不像网页登录态。'
+          + '请到 baizhi.cloud 按 F12 → Application → Cookies 复制 sl-session 与 '
+          + 'baizhi_session 两条的 Value，或直接粘贴整条 Cookie。',
+      )
+    }
+    sessionCookie = normalized
+    log?.(`[${dshProvider}] 收到网页登录态，正在向控制台换取 sk- 密钥…`)
+    const issued = await exchangeBaizhiSessionForKey(normalized, undefined, {})
+    if (issued.ok !== true) {
+      // 兑换失败最常见的原因是「登录态还没生效」或「账号下还没有 Key」——
+      // 把平台原话带上，别自己编。
+      throw new Error(
+        `换取 sk- 密钥失败：${issued.error}。`
+          + '如果是登录态过期，请在浏览器里重新登录后再复制一次 cookie。',
+      )
+    }
+    apiKey = issued.key.apiKey
+    log?.(`[${dshProvider}] 控制台密钥已取到（尾 4 位 ${apiKey.slice(-4)}`
+      + (issued.key.keyName === undefined ? '' : `，名称 ${issued.key.keyName}`) + '）')
+  }
+
+  /**
+   * 昵称：登录态在手就问控制台（`GET /api/v1/user/profile` 的 `name`），
+   * 问不到再退回粘贴里显式写的，都没有就交给本体的 `defaultNickname()`（Key 尾 6 位）。
+   */
+  let nickname = nicknameOfPaste(raw)
+  if (sessionCookie !== '') {
+    const profile = await fetchBaizhiProfile(sessionCookie).catch(() => undefined)
+    if (profile?.ok === true && typeof profile.name === 'string' && profile.name.trim() !== '') {
+      nickname = profile.name.trim()
+    }
+  }
+
+  // 建号是一次本地写盘，但容器可能还没起（冷启动 20–30 秒）——
+  // 与 `KEY_ACCOUNT_RPC` 那条同预算（magpie 给 code 型 callback 2 分钟）。
+  await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+  const v = await withRpcDeadline(
+    container,
+    `${dshProvider}.addAccount`,
+    { apiKey, ...(nickname === undefined ? {} : { nickname }) },
+    CREATE_TIMEOUT_MS,
+    `新建 ${dshProvider} 账号`,
+  )
+  const accountId = String(v?.accountId ?? '').trim()
+  if (accountId === '') {
+    throw new Error(`本体没有返回账号 id（${dshProvider}.addAccount 回：${JSON.stringify(v)}）`)
+  }
+
+  /**
+   * ⚠️ **补登录态这一步失败不能把建号判成失败**：账号已经建好了（凭据里已有
+   * 可用的 `sk-`），此时抛错会让用户以为「什么都没成」，而面板上其实已经多出
+   * 一张能发消息的卡。只记日志，用户随时可以再点「补登录态」。
+   */
+  let sessionLanded = false
+  if (sessionCookie !== '') {
+    try {
+      const saved = await withRpcDeadline(
+        container,
+        `${dshProvider}.setSession`,
+        { accountId, sessionCookie },
+        CREATE_TIMEOUT_MS,
+        `补 ${dshProvider} 网页登录态`,
+      )
+      sessionLanded = saved?.hasSession === true
+    } catch (error) {
+      log?.(`[${dshProvider}] 账号已建好，但补登录态失败：`
+        + `${error instanceof Error ? error.message : String(error)}（可稍后点「改 Key」再补）`)
+    }
+  }
+
+  // 新建的号还没进 `account.list` 的 15 秒缓存，不然后面用量卡会拿旧列表。
+  accountsCache.delete(dshProvider)
+
+  try {
+    await withDeadline(
+      (async () => {
+        await liveAll(container, log)
+        fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+        writeCache(log)
+      })(),
+      START_TIMEOUT_MS,
+      '建号后刷新目录',
+    )
+  } catch { /* 目录拉不到不影响建号 */ }
+
+  const hit = await accountById(container, dshProvider, accountId, log)
+  const landed = await landedAccountOf(container, dshProvider, accountId, hit, log)
+  const signedId = landed.id
+  let wide = 0
+  try {
+    wide = Object.keys(modelsOfFull(dshProvider, fullModels)).length
+  } catch { /* 缓存没读到就当 0 */ }
+
+  return {
+    type: 'success',
+    key: `jet-hub-local:${dshProvider}/${signedId}`,
+    accountId: `${accountLabel(landed.hit ?? { id: signedId })}·已新建`
+      + (wide > 0 ? `·上游 ${wide} 个模型` : '')
+      + (sessionLanded ? '' : '·未读到登录态（积分不可见）'),
+    uid: signedId,
+    metadata: { via: 'jet-hub', provider: dshProvider, dshAccountId: signedId },
+  }
+}
+
+/**
+ * 腾讯 Marvis 的新建方法：**一条 oauth 方法**，走宿主原生的「code 型」签入。
+ *
+ * ## 为什么是 `method: 'code'`，而不是自己用 `ask()` 收粘贴
+ *
+ * 宿主 `authorize()` 的返回值有一个字段 `method`（`Authorization.Method`，
+ * `host.js` 里按 `a.method === "code"` 判定），取 `"code"` 时：
+ *   · GUI 把 `url` 渲染成**一段带复制按钮的链接**（`signlink` + `copyBtn`），
+ *   · 并给一个粘贴框（`pasteCode`），用户把地址粘进去 ⇒ 宿主回调
+ *     `signin/<id>/callback` ⇒ `callback(code)`（**2 分钟**预算，比 authorize 的 60 秒宽）。
+ *
+ * 这正好对上 Marvis 的现实：`redirect_uri` 被腾讯固定在
+ * `yybadaccess.3g.qq.com`（换域名微信侧直接拒绝），插件也不可能在用户自己的
+ * 浏览器上起回调端口 ⇒ 「auto 型」（插件自己等回调）永远等不到。早先这里把
+ * 地址写进 `ask()` 的题干当纯文本，用户看到的是一串不能一键复制的 URL ——
+ * 2026-11-11 用户反馈「没有复制连接的按钮」。`mode: 'code'` 是错的字段名
+ * （宿主不认，会当成 auto 型），必须写 `method`。
+ *
+ * ## guid / state 怎么传
+ *
+ * 宿主把 `authorize()` 返回的**整个对象**存在它的 `sessions` Map 里，之后
+ * `callback` 就是在**这个对象**上调的 —— 所以 `callback` 直接用闭包捕获本次
+ * 登录的 `plan`（guid / state），不需要模块级 Map：宿主重启时那次签入本来就
+ * 已经没了，不存在「用户粘好的地址作废」这个场景。
+ *
+ * 用户粘回来的可能是整条地址、半截 query、或裸 code，`marvisCodeOf()` 三种都认
+ * （那个页面不带 `Ual-Access-Guid` 头恒 `-109`，所以浏览器是真停在那儿的）。
+ */
+function marvisOauthMethod(dshProvider, container, log) {
+  const name = NAMES[dshProvider] ?? dshProvider
+  return {
+    type: 'oauth',
+    label: `扫码新建一个 ${name} 账号（QQ / 微信）`,
+    /**
+     * 只为让宿主把 `inputs` 递给 `authorize()` 而声明，真正的问题由下面的
+     * `ask()` 出（宿主 `nextPrompt()` 先看 `ask`，有就直接返回，不会走到这里）。
+     *
+     * 宿主调 `authorize` 是这么写的：
+     *   m.authorize(m.prompts?.length ? inputs ?? {} : undefined, { signal })
+     * —— 只有声明了 `prompts` 的方法才拿得到 inputs。本方法问的是 `ask()`，
+     * 早先没有 `prompts` ⇒ 宿主递 `undefined` ⇒ `authorize` 里
+     * `inputs?.marvis_login_type === '2'` 恒假 ⇒ 面板上点「微信扫码」也落 QQ
+     * （2026-11-11 真机报障：两个按钮都是 QQ 登录页）。
+     */
+    prompts: [{ type: 'select', key: 'marvis_login_type', message: '登录方式', options: [] }],
+    async ask(inputs = {}) {
+      // 唯一一问：登录方式。两条腿的凭据不通用（login_type 不同、续期端点不认
+      // 另一边的 refresh），必须让用户当场挑 —— 这就是面板上的「选择登录方式」屏。
+      // ⚠️ 答过就返回 null：宿主会拿 `inputs` 再问一轮，不返 null 就死循环。
+      if (inputs?.marvis_login_type !== undefined) return null
+      return {
+        type: 'select',
+        key: 'marvis_login_type',
+        message: `用哪种方式登录 ${name}？`,
+        options: [
+          { value: '1', label: 'QQ 授权' },
+          { value: '2', label: '微信扫码' },
+        ],
+      }
+    },
+    async authorize(inputs = {}) {
+      const loginType = inputs?.marvis_login_type === '2' ? '2' : '1'
+      const plan = marvisSignInPlan(loginType)
+      log?.(`[marvis] 登录页已生成（${loginType === '2' ? '微信' : 'QQ'}）：${plan.url}`)
+      return {
+        url: plan.url,
+        // 宿主对 code 型签入会先把它当正文显示，再把 url 渲染成带「复制链接」按钮的
+        // 一行 —— 这里只写「下一步做什么」，别再重复贴一遍地址（那会重复显示）。
+        instructions: `在浏览器里打开上面的链接，用${loginType === '2' ? '微信扫码' : ' QQ'}登录。`
+          + '授权完成后浏览器会停在一个 JSON（或「抱歉，出错了」）页面，这是正常的 —— '
+          + '把那时地址栏里的整条地址粘到下面（只粘授权码那串也行）。',
+        method: 'code',
+        callback: (pasted) => marvisFinishSignIn({
+          container, log, plan, loginType, pasted: marvisTextOf(pasted),
+        }),
+      }
+    },
+  }
+}
+
+/**
+ * 用用户粘回来的那段文本换凭据，并把账号落进本体。
+ *
+ * 抽出来只是为了 `authorize()` 保持「给页面」这一件事；兑换与建号的纪律都在这里。
+ */
+async function marvisFinishSignIn({ container, log, plan, loginType, pasted }) {
+  const raw = String(pasted ?? '').trim()
+  const code = marvisCodeOf(raw)
+  if (code === '') {
+    throw new Error('没在这段文本里找到授权码：请把登录后那个页面的整条地址栏粘过来')
+  }
+  // state 优先取地址里的回显值 —— 那正是 authorize 时发出去的那个（微信就是
+  // guid）；用户只粘裸 code 时用本地生成的同款。
+  const state = (() => {
+    const echoed = /[?&#]state=([^&#\s]+)/.exec(raw)
+    if (echoed === null) return plan.state
+    try {
+      return decodeURIComponent(echoed[1])
+    } catch {
+      return echoed[1]
+    }
+  })()
+  // 容器可能还没起；兑换与建号实测都在秒级，但冷启动是 20–30 秒。
+  // code 型签入的 callback 宿主给 2 分钟（`pluginCode` 的 ctx），比 authorize 宽。
+  await withDeadline(container.start(), START_TIMEOUT_MS, '本体容器启动')
+  const auth = container.ctx?.get('marvisAuth')
+  if (auth === undefined || typeof auth.exchangeCode !== 'function') {
+    throw new Error('本体没有可用的 Marvis 登录服务（容器没起来？），请重新点一次「新建账号」')
+  }
+  const credential = await withDeadline(
+    auth.exchangeCode({ code, loginType, guid: plan.guid, state }),
+    20_000,
+    'Marvis 授权码兑换',
+  )
+  log?.(`[marvis] 授权码已兑换成凭据（${loginType === '2' ? '微信' : 'QQ'}，openid ${String(credential.openid).slice(0, 8)}…）`)
+
+  /**
+   * 补昵称（2026-11-11 真机报障）：本腿走的是 `mode: 'code'`，不是 vendor 的
+   * `loginViaBrowser()` —— 后者在兑换之后还会做「资料接口 + openid 前 8 位」两级
+   * 兜底（`marvis-auth.js:382-392`），而 `exchangeCode()` **只**带出回调 cookie 里的
+   * `nickname`。cookie 没给时 `marvisAccountLabel(undefined,'1')` 退化成字面量
+   * `"QQ"`（`marvis.js:269`）⇒ 面板上一排账号全叫「QQ」，无法区分。
+   *
+   * ⚠️ **必须在这里补，不能指望别处回填**：全仓 `pool.updateAccount({nickname})`
+   *    只在建号 / 判重合并时写一次，续期（`refreshAccountCredential`）只更新
+   *    `access_token` / `expiresAt` ⇒ 昵称在**建号那一刻**定型，之后永远是它。
+   *
+   * ⚠️ `fetchUserProfile` **失败返回空对象、绝不抛**（vendor 的纪律），但这里仍
+   *    再包一层 `.catch(() => ({}))`：容器里拿到的 `marvisAuth` 是宿主注入的实例，
+   *    不能假设它一定是 vendor 那个实现（缺方法时 `undefined is not a function`
+   *    会挡掉整个登录）。昵称只是展示名，取不到不该挡登录。
+   *
+   * ⚠️ 兜底顺序与 vendor 同一条纪律：资料接口 → cookie → **openid 前 8 位**。
+   *    最后那一级不能省 —— 它就是为「多个 QQ 账号无法区分」而写的。
+   */
+  const profile = typeof auth.fetchUserProfile === 'function'
+    ? await auth.fetchUserProfile(credential).catch(() => ({}))
+    : {}
+  const nickname = (() => {
+    if (typeof profile?.nickname === 'string' && profile.nickname.trim() !== '') return profile.nickname.trim()
+    if (typeof credential.nickname === 'string' && credential.nickname.trim() !== '') return credential.nickname.trim()
+    if (typeof credential.openid === 'string' && credential.openid !== '') return credential.openid.slice(0, 8)
+    return undefined
+  })()
+  log?.(`[marvis] 昵称：${nickname === undefined ? '（上游未提供，卡片将显示平台名）' : nickname}`)
+
+  // 形状必须与 `importCredentialFromMagpie()` 逐字对上：`access`/`refresh` 为非空
+  // 字符串、`metadata.openid` + `metadata.guid` 必填、`loginType` 是 `'1'`/`'2'`、
+  // `expires` 是**数字**（vendor 只认 number，字符串会被当成「没有有效期」丢掉）。
+  const expires = Number(credential.expires_at)
+  const payload = {
+    access: credential.access_token,
+    refresh: credential.refresh_token,
+    metadata: {
+      openid: credential.openid,
+      guid: credential.guid ?? plan.guid,
+      loginType: credential.login_type ?? loginType,
+      ...(nickname === undefined ? {} : { nickname }),
+    },
+    ...(Number.isFinite(expires) ? { expires } : {}),
+  }
+  const created = await withRpcDeadline(
+    container,
+    'account.create',
+    { provider: 'marvis', mode: 'magpie-import', magpieCredential: JSON.stringify(payload) },
+    CREATE_TIMEOUT_MS,
+    'account.create',
+  )
+  const accountId = String(created?.accountId ?? '').trim()
+  if (accountId === '') throw new Error('本体没回账号 id（Marvis 凭据可能没被接受）')
+  accountsCache.delete('marvis')
+
+  const hit = await accountById(container, 'marvis', accountId, log)
+  // 判重命中时会话可能被转写给老卡、新卡留成空壳 —— 与别的家同样签给存活的那条。
+  const landed = await landedAccountOf(container, 'marvis', accountId, hit, log)
+  const signedId = landed.id
+  let wide = 0
+  try {
+    fullModels = await container.refreshFullCatalog(DSH_PROVIDERS)
+    wide = Object.keys(modelsOfFull('marvis', fullModels)).length
+    writeCache(log)
+  } catch { /* 全量拉不到不影响签入 */ }
+
+  return {
+    type: 'success',
+    // key 里编进账号 id：`dshAccountIdOf()` 靠它认回「这条 magpie 账号是哪个
+    // DSH 账号」，宿主 `settle()` 的 secret 分支据此判重。
+    key: `jet-hub-local:marvis/${signedId}`,
+    accountId: `${accountLabel(landed.hit ?? { id: signedId })}·已新建`
+      + (wide > 0 ? `·上游 ${wide} 个模型` : ''),
+    uid: signedId,
+    metadata: {
+      via: 'jet-hub',
+      provider: 'marvis',
+      dshAccountId: signedId,
+      // ⚠️ 宿主 `save()` 会把 ask() 收上来的 inputs 并进 metadata —— 这里只剩
+      // 「选的是哪条腿」这一项，留着无妨；授权码根本不进 inputs（它在 callback
+      // 的参数里），所以没有一次性凭据落盘的风险。
+    },
+  }
+}
+
+/**
+ * 纯计算：一次 Marvis 登录的 guid / state / 授权页地址。
+ * QQ 的 `state` 必须是小数字符串（上游同款）；微信直接拿 guid 当 state。
+ */
+function marvisSignInPlan(loginType) {
+  const guid = newMarvisDeviceGuid()
+  const state = loginType === '1' ? `0.${String(Math.random()).slice(2)}` : guid
+  return { loginType, guid, state, url: authorizeUrlOf(loginType, guid, state) }
+}
+
+/**
+ * 从用户粘回来的那段文本里抠出授权码。
+ *
+ * 宿主那条通道的文案是「请将页面显示的代码粘贴到下方」，但 Marvis 的授权页**停不下来**：
+ * QQ / 微信把浏览器跳到 `yybadaccess.3g.qq.com/marvis_client_login/marvis_oauth?…&code=…`，
+ * 那个地址没带 `Ual-Access-Guid` 头 ⇒ 恒 `-109 RC_PARAMS_INVALID`，页面上只有一段
+ * JSON（或微信那句「抱歉，出错了」）。用户真正能复制的是**地址栏整条 URL**，
+ * 所以这里两种都认：整条地址、半截 query、以及裸 code。
+ */
+/**
+ * 归一化用户粘回来的内容：宿主给的一般是字符串，但契约上没有写死 ——
+ * 对象形态按 url/code/text/value/input/callbackUrl 取第一个非空字符串。
+ */
+function marvisTextOf(pasted) {
+  if (typeof pasted === 'string') return pasted
+  if (pasted === undefined || pasted === null) return ''
+  if (typeof pasted === 'object') {
+    for (const key of ['url', 'code', 'text', 'value', 'input', 'callbackUrl']) {
+      const v = pasted[key]
+      if (typeof v === 'string' && v.trim() !== '') return v
+    }
+    return ''
+  }
+  return String(pasted)
+}
+
+function marvisCodeOf(pasted) {
+  const text = marvisTextOf(pasted).trim()
+  if (text === '') return ''
+  // 整条地址或半截 query：`...?login_type=QC&code=XXXX&state=0.123`
+  const m = /[?&#]code=([^&#\s]+)/.exec(text)
+  if (m !== null) {
+    try {
+      return decodeURIComponent(m[1])
+    } catch {
+      return m[1]
+    }
+  }
+  // 只粘了 code 本身（也可能带引号 —— 页面 JSON 里是 `"code":"…"`）
+  const bare = text.replace(/^["']|["']$/g, '')
+  if (/^[A-Za-z0-9._~+/=%-]{8,}$/.test(bare)) return bare
+  return ''
 }
 
 /** 全部 29 个工厂（`index.mjs` 逐个具名导出）。 */

@@ -1,14 +1,14 @@
-// 核 `vendor/` 是否仍是「上游构建产物 + 11 个补丁文件」——把 docs/vendor.md 的
+// 核 `vendor/` 是否仍是「上游构建产物 + 13 个补丁文件」——把 docs/vendor.md 的
 // 「怎么自己核一遍」那堆 shell 收成一条命令。
 //
 //   node scripts/verify-vendor.mjs /path/to/upstream     # upstream = 跑过 npm install 的上游仓库根
 //
-// 为什么需要它：`docs/vendor.md` 里「1170 个文件、其中 1159 个与上游逐字节一致」这条
+// 为什么需要它：`docs/vendor.md` 里「1170 个文件、其中 1157 个与上游逐字节一致」这条
 // 基线是**整份快照唯一可复核的地方**。原来只能手动 `find … sha256sum | sort | diff`，
-// 一旦临时目录被清掉就再也说不清「这 11 个差异到底是补丁还是被人手改了」。这个脚本
+// 一旦临时目录被清掉就再也说不清「这 13 个差异到底是补丁还是被人手改了」。这个脚本
 // 把两件事钉死：
 //
-//   1. 差异文件集合必须**恰好等于** PATCH_FILES（11 个）—— 多一个就是快照被污染，
+//   1. 差异文件集合必须**恰好等于** PATCH_FILES（13 个）—— 多一个就是快照被污染，
 //      少一个就是补丁被同步覆盖（都属于静默故障，不报错的）；
 //   2. 文件数 / `.map` 数 / `locale` / 版本号与文档里写的数字一致。
 //
@@ -24,7 +24,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const VENDOR = path.join(HERE, '..', 'vendor')
 
 /**
- * 本仓库对上游构建产物做的**全部**改动（docs/vendor.md 的差异表，6 类 / 11 个文件）。
+ * 本仓库对上游构建产物做的**全部**改动（docs/vendor.md 的差异表，7 类 / 13 个文件）。
  *
  * 这份清单是**契约**，不是「已知差异」的备注：同步上游后如果少了其中任何一个，
  * 说明补丁被整片覆盖了（静默故障）；如果多出一个，说明快照被别的动作污染过。
@@ -41,14 +41,16 @@ const PATCH_FILES = [
   'lib/magicrew-local-browser.d.ts',    // ② 声明跟上实现（leveldbTextFor 三参 / idbCredentialsIn）
   'lib/magicrew-local-browser.js',      // ② IndexedDB 读取
   'lib/types.d.ts',                     // ⑥ RpcModelSetDisabledManyRequest.closeProvider
+  'lib/baizhi-rpc.js',                  // ⑦ 新增 baizhi.setSession（补网页登录态）
+  'lib/baizhi-rpc.d.ts',                // ⑦ 同上，类型声明
 ].sort()
 
 /**
- * 11 个补丁文件**内容**的 sha256 指纹。
+ * 13 个补丁文件**内容**的 sha256 指纹。
  *
  * ## ⚠️⚠️ 为什么光有「差异集合 = 补丁表」还不够（2026-11-10 对抗审查 P1-4）
  *
- * 上面那条只核「这 11 个文件**与上游不同**」，不核「**怎么**不同」——
+ * 上面那条只核「这 13 个文件**与上游不同**」，不核「**怎么**不同」——
  * 实测把 `jet-hub-rpc.js` 的 `closeProvider ? true : 'keep'` 改回 `closeProvider`
  * （正是 CHANGELOG 说 `t-rpc-cover` 盯着的那个回归）、或给 `leveldb-sstable.js`
  * 加一行注释，脚本照样打印「无污染、无漏打」并 exit 0。
@@ -59,7 +61,7 @@ const PATCH_FILES = [
  * ## 怎么更新
  *
  * 有意改补丁时跑 `node scripts/verify-vendor.mjs --print-hashes`，把它打印的
- * 11 行原样贴回来。**不要**为了让脚本变绿就跳过校验 —— 那等于把这条门禁拆掉。
+ * 13 行原样贴回来。**不要**为了让脚本变绿就跳过校验 —— 那等于把这条门禁拆掉。
  */
 const PATCH_SHA256 = {
   'lib/backup.d.ts': '0f1169ae4beca9f5757a348e65385705deac52ea6226c3f9843eba9fff1b83b0',
@@ -73,19 +75,21 @@ const PATCH_SHA256 = {
   'lib/magicrew-local-browser.d.ts': '7198b59278585fa3da5afbc68a23fa917575cc17a8ec096b2da3a31da3a30758',
   'lib/magicrew-local-browser.js': '6adc02a9116267151dd1c0f5fccb56e714637160512b5c27b44e33493143b435',
   'lib/types.d.ts': 'c259c4878f5f526494f9ebf28066d88a730ce519b4ef6a2ee0adfefe60849add',
+  'lib/baizhi-rpc.js': 'a7aeabc1e0b156b29d42520b41bad9b696546a0d4e293782925a559f7d3ec9de',
+  'lib/baizhi-rpc.d.ts': '87628eedb198b8f8e15f6d00854c3bc8fd909de52484506c9983701f81b39b42',
 }
 
 /**
  * 文档里写死的两个数（docs/vendor.md「与上游构建产物的差异」）。
  *
- * ⚠ `identical` 是「**归一化后**算一致」的数（**1159**），不是真逐字节（**1158**）：
+ * ⚠ `identical` 是「**归一化后**算一致」的数（**1157**），不是真逐字节（**1156**）：
  * `lib/client/jet-hub.js` 由 esbuild 打包，`__export` 的变量名取入口 basename ——
  * 本仓 `package.json` 的 `esbuild ^0.24.0` 给 `client_exports`、上游作者用的 0.25.x
  * 给 `index_exports`，差 3 字节。见 `BUILD_ARTIFACTS` / `normalizeExports`：
  * **归一化后仍要求逐字节相等**（不是整份文件豁免），所以干净快照算「一致」、
  * 手改任何一位都会进 `differing` 判污染。
  */
-const EXPECT = { libFiles: 1170, identical: 1159, localeFiles: 2, maps: 584, mapMiB: '4.00' }
+const EXPECT = { libFiles: 1170, identical: 1157, localeFiles: 2, maps: 584, mapMiB: '4.00' }
 
 /**
  * 上游构建产物里**随工具链版本漂移**的文件 —— 既不是补丁，也不是污染。
@@ -100,13 +104,13 @@ const EXPECT = { libFiles: 1170, identical: 1159, localeFiles: 2, maps: 584, map
  * | 0.27+ | 另外多一条 `@__PURE__` 注解 |
  *
  * ⇒ 直接比 sha256 会把 `lib/client/jet-hub.js` 报成「手改或污染」（实测：任何按
- * `docs/vendor.md` 取法 `npm install` 的人都拿到 1158 而不是 1159）。
+ * `docs/vendor.md` 取法 `npm install` 的人都拿到 1156 而不是 1157）。
  *
  * ## ⚠️⚠️ 修法：归一化后仍要求**逐字节相等**，**不是**整份文件豁免
  *
  * 2026-11-10 一审实测：`BUILD_ARTIFACTS` 式的「白名单豁免」会把**真手改**一起吞掉
  * （改 1 个字符仍然 exit 0、还打印「无污染」）。正确做法是把这个变量名抹平成
- * `EXPORTS` **再比** —— 干净快照仍然算「一致」（文档 1159 成立），手改一位就红。
+ * `EXPORTS` **再比** —— 干净快照仍然算「一致」（文档 1157 成立），手改一位就红。
  */
 const BUILD_ARTIFACTS = new Set(['client/jet-hub.js'])
 const normalizeExports = (buf) => buf.toString('latin1').replace(/\b(?:client|index)_exports\b/g, 'EXPORTS')
@@ -147,7 +151,7 @@ function walk(root) {
 }
 
 function main() {
-  // `--print-hashes`：有意改补丁后，把这里打印的 11 行原样贴回 PATCH_SHA256。
+  // `--print-hashes`：有意改补丁后，把这里打印的 13 行原样贴回 PATCH_SHA256。
   if (process.argv.includes('--print-hashes')) {
     for (const f of PATCH_FILES) console.log(`  '${f}': '${sha256(path.join(VENDOR, f))}',`)
     process.exit(0)
@@ -228,9 +232,9 @@ function main() {
   const missing = [...PATCH_REL].filter((f) => !differing.includes(f)).sort()
   if (missing.length) bad(`这些补丁**不在**差异里，说明被同步覆盖了：${missing.join(', ')}`)
   if (extra.length) bad(`这些文件与上游不同，但不在补丁表里（手改或污染）：${extra.join(', ')}`)
-  if (!missing.length && !extra.length) ok(`差异集合恰好等于补丁表（${PATCH_FILES.length} 个文件 / 6 类）${artifactNormalized.length ? `；另有 ${artifactNormalized.length} 个构建产物靠归一化算一致` : ''}`)
+  if (!missing.length && !extra.length) ok(`差异集合恰好等于补丁表（${PATCH_FILES.length} 个文件 / 7 类）${artifactNormalized.length ? `；另有 ${artifactNormalized.length} 个构建产物靠归一化算一致` : ''}`)
 
-  // ⚠️⚠️ 上面只核「这 11 个文件**与上游不同**」，不核「**怎么**不同」（2026-11-10 对抗审查 P1-4）。
+  // ⚠️⚠️ 上面只核「这 13 个文件**与上游不同**」，不核「**怎么**不同」（2026-11-10 对抗审查 P1-4）。
   // 实测把 `jet-hub-rpc.js` 的 `closeProvider ? true : 'keep'` 改回 `closeProvider`、
   // 或给 `leveldb-sstable.js` 加一行注释，上面那条照样绿 —— 而这是本脚本**唯一**该抓
   // 却又抓不到的一类（补丁被人手改）。逐个核 sha256。
@@ -247,7 +251,7 @@ function main() {
   const hashMissing = PATCH_FILES.filter((f) => PATCH_SHA256[f] === undefined)
   if (hashMissing.length) bad(`PATCH_SHA256 少了这些文件的期望值：${hashMissing.join(', ')}（跑 --print-hashes 补上）`)
   if (hashDrift.length) bad(`这些补丁文件的**内容**与期望 sha256 不符（被手改？）：${hashDrift.join(', ')}`)
-  if (!hashMissing.length && !hashDrift.length) ok(`11 个补丁文件的内容 sha256 全部与期望一致`)
+  if (!hashMissing.length && !hashDrift.length) ok(`${PATCH_FILES.length} 个补丁文件的内容 sha256 全部与期望一致`)
 
   // ── 2. .map 数量与体积 ─────────────────────────────────────────────
   console.log('· 2  source map')
