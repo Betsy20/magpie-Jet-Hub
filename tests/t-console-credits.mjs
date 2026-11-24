@@ -7,7 +7,7 @@
  *
  *   1. **回包形状**：handler 返回 `{ ok: true, value: { accounts: [...] } }`，
  *      不是裸数组。按裸数组取，循环体 0 次执行，每张卡渲染成「—」，
- *      而 29 个测试全绿。
+ *      而全量测试全绿。
  *   2. **三个额度字段方向相反**：`expiringTotal` 是「`total` 中即将到期」
  *      （仍可用），`expiredTotal` 是「已失效」（不可用）。把后者当临期算，
  *      `长期 = total - expiredTotal` 会重复扣减。

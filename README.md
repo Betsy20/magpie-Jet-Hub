@@ -89,7 +89,12 @@ magpie plugin add github:Betsy20/magpie-Jet-Hub
 
 ## 32 个供应商，不是一个
 
-本体里有 33 个 provider，其中 **1 个是路由组**（`aggregate` 聚合路由，`channel: false`）。路由组没有自己的账号池和模型目录，注册成 magpie 供应商只会得到一张永远空着的卡，所以**本插件只接那 32 家真渠道**。
+本体 `PROVIDER_REGISTRY` 里有 33 个 id，其中 **`aggregate` 是路由组**（聚合路由），没有自己的账号池和模型目录，
+注册成 magpie 供应商只会得到一张永远空着的卡，所以**本插件只接那 32 家真渠道**。另一个路由组
+`jet-hub-auto`（自动选号）**从来不在 registry 里**，它只在 `modelAdapters` 表里，同样不注册。
+
+> ⚠ 别拿 `channel: false` 反推路由组 —— `doubao`（豆包）也是 `channel: false`，但它是真渠道（有模型目录、
+> 有 `modelAdapters` 条目）。上游刻意留 `false` 是因为豆包凭据是 cookie、没有 refresh 端点 / auth 服务。
 
 完整名单以 `src/plugin.mjs` 的 `DSH_PROVIDERS` 为准（下表只列几行示例）。
 
@@ -279,7 +284,7 @@ models.dev 目录（`~/.cache/magpie/models.json`）按**模型尾名**匹配生
 
 本体冷启动要建容器、拉凭据链、预热目录，**20–30 秒**（预热过的实例通常 1–2 秒），而 magpie 给 `provider.models` 的超时只有 **20 秒**。所以在 `models()` 里 `await` 必然超时。
 
-`models()` 因此分三档：内存缓存命中 → 立刻返回并后台刷新；磁盘缓存命中 → 立刻返回真实目录；都没有 → 返回静态兜底表（32 家各一条），启动甩到后台。`authorize()` 与 `usage()` 由用户点击触发、允许长时间，走真等。
+`models()` 因此分三档：内存缓存命中 → 立刻返回并后台刷新；磁盘缓存命中 → 立刻返回真实目录；都没有 → 返回静态兜底表（**30 家**各一条；`agnescode` / `agnescodeintl` 上游自己就不给静态兜底，见 `AGNESCODE_FALLBACK_MODELS`），启动甩到后台。`authorize()` 与 `usage()` 由用户点击触发、允许长时间，走真等。
 
 ## 侧栏页与控制台
 
@@ -290,8 +295,18 @@ magpie 里这个插件有两个界面：
 
 **本地控制台**（`console/`）是完整功能，注册在 `http://127.0.0.1:18500/`。端口被占时向后顺延（18501、18502…），
 但**只有拿到首发端口 18500 的那个实例**才会把地址写进 `~/.config/magpie/jet-hub-console.json` ——
-漂移到别的端口时不写，别拿那个文件当唯一来源。左栏是**供应商列表**（注册 32 家，快照里 32 家都有模型条目
-—— `marvis` 那条是静态兜底（`main-auto`），上游没有模型目录端点），底部一行三个切页按钮，主区是**账号页**（默认视图）：
+漂移到别的端口时不写，别拿那个文件当唯一来源。
+
+左栏是**供应商列表** —— 注册 32 家，快照 `page/models.js` 里只有 **29 家**有模型条目：
+
+| 家 | 为什么没快照 |
+|---|---|
+| `doubao` | 要 cookie 凭据，2026-11-24 这轮没跑快照 |
+| `agnescode` / `agnescodeintl` | 上游 `AGNESCODE_FALLBACK_MODELS` 是空数组，连静态兜底都没有 |
+
+（`marvis` 的 `main-auto` 那条是静态兜底 —— 上游没有模型目录端点，不是快照来的。）
+
+底部一行三个切页按钮，主区是**账号页**（默认视图）：
 
 | 位置 | 做什么 |
 |---|---|
@@ -307,7 +322,8 @@ magpie 里这个插件有两个界面：
 > 同一天「账号」也不再是一个标签：侧栏点供应商就是看账号池，它不值得和概览/设置/备份并列。
 
 界面照搬上游 `jet-hub.js` 的设计语言：`#1677ff` 品牌色、卡片 14px 圆角、`0 2px 8px rgb(31 35 41/3%)` 阴影、
-228px 侧栏。供应商图标直接内联上游 `provider-icons.js` 的 data URI（`console/icons.js`，32 个）；
+228px 侧栏。供应商图标直接内联上游 `provider-icons.js` 的 data URI（`console/icons.js`，**33 个** ——
+含不上侧栏的 `aggregate`；2026-11-24 新进的 `doubao` / `agnescode` / `agnescodeintl` 三家也已补齐 —— 图形与 `src/icons.mjs` 同源，按 `<g transform="scale(.375)">` 缩到 24 视口）；
 账号列表是**卡片流**而不是表格 —— 每张卡把凭据 ref / 有效期 / 可续期 / 出口代理 / 操作
 收在一处，操作按钮贴在该行最右；容器窄于 420px 时按钮自动落到「操作」标签下方换行。
 （正文灰 `--fg3` 刻意比上游深一档：`#7c838e` 而非 `#8f959e` —— 后者对白底只有 3.02:1，压暗后 3.82:1。）

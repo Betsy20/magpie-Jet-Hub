@@ -310,7 +310,7 @@ function formatBaizhiPoolSplit(packages) {
  *    （那个函数 `:1007` 确实 `return results`，是**收集器**）包成
  *    `{ ok: true, value: { accounts: values, windowDays? } }`。
  *    ⚠️ 按裸数组取会让循环体 0 次执行 ⇒ 每张卡都显示「—」，
- *    而且**零测试覆盖**（29 个测试全绿也发现不了）。
+ *    而且**零测试覆盖**（38 个测试全绿也发现不了）。
  * 2. **`expiredTotal` 不是「临期」**：它是「**已经失效、不可用**」的额度
  *    （见 `credits.d.ts:331-336`），UI 该单独提示「另有 N 已失效」。
  *    「临期」是另一个字段 `expiringTotal` —— 「`total` 中即将到期的额度」
@@ -1118,7 +1118,7 @@ async function rotateFingerprint(accountId) {
   const v = await rpc('opencode.rotateFingerprint', { accountId })
   // ⚠ **不**在这里 `await loadAccounts()`（2026-11-11 审计发现）：
   //   ① 外层 `onAccAction` 已经统一重读过一遍 ⇒ 这里再读是**双倍** RPC，
-  //      而 `credits.balances` 要为**每个账号**发一次上游请求，29 家 × N 个账号；
+  //      而 `credits.balances` 要为**每个账号**发一次上游请求，32 家 × N 个账号；
   //   ② 更要命的是 `loadAccounts()` 开头的 `say('#accMsg', '读取中…')` 会立刻
   //      把这条「指纹代次 → N」覆盖掉 —— 它是用户点「换指纹」后**唯一**的结果
   //      反馈（卡片上那行「指纹代次」只是数字悄悄变了，用户不会注意到）。
@@ -2119,7 +2119,9 @@ function hueOf(id) {
  * 侧栏的供应商列表。点一家 = 切到它的账号池。
  *
  * 图标来自 `icons.js` 的 `window.PROVIDER_ICONS`（上游 `provider-icons.js` 的
- * 29 个 data URI）。没登记的那几家退回「首字 + 色相」，不是空白。
+ * data URI，**33 个键** —— 含不上侧栏的 `aggregate`，2026-11-24 新进的
+ * `doubao` / `agnescode` / `agnescodeintl` 三家也已补齐）。没登记的退回
+ * 「首字 + 色相」，不是空白 —— 将来再加渠道时兜底仍然有效。
  */
 function renderProviderList() {
   $('#providerList').innerHTML = orderedProviders()

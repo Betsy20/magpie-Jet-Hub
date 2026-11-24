@@ -19,7 +19,7 @@
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
- *   └─ …（29 个）                     ┘
+ *   └─ …（32 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
  *             └─ 直连本体 llm：ctx.llm.stream()（src/llm-bridge.mjs）
  *                  └─ 各 provider 的真实上游
@@ -29,8 +29,8 @@
  * `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以
  * `container.forward()` 在进程内就完成了整件事 —— 不占端口、不需要 apiKey。
  *
- * ⚠️ 容器**必须模块级共享**：29 个插件工厂各自 new 一个容器的话，会拉起 29 个
- * cordis（29 份账号池 + 29 份模型目录），冷启动直接炸。
+ * ⚠️ 容器**必须模块级共享**：32 个插件工厂各自 new 一个容器的话，会拉起 32 个
+ * cordis（32 份账号池 + 32 份模型目录），冷启动直接炸。
  *
  * ## 凭据从哪来
  *
@@ -264,9 +264,14 @@ const FALLBACK_MODELS = {
   'magicrew/deepseek-v4.1-flash': { name: 'Magicrew · DeepSeek V4.1 Flash' },
   'magicrewintl/deepseek-v4.1-flash': { name: 'MagiCrew 国际 · DeepSeek V4.1 Flash' },
   // 2026-11-24 上游新增（豆包，字节跳动）。`DOUBAO_FALLBACK_MODELS`（`doubao-adapter.ts:77`）
-  // 是 2026-11-22 从 `brief_list` 真机抓的 14 条快照，key 就是上游的短数字/短横线 id
+  // 是 2026-11-22 从 `brief_list` 真机抓的快照，key 就是上游的短数字/短横线 id
   // （`0` = 快速、`9` = 2.1 Auto、`5` = 2.1 Pro …）。取 `9`（Auto 档）与
-  // `marvis/main-auto` 同一取舍：面板上先有**一条能发**的，别把 14 条全摊开。
+  // `marvis/main-auto` 同一取舍：面板上先有**一条能发**的，别把全表摊开。
+  //
+  // ⚠ 条数口径：实数是 **15 条**（5 条短 id + 10 条 32 位 hex）。上游自己的 JSDoc
+  // 写「14 条」是错的，但 `vendor/` 是构建产物、不在 `PATCH_SHA256` 补丁列表里
+  // （`scripts/verify-vendor.mjs` 要求逐字节一致），改了会让「1321 个一致」变红。
+  // 所以这里只能存真实数字，不去动 vendor 里那行注释。
   //
   // ⚠ 同一批新增的 AgnesCode（`agnescode` / `agnescodeintl`）**故意不给**兜底：
   // 上游的 `AGNESCODE_FALLBACK_MODELS` 是空数组（`agnescode-product.ts:163`，两站同表），
@@ -2569,12 +2574,12 @@ function writeCache(log) {
  * 没有磁盘缓存**（`readCache()` 返回 `{}`）⇒ 前两项恒为真，每次调用都新起一条
  * `refreshInBackground()`。而 magpie 宿主 `providers()` 是
  * `Promise.all([...auths()].map(row))` —— 32 家**并行**各调一次 `provider.models()`，
- * `config` 钩子另外 29 次串行 ⇒ 冷启动最多 **58 条**刷新链同时跑。次生故障：
+ * `config` 钩子另外 32 次串行 ⇒ 冷启动最多 **64 条**刷新链同时跑。次生故障：
  *   ① `container._absorbModels()` 的 `this.modelMeta.clear()` 与
  *      `refreshFullCatalog()` 的 `set()` 并发互清 ⇒ 能力声明（上下文窗口 / 图片 /
  *      推理档位）随机丢；
  *   ② 上千次 `rpc('model.list')` 打满容器；
- *   ③ 58 次**同步**写盘（`writeCache()` 里是 `writeFileSync`）；
+ *   ③ 64 次**同步**写盘（`writeCache()` 里是 `writeFileSync`）；
  *   ④ 20 秒超时到点，magpie 拿到的是空列表 —— 而**没有任何错误**。
  * 用户看到的就是「新装的插件第一次打开 magpie，模型列表是空的」。`tests/` 里
  * `refreshInBackground|currentAll` 零命中，这条路径此前完全没有守护。

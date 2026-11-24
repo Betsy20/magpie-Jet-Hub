@@ -1131,15 +1131,21 @@ console.log('\noauth 方法形状：')
       const noName = DP.filter((p) => !named.has(p))
       ok(noName.length === 0, `NAMES 缺这些 provider 的显示名：${noName.join(', ') || '无'}`)
     }
-    // ④ `FALLBACK_MODELS` 必须 32 家各至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
+    // ④ `FALLBACK_MODELS` 必须每家都有至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
     //    的唯一兜底（`currentModels()` 的第 3 档）。漏一家 = 那家第一次启动在 magpie
     //    里一个模型都看不到，且没有任何报错。此前这张表长期只有 16 条、且缺 magicrew。
     //
-    //    ⚠ 例外（`NO_FALLBACK_PROVIDERS`）：上游自己就不给静态兜底的家。2026-11-24
+    //    口径：`DSH_PROVIDERS` 的 32 家减去 `NO_FALLBACK` 白名单 = 实际检查的家数
+    //    （2026-11-24 同步上游 `3c99183` 后是 30 条 / 30 家）。
+    //
+    //    ⚠ 例外（`NO_FALLBACK`）：上游自己就不给静态兜底的家。2026-11-24
     //    上游同步进来的 AgnesCode 两站就是 —— `AGNESCODE_FALLBACK_MODELS` 是**空数组**
-    //    （`agnescode-product.ts:163`），目录完全靠远端 `/v2/models` 拉。硬塞一条静态 id
-    //    会让「未登录时看到的目录」和「登录后拉到的目录」对不上，比空着更误导。
-    //    ⚠ 这张白名单只能收「上游明确没有兜底」的家，不能用来掩盖我们漏写。
+    //    （`vendor/lib/agnescode-product.js:87` 的 `Object.freeze([])`），目录完全靠远端
+    //    `/v2/models` 拉。硬塞一条静态 id 会让「未登录时看到的目录」和「登录后拉到的
+    //    目录」对不上，比空着更误导。
+    //
+    //    ⚠ 这张白名单只能收「上游明确没有兜底」的家，不能用来掩盖我们漏写 ——
+    //    光写这句话没用，下面两条反向锚点就是防这个的。
     const NO_FALLBACK = new Set(['agnescode', 'agnescodeintl'])
     const fbStart = pluginSrc.indexOf('const FALLBACK_MODELS = {')
     const fbEnd = fbStart > 0 ? pluginSrc.indexOf(String.fromCharCode(10) + '}', fbStart) : -1
@@ -1153,6 +1159,24 @@ console.log('\noauth 方法形状：')
         (p) => !fbProviders.has(p) && !NO_FALLBACK.has(p),
       )
       ok(noFallback.length === 0, `FALLBACK_MODELS 缺这些 provider 的兜底模型：${noFallback.join(', ') || '无'}`)
+      // 反向锚点 ①：白名单里的家**不能**已经在 `FALLBACK_MODELS` 里 —— 否则这条就是死代码，
+      // 只会在我们补上兜底后继续豁免，把「漏写」永久掩盖下去。
+      const staleNoFallback = [...NO_FALLBACK].filter((x) => fbProviders.has(x))
+      ok(
+        staleNoFallback.length === 0,
+        `NO_FALLBACK 里的这些家已经有兜底模型了，白名单该删：${staleNoFallback.join(', ') || '无'}`
+      )
+      // 反向锚点 ②：白名单**必须有上游依据**。`agnescode` 两站之所以可以豁免，只因为上游
+      // `AGNESCODE_FALLBACK_MODELS` 真的是空数组；上游哪天补了静态目录，这条会红，
+      // 逼我们把白名单清掉、把兜底补上。
+      const agnesProduct = fs.readFileSync(
+        path.join(ROOT, 'vendor', 'lib', 'agnescode-product.js'),
+        'utf8',
+      )
+      ok(
+        /AGNESCODE_FALLBACK_MODELS\s*=\s*Object\.freeze\(\[\s*\]\)/.test(agnesProduct),
+        'NO_FALLBACK 的上游依据不成立了 —— 上游 AGNESCODE_FALLBACK_MODELS 不再是空数组，把 agnescode 两站从白名单删掉并补兜底',
+      )
       // ⑤ 兜底表的 model id 必须真在**最近一次快照**里 —— 只查 provider 前缀抓不到
       //    「那一条点不通」（2026-10-30 四审实测：25 条里有 3 条 id 上游早已删掉，
       //    `opencode/beam-free` / `modelscope/deepseek-ai/…` / `minimaxintl/MiniMax-M2`，
@@ -1233,7 +1257,7 @@ console.log('\noauth 方法形状：')
         for (const m of body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)) snapNames.set(m[1], m[2])
         // ⚠ **必须单独数原始行数**（2026-11-11 三审 P1）：`Map.set()` 对重复键是**静默覆盖**，
         //    `size === 32` 在「33 行 1 重复」时照样成立 ⇒ 光看 size 抓不到 merge 残留的重复键。
-        //    实测：注入一条同名重复键后，`size` 仍 29、`nameDrift` 仍空，整套 254 项全绿。
+        //    实测：注入一条同名重复键后，`size` 没变、`nameDrift` 仍空，整套全绿。
         const rawRows = [...body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)].length
         ok(rawRows === snapNames.size,
           `scripts/snapshot-models.mjs 的 NAMES 有重复键（原始 ${rawRows} 行 / 去重后 ${snapNames.size} 个）`)

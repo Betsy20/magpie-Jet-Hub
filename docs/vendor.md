@@ -6,12 +6,12 @@
 
 | 项 | 值 |
 |---|---|
-| 上游源码仓库 | [`iJetLi/deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)（**主仓**；GitHub 上的 [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) 是镜像，落后在 `5042cec`） |
+| 上游源码仓库 | [`iJetLi/deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)（**主仓**；GitHub 上的 [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) 是镜像，已同步到 `3c99183`） |
 | 代码对应 commit | `3c9918367baf7d26cc09528156c0afaf50849630` |
-| 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交） |
+| 版本号 | `0.2.1-rc.5`（上游 `package.json` 与本次构建同一次提交） |
 | 许可 | MIT，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](../vendor/LICENSE) |
 
-**为什么不用 npm 包**：npm 上最新的是 `2.35.261124`，它 `package.json` 里带的 `gitHead` 是 `a1bd1124d6a16ef50aa8a3b2ad99e39330beb215` —— 比仓库 `master` 的 `3c99183` **落后 6 个提交**，而且它的版本号体系（`2.x`）与仓库的 `0.2.1-rc.5` 不是一套，光看版本号无法确认对应哪个提交。本仓库要的是「能复核到某个 commit 的构建产物」，所以从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
+**为什么不用 npm 包**：npm 包 `dsh-providers-hub` 最新的是 `2.35.261124`，它 `package.json` 里带的 `gitHead` 是 `a1bd1124d6a16ef50aa8a3b2ad99e39330beb215` —— 比仓库 `master` 的 `3c99183` **落后 6 个提交**，而且它的版本号体系（`2.x`）与仓库的 `0.2.1-rc.5` 不是一套，光看版本号无法确认对应哪个提交。本仓库要的是「能复核到某个 commit 的构建产物」，所以从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
 
 > ⚠ 上游 `master` 自己 `tsc` 是红的（2026-11-24 实测 125 条 `TS2345`：`src/llm-adapter.ts` 的 `'QUOTA_EXCEEDED'`、`src/openai-compat.ts` 的 `'QUEUE'` 等**字面量失败码**不在 `@deepseek-ai/dsh-llm` 的 `BuiltinLlmFailureCode` 里，仓库里也没有 `.github/workflows` 做类型门禁）。`tsconfig.json` 没设 `noEmitOnError`（默认 `false`），所以 `tsc` 照样把 333 个 `.ts` 全量 emit 成 333 个 `.js` + 333 个 `.d.ts` —— **一个不少**。后面的 `copy-assets` / `client/build` / `sync-bootstrap-lib` 因此必须单独跑，不能靠 `npm install` 那条 `&&` 链。这是上游的欠账，不是本仓库的问题。
 

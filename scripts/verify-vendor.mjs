@@ -104,13 +104,13 @@ const EXPECT = { libFiles: 1334, identical: 1321, localeFiles: 2, maps: 666, map
  * | 0.27+ | 另外多一条 `@__PURE__` 注解 |
  *
  * ⇒ 直接比 sha256 会把 `lib/client/jet-hub.js` 报成「手改或污染」（实测：任何按
- * `docs/vendor.md` 取法 `npm install` 的人都拿到 1156 而不是 1157）。
+ * `docs/vendor.md` 取法 `npm install` 的人都拿到 1156 而不是 1157 —— 那是 2026-11-11 那次快照的数字，当前是 1320 / 1321）。
  *
  * ## ⚠️⚠️ 修法：归一化后仍要求**逐字节相等**，**不是**整份文件豁免
  *
  * 2026-11-10 一审实测：`BUILD_ARTIFACTS` 式的「白名单豁免」会把**真手改**一起吞掉
  * （改 1 个字符仍然 exit 0、还打印「无污染」）。正确做法是把这个变量名抹平成
- * `EXPORTS` **再比** —— 干净快照仍然算「一致」（文档 1157 成立），手改一位就红。
+ * `EXPORTS` **再比** —— 干净快照仍然算「一致」（2026-11-11 那次快照的文档 1157 成立；当前是 1321），手改一位就红。
  */
 const BUILD_ARTIFACTS = new Set(['client/jet-hub.js'])
 const normalizeExports = (buf) => buf.toString('latin1').replace(/\b(?:client|index)_exports\b/g, 'EXPORTS')

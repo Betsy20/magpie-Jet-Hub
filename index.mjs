@@ -11,9 +11,16 @@
  * （`PROVIDER_IDS` / `DSH_PROVIDERS` / `idOf`）都留在 `src/plugin.mjs` 里，
  * 需要时从那里 import。
  *
- * ⚠️ 只有 **29** 个工厂：`aggregate`（聚合路由）与 `jet-hub-auto`（自动选号）
+ * ⚠ 只有 **32** 个工厂 —— 上游 `vendor/lib/provider-registry.js` 的
+ * `PROVIDER_REGISTRY` 是 33 个 id，减掉 `aggregate`（聚合路由，`channel: false`）
+ * 剩 32 家真渠道；`jet-hub-auto`（自动选号）**从来不在 registry 里**，
+ * 它只在 `modelAdapters` 表里（`auto-adapter.js` 的 `AUTO_PROVIDER`），同样不注册。
  * 这两个路由组没有自己的账号池与模型目录，注册成 magpie provider 只会得到一张
  * 永远没账号、也永远选不了具体模型的空卡，所以不注册。
+ *
+ * ⚠ `channel: false` **不等于**路由组：`doubao`（豆包）也是 `channel: false`，
+ * 但它是真渠道（有模型目录、有 `modelAdapters` 条目），上游刻意留 `false` 是因为
+ * 豆包凭据是 cookie、没有 refresh 端点 / auth 服务。别拿 `channel` 反推家数。
  */
 import { PLUGINS, PROVIDER_IDS } from './src/plugin.mjs'
 

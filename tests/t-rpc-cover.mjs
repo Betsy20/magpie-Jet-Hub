@@ -497,8 +497,16 @@ const DROPPED = new Map([
   // 逐条写明为什么控制台不接。分三组，理由各不相同，别合并成一句「暂不支持」。
   //
   // 组一：会话级钩子 —— 控制台没有「会话」这个概念。
-  ...['getState', 'setEnabled', 'setArmed', 'fireNow', 'forget']
+  ...['setArmed', 'fireNow', 'forget']
     .map((m) => [`resume.${m}`, '限流自动续跑的会话钩子（按 sessionId 挂/摘、立刻投递、丢弃记录）：控制台是配置界面，没有会话上下文，也没有对话错误行可挂按钮；上游面板在对话报错行里自己调']),
+  // 组一之二：**全局**布尔开关 —— 不是会话钩子，理由与上面那组完全不同。
+  // `resume.setEnabled` 收的是 `{ enabled: boolean }`，转手调 `setRateLimitResumeEnabled()`
+  // 改「解禁后自动继续」的**全局默认值**；`resume.getState` 的 sessionId 是可选参数，
+  // 无参时正常返回 `{ enabled, available, hooks, recent }`。这两个**能接**（与已接的
+  // `loginPreferences.setEnabled` / `reasoningDefault.setEnabled` 完全同型），只是本轮没做设置项。
+  // 别把它们归进「sessionId 拿不到」—— 那会让人以为永远接不了。
+  ...['getState', 'setEnabled']
+    .map((m) => [`resume.${m}`, '限流自动续跑的**全局默认**开关（「解禁后自动继续」的默认值，不带 sessionId）：能接，只是本轮没做设置项，照着同型的 loginPreferences.getEnabled / reasoningDefault.getEnabled 加即可']),
   // 组二：登录回调提交 —— 控制台的登录链不走宿主那套 pendingManualCallbacks。
   ['account.submitCallback', '手动粘贴 OAuth 回调：控制台登录走插件自己的 oauth 链（account.beginLogin → login.poll），没有「宿主登记回调入口再转调」这一环'],
   ['login.submitCallback', '同上，是它的本地回调服务器版本：控制台的账号登录不用本地回调服务，也就没有状态码可转文案'],
