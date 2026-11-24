@@ -7,17 +7,19 @@
 | 项 | 值 |
 |---|---|
 | 上游源码仓库 | [`iJetLi/deepseek-harness-codearts`](https://gitee.com/iJetLi/deepseek-harness-codearts)（**主仓**；GitHub 上的 [`iJetLi/dsh-providers-hub`](https://github.com/iJetLi/dsh-providers-hub) 是镜像，落后在 `5042cec`） |
-| 代码对应 commit | `1d12f80e14bde6c73e86aa7f5eef6257d6fe0d0b` |
+| 代码对应 commit | `3c9918367baf7d26cc09528156c0afaf50849630` |
 | 版本号 | `0.2.1-rc.2`（上游 `package.json` 与本次构建同一次提交） |
 | 许可 | MIT，`Copyright (c) 2026 Jet` —— 全文见 [`vendor/LICENSE`](../vendor/LICENSE) |
 
-**为什么不用 npm 包**：npm 上的版本（最新 `2.21.261109`，`lib/` **1138** 个文件）落后于仓库 `master` 的 `1d12f80`（`lib/` **1170** 个）—— 少的 32 个正是 `marvis` + `marvis-*` 共 8 个模块各自的 `.js` / `.d.ts` / `.js.map` / `.d.ts.map`；两边都有的文件里 **79 个不同**，其中 13 个是本仓库的补丁（见下节），另外 **66 个**是上游在 npm 发布之后又往前走的部分。而本仓库要的是「渠道最全」的那一版。这一版是从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
+**为什么不用 npm 包**：npm 上最新的是 `2.35.261124`，它 `package.json` 里带的 `gitHead` 是 `a1bd1124d6a16ef50aa8a3b2ad99e39330beb215` —— 比仓库 `master` 的 `3c99183` **落后 6 个提交**，而且它的版本号体系（`2.x`）与仓库的 `0.2.1-rc.5` 不是一套，光看版本号无法确认对应哪个提交。本仓库要的是「能复核到某个 commit 的构建产物」，所以从源码 clone 下来 `npm install`（自动跑 `tsc -p tsconfig.json && node scripts/copy-assets.mjs && node plugin-src/client/build.mjs && node scripts/sync-bootstrap-lib.mjs`）构建出 `lib/`，再连同 `locale/` 拷进来；`package.json` 与 `LICENSE` 也取同一次提交的。
+
+> ⚠ 上游 `master` 自己 `tsc` 是红的（2026-11-24 实测 125 条 `TS2345`：`src/llm-adapter.ts` 的 `'QUOTA_EXCEEDED'`、`src/openai-compat.ts` 的 `'QUEUE'` 等**字面量失败码**不在 `@deepseek-ai/dsh-llm` 的 `BuiltinLlmFailureCode` 里，仓库里也没有 `.github/workflows` 做类型门禁）。`tsconfig.json` 没设 `noEmitOnError`（默认 `false`），所以 `tsc` 照样把 333 个 `.ts` 全量 emit 成 333 个 `.js` + 333 个 `.d.ts` —— **一个不少**。后面的 `copy-assets` / `client/build` / `sync-bootstrap-lib` 因此必须单独跑，不能靠 `npm install` 那条 `&&` 链。这是上游的欠账，不是本仓库的问题。
 
 取法（2026-11-10 实测：git clone 常断，走 Gitee 归档包 + npmmirror 装依赖更稳）：
 
 ```bash
 git clone https://gitee.com/iJetLi/deepseek-harness-codearts /tmp/up
-cd /tmp/up && git checkout 1d12f80 && rm -rf lib && npm install
+cd /tmp/up && git checkout 3c99183 && rm -rf lib && npm install
 cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 ```
 
@@ -39,7 +41,7 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ## 与上游构建产物的差异
 
-`lib/` 共 1170 个文件，其中 **1157 个与上游逐字节一致**（按下面「取法」自己 `git clone` + `npm install` 构建时）；`locale/` 2 个全部一致。⚠️ 若改成拿 **npm 包**来比（上游作者用 esbuild 0.25.x 构建），`lib/client/jet-hub.js` 会差 3 字节 —— 那时是「真逐字节 **1156** + 归一化 **1** = 一致 **1157**」，见下节。剩下 13 个（7 类改动；`lib/gemini-oauth.*`、`lib/backup.*`、`lib/baizhi-rpc.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的三处改动落在 `lib/magicrew-browser-login.js` + `.d.ts`（两类）、`lib/magicrew-local-browser.js` + `.d.ts`、`lib/leveldb-sstable.js` 上）：
+`lib/` 共 1334 个文件，其中 **1321 个与上游逐字节一致**（按下面「取法」自己 `git clone` + `npm install` 构建时）；`locale/` 2 个全部一致。⚠️ 若改成拿 **npm 包**来比（上游作者用别版 esbuild 构建），`lib/client/jet-hub.js` 会差 3 字节 —— 那时是「真逐字节 **1320** + 归一化 **1** = 一致 **1321**」，见下节。剩下 13 个（7 类改动；`lib/gemini-oauth.*`、`lib/backup.*`、`lib/baizhi-rpc.*` 各是一对 `.js` / `.d.ts`，`lib/jet-hub-rpc.js` 配 `lib/types.d.ts`；magicrew 的三处改动落在 `lib/magicrew-browser-login.js` + `.d.ts`（两类）、`lib/magicrew-local-browser.js` + `.d.ts`、`lib/leveldb-sstable.js` 上）：
 
 | 差异 | 原因 |
 |---|---|
@@ -67,9 +69,10 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 > ⇒ 装在服务器上时「贴 Key 能建号、但积分永远读不出来」。语义照抄 monkeycode：
 > 字段缺失 = 只读不写（回报 `hasSession`）、传空串 = 清除会话；写入是**合并**
 > （`{...previous}` 再覆盖 `session_cookie`），丢了 `access_token` 账号就再也发不出消息。
-> ⇒ **一致**基线从 **1159/1170** 变成 **1157/1170**（`.js` 与 `.d.ts` 各少一个）。
-> ⚠ 注意两个口径别混：按「取法」自己构建时「一致」= 真逐字节（1159 → **1157**）；
-> 拿 **npm 包**比时才分裂成「真逐字节 1158 → **1156** + 归一化 1」。
+> ⇒ 那时**一致**基线从 1159/1170 变成 **1157/1170**（`.js` 与 `.d.ts` 各少一个）。
+> **上面这两个数属于 2026-11-11 那次快照（1170 个文件）；当前快照已换成 1334 个文件、基线 1321。**
+> ⚠ 注意两个口径别混：按「取法」自己构建时「一致」= 真逐字节（当时 1159 → 1157）；
+> 拿 **npm 包**比时才分裂成「真逐字节 1158 → 1156 + 归一化 1」。
 
 > **已退役的一条**：本表原有一条「`lib/jet-hub-rpc.js` 的 `product.id` 判空守卫」。
 > 2026-11-04 同步到 `fddb875` 时上游自己修了（`1b03f33 fix(jet-hub): product 恒为
@@ -86,24 +89,24 @@ cp -r lib locale package.json LICENSE /path/to/magpie-Jet-Hub/vendor/
 
 ```bash
 git clone https://gitee.com/iJetLi/deepseek-harness-codearts /tmp/up2
-cd /tmp/up2 && git checkout 1d12f80 && rm -rf lib && npm install
+cd /tmp/up2 && git checkout 3c99183 && rm -rf lib && npm install
 cd /path/to/magpie-Jet-Hub && node scripts/verify-vendor.mjs /tmp/up2
 ```
 
 它做四件事，任何一条不符就退出码 1 并逐条点名：
 
-1. `lib/` 逐文件 sha256：**文件数 1170**、**一致 1157** 必须与上面那张表对得上
-   （⚠ 自己构建时这 1157 就是真逐字节；拿 **npm 包**比时是 1156 + 1 个靠归一化算一致。
+1. `lib/` 逐文件 sha256：**文件数 1334**、**一致 1321** 必须与上面那张表对得上
+   （⚠ 自己构建时这 1321 就是真逐字节；拿 **npm 包**比时是 1320 + 1 个靠归一化算一致。
    `lib/client/jet-hub.js` 由 esbuild 打包，`__export` 的变量名取入口 basename ——
    本仓 `package.json` 声明的 `esbuild ^0.24.0` 给 `client_exports`，而上游作者发 npm 包
    用的 0.25.x 给 `index_exports`，**差 3 字节**。这**不是**补丁也不是污染：脚本把这个
-   变量名抹平成 `EXPORTS` 再比，干净快照仍算「一致」（1157 成立）；**另外单独钉「两种
+   变量名抹平成 `EXPORTS` 再比，干净快照仍算「一致」（1321 成立）；**另外单独钉「两种
    拼写恰有一个出现 3 次、另一个 0 次」** —— 混合拼写（3 处里改 1 处）归一化后仍相等，
    而那是 `ReferenceError`（插件完全无法加载），2026-11-10 对抗审查 P1-1）；
 2. 差异集合必须**恰好等于**补丁表那 13 个文件 —— 少一个 = 补丁被同步覆盖（静默故障），
    多一个 = 快照被别的动作污染过。**每个补丁文件还核 sha256 指纹**（`PATCH_SHA256`），
    所以「补丁文件被人手改」也抓得到 —— 有意改补丁时跑 `--print-hashes` 更新那 13 行；
-3. `lib/*.map` **584 个 / 4.00 MiB**、`locale/` 2 个逐字节一致（两个数都是断言，不是只打印）；
+3. `lib/*.map` **666 个 / 4.61 MiB**、`locale/` 2 个逐字节一致（两个数都是断言，不是只打印）；
 4. `vendor/package.json` 的版本号与上游同一次提交一致（并打出依赖树，换机漏依赖就
    表现成「控制台打不开」）。
 
@@ -119,14 +122,14 @@ diff /tmp/up2/a.txt /tmp/up2/b.txt
 
 注意：`diff` 应该**只**列出上表那 13 个文件；拿 **npm 包**比会多列出 `lib/client/jet-hub.js`（esbuild 产物，随工具链版本漂移，见上）。多出任何一个都说明快照被别的动作污染过。
 
-`vendor/` 里有 584 个 `.map`（source map，约 4.00 MiB）运行时用不到，留着是为了与上游构建产物尽量逐字节一致、方便 diff 校验。要在意仓库体积可以删，不影响运行。
+`vendor/` 里有 666 个 `.map`（source map，约 4.61 MiB）运行时用不到，留着是为了与上游构建产物尽量逐字节一致、方便 diff 校验。要在意仓库体积可以删，不影响运行。
 
 ⚠️ **`lib/types.d.ts.map` 是有意保持上游原样的（2026-11-08 决策，不是漏改）。** `types.d.ts`
 打了 `closeProvider` 补丁（多 8 行）而 `.map` 没重生成，于是编辑器里 `types.d.ts` 的跳转
 行号在补丁点之后偏 8 行（同理，`lib/magicrew-local-browser.d.ts` 也改了、`.d.ts.map` 同样没重生成 —— 理由完全相同）。不重生成的三条理由：① 运行时用不到（上一条）；② 它没有
 `sourcesContent` 字段，重生成必须拿上游 `src/types.ts` 重跑 `tsc` —— 本仓库做不到，而手改
 `mappings` 的 VLQ 编码一旦改错只会让跳转更乱，且**没有任何测试能发现**；③ 保持逐字节一致
-才能让上面那条 `diff` 校验维持「**1157 个一致**」这个可复核的基线（1170 − 13 补丁；拿 npm 包比时 `diff -r` 会多列 1 个 `client/jet-hub.js`，脚本归一化后仍是 1157）。这个偏差
+才能让上面那条 `diff` 校验维持「**1321 个一致**」这个可复核的基线（1334 − 13 补丁；拿 npm 包比时 `diff -r` 会多列 1 个 `client/jet-hub.js`，脚本归一化后仍是 1321）。这个偏差
 **只影响 `types.d.ts`、`magicrew-local-browser.d.ts` 与 `magicrew-browser-login.d.ts` 三个文件的编辑器跳转**（后两者同样只有
 `.d.ts` 改了、`.d.ts.map` 没重生成 —— 经 `grep -c sourcesContent` 确认两份 `.map` 都没有
 `sourcesContent`，② 那条理由对它逐字成立），不影响编译或运行时行为（本仓库不编译类型

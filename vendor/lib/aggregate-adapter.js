@@ -30,13 +30,14 @@
 // capability 判据**同一函数**（它含 tool-result 递归），自己写一遍必然漂移。
 import { LlmAdapter, LlmError, ProviderRequestId, ReasoningEffortId, contentHasImage } from '@deepseek-ai/dsh-llm';
 import { buildVirtualModels } from './aggregate-catalog.js';
+import { bindAggregateDispatch } from './aggregate-dispatch-context.js';
 // ⚠️ `NEVER` / `UNUSABLE` **必须**从这里导入（Task 3 的共享底座）。它们从不在
 // `auto-adapter.ts` 里 `export` —— 从那里导入会编译失败（Task 3 复审已确认）。
 // ⚠️ `ExpiryProbe` 也在这里：它是**纯类型**，而 `aggregate-expiry.ts`（探针实现）
 // 与 `auto-adapter.ts` 都要引用它 ⇒ 放底座才能让两者都依赖底座而**不互相依赖**。
 // ⚠️ `resolveCandidateGate` / `CandidateGate` 也在这里：三态判据**只留这一份实现**
 //（面板渲染、选型报价、建池过滤都读它的结果，客户端读宿主下发的 `state`）。
-import { NEVER, UNUSABLE, rankCandidates, resolveCandidateGate, } from './aggregate-core.js';
+import { NEVER, UNUSABLE, pickDiversified, rankCandidates, resolveCandidateGate, } from './aggregate-core.js';
 import { CANONICAL_REASONING_EFFORTS, translateReasoningEffort } from './reasoning-ladder.js';
 import { registerAdapterIdempotent } from './llm-register-compat.js';
 // ⚠️ 目录落地的**广播**也只留一份实现（`catalog-broadcast.ts`）：12 家适配器都由
@@ -1170,6 +1171,15 @@ export class AggregateAdapter extends LlmAdapter {
         // 永远不可见（**静默**）。它是 `x-api-key: sk-…` 的按量付费网关，
         // 与 MonkeyCode 两站的 oma_ 凭据/每日额度完全无关，只是同源上游。
         'baizhi',
+        // ⚠️ AgnesCode（两站，2026-11-19）：`channel: true` ⇒ 必须进本清单，否则
+        //    它的模型**永不进聚合、静默不可见**。
+        //    ⚠️⚠️ 本数组只是**第一道门**；决定候选表可见性的是
+        //    `aggregate-expiry.ts` 的 `WIRED_EXPIRY_PROVIDERS` —— 两站都已登记
+        //    （`agnescodeExpiry`：有余额即 `NEVER`、烧光即 `UNUSABLE`，因为订阅池
+        //    只给两个标量桶、没有任何逐笔日期）。
+        //    该陷阱（只改本数组、忘了那张表 ⇒ 候选层被静默剔掉）已复发 7 次。
+        'agnescode',
+        'agnescodeintl',
         // officeace（2026-10-12）：华为 MaaS 云端直连渠道，`channel: true`
         // ⇒ 必须进聚合目录，否则它的模型**永不进聚合、静默不可见**。
         // ⚠️ 本数组**只是第一道门**（模型层归并）。真正决定「在不在候选表里」的是
@@ -1335,10 +1345,13 @@ export class AggregateAdapter extends LlmAdapter {
              * 未命中就不声明（与「未知」同义，不猜）。
              */
             const contextWindow = this.cachedContextWindowOf(model.key);
+            // ★ issue #100：倍率走 `badge`，`name` 只承担模型身份（维护者拍板的那一条）。
+            const badge = this.pickerBadgeOf(model);
             const entry = {
                 provider,
                 id: model.key,
-                name: this.pickerNameOf(model),
+                name: this.nameOf(model),
+                ...(badge === undefined ? {} : { badge }),
                 inputModalities: ['text', 'image'],
                 ...contextWindow === undefined ? {} : { contextWindow },
             };
@@ -1491,7 +1504,7 @@ export class AggregateAdapter extends LlmAdapter {
     listAllModels() {
         return [
             { id: AGGREGATE_AUTO_MODEL, name: this.autoModelInfo().name },
-            ...this.catalog.map((model) => ({ id: model.key, name: this.pickerNameOf(model) })),
+            ...this.catalog.map((model) => ({ id: model.key, name: this.nameOf(model) })),
         ];
     }
     /** `auto` 的元数据。 */
@@ -1628,7 +1641,24 @@ export class AggregateAdapter extends LlmAdapter {
      * ⚠️ 只用于 `listModels` / `listAllModels`（选择器与设置页「显示列表」）。
      * **不得**用于 `resolveModel` / `describeCatalog` —— 见 {@link nameOf} 的注释。
      */
-    pickerNameOf(model) {
+    /**
+     * 虚拟模型在选择器里的**倍率徽标**（issue #100，维护者拍板的那一条）。
+     *
+     * ## 为什么倍率从 `name` 挪到 `badge`
+     *
+     * 原实现把倍率拼进展示名（`GLM-5.3 · 最低 x0.045`），维护者在 issue #100 里
+     * 逐字写「**这是本提案里最该做的一条**」：模型名应当只承担**身份**，倍率是
+     * 另一维信息 —— 拼在一起既让名字不可选（用户搜不到纯模型名），又让同一模型
+     * 在不同渠道组合下改名。
+     *
+     * ⚠️ 但**不能**直接把倍率丢掉（维护者同句：「去掉之后要另开一条通路显示倍率，
+     * 否则是信息丢失」）⇒ 走宿主 `LlmModelInfo.badge`（`dsh-llm` 0.2.2 起的通道，
+     * 本仓 `agnescode-product.ts` 也记过「选择器只有 description / badge 两条通道」）。
+     *
+     * ⚠️ 措辞**必须带「最低」**：见下面 `best` 的判据注释 —— 它是**下界**，
+     * 不是「本次就用这个价」。这条语义原本锁在用例里，现在锁在 badge 上。
+     */
+    pickerBadgeOf(model) {
         // ⚠️ 降级集合**算一次**（`rejectedFor` 含 D4 的 id 漂移降级，逐候选重算纯属浪费）。
         const rejected = this.rejectedFor(model);
         const prices = model.candidates
@@ -1638,7 +1668,7 @@ export class AggregateAdapter extends LlmAdapter {
             //    未接入候选**真的会参与**（赋 `NEVER`），它的价格该算进去。
             //
             // ⚠️ 若这里保留「已接入」判据：用户手工打开一个更便宜的未接入候选后，选择器里的
-            //    「· 最低 x0.03」会**说谎** —— 正是本方法头警告的那类误导。
+            //    「最低 x0.03」会**说谎** —— 正是本方法头警告的那类误导。
             //
             // ⚠️ `gateOf` 是同步、零网络的（只读注入的三张表）⇒ 本方法「同步 + 零网络」的
             //    契约不变（`listModels` / `listAllModels` 的渲染路径不能打网络）。
@@ -1646,10 +1676,10 @@ export class AggregateAdapter extends LlmAdapter {
             .map((candidate) => candidate.price)
             .filter((price) => Number.isFinite(price));
         if (prices.length === 0)
-            return model.name;
+            return undefined;
         const best = Math.min(...prices);
         // ⚠️ 「最低」二字不可省：见方法头那段实测 —— 省掉会让用户以为本次就用这个价。
-        return `${model.name} · 最低 ${best === 0 ? '免费' : `x${best}`}`;
+        return { text: `最低 ${best === 0 ? '免费' : `x${best}`}`, tone: 'neutral' };
     }
     /**
      * 解析一个虚拟模型 —— **目录已有就用它；目录为空时立刻回保守元数据、绝不等待**。
@@ -2111,9 +2141,19 @@ export class AggregateAdapter extends LlmAdapter {
         // ⚠️ `Promise.all` 而非 `allSettled`：中止（`AbortError`）必须原样逃逸
         //（与 `contextWindowFor` 同口径）；非中止的失败已被 `capabilityOf` 折算成
         // `resolved: false` 的保守值，不会让 `Promise.all` reject。
-        // ⚠️ **保序**：`Promise.all` 的结果与输入同序 ⇒ `targets` 的顺序仍是
-        // `rankCandidates` 给出的临期序（派发顺序是这个适配器的核心语义，绝不能乱）。
-        const picked = ranked.slice(0, limit);
+        // ⚠️ **轮内保序**：`Promise.all` 的结果与输入同序 ⇒ `targets` 在**每一轮内**都是
+        //   `rankCandidates` 给出的临期序（派发顺序是这个适配器的核心语义，绝不能乱）。
+        //   ⚠️ 但 `auto` 分支整体**不再是**临期序的子序列：`pickDiversified` 会把同渠道的
+        //   第 3 个及以后推迟到别家候选之后 ⇒ 依赖「`targets[0]` 就是临期最早」的逻辑
+        //   只在非 `auto` 上成立（`auto` 上只保证「第一家」是临期最早的）。
+        // ⚠️ `auto` 的池是所有渠道的所有模型：直接 `slice` 会让同一渠道占满名额（2026-11-14
+        //   生产故障：前 9 名全是 qoder，账号整体排队时 9 次切换全在 qoder 内部打转）。
+        //   ⇒ 第一轮每家最多 2 个、再按原序补齐（见 `pickDiversified`）。
+        //   ⚠️ 具名虚拟模型保持 `slice` 的原因**不是**「每家一个」——
+        //   `src/aggregate-catalog.ts` 的 `buildVirtualModels` 明文保留同渠道的重复候选；
+        //   真正的原因是**候选数本来就不超过名额**（`limit = maxAttemptsFor(catalog)` 是
+        //   「最长候选表的长度」）⇒ `slice` 一个都不截断，两条分支逐字节等价。
+        const picked = model === AGGREGATE_AUTO_MODEL ? pickDiversified(ranked, limit) : ranked.slice(0, limit);
         const capabilities = await Promise.all(picked.map((candidate) => this.capabilityOf(candidate.provider, candidate.realId, signal)));
         const targets = picked.map((candidate, index) => {
             const capability = capabilities[index];
@@ -2496,8 +2536,9 @@ export class AggregateAdapter extends LlmAdapter {
         // ⚠️⚠️ **必须先去重 + 封顶，再并发**（2026-10-20 独立审计实测的放大面）：
         //
         // `auto` 的候选表是 `autoCandidates()` = **全池去重**（实测 1–2 百条），而
-        // `candidatesFor` 那条路径有 `ranked.slice(0, limit)`（`maxAttemptsFor`，实测 14）
-        // 封顶。本方法原先**没有任何封顶** ⇒ 一次 `auto` 的窗口推导会同时发起全池
+        // 派发路径（`dispatch()` 里的 `picked`）本来就封顶到 `maxAttemptsFor`（实测 14；
+        // `auto` 走 `pickDiversified`、具名模型走 `slice`，两者都不超过该值）。
+        // 本方法原先**没有任何封顶** ⇒ 一次 `auto` 的窗口推导会同时发起全池
         // 条 `resolveModelInfo`；再叠加宿主 `buildModelCatalog` 对**每个模型**的并行
         // 调用 ⇒ 实测峰值在飞 **364**（14 渠道 × 13 模型）、只解析 `auto` 时 **182**。
         //
@@ -2623,6 +2664,7 @@ export class AggregateAdapter extends LlmAdapter {
                 const target = targets[index];
                 // 该候选是否已经产出过内容（决定失败时能否安全切换，见上方长注释）。
                 let emitted = false;
+                let pendingUsage;
                 /**
                  * 本候选「已产出可见内容 ⇒ 待定记录」的渠道（`undefined` = 没产出过内容）。
                  *
@@ -2631,7 +2673,30 @@ export class AggregateAdapter extends LlmAdapter {
                  */
                 let pendingProvider;
                 try {
-                    for await (const chunk of self.streamThrough(target, options)) {
+                    // ⚠️ 派发必须带上「聚合调用」标记（见 `aggregate-dispatch-context.ts`）：
+                    //    渠道据此把「暂时排队」改判为「本候选失败」，让这里能切到下一个候选，
+                    //    而不是被 qoder 的排队等待锁死（2026-11-14 生产故障）。
+                    //
+                    // ⚠️⚠️ **但只在「还有下一个候选」时才挂标记**（真实回归，对抗审计 + 独立
+                    //    复现双双实测）：挂上标记后渠道把排队判成本候选失败，而失败后的切换
+                    //    条件是 `index + 1 < targets.length` —— 本候选是**最后一个**时无处可切，
+                    //    于是**本可恢复的排队被翻成硬失败**。
+                    //
+                    //    实测（`tests/unit/aggregate-qoder-single-candidate.spec.ts`）：单候选
+                    //    虚拟模型 + 上游排队两次后第 3 次恢复 ⇒ 不挂标记时拿到 `ok`（等了 2 次），
+                    //    挂标记时立刻 `code=QUEUE` 失败。单候选是**常态**而非边缘情况 ——
+                    //    `buildVirtualModels()`（`src/aggregate-catalog.ts`）不按 `candidates >= 2`
+                    //    过滤，任何渠道**独有**的模型（如 qoder 的 `ultimate`、`performance`）
+                    //    在聚合里都只有一个候选。
+                    //
+                    //    最后一个候选没有退路，「等」总比「死」好；用户显式设
+                    //    `DSH_QODER_QUEUE_WAIT_MODE=fast` 时仍会立即失败 —— 那是用户的选择，
+                    //    由 `resolveQueueWaitMode()` 负责，与本标记无关。
+                    const hasNextCandidate = index + 1 < targets.length;
+                    const stream = hasNextCandidate
+                        ? bindAggregateDispatch(() => self.streamThrough(target, options))
+                        : self.streamThrough(target, options);
+                    for await (const chunk of stream) {
                         // ⚠️⚠️ **必须在置 `emitted` 之前**判这个失败帧（顺序是语义性的）。
                         //
                         // 为什么需要这一段：`streamThrough` 走的是**嵌套公共入口**
@@ -2762,8 +2827,16 @@ export class AggregateAdapter extends LlmAdapter {
                         if (chunk.type === 'block-start') {
                             openedBlocks.set(chunk.index, chunk.blockType);
                         }
+                        if (!emitted && chunk.type === 'usage') {
+                            pendingUsage = chunk;
+                            continue;
+                        }
                         if (isVisibleContent(chunk)) {
                             emitted = true;
+                            if (pendingUsage !== undefined) {
+                                yield pendingUsage;
+                                pendingUsage = undefined;
+                            }
                             // ⚠️ **先记「待定」渠道，不立刻写进 Map**（真实缺陷，对抗审计实测证伪）。
                             //
                             // 规格 §6.3 P3 的原文是「**只在成功时写** —— 写失败候选会让徽标指向一个
@@ -2777,6 +2850,8 @@ export class AggregateAdapter extends LlmAdapter {
                         }
                         yield chunk;
                     }
+                    if (pendingUsage !== undefined)
+                        yield pendingUsage;
                     // ⚠️ 走到这里 = 该候选的流**正常结束**（没有抛错、没有失败帧）⇒ 提交「实际选中」。
                     if (pendingProvider !== undefined) {
                         // ⚠️ 是**实际发往**的 `target.provider`，不是候选序第一个（带图改道时可能不同）。

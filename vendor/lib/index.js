@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { codeartsImagePart, codeartsVisionModel, registerCodeArtsLlm, PROVIDER as CODEARTS_PROVIDER } from './llm-adapter.js';
 // ⚠️ `analyzeImage`：让纯文本模型也能看图（2026-10-21）。模块头有完整判据链。
 import { installAnalyzeImage } from './analyze-image.js';
-import { startCatalogPrewarm } from './catalog-prewarm.js';
+import { selectPrewarmProviders, startCatalogPrewarm } from './catalog-prewarm.js';
 import { broadcastCatalogChanged } from './catalog-broadcast.js';
 import { registerBuddyLlm } from './buddy-adapter.js';
 import { registerLobsteraiLlm } from './lobsterai-adapter.js';
@@ -36,6 +36,7 @@ import { ZCODE_CAPTCHA_FALLBACK } from './zcode-captcha.js';
 import { AccountPool, allAccountsRateLimitedForModel } from './account-pool.js';
 import { geminiFetchForAccount, setGeminiProxyPool } from './gemini-proxy.js';
 import { qoderFetchForAccount, setQoderProxyPool } from './qoder-proxy.js';
+import { qoderTrafficGuardEnabled } from './qoder-traffic-guard.js';
 import { foldReasonErrors } from './locked-error-text.js';
 import { MultiAccountRefreshScheduler } from './refresh-scheduler.js';
 import { hasLegacyNamespaceRegistration, settingsOf, suppressAutoSettingsPage } from './settings-compat.js';
@@ -44,10 +45,11 @@ import { buildRaccoonNickname, registerJetHubRpc } from './jet-hub-rpc.js';
 import { ALL_PRODUCTS, CODEBUDDY, WORKBUDDY } from './product.js';
 import { mountOpenAiGateway } from './openai-gateway/index.js';
 import { installLoopResume } from './loop-recovery.js';
+import { installRateLimitResume } from './rate-limit-resume.js';
 import { installWebNative } from './web-native.js';
 import { attachTokenLedgerStore, reportLedgerAccount, } from './token-ledger.js';
 import { createTokenLedgerStore } from './token-ledger-store.js';
-import { buddyExpiringWindowDays } from './buddy-balance-rank.js';
+import { resolveCreditWindow, safeCreditWindowReader } from './credit-window.js';
 import { BuddyBalanceSelector } from './buddy-balance-selector.js';
 import { createCredentialResolver, NO_FREE_MODEL } from './credential-resolver.js';
 import { LOBSTERAI } from './lobsterai-product.js';
@@ -55,6 +57,9 @@ import { QODER, QODER_CN } from './qoder-product.js';
 import { TRAE } from './trae-product.js';
 import { CLINE } from './cline-product.js';
 import { configureDeadModelStore, withDeadModelPruning } from './dead-model-store.js';
+import { configureStrongestReasoningEnabled } from './reasoning-default.js';
+import { createReasoningPreferenceStore } from './reasoning-preferences.js';
+import { configureAutoOpenBrowserEnabled, createLoginPreferenceStore } from './login-preferences.js';
 // 「锁定永久积分」的余额分档需要各家的余额查询函数：分档判据
 // （`splitBuddyCreditsByExpiry`）只读通用的 `packages[].{active, remaining,
 // deductionEndTime}`，故把各家的 fetch 指给同一个选择器即可（见各自接线处）。
@@ -173,11 +178,13 @@ import { ModelscopeAdapter, registerModelscopeLlm } from './modelscope-adapter.j
 import { MODELSCOPE } from './modelscope-product.js';
 import { modelscopeModelsUrl, modelscopeHeaders } from './modelscope.js';
 // 腾讯 Marvis（2026-11-09）。OpenAI 兼容 + OAuth 授权码（QQ / 微信），
-// 目录**只有** `main-auto` 一条（上游无目录端点），余额与推理同一个 host。
+// 目录**只有**一条（上行槽位 `deepseek-v4-pro-external`；上游无目录端点），
+// 余额与推理同一个 host。
 // 见 `src/marvis-product.ts` / `src/marvis-adapter.ts` 模块头。
 import { MarvisAuth } from './marvis-auth.js';
 import { MarvisAdapter, registerMarvisLlm } from './marvis-adapter.js';
 import { MARVIS } from './marvis-product.js';
+import { orderMarvisSlots } from './marvis-slots.js';
 import { parseMarvisCredential } from './marvis.js';
 // ⚠️ **本 fork 独有**的 provider（上游 rc.11 仍无 qiniu）。七牛云 AI 与 modelscope
 // **同格**：OpenAI 兼容 + 长期有效的静态 API Key（无 refresh、无余额端点），
@@ -195,6 +202,8 @@ import { qiniuModelsUrl, qiniuHeaders } from './qiniu.js';
 // 失败回退内置表），网关**没有列出接口**（405）⇒ 用 `MONKEYCODE_GATEWAY_MODELS`。
 import { MonkeycodeAuth } from './monkeycode-auth.js';
 import { MonkeycodeAdapter, registerMonkeycodeLlm } from './monkeycode-adapter.js';
+// 豆包（doubao，2026-11-22）：网页端私有协议适配器（额度/模型目录/对话）。
+import { registerDoubaoLlm } from './doubao-adapter.js';
 import { MONKEYCODE, MONKEYCODE_INTL } from './monkeycode-product.js';
 // 百智云（`baizhi`，2026-11-02）：凭据是长期静态 `sk-…`（实测 67 位），**主路径**
 // 是浏览器登录后从「大模型商店」取
@@ -205,6 +214,14 @@ import { MONKEYCODE, MONKEYCODE_INTL } from './monkeycode-product.js';
 import { BaizhiAuth } from './baizhi-auth.js';
 import { BaizhiAdapter, registerBaizhiLlm } from './baizhi-adapter.js';
 import { BAIZHI } from './baizhi-product.js';
+// ⚠️ AgnesCode（`agnescode` / `agnescodeintl`，2026-11-19）：**本 fork 独有**。
+//    与 MonkeyCode 的**本质不同**：凭据不是可粘贴的 API Key，而是桌面客户端
+//    `AgnesCode` 的本机会话（Chromium os_crypt + DPAPI）⇒ 账号入口是「导入
+//    本机登录态」，且 `bffPublicBaseUrl` 是**每账号数据**（绝不硬编码）。
+import { AgnescodeAuth } from './agnescode-auth.js';
+import { AgnescodeAdapter, registerAgnescodeLlm } from './agnescode-adapter.js';
+import { AGNESCODE, AGNESCODE_INTL } from './agnescode-product.js';
+import { agnescodeSessionExpired, parseAgnescodeCredential, trustAgnescodeBffBase } from './agnescode.js';
 import { GEMINI_DEFAULT_PROJECT, GEMINI_SESSION_LANE_SMOKE } from './gemini.js';
 import { createProviderCredits, creditsOf } from './provider-credits.js';
 import { createProviderOnboarding, onboardingOf } from './provider-onboarding.js';
@@ -234,10 +251,14 @@ import { createExpiryProbe } from './aggregate-expiry.js';
 // ⚠️ 共享余额读数缓存（2026-10-15，规格 §5.7）：装配层建**一个**实例，
 //    `credits.balances` 端点与 buddy 系四家的折算共用它（见下面 `balanceCache` 的长注释）。
 import { createBalanceCache, createBalanceRefresher, REFRESH_PERIOD_FALLBACK_MS } from './balance-cache.js';
+// ★ 余额读数的磁盘缓存（SWR 的写盘调度）：三个写盘时机见下方接线处。
+import { forgetSubagentParent, rememberSubagentParent } from './subagent-rotation.js';
+import { BALANCE_DISK_FLUSH_INTERVAL_MS, flushDisk as flushBalanceDisk, primeFromDisk as primeBalanceDiskCache } from './balance-disk-cache.js';
 // ⚠️ 模型目录的后台刷新器（用户 2026-10-18 要求：20 分钟定时更新）。
 //    与余额刷新器**共用同一套骨架**（武装 + 单飞 + 幂等），但**不复用实例** ——
 //    余额缓存 key 是 `(provider, accountId)`、目录的 key 是 provider，语义不同。
 import { createCatalogRefresher } from './model-catalog.js';
+import { createPromotionEdgeBroadcaster } from './promotion-edge-broadcast.js';
 // ⚠️ 中止判据复用适配器的**共享实现**（`aggregate-adapter.ts` 的 `isAbortLike`）：
 //    本仓库已有 4 份同义实现，装配层不该再添第五份。
 import { isAbortLike as isAbortLikeError } from './aggregate-adapter.js';
@@ -594,6 +615,36 @@ async function autoclawSelfHeal(pool, ctx) {
  * ⚠️ 一致性与「漏一家」由 `tests/unit/provider-runtime-wiring.spec.ts` 的 probe
  * 域守卫从硬编码清单 + {@link PROBE_EXEMPT} 派生锁死（漏挂会让它**点名**变红）。
  */
+/**
+ * 探测路径的槽（AgnesCode）。
+ *
+ * ⚠️ 与其它 provider 的差别：本家的凭据不是「一个 key」，而是
+ * `{access_token, bff_base, …}` —— 而且 `bff_base` 决定请求**发去哪**
+ * （每账号下发）。故必须：
+ *   1. 解析一次（解析不出来就抛错，让「重测」显示**原因**而不是笼统的
+ *      「目录为空」）；
+ *   2. 用 `trustAgnescodeBffBase` 再钉一次域名边界 —— 探测路径的凭据来自
+ *      面板输入，可能被手改；把 `Authorization` 发到任意域名是凭据外泄。
+ *
+ * 抛错会被 `listModels` 的调用方（probe）接住并展示，不会静默。
+ */
+function probeSlotOf(product, credential) {
+    const text = typeof credential === 'string' ? credential : JSON.stringify(credential ?? {});
+    const parsed = parseAgnescodeCredential(text, product);
+    if (parsed === undefined)
+        throw new Error('凭据不是合法的 AgnesCode 会话（缺少 access_token / bff_base）');
+    if (!trustAgnescodeBffBase(parsed.bff_base)) {
+        throw new Error(`bff_base 不在 Agnes 域名边界内，拒绝发送凭据：${parsed.bff_base}`);
+    }
+    // ⚠️ 过期预检（只在这一条探测路径上）：会话过期时三个端点都回 401，而目录端点
+    //    把 401 吞成空数组 ⇒ 用户点「重测」只会看到「没有模型」这种**答非所问**的
+    //    结论。有效期是本地就能判的确定信息，用它换一句可读的下一步动作。
+    //    未知有效期（非 JWT / 解析失败）**不**拦 —— 那类只能靠真请求验。
+    if (agnescodeSessionExpired(parsed)) {
+        throw new Error(`本机 ${product.displayName} 会话已过期 ⇒ 请在本机重新登录桌面客户端后重新导入`);
+    }
+    return { accountId: product.id, credential: parsed };
+}
 export const probeById = {
     // CodeBuddy 系（buddy / workbuddy）→ BuddyAdapter，按各自 product 发请求。
     buddy: {
@@ -638,24 +689,26 @@ export const probeById = {
         //    的取号权威本来就是那个回调（推理通道按 `activeAccountId` 现取、原生
         //    搜索也走它），为探测再造一个 override 字段会让两条路分叉。
         //    探测只有这一个账号 ⇒ 回调恒返回它，与生产语义一致。
-        createProbeAdapter: (ref, credential, entry) => new QoderAdapter({
+        createProbeAdapter: (ref, credential, entry, options) => new QoderAdapter({
             credentialRef: credentialRef(ref),
             resolveCredential: async () => credential,
             refresh: async () => { },
             product: QODER,
             fetchFor: qoderFetchForAccount,
             currentAccountId: () => entry?.id ?? '',
+            trafficGuardEnabled: () => options?.qoderTrafficGuardEnabled ?? qoderTrafficGuardEnabled(),
         }),
     },
     qodercn: {
         // 同上：两站共用同一个适配器类，只换 product。
-        createProbeAdapter: (ref, credential, entry) => new QoderAdapter({
+        createProbeAdapter: (ref, credential, entry, options) => new QoderAdapter({
             credentialRef: credentialRef(ref),
             resolveCredential: async () => credential,
             refresh: async () => { },
             product: QODER_CN,
             fetchFor: qoderFetchForAccount,
             currentAccountId: () => entry?.id ?? '',
+            trafficGuardEnabled: () => options?.qoderTrafficGuardEnabled ?? qoderTrafficGuardEnabled(),
         }),
     },
     // Cline → WorkOS 凭据 + 自己的端点。
@@ -724,6 +777,26 @@ export const probeById = {
                     credential: credential,
                 }],
             product: MONKEYCODE_INTL,
+        }),
+    },
+    // AgnesCode 国内站（`agnescode`）。探测 = 用它自己的目录端点
+    // `GET {apiRoot}/v2/models` 打一次（**不消耗额度**，也不发推理请求）——
+    // 这是本家唯一「只读且能证明 Access Token 有效」的端点。
+    //
+    // ⚠️ 必须**单独一条**：`probeById` 是按 provider id 取工厂的，漏了它 ⇒
+    //    账号卡片的「重测」按钮点了没反应（查不到就回「不支持探测」，全程静默）。
+    agnescode: {
+        createProbeAdapter: (ref, credential) => new AgnescodeAdapter({
+            product: AGNESCODE,
+            slots: async () => [probeSlotOf(AGNESCODE, credential)],
+        }),
+    },
+    // 国际站（`agnescodeintl`）—— 与国内站逐行同构，只差 `product`。
+    // ⚠️ 同样必须单独一条（理由逐字同上）。
+    agnescodeintl: {
+        createProbeAdapter: (ref, credential) => new AgnescodeAdapter({
+            product: AGNESCODE_INTL,
+            slots: async () => [probeSlotOf(AGNESCODE_INTL, credential)],
         }),
     },
     // 百智云（`baizhi`）—— 静态 `sk-` Key 直连，无平台登录态、无每日额度。
@@ -1188,6 +1261,30 @@ export function apply(ctx) {
     // 解析。必须在任何 `registerXxxLlm` 之前调用 —— 各适配器经
     // `registerAdapterIdempotent` 注册时就会包装上剔除逻辑（见该函数注释）。
     configureDeadModelStore(ctx);
+    /**
+     * 「默认取最强思考档」开关（2026-11-11 用户功能，见 `reasoning-default.ts`）。
+     *
+     * ⚠️ **必须在这里接线，且早于任何 `registerXxxLlm`**：偏好是**每次请求现读**
+     * 的（回调形式），接线本身只是一次赋值，但放在注册之前能让「启动瞬间就有
+     * 模型请求」（标题生成等）也读到正确值。
+     *
+     * ⚠️ 偏好读的是 `ctx.logger` 与同一份 home 解析 —— 与账号池 / 徽标偏好
+     * 共用 `resolveJetHubHome`，几份文档永远落在同一目录。
+     */
+    const reasoningPreferences = createReasoningPreferenceStore(ctx);
+    configureStrongestReasoningEnabled(() => reasoningPreferences.load());
+    /**
+     * 「新建账号时自动打开浏览器授权页」开关（2026-11-23）。
+     *
+     * ⚠️ 与上面那条**同一个范式**：偏好是**每次现读**的（回调形式），接在这里
+     * 让宿主闸门（`login.ts` 的 `openBrowser` / `openIncognitoWindow`、
+     * raccoon 授权页）从启动那一刻就拿到正确值。
+     *
+     * ⚠️ 与 `jet-hub-rpc.ts` 里那条不是同一个实例，但读写**同一个文件**、缓存
+     * 按路径共享 ⇒ 设置页写完立刻生效（见 `login-preferences.ts` 的模块头）。
+     */
+    const loginPreferences = createLoginPreferenceStore(ctx);
+    configureAutoOpenBrowserEnabled(() => loginPreferences.load());
     // ===== Token 账本持久化（第 2 期 · 日聚合落盘）=====
     //
     // ⚠️ 账本本体是模块级单例（`token-ledger.ts`），没有 ctx 可拿 —— 故在启动时
@@ -1237,7 +1334,7 @@ export function apply(ctx) {
     // 与 buddy / workbuddy / lobsterai / qoder / trae 的既有做法一致。
     const codearts = registerCodeArtsLlm(ctx, {
         credentialRef: credentialRef(CODEARTS_CREDENTIAL_REF),
-        resolveCredential: async () => {
+        resolveCredential: async (modelId, sessionId) => {
             // CodeArts **只认账号池**，与其余五个 provider 一致。
             //
             // ⚠️ 早期它额外支持「单凭据模式」（`CODEARTS_ACCESS_TOKEN`）：登录后把凭据
@@ -1247,7 +1344,18 @@ export function apply(ctx) {
             //
             // 这里仍保留 `credentialRef` 选项，仅为满足适配器契约与报错文案
             // （其余 provider 同样传各自的默认 ref，但都不再作为回退来源）。
-            const available = await pool.getAvailableAccount('codearts', '');
+            // ⚠️⚠️ 「轮换起点」必须在这里解析成具体账号 id（PR #59 正向审计 P1-b）：
+            // codearts 原先**完全不认起点** —— 面板渲染下拉框、`account.setRotation`
+            // 落盘与回读都成功，但选号层从不读它，功能**静默失效且零报错**
+            //（适配器签名少一个参数，tsc 因函数参数逆变也不报）。
+            const rotationStartId = sessionId === undefined
+                ? undefined
+                : pool.preferredRotationFor('codearts', sessionId);
+            // WARN modelId 恒传空串：codearts 刻意不做模型级限流（见
+            // ratelimit-misreport-behavior.spec.ts 的「已知例外」一节）。PR #59 顺手
+            // 写成 modelId ?? '' 会让它开始按模型过滤 —— 症状是「限流标记把账号
+            // 筛空 ⇒ 取不到号 ⇒ 误报未登录」，正是该 spec 明写要防的第 13 个受害者。
+            const available = await pool.getAvailableAccount('codearts', '', undefined, rotationStartId);
             return available?.credential;
         },
         // 续期按**账号池里的具体账号**走：`refreshAccountCredential` 读写的是
@@ -1365,10 +1473,12 @@ export function apply(ctx) {
      */
     const buddyBalanceSelector = new BuddyBalanceSelector({
         product: CODEBUDDY,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveBuddyCredentialByRef,
     });
     const workbuddyBalanceSelector = new BuddyBalanceSelector({
         product: WORKBUDDY,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveBuddyCredentialByRef,
     });
     /**
@@ -1451,8 +1561,9 @@ export function apply(ctx) {
      *
      * @param displayName - 产品名（用户据此知道去哪个面板解锁）。
      */
-    const buddyLockedError = (displayName) => (reason) => {
-        const days = buddyExpiringWindowDays();
+    const buddyLockedError = (displayName, providerId) => (reason) => {
+        // ★ per-provider 窗口（2026-11-19）：文案里的「N 天内到期」必须与**实际筛号用的窗口**同源
+        const days = resolveCreditWindow(providerId, safeCreditWindowReader(pool)).windowDays;
         if (reason.kind === 'unknown') {
             return new LlmError(`${displayName}：无法确认是否有可用账号。已锁定永久积分，而本次余额查询未能全部完成`
                 + `（${foldReasonErrors(reason.errors)}）。这些账号**可能仍有**「${days} 天内到期」`
@@ -1670,8 +1781,9 @@ export function apply(ctx) {
      *    已在该 spec 里改并写明理由。断言描述的是「这个函数用了哪些码」，
      *    不是「这个函数后面跟着谁」。
      */
-    const astudioLockedError = (displayName) => (reason) => {
-        const days = buddyExpiringWindowDays();
+    const astudioLockedError = (displayName, providerId) => (reason) => {
+        // ★ per-provider 窗口（2026-11-19）：文案里的「N 天内到期」必须与**实际筛号用的窗口**同源
+        const days = resolveCreditWindow(providerId, safeCreditWindowReader(pool)).windowDays;
         if (reason.kind === 'unknown') {
             return new LlmError(`${displayName}：无法确认是否有可用账号。已锁定永久积分，而本次余额查询未能全部完成`
                 + `（${foldReasonErrors(reason.errors)}）。这些账号**可能仍有**「${days} 天内到期」`
@@ -1760,8 +1872,9 @@ export function apply(ctx) {
      * 差异只在 `MINIMAX_INTL` 的主机与 ref 前缀），各写一遍 = 改一处漏一处。
      * 但 `displayName` **必须**逐站区分：两站账号不互通，用户要知道去哪个面板解锁。
      */
-    const minimaxLockedError = (displayName) => (reason) => {
-        const days = buddyExpiringWindowDays();
+    const minimaxLockedError = (displayName, providerId) => (reason) => {
+        // ★ per-provider 窗口（2026-11-19）：文案里的「N 天内到期」必须与**实际筛号用的窗口**同源
+        const days = resolveCreditWindow(providerId, safeCreditWindowReader(pool)).windowDays;
         if (reason.kind === 'unknown') {
             return new LlmError(`${displayName}：无法确认是否有可用账号。已锁定永久积分，而本次余额查询未能全部完成`
                 + `（${foldReasonErrors(reason.errors)}）。这些账号**可能仍有**「${days} 天内到期」`
@@ -1867,8 +1980,9 @@ export function apply(ctx) {
      * ⇒ 位置的真正守卫是 `tests/unit/magicrew-lock-wiring.spec.ts` 的
      * `expect(mine).toBeLessThan(loomy)`，不要再靠「会变红」这种口耳相传的理由排序。
      */
-    const autoclawLockedError = (displayName) => (reason) => {
-        const days = buddyExpiringWindowDays();
+    const autoclawLockedError = (displayName, providerId) => (reason) => {
+        // ★ per-provider 窗口（2026-11-19）：文案里的「N 天内到期」必须与**实际筛号用的窗口**同源
+        const days = resolveCreditWindow(providerId, safeCreditWindowReader(pool)).windowDays;
         if (reason.kind === 'unknown') {
             return new LlmError(`${displayName}：无法确认是否有可用账号。已锁定永久积分，而本次余额查询未能全部完成`
                 + `（${foldReasonErrors(reason.errors)}）。这些账号**可能仍有**「${days} 天内到期」`
@@ -1977,8 +2091,9 @@ export function apply(ctx) {
      * ⇒ 位置的真正守卫是 `tests/unit/magicrew-lock-wiring.spec.ts` 的
      * `expect(mine).toBeLessThan(loomy)`，不要再靠「会变红」这种口耳相传的理由排序。
      */
-    const magicrewLockedError = (displayName) => (reason) => {
-        const days = buddyExpiringWindowDays();
+    const magicrewLockedError = (displayName, providerId) => (reason) => {
+        // ★ per-provider 窗口（2026-11-19）：文案里的「N 天内到期」必须与**实际筛号用的窗口**同源
+        const days = resolveCreditWindow(providerId, safeCreditWindowReader(pool)).windowDays;
         if (reason.kind === 'unknown') {
             return new LlmError(`${displayName}：无法确认是否有可用账号。已锁定永久积分，而本次余额查询未能全部完成`
                 + `（${foldReasonErrors(reason.errors)}）。这些账号**可能仍有**「${days} 天内到期」`
@@ -2012,7 +2127,7 @@ export function apply(ctx) {
                 + '若写的是 HTTP 403 / 405 或网络异常，那是**上游网关（WAF）拒绝了本机请求**，'
                 // ⚠️ 点 `403 / 405` 两个码而**不是**只点 403（2026-11-04 四审建议 ③(1)）：
                 //    真机上海外出口下**国内站回 403、国际站回 405**（2026-11-04 取证），
-                //    本档是两站共用的（`magicrewLockedError('超级麦吉')` / `…('MagiCrew (国际版)')`），
+                //    本档是两站共用的（`magicrewLockedError('超级麦吉', 'magicrew')` / `…('MagiCrew (国际版)')`），
                 //    只写 403 会让国际站用户在锁定态看到与卡片上不符的码、以为说的是另一件事。
                 + `不是凭据问题、也不是积分用尽（旧版实测直连与多个代理出口都回 403 / 405，`
                 + '但那份矩阵只变出口、UA 恒为旧常量）——'
@@ -2069,6 +2184,109 @@ export function apply(ctx) {
             + '**永久积分**（上游**不下发到期时间**的那部分）在锁定状态下动不到它们'
             + ' —— 这是锁定的预期效果。'
             + `请在 Jet Hub 的 ${displayName} 面板解锁永久积分，或等待下一次签到 / 活动发放。`, 'QUOTA_EXCEEDED');
+    };
+    /**
+     * ★★★ **子代理专属起点与模型的事件接线**（2026-11-23）。
+     *
+     * ## 三个事件各管一件事
+     *
+     * | 事件 | 用途 | 宿主证据 |
+     * |---|---|---|
+     * | `subagent/start` | 记下「这个 sessionId 是子代理 + 父会话 + slot」| `dsh-subagent/lib/index.js:158` |
+     * | `subagent/end` | 标记结束（**保留**记录，供 resume）| 同上 `:166` |
+     * | `agent/pre-step` | 按 sessionId 改写子代理的模型 | `dsh-agent/runtime-types.ts:351` |
+     *
+     * ## 为什么必须用 `ctx.inject(['agents'], …)` 包起来
+     *
+     * `agent/pre-step` 由 `dsh-agent` 提供，`subagent/*` 由 `dsh-subagent` 提供。
+     * 没有这两个服务的 profile（纯 CLI / 精简装配）里，直接 `ctx.on(...)` 会让
+     * 插件**永久 pending**（cordis 的注入语义）。
+     * ⇒ 与既有 `installLoopResume` / `installRateLimitResume` 同款，用 inject 包。
+     *
+     * ⚠️ 只订阅 `agent/pre-step`（不需要 `agents` 的其它能力）——
+     * 事件在 plugin 的 root scope 上声明为可观察，探针已实证能收到
+     *（`subagent/start` payload 带 `parentSessionId` + `id`，实测见提交说明）。
+     */
+    /**
+     * ★★★ **按 sessionId 查父会话 id —— 读宿主会话头**（2026-11-24）。
+     *
+     * ## 这是上游第 3 轮审计建议的**路 1**（原话）
+     *
+     * > 「这个功能现在卡在一个根本障碍上：**插件拿不到「谁是子代理、父是谁」**。
+     * >   三条可能的路，按可行性排：
+     * >   **1. 从宿主会话头读**：`header.parentSession`（`dsh-session` types:76）
+     * >      是**真的有**的……这比 `subagent/start` payload 靠谱得多。」
+     *
+     * ## 为什么它比事件可靠（实测结论）
+     *
+     * | 来源 | 性质 | 失效窗口 |
+     * |---|---|---|
+     * | `subagent/start` 事件 | **瞬时** | 插件晚挂载 / 重启期间的事件**永远收不到** |
+     * | **`session.header.parentSession`** | **持久** | 无 |
+     *
+     * ⚠️ 两者**当前都有值且一致**（P0 探针：payload 的 `parentSessionId` 与
+     *    `session.header.parentSession` 是同一个 id）。⇒ 优先用会话头。
+     *
+     * ## 读取路径（实测确认）
+     *
+     * ```
+     * agents.get(sessionId)?.session?.header?.parentSession
+     * ```
+     *
+     * ⚠️ **必须走 `header` 这一层**：`session.parentSession` 直接读是 `undefined`
+     *    （探针实测，`session` 上只有 `header` / `log` / `deriveMessages` 等）。
+     *
+     * ⚠️ 任何一步拿不到 ⇒ `undefined`（**绝不猜**）。
+     *    主代理没有 `parentSession` ⇒ 自然返回 `undefined` ⇒ 下游判「不是子代理」。
+     */
+    const resolveSubagentParent = (sessionId) => {
+        try {
+            /**
+             * ★★★ **必须 `ctx.get('agents')`，不能 `ctx.agents`**（2026-11-24，对抗审计 P0）。
+             *
+             * ## 缺陷
+             *
+             * `agents` **不在本插件的静态 `inject` 里**（`inject = ['credentials',
+             * 'commands', 'llm']`，见本文件 `:370`）。cordis 4.1 对**未注入的服务**
+             * 走属性访问时会抛 `cannot get property "agents" without inject`，
+             * 而下面那个 `catch` 把它吞成 `undefined` ⇒ **父 id 恒 `undefined`**
+             * ⇒ `isSubagentSession` 恒 `false` ⇒ **分配表恒 `{}`** ⇒ 子代理起点 / pin /
+             * 用户手选 / badge 全部静默失效（**与第三轮同一个症状**）。
+             *
+             * ## 为什么用了 `as unknown as { agents?: ... }` 还是不行
+             *
+             * 类型断言只骗 TypeScript，**运行时 cordis 的 Proxy 照样抛**。
+             * 审计用宿主那份 cordis 逐字复刻验证：as-implemented = `undefined`
+             *（JSON 里那个键直接消失），而 `ctx.get('agents')` = `'parent-9'` ✅
+             *
+             * ## 本文件早有同一条教训
+             *
+             * `:4438` 那段注释（读图桥接）写着：「必须**惰性** `ctx.get('attachments')`，
+             * 不能写 `ctx.attachments` —— 后者会抛 `cannot get property … without inject`
+             * 并**打断整个 `apply()`**」。DSH 自家插件对非注入服务**一律用 `.get()`**。
+             *
+             * ⚠️ `.get()` 在没有该服务的 profile（headless/CLI）上返回 `undefined`
+             *    ⇒ 走下面的早退分支 ⇒ 下游判「不是子代理」⇒ **行为与本轮之前一致**（不猜）。
+             */
+            const registry = ctx.get('agents');
+            const agent = registry?.get?.(sessionId);
+            if (agent === undefined || agent === null)
+                return undefined;
+            const session = agent.session;
+            if (session === undefined || session === null)
+                return undefined;
+            const header = session.header;
+            if (header === undefined || header === null)
+                return undefined;
+            const parent = header.parentSession;
+            if (typeof parent !== 'string' || parent.length === 0)
+                return undefined;
+            return parent;
+        }
+        catch {
+            /** ⚠️ 任何异常都不能影响选号（这是每发请求都要跑的路径）。 */
+            return undefined;
+        }
     };
     /**
      * Loomy 的「锁定永久积分 + 无可用账号」报错文案（issue IKMCOO 缺陷 2/3）。
@@ -2131,7 +2349,7 @@ export function apply(ctx) {
         credentialRef: credentialRef(BUDDY_CREDENTIAL_REF),
         resolveCredential: createCredentialResolver(
         // ⚠️ 依赖在**每次 apply() 时**构造一次，闭包捕获的是同一批引用。
-        { pool, reportAccount: (id) => { if (id !== undefined)
+        { pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(CODEBUDDY.id, id); } }, {
             product: CODEBUDDY,
             // 优先按「快到期积分」分档选号（锁定永久积分时也走这条，见上）。
@@ -2141,7 +2359,7 @@ export function apply(ctx) {
             balance: {
                 kind: 'buddy',
                 selector: buddyBalanceSelector,
-                lockedError: buddyLockedError('CodeBuddy'),
+                lockedError: buddyLockedError('CodeBuddy', 'buddy'),
                 // 免费模型跳过「锁定 + 临期积分」这道门（判据见 BuddyAdapter.isFreeModel）。
                 // `buddyAdapter` 在此处是自引用：闭包只在注册完成后才执行，故无 TDZ 问题。
                 isFreeModel: (modelId) => buddyAdapter.isFreeModel(modelId),
@@ -2184,14 +2402,14 @@ export function apply(ctx) {
         // 保证不会串用 CodeBuddy 的凭据。
         // 选号策略与 CodeBuddy 同款，但用的是**WorkBuddy 自己的锁状态与余额缓存**
         // （两站积分构成不同：实测国际版是「Bonus Pack 14 天 + Free Plan 长期」）。
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(WORKBUDDY.id, id); } }, {
             product: WORKBUDDY,
             readCredential: resolveBuddyCredentialByRef,
             balance: {
                 kind: 'buddy',
                 selector: workbuddyBalanceSelector,
-                lockedError: buddyLockedError('WorkBuddy'),
+                lockedError: buddyLockedError('WorkBuddy', 'workbuddy'),
                 // 免费模型跳过「锁定 + 临期积分」这道门（判据见 BuddyAdapter.isFreeModel）。
                 // 用户报障「账户可用却提示没有可用账号」正是缺了这一条：免费模型不扣积分，
                 // 却被永久积分锁定拦下。
@@ -2265,6 +2483,7 @@ export function apply(ctx) {
      */
     const lobsteraiBalanceSelector = new BuddyBalanceSelector({
         product: LOBSTERAI,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveLobsteraiCredentialByRef,
         fetchBalance: (credential, product) => fetchLobsteraiCreditBalance(credential, product),
     });
@@ -2278,7 +2497,7 @@ export function apply(ctx) {
         // 优先按「快到期积分」分档选号（锁定永久积分时只挑有快到期积分的号）。
         // 与 buddy 系同一套编排：候选先按「enabled + 模型未受限」筛，
         // 分档只在这批候选内部进行 —— 不能因为某个号积分多就绕开限流标记。
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(LOBSTERAI.id, id); } }, {
             product: LOBSTERAI,
             // ⚠️ 必须传 LobsterAI 自己的解析器：buddy 系那份对它的凭据结构会解析出
@@ -2287,7 +2506,7 @@ export function apply(ctx) {
             balance: {
                 kind: 'buddy',
                 selector: lobsteraiBalanceSelector,
-                lockedError: buddyLockedError('LobsterAI'),
+                lockedError: buddyLockedError('LobsterAI', 'lobsterai'),
                 // ⚠️ LobsterAI 的「免费」是**钱包**概念不是**模型**概念，没有模型级免费：
                 //   `lobsterai-credits.ts:340` 的 `/api/user/quota` 只给
                 //   `freeCreditsTotal=300`（免费**积分额度**），`lobsterai-errors.ts`
@@ -2412,6 +2631,7 @@ export function apply(ctx) {
      */
     const qoderBalanceSelector = new BuddyBalanceSelector({
         product: QODER,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveQoderCredentialByRef,
         // ⚠️ **余额查询也必须走该账号的出口代理**（真实报障 2026-10-21）：
         //    国际版 `openapi.qoder.sh` 被 SNI 阻断，直连恒 10.7s 超时 ⇒ 余额恒 null
@@ -2431,6 +2651,7 @@ export function apply(ctx) {
     });
     const qoderCnBalanceSelector = new BuddyBalanceSelector({
         product: QODER_CN,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveQoderCredentialByRef,
         fetchBalance: async (credential, product) => fetchQoderCreditBalance(credential, product, await fetcherForQoderCredential(credential)),
         // ⚠️ 中国版同样要接（同因）；它通常查得到，但**401 / 响应缺 qoderUsage** 时
@@ -2466,6 +2687,8 @@ export function apply(ctx) {
         // 当日额度标记在下次选号时被忽略。
         resolveCredential: createCredentialResolver({
             pool,
+            /** ⚠️ 路 1：按 sessionId 读宿主会话头的 parentSession（见 resolveSubagentParent）。 */
+            subagentParentForSession: resolveSubagentParent,
             // ⚠️ 这里**必须**处理 `undefined`：没有账号条目可标记时要**清空**，否则
             // 留着过期的 id 会让额度标记落在无辜账号上（见 `activeQoderAccountId`）。
             reportAccount: (id) => {
@@ -2544,6 +2767,7 @@ export function apply(ctx) {
         fetchRemoteModels: () => qoder.fetchModels(pool),
         // 额度受限时标记「本次实际使用的账号」（理由见 `activeQoderAccountId` 注释）。
         currentAccountId: () => activeQoderAccountId.get(QODER.id),
+        trafficGuardEnabled: () => pool.qoderTrafficGuardEnabled(QODER.id),
         // ⚠️ **推理通道也必须走该账号的出口代理**（真实报障 2026-10-21）：
         //    国际版整站被 SNI 阻断，实测推理同样 10.7s `TRANSPORT: fetch failed`
         //    ⇒ 只接余额不接推理的话，面板显示正常但一发请求就超时。
@@ -2569,6 +2793,8 @@ export function apply(ctx) {
         // ⚠️ `modelId` 透传：与 QODER 同因（当日额度是「模型 + 账号」维度）。
         resolveCredential: createCredentialResolver({
             pool,
+            /** ⚠️ 路 1：按 sessionId 读宿主会话头的 parentSession（见 resolveSubagentParent）。 */
+            subagentParentForSession: resolveSubagentParent,
             // 同国际版：`undefined` 是「清空标记」的有意义事件。
             reportAccount: (id) => {
                 activeQoderAccountId.set(QODER_CN.id, id);
@@ -2626,6 +2852,7 @@ export function apply(ctx) {
         // ⚠️ 取「**本次实际使用**的账号」而非池里默认那一个：池的默认账号可能与之
         // 不同（例如本账号被限流、池已切到别的账号），标错就会让标记落在无辜账号上。
         currentAccountId: () => activeQoderAccountId.get(QODER_CN.id),
+        trafficGuardEnabled: () => pool.qoderTrafficGuardEnabled(QODER_CN.id),
         // 同国际版：推理通道也要走该账号的出口代理（两站共用同一个适配器类）。
         fetchFor: qoderFetchForAccount,
     });
@@ -2672,6 +2899,7 @@ export function apply(ctx) {
      */
     const traeBalanceSelector = new BuddyBalanceSelector({
         product: TRAE,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveTraeCredentialByRef,
         fetchBalance: (credential, product) => fetchTraeCreditBalance(credential, product),
     });
@@ -2680,7 +2908,7 @@ export function apply(ctx) {
         // 优先按「快到期积分」分档选号（锁定永久积分时只挑有快到期积分的号）。
         // 与 buddy 系同一套编排：候选先按「enabled + 模型未受限」筛，
         // 分档只在这批候选内部进行 —— 不能因为某个号积分多就绕开限流标记。
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(TRAE.id, id); } }, {
             product: TRAE,
             // ⚠️ 必须传 TRAE 自己的解析器（buddy 系那份对它的凭据结构会解析出
@@ -2689,7 +2917,7 @@ export function apply(ctx) {
             balance: {
                 kind: 'buddy',
                 selector: traeBalanceSelector,
-                lockedError: buddyLockedError('TRAE'),
+                lockedError: buddyLockedError('TRAE', 'trae'),
                 // 免费模型跳过「锁定 + 临期积分」这道门（判据见 TraeAdapter.isFreeModel）。
                 // ⚠️ TRAE 确有 `rate: 0` 的合法免费模型（见 `trae.ts` 的 readConsumptionRate
                 // 注释与 `traeDisplayName` 把 0 显示成「免费」），不跳过就会在锁定时被
@@ -2744,6 +2972,8 @@ export function apply(ctx) {
         // ⚠️ `modelId` 透传：否则模型级限流标记被忽略（详见 buddy 处说明）。
         resolveCredential: createCredentialResolver({
             pool,
+            /** ⚠️ 路 1：按 sessionId 读宿主会话头的 parentSession（见 resolveSubagentParent）。 */
+            subagentParentForSession: resolveSubagentParent,
             // 记录实际选中的池账号（空串 = 回退到单凭据 ref 模式，见适配器注释）。
             // ⚠️ 取不到号时**必须**置空串，否则旧 id 会让「请求记录」的账号列串味。
             reportAccount: (id) => {
@@ -2923,7 +3153,7 @@ export function apply(ctx) {
          * **没有池取号那一步** —— 强行合并会同时引入「凭据坏了就换号」与「回落池」
          * 两个行为变更。设计边界是**抽象编排，不抽象协议**。
          */
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(LOOMY.id, id); } }, {
             product: LOOMY,
             // 复用上面的解析器而不是再写一遍 JSON.parse：两处各写一遍时，
@@ -3021,12 +3251,15 @@ export function apply(ctx) {
     const raccoon = new RaccoonAuth(ctx);
     const raccoonAdapter = registerRaccoonLlm(ctx, {
         credentialRef: credentialRef(RACCOON.defaultCredentialRef),
+        // 活动徽标的日志出口：上游改了 `billing_discounts` 的日期格式时，症状是
+        // 「徽标消失、全仓零日志」—— 这条 warn 是唯一能指路的那一格。
+        warn: (message) => { ctx.logger?.warn?.(`[raccoon] ${message}`); },
         // 只从 raccoon 自己的账号池取账号，回退到自己的单凭据 ref，
         // 保证不会串用其它 provider 的凭据。
         // provider 实参用 RACCOON 而非字面量：写死字面量在改名/多产品场景下
         // 会静默查不到账号（本插件在 workbuddy 上踩过同类坑）。
         // ⚠️ `modelId` 透传：否则模型级限流标记被忽略（详见 buddy 处说明）。
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(RACCOON.id, id); } }, {
             product: RACCOON,
             // ⚠️ raccoon 的兜底是**裸 `JSON.parse`**（历史形态，本 Task 逐字保留）。
@@ -3132,6 +3365,7 @@ export function apply(ctx) {
      */
     const minimaxBalanceSelector = new BuddyBalanceSelector({
         product: MINIMAX,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveMinimaxCredentialByRef,
         fetchBalance: (credential, product) => fetchMinimaxCreditBalance(credential, fetch, product),
         // ⚠️ 带原因变体（见文件头长注释）。中国站不传 xff（那是国际站的地理分流）。
@@ -3139,6 +3373,7 @@ export function apply(ctx) {
     });
     const minimaxIntlBalanceSelector = new BuddyBalanceSelector({
         product: MINIMAX_INTL,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveMinimaxCredentialByRef,
         // ⚠️ `fetchFor`：余额端点也在 `agent.minimax.io` 上 ⇒ 大陆出口恒 307
         //    ⇒ 折算恒失败 ⇒ 该渠道在聚合轮换里被**静默剔除**（面板却还能刷新，
@@ -3166,7 +3401,7 @@ export function apply(ctx) {
         // 会静默查不到账号（本插件在 workbuddy 上踩过同类坑）。
         // ⚠️ 只从 minimax 自己的账号池取账号，回退到自己的单凭据 ref，
         // 保证不会串用其它 provider 的凭据。
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => {
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => {
                 if (id !== undefined)
                     lastPickedMinimaxAccount = id;
                 if (id !== undefined)
@@ -3192,7 +3427,7 @@ export function apply(ctx) {
             balance: {
                 kind: 'buddy',
                 selector: minimaxBalanceSelector,
-                lockedError: minimaxLockedError('MiniMax Code (中国版)'),
+                lockedError: minimaxLockedError('MiniMax Code (中国版)', 'minimax'),
                 // ⚠️ 本家没有模型级免费概念（产品表零 `isFree` 字段，上游目录也不返回）。
                 isFreeModel: NO_FREE_MODEL,
                 /**
@@ -3289,7 +3524,7 @@ export function apply(ctx) {
         credentialRef: credentialRef(MINIMAX_INTL.defaultCredentialRef),
         // ⚠️ provider 实参必须是 MINIMAX_INTL：写死 MINIMAX 会让国际站永远查不到
         // 自己的账号（本插件在 workbuddy 上踩过同类坑）。
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => {
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => {
                 if (id !== undefined)
                     lastPickedMinimaxIntlAccount = id;
                 if (id !== undefined)
@@ -3307,7 +3542,7 @@ export function apply(ctx) {
             balance: {
                 kind: 'buddy',
                 selector: minimaxIntlBalanceSelector,
-                lockedError: minimaxLockedError('MiniMax Code (国际版)'),
+                lockedError: minimaxLockedError('MiniMax Code (国际版)', 'minimaxintl'),
                 // ⚠️ 本家没有模型级免费概念（产品表零 `isFree` 字段，上游目录也不返回）。
                 isFreeModel: NO_FREE_MODEL,
                 // ⚠️ 与中国版**同因**：本家旧闭包是纯池选号、账本一直在回报 ⇒
@@ -3385,7 +3620,7 @@ export function apply(ctx) {
         credentialRef: credentialRef(GEMINI.defaultCredentialRef),
         // ⚠️ provider 实参用 GEMINI 而非字面量（同 minimax 的既有约定：
         // 写死字面量在改名/多产品场景下会静默查不到账号）。
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(GEMINI.id, id); } }, {
             product: GEMINI,
             // ⚠️ 与 raccoon / minimax 同款：兜底是**裸 `JSON.parse`**（历史形态，
@@ -3537,6 +3772,7 @@ export function apply(ctx) {
      */
     const autoclawBalanceSelector = new BuddyBalanceSelector({
         product: AUTOCLAW,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveAutoclawCredentialByRef,
         fetchBalance: (credential, product) => fetchAutoclawCreditBalance(credential, { product }),
         // ⚠️ 带原因变体（见文件头长注释）。
@@ -3544,6 +3780,7 @@ export function apply(ctx) {
     });
     const autoclawIntlBalanceSelector = new BuddyBalanceSelector({
         product: AUTOCLAW_INTL,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveAutoclawCredentialByRef,
         fetchBalance: (credential, product) => fetchAutoclawCreditBalance(credential, { product }),
         // ⚠️ 两站各建实例、各传自己的 product（缓存与端点都必须分开）。
@@ -3551,7 +3788,7 @@ export function apply(ctx) {
     });
     const autoclaw = new AutoclawAuth(ctx);
     const autoclawAdapter = registerAutoclawLlm(ctx, {
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(AUTOCLAW.id, id); } }, {
             product: AUTOCLAW,
             // ⚠️ 2026-10-21：改用上面共用的 `resolveAutoclawCredentialByRef`
@@ -3575,7 +3812,7 @@ export function apply(ctx) {
                 kind: 'buddy',
                 selector: autoclawBalanceSelector,
                 // ⚠️ 本家独有文案（池名是「钱包流水批次」而不是 buddy 的「资源包」）。
-                lockedError: autoclawLockedError('AutoClaw'),
+                lockedError: autoclawLockedError('AutoClaw', 'autoclaw'),
                 // ⚠️⚠️ 本家**曾**标过 `isFree: true`，那是**错的**（2026-10-21 二轮审计订正）：
                 //   初版把「远端目录里没有它、但直接调用能用」误当成「不扣费」，而真机
                 //   实测它**每次都扣积分**（`docs/autoclaw-models.md:25`）。现有 4 个模型
@@ -3732,7 +3969,7 @@ export function apply(ctx) {
     //    ⚠️ **不是** `login.startOAuth` 分支 —— 原先这里预告的形态是错的。
     const autoclawIntl = new AutoclawAuth(ctx, { product: AUTOCLAW_INTL });
     const autoclawIntlAdapter = registerAutoclawLlm(ctx, {
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(AUTOCLAW_INTL.id, id); } }, {
             product: AUTOCLAW_INTL,
             // ⚠️ 与国内版共用同一个解析器（两站凭据形状逐字相同）。
@@ -3744,7 +3981,7 @@ export function apply(ctx) {
             balance: {
                 kind: 'buddy',
                 selector: autoclawIntlBalanceSelector,
-                lockedError: autoclawLockedError('AutoClaw (国际版)'),
+                lockedError: autoclawLockedError('AutoClaw (国际版)', 'autoclawintl'),
                 // ⚠️ 同国内版：本家无模型级免费（`isFree` 全为 false，见那处说明）。
                 isFreeModel: NO_FREE_MODEL,
                 reportPickedAccount: true,
@@ -3806,7 +4043,7 @@ export function apply(ctx) {
         // provider 实参用 ACCIO 而非字面量（同 minimax / gemini 的既有约定：
         // 写死字面量在改名 / 多产品场景下会静默查不到账号）。
         // ⚠️ `modelId` 透传：否则模型级限流标记被忽略（见 buddy 处说明）。
-        resolveCredential: createCredentialResolver({ pool, reportAccount: (id) => { if (id !== undefined)
+        resolveCredential: createCredentialResolver({ pool, subagentParentForSession: resolveSubagentParent, reportAccount: (id) => { if (id !== undefined)
                 reportLedgerAccount(ACCIO.id, id); } }, {
             product: ACCIO,
             // ⚠️ 与 raccoon / minimax / gemini 同款：兜底是**裸 `JSON.parse`**（历史形态，
@@ -3883,7 +4120,8 @@ export function apply(ctx) {
     // ===== 腾讯 Marvis（2026-11-09）=====
     //
     // 形态：OpenAI 兼容（`/v1/chat/completions`）+ OAuth 授权码（QQ / 微信）。
-    // 目录**只有一条** `main-auto`（上游无目录端点，见 `src/marvis-product.ts`）。
+    // 目录**只有一条**（上行槽位 `deepseek-v4-pro-external`，见 `src/marvis-product.ts`；
+    // 上游无目录端点 ⇒ 静态兜底）。
     //
     // ⚠️ 与 modelscope / qiniu 的槽制同形：`slots()` 由**接线层**解析，适配器
     //    不直接读凭据库。区别只在槽里装的是 `MarvisCredential`（要放进请求头
@@ -3896,7 +4134,7 @@ export function apply(ctx) {
     const marvisAdapter = registerMarvisLlm(ctx, {
         // 单凭据回退 ref：池里没有 marvis 账号时用它（与其余 provider 同约定）。
         credentialRef: credentialRef(MARVIS.defaultCredentialRef),
-        slots: async (modelId) => {
+        slots: async (modelId, sessionId) => {
             const entries = await pool.listAccounts(MARVIS.id);
             const usable = await Promise.all(entries.map(async (entry) => {
                 // 与其余 provider 同款：停用账号不参与自动选号。
@@ -3917,7 +4155,29 @@ export function apply(ctx) {
                     return undefined;
                 return { id: entry.id, credential };
             }));
-            return usable.filter((slot) => slot !== undefined);
+            const slots = usable.filter((slot) => slot !== undefined);
+            // 会话亲和 + 溢出分散（2026-11-17 用户报障「十个号不会自动切换」：
+            // 改前这 11 个号里**永远只有池序第一个**在干活，其余是纯备份）。
+            //
+            // 语义与 zcode 的 `accountSelection: 'session-balance'` 同源（同一份
+            // `rankAccountsBySessionWithOverflow`），但**接线方式不同**：marvis 是槽制，
+            // 适配器要「按序换号重发」⇒ 需要**完整有序序列**而不是「取第一个」，所以
+            // 走 `pool.orderAccountsForSession` 只重排、不取凭据。
+            //
+            // ⚠️ 不能改走 `createCredentialResolver({ accountSelection: 'session-balance' })`：
+            //    `tests/unit/session-balance-wiring.spec.ts` 有硬守卫「accountSelection
+            //    装配点全局唯一且在 ZCODE 配置块内」。
+            // ⚠️ 面板开关关 ⇒ **原样返回池序**（= 改造前逐字节同路径），这是开关文案
+            //    「关闭后回到「手动顺序优先」的选号方式」的实现依据。
+            // ⚠️ 无 sessionId（本地 OpenAI 网关进来的请求不设它，见
+            //    `src/openai-gateway/messages.ts` 的 `toGenerateOptions`）⇒ 同样原样返回，
+            //    不在这里洗牌：槽制的「第一个」会被当作稳定性保证，随机化留给调用方。
+            // ⚠️ 判定已抽到 `src/marvis-slots.ts` 的 `orderMarvisSlots`（PR #190 双审计
+            //    返工）：原先是这里的内联 `if`，而它的守卫**全是源码文本断言** ——
+            //    审计实测 `if (false && …)` / 丢弃返回值 / 反向读三种真实失效全绿。
+            //    搬进纯函数后三种都会落到行为级用例上（`marvis-slot-ordering.spec.ts`）。
+            // ⚠️ **网关流量不会分散**：无 `sessionId` ⇒ 原样返回，见模块头的已知限制。
+            return orderMarvisSlots(pool, slots, sessionId);
         },
         accountPool: pool,
         product: MARVIS,
@@ -4004,6 +4264,7 @@ export function apply(ctx) {
      */
     const magicrewBalanceSelector = new BuddyBalanceSelector({
         product: MAGICREW,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: (refName) => magicrewAuth.currentCredential(refName),
         fetchBalance: async (credential, product) => await fetchMagicrewBalance({
             jwt: credential.jwt,
@@ -4028,7 +4289,7 @@ export function apply(ctx) {
             product,
         }),
     });
-    const magicrewResolver = createCredentialResolver({ pool: pool }, {
+    const magicrewResolver = createCredentialResolver({ pool: pool, subagentParentForSession: resolveSubagentParent }, {
         product: MAGICREW,
         // 按 ref 读 ⇒ 池里的 `MAGICREW_ACCOUNT_*` 与手工塞的默认 ref 都能读。
         readCredential: (refName) => magicrewAuth.currentCredential(refName),
@@ -4066,7 +4327,7 @@ export function apply(ctx) {
         balance: {
             kind: 'buddy',
             selector: magicrewBalanceSelector,
-            lockedError: magicrewLockedError('超级麦吉'),
+            lockedError: magicrewLockedError('超级麦吉', 'magicrew'),
             isFreeModel: NO_FREE_MODEL,
             /**
              * ⚠️⚠️ **本家是本开关唯一的开启者**（2026-11-04 真机报障「模型都选不了了」）。
@@ -4156,6 +4417,7 @@ export function apply(ctx) {
      */
     const magicrewIntlBalanceSelector = new BuddyBalanceSelector({
         product: MAGICREW_INTL,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: (refName) => magicrewIntlAuth.currentCredential(refName),
         fetchBalance: async (credential, product) => await fetchMagicrewBalance({
             jwt: credential.jwt,
@@ -4174,7 +4436,7 @@ export function apply(ctx) {
             product,
         }),
     });
-    const magicrewIntlResolver = createCredentialResolver({ pool: pool }, {
+    const magicrewIntlResolver = createCredentialResolver({ pool: pool, subagentParentForSession: resolveSubagentParent }, {
         product: MAGICREW_INTL,
         readCredential: (refName) => magicrewIntlAuth.currentCredential(refName),
         fallback: { kind: 'ref', refName: MAGICREW_INTL.defaultCredentialRef },
@@ -4191,7 +4453,7 @@ export function apply(ctx) {
         balance: {
             kind: 'buddy',
             selector: magicrewIntlBalanceSelector,
-            lockedError: magicrewLockedError('MagiCrew (国际版)'),
+            lockedError: magicrewLockedError('MagiCrew (国际版)', 'magicrewintl'),
             isFreeModel: NO_FREE_MODEL,
             /** ⚠️ 与国内站成对存在，理由见上方国内站那段注释（国际站 405）。 */
             degradeLockedWhenUnknown: true,
@@ -4260,6 +4522,7 @@ export function apply(ctx) {
      */
     const astudioBalanceSelector = new BuddyBalanceSelector({
         product: ASTUDIO,
+        readCreditWindow: safeCreditWindowReader(pool),
         resolveCredential: resolveAstudioCredentialByRef,
         fetchBalance: (credential, product) => fetchAstudioCreditBalance(credential, product),
         // ⚠️ 带原因变体（见文件头那段长注释）：AStudio 的失败分流有四档
@@ -4275,6 +4538,8 @@ export function apply(ctx) {
      */
     const astudioCredentialPlan = createCredentialResolver({
         pool,
+        /** ⚠️ 路 1：按 sessionId 读宿主会话头的 parentSession（见 resolveSubagentParent）。 */
+        subagentParentForSession: resolveSubagentParent,
         reportAccount: (id) => {
             if (id !== undefined)
                 reportLedgerAccount(ASTUDIO.id, id);
@@ -4292,7 +4557,7 @@ export function apply(ctx) {
             //    的返回类型里声明了 `isFree?`，兜底表零个 `isFree: true`，
             //    上游目录也不返回该字段）⇒ 显式表态，不要删字段（见 `NO_FREE_MODEL`）。
             isFreeModel: NO_FREE_MODEL,
-            lockedError: astudioLockedError('AStudio'),
+            lockedError: astudioLockedError('AStudio', 'astudio'),
             // ⚠️⚠️ **必须是 `true`**（2026-10-21 合并审计发现：PR !119 原写的 `false`
             //    让上面 `reportAccount` 成了**不可达的死接线**）。
             //
@@ -4603,6 +4868,92 @@ export function apply(ctx) {
     };
     const { auth: monkeycode, adapter: monkeycodeAdapter } = createMonkeycode(MONKEYCODE);
     const { auth: monkeycodeIntl, adapter: monkeycodeIntlAdapter } = createMonkeycode(MONKEYCODE_INTL);
+    // ===== 豆包（doubao）—— 2026-11-22 接通：网页端私有协议（额度/模型/对话） =====
+    //
+    // 凭据是浏览器扫码登录得到的 cookie 串（见 src/doubao-login.ts，Jet Hub 的
+    // `account.create {provider:'doubao', mode:'browser'}`），没有 refresh 端点。
+    // 适配器复用账号池里的豆包账号，派生 device_id 走 src/doubao.ts 的确定性算法
+    // （实测通过风控，无需本机装豆包客户端）。
+    const doubaoAdapter = registerDoubaoLlm(ctx, {
+        credentialRef: credentialRef('DOUBAO_ACCOUNT'),
+        slots: async () => {
+            const entries = await pool.listAccounts('doubao');
+            const out = [];
+            for (const entry of entries) {
+                if (!entry.enabled)
+                    continue;
+                const resolved = await ctx.credentials.resolve(credentialRef(entry.credentialRef));
+                if (!resolved)
+                    continue;
+                try {
+                    const parsed = JSON.parse(resolved.value);
+                    if (typeof parsed !== 'object' || parsed === null || typeof parsed.cookie !== 'string' || parsed.cookie.length === 0)
+                        continue;
+                    out.push({ accountId: entry.id, credential: parsed });
+                }
+                catch { /* 坏凭据跳过，不影响其它账号 */ }
+            }
+            return out;
+        },
+        accountPool: pool,
+        onCatalogLoaded: () => { broadcastCatalogChanged(ctx); },
+        warn: (message) => ctx.logger.warn(message),
+    });
+    // ===== AgnesCode（`agnescode` + `agnescodeintl`）—— **本 fork 独有** =====
+    //
+    // 与 MonkeyCode 的**根本差异**：凭据来自**桌面客户端的本机会话**
+    //（`%APPDATA%\AgnesCode\code-auth-session*.v1`，Chromium `os_crypt` + DPAPI），
+    // 不是用户能粘贴的 API Key ⇒ 账号入口是「导入本机登录态」。
+    //
+    // 为什么**必须两个 provider id**：国内站与国际站是两套独立账号体系
+    //（`*.agnes-ai.cn` / `*.agnes-ai.com`），而**模型目录按 provider 缓存一份** ——
+    // 单 id 下另一站的目录要么不进列表、要么被静默回退成本站模型（minimax 的
+    // 已知形态）。两站实现完全共用，只在 `product` 上分叉。
+    //
+    // ⚠️ 服务名由 AgnescodeAuth 依 product.id 派生 ⇒ 分别注册为
+    //    `ctx.agnescodeAuth` / `ctx.agnescodeintlAuth`（`declare module` 里两个键
+    //    缺一不可，否则 `ctx.xxxAuth` 取到 undefined 且没有任何报错）。
+    const createAgnescode = (product) => {
+        const auth = new AgnescodeAuth(ctx, { product });
+        const adapter = registerAgnescodeLlm(ctx, {
+            product,
+            // 槽序列由**接线层**解析（适配器不直接读凭据）。
+            // ⚠️ `modelId` 只在**推理路径**传进来：传了才按模型限流过滤，
+            //    目录路径不传 —— 否则被限流的账号会把整个目录一起拖空。
+            slots: async (modelId) => {
+                const entries = await pool.listAccounts(product.id);
+                const usable = await Promise.all(entries.map(async (entry) => {
+                    if (!entry.enabled)
+                        return undefined;
+                    if (modelId !== undefined && modelId.length > 0) {
+                        const resetAt = entry.modelRateLimits?.[modelId];
+                        if (typeof resetAt === 'number' && resetAt > Date.now())
+                            return undefined;
+                    }
+                    const resolved = await ctx.credentials.resolve(credentialRef(entry.credentialRef));
+                    if (!resolved)
+                        return undefined;
+                    const parsed = parseAgnescodeCredential(resolved.value, product);
+                    // ⚠️ 坏凭据不该让整家 provider 不可用：跳过这一槽，其余账号照常轮换。
+                    if (parsed === undefined)
+                        return undefined;
+                    return { accountId: entry.id, credential: parsed };
+                }));
+                return usable.filter((slot) => slot !== undefined);
+            },
+            accountPool: pool,
+            // 撞墙（429 / 配额类业务码）后按账号+模型冷却，与其余渠道同款。
+            markLimited: async (accountId, modelId, resetAtMs) => {
+                await pool.updateModelRateLimit(accountId, modelId, resetAtMs);
+            },
+            // ⚠️ 前缀必须用 `product.id`：两站共用一个工厂，写死 `[agnescode]` 会让
+            //    国际站的诊断行挂在国内站的名下（排障时按前缀过滤会漏掉一半）。
+            warn: (message) => ctx.logger?.warn?.(`[${product.id}] ${message}`),
+        });
+        return { auth, adapter };
+    };
+    const { auth: agnescode, adapter: agnescodeAdapter } = createAgnescode(AGNESCODE);
+    const { auth: agnescodeIntl, adapter: agnescodeIntlAdapter } = createAgnescode(AGNESCODE_INTL);
     // ===== 百智云（`baizhi`）—— 静态 Key 直连，**按量计费** =====
     //
     // 与 MonkeyCode 的关键差别（都是实测结论，不是设计偏好）：
@@ -4751,6 +5102,8 @@ export function apply(ctx) {
         credentialRef: credentialRef(ZCODE.defaultCredentialRef),
         resolveCredential: createCredentialResolver({
             pool,
+            /** ⚠️ 路 1：按 sessionId 读宿主会话头的 parentSession（见 resolveSubagentParent）。 */
+            subagentParentForSession: resolveSubagentParent,
             /**
              * ⚠️ `undefined` 是**有意义的事件**：账号池里没有条目时要**清空**记录，
              * 留着旧 id 会误伤一个无辜账号（见 `activeZcodeAccountId` 的说明）。
@@ -5195,6 +5548,9 @@ export function apply(ctx) {
         // 浏览器登录在卸载之后继续收窗/写回凭据（`loginViaBrowser` 每轮都判它）。
         monkeycode.stop();
         monkeycodeIntl.stop();
+        // AgnesCode 两站同样要 `stop()`：卸载后不该再有任何在途的凭据读写。
+        agnescode.stop();
+        agnescodeIntl.stop();
         baizhi.stop();
     }, 'jet-hub: multi-account refresh scheduler');
     // 保留旧的 stop scheduler（兼容旧命令）
@@ -5217,6 +5573,9 @@ export function apply(ctx) {
         // 浏览器登录在卸载之后继续收窗/写回凭据（`loginViaBrowser` 每轮都判它）。
         monkeycode.stop();
         monkeycodeIntl.stop();
+        // AgnesCode 两站同样要 `stop()`：卸载后不该再有任何在途的凭据读写。
+        agnescode.stop();
+        agnescodeIntl.stop();
         baizhi.stop();
     }, 'codearts-auth.scheduler (legacy)');
     // ===== OfficeAce（华为 ModelArts MaaS，云端直连）=====
@@ -5276,6 +5635,33 @@ export function apply(ctx) {
         //     `resolveOfficeAceCredential`），锁定态**绝不回落池**。
         credentialProvider: createOfficeAceCredentialProvider({
             permanentLocked: () => pool.permanentLocked(OFFICEACE.id),
+            /**
+             * ★ **per-provider 窗口（2026-11-19）**：锁定态的「能不能烧」判据用
+             * 本渠道自己的窗口，而不是全局环境变量。
+             *
+             * ⚠️ 必须注入**函数**（`() =>`）而不是值：`officeace-lock.ts` 的
+             * `windowMs()` 每次调用都会问一次，这样用户在面板里保存窗口后
+             * 立刻对后续请求生效（不需要重启/重选模型/切会话）。
+             * ⚠️ 不注入会走 `buddyExpiringWindowMs()` 的全局默认 ⇒ 面板文案与实际
+             * 筛号分叉（`officeace-lock.ts:52` 的注释记的正是这个坑）。
+             */
+            windowMs: () => resolveCreditWindow(OFFICEACE.id, safeCreditWindowReader(pool)).windowDays * 24 * 60 * 60 * 1000,
+            /**
+             * ⚠️⚠️ **必须与 `windowMs` 成对注入**（2026-11-21 对抗审计 P2-4）。
+             *
+             * `officeace-lock.ts:138` 声明了 `imminentWindowMs?: () => number`，
+             * `:274` 用 `deps.imminentWindowMs?.()` —— 但这里原先把 `imminentWindowMs`
+             * **漏了**（生产零注入）⇒ 锁定态的「临期」子窗口恒取全局默认 5 天，
+             * 与用户在面板里设的 `imminentDays` 分叉。
+             *
+             * 这正是本 PR 在 `buddy-balance-selector.ts` 里刚修过的**同型缺陷**
+             *（可选参数造成静默旁路：`windowMs` 接了、`imminentWindowMs` 没接）。
+             *
+             * ⚠️ 今天**零可观测后果**（`split.imminent` 尚无消费方），
+             *    但一旦有人接上消费方，症状就是「面板说临期、锁却按 5 天判」。
+             *    所以现在就补，别留给下一个人。
+             */
+            imminentWindowMs: () => resolveCreditWindow(OFFICEACE.id, safeCreditWindowReader(pool)).imminentDays * 24 * 60 * 60 * 1000,
             // 锁定判定要**逐账号**看余额 ⇒ 取全部启用账号（与未锁定取号同一份清单）。
             accounts: () => enabledOfficeAceAccounts()
                 .map((entry) => ({ id: entry.id, credentialRef: entry.credentialRef })),
@@ -5540,6 +5926,52 @@ export function apply(ctx) {
     // ⚠️ 回收：定时器必须随插件卸载而停，否则进程退出会被它挂住
     //   （与上面 `closeAllProxyDispatchers` 的回收并列，同款约定）。
     ctx.effect(() => () => { clearInterval(modelsDevTimer); });
+    // ===== 余额读数的**磁盘缓存**接线（2026-11-20，用户要求「重启后积分也快」）=====
+    //
+    // ## 三个写盘时机（用户明确指定，**只有这三个**）
+    //
+    // | 时机 | 实现 |
+    // |---|---|
+    // | ① 启动后首次拉取成功 | `noteDiskReading` 置脏 ⇒ 下面那个 30 分钟定时器的**首次**触发就写 |
+    // | ② 每隔 30 分钟 | `setInterval` |
+    // | ③ 插件卸载（退出）时 | `ctx.effect` 清理钩子 |
+    //
+    // ⚠️ **不在每次读数后写盘**：徽标每 60 秒轮询一次 ⇒ 每天上千次写。
+    // 而余额变化频率远低于此 —— 用户明确要求「减少不必要的缓存写盘」。
+    //
+    // ## ⚠️ 为什么用 `flushDisk` 而不是直接写
+    //
+    // `flushDisk` 内部判「有没有脏数据」（`dirty`）⇒ 没有新读数就**完全不写盘**
+    // （空转的定时器不产生 IO）。
+    //
+    // ## ⚠️ 启动时先 prime 一次
+    //
+    // `primeFromDisk()` 把上次的读数读进内存镜像 ⇒ `balance-cache.ts` 的
+    // `readDiskReading` 才能命中。**必须在这里调**：若等第一次 `read()` 惰性触发，
+    // 那次读仍然要读盘（虽然是同步的、很快），而提前 prime 让它更早可用。
+    //
+    // ⚠️ 顺序：**先 prime 再挂定时器**（否则定时器的首轮可能早于 prime）。
+    const primedBalanceCount = primeBalanceDiskCache();
+    if (primedBalanceCount > 0) {
+        // ⚠️ 只记**条数**不记具体账号（余额是敏感数据，日志里不该出现 id）。
+        ctx.logger?.info?.(`[jet-hub] 余额磁盘缓存已载入 ${primedBalanceCount} 条（首屏免等网络）`);
+    }
+    const balanceDiskFlushTimer = setInterval(() => {
+        // ⚠️ 返回值刻意忽略：写失败是静默的（缓存是纯优化，见 `balance-disk-cache.ts`）。
+        flushBalanceDisk();
+    }, BALANCE_DISK_FLUSH_INTERVAL_MS);
+    balanceDiskFlushTimer.unref?.();
+    ctx.effect(() => () => {
+        clearInterval(balanceDiskFlushTimer);
+        /**
+         * ★ **退出时补最后一次**（写盘时机 ③）。
+         *
+         * ⚠️ 这是「尽力而为」：`ctx.effect` 的清理钩子在**插件卸载**时跑，
+         * 而 DSH 被任务管理器强杀 / 系统关机 / 崩溃时**不会触发**。
+         * ⇒ 有 30 分钟定时器兜底（最坏丢 30 分钟内的变化，对余额完全可接受）。
+         */
+        flushBalanceDisk();
+    });
     // ⚠️ 这里**不再**调 `registerOpencodeRpc`：opencode 的端点已并入
     // `registerJetHubRpc` 内部的 handleMethod（见 `opencode-rpc.ts` 模块头）。
     // 代理 dispatcher 是常驻连接池：插件卸载必须回收，否则进程退出会挂住。
@@ -5872,9 +6304,16 @@ export function apply(ctx) {
         //    ⚠️ 它的目录是「白泽远端 + 网关常量」两段合并（`mergeWithGatewayModels`）
         //    ⇒ 即便白泽目录拉失败也有 9 条网关常量兜底，不会出现 `total === 0`。
         monkeycode: pruned(MONKEYCODE.id, monkeycodeAdapter),
+        // 豆包（doubao，2026-11-22）：网页端私有协议渠道，已接目录/适配器。
+        doubao: pruned('doubao', doubaoAdapter),
         // ⚠️ 国际站同样必须进这张表：理由与国内站逐条相同 —— 「关闭整个 provider」
         //    依赖 `listAllModels()` 那份**不套黑名单**的全量目录，漏了会漏写黑名单。
         monkeycodeintl: pruned(MONKEYCODE_INTL.id, monkeycodeIntlAdapter),
+        // ⚠️ AgnesCode（2026-11-19）：必须进本表 —— `provider.status` 的「已关闭」
+        //    判据读的是 `listAllModels()` 那份**不套黑名单**的全量目录，表里缺它
+        //    ⇒「关闭整个 provider」时漏写黑名单 ⇒「显示已关闭、模型仍可选用」。
+        agnescode: pruned(AGNESCODE.id, agnescodeAdapter),
+        agnescodeintl: pruned(AGNESCODE_INTL.id, agnescodeIntlAdapter),
         // ⚠️ 百智云同样必须进这张表：理由与 monkeycode 逐条相同 ——
         //    `provider.status` 的「已关闭」判据读的是 `listAllModels()` 那份
         //    **不套黑名单**的全量目录，表里缺它 ⇒「关闭整个 provider」时漏写
@@ -5979,6 +6418,64 @@ export function apply(ctx) {
         catalogRefresher.start();
         return () => { catalogRefresher.stop(); };
     });
+    // ★ **活动徽标的窗口边界播报**（issue #101）。
+    //
+    // 徽标按「此刻」求值，但宿主缓存一次目录读取的结果 ⇒ 没有这条，窗口关闭后
+    // 徽标最长挂满一个后台刷新周期（20 分钟），而那正是 issue 点名的「活动过期
+    // 而用户仍按优惠期选择模型」。**播报是零网络的**（理由与三条判据见
+    // src/promotion-edge-broadcast.ts 的头注）。
+    //
+    // ⚠️ 七家共用一个播报器、各自只交一个边界 getter：一条渠道算错不会让其余
+    // 六家失去保鲜（nearestPromotionEdge 逐源 try/catch）。
+    // ⚠️ 生命周期挂 ctx.effect（AGENTS.md：自建定时器必须回收，unref 不算回收）。
+    const promotionEdgeBroadcaster = createPromotionEdgeBroadcaster({
+        edgeSources: () => [
+            () => buddyAdapter.nextPromotionEdgeAt(),
+            () => workbuddyAdapter.nextPromotionEdgeAt(),
+            () => qoderAdapter.nextPromotionEdgeAt(),
+            () => qoderCnAdapter.nextPromotionEdgeAt(),
+            // TRAE 的闲时窗口（真机 2026-11-17：工作日 00:00–09:00 / 12:00–14:00 /
+            // 18:00–24:00 + 周末全天）。**带星期维度**，因此它的下一次边界可能要跨到
+            // 7 天后 —— nextClockInstantMs 的搜索上界因此从 4 天放宽到 8 天。
+            () => traeAdapter.nextPromotionEdgeAt(),
+            // LobsterAI 的限时免费（官方客户端 asar 取证：`limitedFreeStartAt/EndAt` 是
+            // ISO 字符串，客户端自己算最近边界 + setTimeout 重拉）。**绝对时刻**，
+            // 无每日重复 —— 与 TRAE 的星期窗口不同，边界最多两天。
+            () => lobsteraiAdapter.nextPromotionEdgeAt(),
+            // Raccoon 的计费活动（`billing_discounts[].start_at/end_at`，ISO 带 `Z`）——
+            // 同为**绝对时刻**。⚠️ 这条腿 2026-11-18 才接上：不接的话 end_at 到点后徽标
+            // 要等下一次目录刷新（20 分钟）才消失，正是 issue #101 点名的那格。
+            () => raccoonAdapter.nextPromotionEdgeAt(),
+        ],
+        fire: () => { broadcastCatalogChanged(ctx); },
+        warn: (message) => ctx.logger?.warn?.(message),
+    });
+    ctx.effect(() => {
+        promotionEdgeBroadcaster.schedule();
+        // ⚠️ **为什么要再监听 llm/adapters-updated（而不只靠 fire 后自排）**：
+        //
+        // 首轮 schedule() 跑在 apply() 里，那一刻 buddy / workbuddy 的远端目录**还没落地**
+        // （remoteModels 是 undefined ⇒ 边界 undefined），只有 Qoder / Qoder CN 的兜底表
+        // 当场就能给出边界。⇒ 两家的**远端**活动要等到下一次重算才被看见。播报器自己
+        // 只在「fire 过一次之后」重新求边界，而那可能已经是 10 小时以后。
+        // 目录落地时插件本来就会 emit 同一个事件（RemoteCatalogGate 的 onLoaded ⇒
+        // catalog-broadcast），所以监听它 = 「目录真的变了才重算边界」，零额外定时器。
+        //
+        // ⚠️ 另一条**边界情况**（不是本监听存在的主要理由，但它顺带兜住了）：
+        // 若首轮四家**都**没有边界（自定义产品表里没有 promotion 之类），按判据 3
+        // 播报器就停表，而停表后没有任何东西会再叫它 —— 直到下一次目录落地为止。
+        //
+        // 重入是安全的：fire ⇒ emit ⇒ 本监听 ⇒ schedule() 撤旧表重新求边界；
+        // 已过去的边界被 nearestPromotionEdge 剔掉，MIN_EDGE_FIRE_GAP_MS 挡住同毫秒自旋。
+        const stop = ctx.on('llm/adapters-updated', () => { promotionEdgeBroadcaster.schedule(); });
+        return () => {
+            try {
+                stop();
+            }
+            catch { /* 监听器本身抛错不该让停表半途而废 */ }
+            promotionEdgeBroadcaster.stop();
+        };
+    });
     // 插件卸载前把签名缓存落盘：`stream()` 每次结束都 flush，但用户可能
     // 直接关掉 DSH 而上一轮的 flush 还在排队 —— 落一次盘几乎零成本，
     // 丢的却是「下一轮工具调用能不能带上签名」。
@@ -6000,8 +6497,57 @@ export function apply(ctx) {
     //
     // ⚠️ **不 await**：`apply()` 是同步函数，预热会发网络请求（与既有的
     // opencode 能力预热同款约定）。停止函数挂 `ctx.effect`，插件释放后停手。
+    //
+    // ---------------------------------------------------------------------------
+    // ★★★ **2026-11-20：预热只挑「有账号」的 provider**（真实启动卡顿修复）
+    //
+    // ## 实测（33 个 provider，冷启动第 1 轮）
+    //
+    // ```
+    // +     8ms  22 个 provider 全部完成
+    // +  1289ms  workbuddy / codearts
+    // + 12586ms  cline (12585ms)   ← 独占 12.5 秒
+    // ```
+    //
+    // ## 根因
+    //
+    // `providers: Object.keys(modelAdapters)` 把**全部 33 个**都拿去预热，
+    // 而其中大部分**根本没有可用账号**（本机实测：60 个账号只覆盖 10 家，
+    // 其余 23 家一个账号都没有）。
+    //
+    // ⚠️ 骨架层 `ModelCatalog.listModels` **已有账号门控**
+    // （`providerCatalogVisible` → `hasLoggedInAccount`），没账号时返回 `[]`。
+    // 但**门控拦不住「门控自身的成本」**：
+    //
+    // 1. `hasLoggedInAccount` 要**逐个解析凭据**（`ctx.credentials.resolve`
+    //    + `JSON.parse`）—— 它不发网络，但对**每个** provider 都要跑一遍；
+    // 2. 凭据只要**能解析**就算「已登录」⇒ **停用的账号也会通过门控**
+    //    （`enabled` 刻意不参与该判据，见 `hasLoggedInAccount` 的注释）；
+    // 3. 通过门控后真的去拉远端目录 —— 本机 `cline` 的账号**已停用但凭据还在**
+    //    ⇒ 它会完整走完「两个端点 + models.dev 6.47MB」的链路 ⇒ **12.5 秒**。
+    //
+    // ## 修法
+    //
+    // 预热前先用**同步**判据筛一遍：只预热「账号池里至少有一个**启用**账号」的
+    // provider。理由：
+    //
+    // - 没有启用账号 ⇒ 用户此刻用不到这家 ⇒ 目录拉下来也没人看；
+    // - 与页头「供应商开关」/ 模型选择器的可见性**同源**（都是「有没有启用账号」）；
+    // - 纯同步（`listAccountsByProvider` 读内存副本），不引入异步开销。
+    //
+    // ⚠️ **刻意不用 `hasLoggedInAccount`**：它是异步的（逐个解析凭据），
+    // 33 家筛一遍反而比预热本身还慢；而且它**不看 `enabled`** —— 正是本缺陷的
+    // 成因之一（停用账号照样通过）。
+    //
+    // ⚠️ **代价（已确认接受）**：用户新登录/重新启用一个 provider 后，它的目录
+    // 不在本轮预热里 ⇒ 要等下一次 `listModels`（打开设置页 / 切模型）才拉。
+    // 那是**用户主动动作触发的**，不构成卡顿。
+    //
+    // ⚠️ 筛选逻辑抽在 `selectPrewarmProviders`（**纯函数**，可被单测直接断言）：
+    // index.ts 无法单测（装配层），把它留在这里等于这段逻辑零守卫。
+    const prewarmProviders = selectPrewarmProviders(Object.keys(modelAdapters), (provider) => pool.listAccountsByProvider(provider));
     ctx.effect(() => startCatalogPrewarm({
-        providers: Object.keys(modelAdapters),
+        providers: prewarmProviders,
         warm: (provider) => ctx.llm.listModels(provider),
         logger: { warn: (message) => ctx.logger?.warn?.(message) },
     }));
@@ -6279,6 +6825,12 @@ export function apply(ctx) {
             //    与续期/积分/探测三条链路都按 provider id 取实例，漏了它 = 国际站账号
             //    的 token 永不过期检测、积分永不刷新、重测按钮点了没反应（全静默）。
             ['magicrewintl', magicrewIntlAuth],
+            // ⚠️ AgnesCode（2026-11-19）：两站**各占一行**。这个循环是
+            //    `registerProviderRuntime` 的唯一入口 —— 漏一行 = 该站不进 runtime 表
+            //    ⇒ 续期 / 积分 / 探测三条链路全部静默失效（面板一切 RPC 报
+            //    `unknown provider`）。
+            ['agnescode', agnescode],
+            ['agnescodeintl', agnescodeIntl],
         ];
         for (const [id, auth] of registry) {
             const descriptor = descriptorOf(id);
@@ -6485,6 +7037,12 @@ export function apply(ctx) {
         // ⚠️ MagiCrew 国际站（2026-11-01）：必须与上面 `['magicrewintl', magicrewIntlAuth]`
         //    是**同一个实例**，否则 spec 布在该实例上的 spy 收不到调用。
         magicrewintl: magicrewIntlAuth,
+        // ⚠️ AgnesCode（2026-11-19）：值必须是与上面 registry 数组里
+        //    `['agnescode', agnescode]` **同一个实例**，否则
+        //    `provider-runtime-wiring.spec.ts` 布在该实例上的 spy 收不到调用；
+        //    漏加 ⇒ 客户端 agnescode 面板所有 RPC 报 `unknown provider`。
+        agnescode,
+        agnescodeintl: agnescodeIntl,
     }, modelAdapters);
     // 网关是旁路功能：这里传 `pool` 只为读设置页里的开关，其内部任何失败都已
     // 自行降级为日志，绝不会让插件 apply() 失败。
@@ -6494,6 +7052,12 @@ export function apply(ctx) {
     // ⚠️ 它依赖 `agents` 服务，故内部用 `ctx.inject(['agents'], …)` 挂载：
     // 该服务缺席的 profile 里本功能整体不生效，不会让插件永久 pending。
     installLoopResume(ctx);
+    // 会话因**限流 / 额度**被中断后，等到解禁时刻**自动继续**（见
+    // `rate-limit-resume.ts` 模块头）。与上面那个「思考死循环」是**不同失败类**：
+    // 一个管病态重复，一个管号池全被限流。
+    // ⚠️ 同样用 `ctx.inject(['agents'], …)` 挂载：没有 agent-loop 的 profile 里
+    // 本功能整体不生效，但**记录与 RPC 状态仍然可用**（钩子要能落盘、能显示）。
+    installRateLimitResume(ctx, pool);
     // 官方 `web_search` 在**支持原生搜索的渠道**下改走渠道自带后端
     //（其余渠道 `next()` 放行，官方链路逐字节不变）。
     //
@@ -6523,5 +7087,185 @@ export function apply(ctx) {
     // ⚠️ **本 fork 独有**（modelscope）：`ModelscopeAuth extends Service`，
     //    构造时已由 cordis 自动注册为 `ctx.modelscopeAuth`（`super(ctx, `${product.id}Auth`)`），
     //    故这里**不需要**再 provide —— 与 accio 同款（它也没有 provide 行）。
+    ctx.inject(['agents'], (injected) => {
+        /**
+         * ① `subagent/start`：登记分配。
+         *
+         * ⚠️ **provider 必须从「父会话当前在用哪个 provider」反推不出来** ——
+         * 事件里只有 session id，没有 provider。
+         * 故这里**对全部已注册 provider 各记一条**？不行：那会让同一 sessionId
+         * 在多家都占 slot。
+         *
+         * ⇒ 采用**惰性登记**：`subagent/start` 只把 `(sessionId → parentSessionId)`
+         * 记进**模块级父子表**；真正的 provider 级分配等到第一次
+         * `resolveCredential(provider, sessionId)` 时才登记（那时 provider 已知）。
+         *
+         * 这样 slot 的分配顺序 = 「子代理第一次真正请求的顺序」，与「拉起顺序」一致
+         *（拉起后立刻就会请求）。
+         */
+        const stopStart = injected.on('subagent/start', ((info) => {
+            try {
+                const evt = info;
+                const childId = typeof evt?.id === 'string' ? evt.id : undefined;
+                const parentId = typeof evt?.parentSessionId === 'string' ? evt.parentSessionId : undefined;
+                if (childId === undefined || parentId === undefined)
+                    return;
+                rememberSubagentParent(childId, parentId);
+                /**
+                 * ★★★ **在这里就改模型**（2026-11-24 第三次修正，前两次都失败）。
+                 *
+                 * ## 前两次为什么失败（都有实测证据）
+                 *
+                 * | 时机 | 失败原因 |
+                 * |---|---|
+                 * | `agent/pre-step` | 本 step 的 `modelSelection` **已定**，`select()` 改的是**下一个** step；而子代理**只有 step 1**（实测）⇒ 永不生效 |
+                 * | `agent/created` | 那时 `subagent/start` **还没到** ⇒ 父子里表 `tableSize=0`（实测 6/6）⇒ 判据恒 false |
+                 *
+                 * ## 为什么 `subagent/start` 可行
+                 *
+                 * 它**早于子代理发第一个请求**（实测：`subagent/start` → 然后才是 `pre-step`）。
+                 * 而 payload 虽无 agent，但 `AgentRegistry.get(id)` 能反查：
+                 *
+                 * > `get(id: SessionId): Agent | undefined`
+                 * > —— `dsh-agent/lib/types/index.d.ts`
+                 *
+                 * ⚠️ `get()` 返回 `undefined`（agent 还没进 registry）⇒ 静默跳过，
+                 * 那一轮用主代理模型，**绝不猜**。
+                 */
+                try {
+                    const registry = injected.agents;
+                    const childAgent = registry?.get?.(childId);
+                    const current = typeof childAgent?.model?.current === 'function'
+                        ? childAgent.model.current()
+                        : undefined;
+                    const provider = typeof current?.provider === 'string' ? current.provider : undefined;
+                    if (provider !== undefined && typeof childAgent?.model?.select === 'function') {
+                        const setting = pool.subagentRotationFor(provider);
+                        const model = setting?.model;
+                        if (model !== undefined && model.length > 0 && current?.model !== model) {
+                            const effort = setting?.reasoningEffort;
+                            childAgent.model.select({
+                                provider,
+                                model,
+                                ...(effort === undefined || effort.length === 0 ? {} : { reasoningEffort: effort }),
+                            });
+                        }
+                    }
+                    else {
+                    }
+                }
+                catch (error) {
+                    /** ⚠️ 换模型失败绝不能让事件监听器抛错（会传染宿主）。 */
+                }
+            }
+            catch (error) {
+                // ⚠️ 事件监听器抛错会传染宿主，一律吞掉并留诊断日志。
+                ctx.logger?.warn?.(`[jet-hub] 记录子代理 ${String(info)} 失败：${String(error)}`);
+            }
+        }));
+        /** ② `subagent/end`：标记结束（**不清分配**，见 `markSubagentEnded`）。 */
+        const stopEnd = injected.on('subagent/end', ((info) => {
+            try {
+                const evt = info;
+                const childId = typeof evt?.id === 'string' ? evt.id : undefined;
+                if (childId === undefined)
+                    return;
+                forgetSubagentParent(childId);
+                /**
+                 * ⚠️ provider 级分配**不在这里清** —— 见 `markSubagentEnded` 的注释：
+                 * resume 会复用同一 sessionId，清了会让它排到队尾。
+                 * 实际清理交给 `at` 淘汰。
+                 */
+                /**
+                 * ★★★ **标记分配为「已结束」**（2026-11-24 修复缺失的调用）。
+                 *
+                 * ## 缺陷
+                 *
+                 * 上一版这里**只有注释、没有调用** —— `recordSubagentEnd()` 定义了
+                 * 却零调用点（死代码），实测 `state.json` 里 `ended` 永远是 `false`。
+                 * 这正是本仓反复记录的「注释承诺了、代码没实现」形态。
+                 *
+                 * ## ⚠️ 为什么必须反查 provider
+                 *
+                 * `subagent/end` 的 payload **只有 `id`**，没有 provider；
+                 * 而 `recordSubagentEnd(provider, sessionId)` 需要它。
+                 *
+                 * ⚠️ 反查可能返回**多个**（同一 sessionId 在多家各一条记录）⇒
+                 * 全部标记，绝不只标第一个（漏标会让那条记录永远显示「未结束」）。
+                 *
+                 * ⚠️ **fire-and-forget**：这是事件监听器，不能让它等磁盘写；
+                 * 而且失败绝不能上抛（会传染宿主）。
+                 */
+                for (const providerIdOfChild of pool.providersOfSubagentSession(childId)) {
+                    void pool.recordSubagentEnd(providerIdOfChild, childId).catch(() => {
+                        /* 标记失败不影响任何功能（ended 只用于诊断） */
+                    });
+                }
+            }
+            catch { /* 同上：监听器绝不上抛 */ }
+        }));
+        /**
+         * ③ `agent/pre-step`：按 sessionId 改写子代理的**模型**。
+         *
+         * ## ⚠️ 为什么每次 step 都要判一次
+         *
+         * `agent.model.select()` 是**持久**的（官方注释：durable model selection），
+         * 理论上选一次就够。但：
+         *
+         * 1. 用户可能中途手动给子代理换模型 ⇒ 我们的设置要**重新生效**；
+         * 2. 子代理 resume 时是新的一轮 ⇒ 再选一次保证一致。
+         *
+         * ⇒ 每次 pre-step 都判（对相同选择是 no-op，成本可忽略 —— 官方注释：
+         *   「An equal recorded choice is a no-op」）。
+         *
+         * ## ⚠️ 只对**子代理**生效
+         *
+         * 主代理会话不在父子表里 ⇒ 这里什么都不做（零回归）。
+         */
+        /**
+         * ★★★ **子代理模型改写：必须在 `agent/created`（不是 `pre-step`）**
+         *（2026-11-24 用户实测打穿 + 宿主契约确证）。
+         *
+         * ## 为什么 `pre-step` 那版永远不生效
+         *
+         * 宿主 `Model.select()` 的契约（`runtime-types.d.ts:46-63`）逐字写着：
+         *
+         * > Replace the **next step's** complete selection.
+         * > This read neither starts a step nor **changes an already-prepared step**.
+         *
+         * ⇒ 在 `pre-step` 里调 `select()` 改的是**下一个** step，
+         *   而本 step 的 `modelSelection` **已经定了**，改不动它。
+         *
+         * 实测（探针 + Token 账本）：6 个子代理**每个只有 `step 1`** ——
+         * 它们跑完一轮就结束，**没有 step 2** ⇒ select 改的那个 step 永不到来
+         * ⇒ Token 账本里 6 条全是主代理的模型，**零条**目标模型。
+         *
+         * ## 为什么 `agent/created` 是对的
+         *
+         * 它在 agent **刚创建、还没跑任何 step** 时触发（`agent/created` 是
+         * `undefined | Promise<undefined>` 的 serial 事件）⇒ 此时 `select()` 改的
+         * 「next step」正是**第一个 step** ⇒ 生效。
+         *
+         * ## ⚠️ 为什么 `subagent/start` 不行
+         *
+         * 那个事件的 payload 只有 `{ id, parentSessionId, runId, provider, local }`
+         * —— **没有 agent 对象** ⇒ 拿不到 `agent.model.select()`。
+         *
+         * ## ⚠️ 只对**子代理**生效
+         *
+         * 靠父子表判（`isSubagentSession`）。主代理不在表里 ⇒ 什么都不做（零回归）。
+         */
+        /** ⚠️ `agent/created` 方案已废弃：那时父子表还是空的（实测 tableSize=0）。模型改在 `subagent/start` 里做。 */
+        injected.effect(() => () => {
+            try {
+                stopStart();
+            }
+            catch { /* 忽略 */ }
+            try {
+                stopEnd();
+            }
+            catch { /* 忽略 */ }
+        });
+    });
 }
 //# sourceMappingURL=index.js.map

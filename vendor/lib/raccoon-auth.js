@@ -21,9 +21,10 @@
 import { Service } from '@deepseek-ai/cordis';
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import { isRaccoonExpired, isRaccoonRefreshable, raccoonCredentialExpiresAtMs, raccoonDisplayName, decodeJwtExpMs, } from './raccoon.js';
-import { claimRaccoonLoginReward, fetchRaccoonCreditBalance, fetchRaccoonOnboardingStatus, } from './raccoon-credits.js';
+import { claimRaccoonDailyCheckin, claimRaccoonLoginReward, fetchRaccoonCreditBalance, fetchRaccoonOnboardingStatus, } from './raccoon-credits.js';
 import { fetchRaccoonUserInfo, refreshRaccoonCredential, } from './raccoon-oauth.js';
 import { RACCOON, raccoonSupportsImage } from './raccoon-product.js';
+import { ensureRaccoonSessionConfirmed } from './raccoon-iam-confirm.js';
 import { startRaccoonLoginFlow, } from './raccoon-login-page.js';
 import { syncAccountExpiry, } from './expiry-sync.js';
 /**
@@ -64,6 +65,97 @@ export function parseRaccoonCredential(value) {
         return undefined;
     }
 }
+/**
+ * 上游 `billing_discounts[]` → 本模块的 camelCase 形状（**只改名，不解释**）。
+ *
+ * ⚠️ 三条判据都逐字来自官方客户端的目录解析
+ * （`build/electron/main/client/models/hostedModelPresentation.js`，2026-11-11 版 asar）：
+ *
+ * 1. **丢弃判据**：客户端只保留「`name` 非空 **且** `multiplier` 是有限数」的条目
+ *    （`if (!text(item.name) || multiplier === undefined) return []`）。这里同判据：
+ *    留一条没有倍率的半截数据只会让下层的「折后价」永远算不出来。
+ * 2. **`text()` = trim 后空串视同缺失**：上游实测有 `""` 形态（`billing_status_note`），
+ *    空串与「没发这个字段」在展示上必须同义。
+ * 3. **只收上游真发过的键**：`active` 只在布尔时收，日期只在字符串时收 —— 这样
+ *    「上游发了但类型漂移」不会被悄悄折成 `undefined` 而变成「没声明」。
+ *    ⚠️ 例外是 `billing_discounts` 本身：非数组时置 `discountsUnreadable`（见其注释）。
+ */
+/**
+ * 上游 `billing_status` 的归一 —— **全文件唯一实现，两处共用**
+ * （`normalizeRemoteModel` 取 `status`；`readRaccoonPromotionInput` 取「未知状态」留痕）。
+ *
+ * ⚠️⚠️ 为什么必须同源（2026-11-18 双审计 P1，两份审计独立指出同一格）：
+ * 原先只有「留痕」那一侧 `trim()`、判 `status` 那一侧不 trim ⇒ `' discount'` /
+ * `'discount '` / `'\tdiscount\n'` 出现**两个互相抵消的结论**：留痕侧认为「这是已知
+ * 状态」（所以 `statusUnknown` 不填、`warns=0`），判据侧认为「不是这三个值」（所以收成
+ * `normal`、chip 不画）⇒ 症状是**活动徽标静默消失且全仓零日志**，正是本 PR 自己要修的
+ * 那类形态（issue #101 最难查的一格）。
+ *
+ * 归一后：空白变体一律认成已知状态（chip 正常画），真正的新状态进 `unknown` 播诊断。
+ */
+function normalizeBillingStatus(raw) {
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    if (text === '' || text === 'normal')
+        return { status: 'normal' };
+    if (text === 'discount' || text === 'limited_free')
+        return { status: text };
+    return { status: 'normal', unknown: text };
+}
+function readRaccoonPromotionInput(entry, status, statusUnknown, baseMultiplier, effectiveMultiplier, statusNote) {
+    const text = (value) => {
+        if (typeof value !== 'string')
+            return undefined;
+        const trimmed = value.trim();
+        return trimmed === '' ? undefined : trimmed;
+    };
+    const finite = (value) => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    const raw = entry.billing_discounts;
+    const unreadable = raw !== undefined && !Array.isArray(raw);
+    const discounts = [];
+    if (Array.isArray(raw)) {
+        for (const item of raw) {
+            if (typeof item !== 'object' || item === null || Array.isArray(item))
+                continue;
+            const record = item;
+            const name = text(record.name);
+            const multiplier = finite(record.multiplier);
+            if (name === undefined || multiplier === undefined)
+                continue;
+            const startAt = text(record.start_at);
+            const endAt = text(record.end_at);
+            // ⚠️⚠️「没声明」与「声明了但读不出」必须分开（2026-11-18 对抗审计 P1-②）：
+            // 把非字符串一律折成 `undefined`，会让「只有一端可读」的单边窗口逃过下游的
+            // fail-closed，于是这条活动变成**永不结束** —— 实测 `end_at` 给 `null` / 数字
+            // 时间戳 / `{}` 时，chip 到 2031 年照样画且零 warn。
+            const startAtUnreadable = record.start_at !== undefined && startAt === undefined;
+            const endAtUnreadable = record.end_at !== undefined && endAt === undefined;
+            const dailyStart = text(record.daily_start);
+            const dailyEnd = text(record.daily_end);
+            discounts.push({
+                name,
+                multiplier,
+                ...record.active === true ? { active: true } : record.active === false ? { active: false } : {},
+                ...startAt === undefined ? {} : { startAt },
+                ...endAt === undefined ? {} : { endAt },
+                ...startAtUnreadable ? { startAtUnreadable: true } : {},
+                ...endAtUnreadable ? { endAtUnreadable: true } : {},
+                ...dailyStart === undefined ? {} : { dailyStart },
+                ...dailyEnd === undefined ? {} : { dailyEnd },
+            });
+        }
+    }
+    // `statusUnknown` 由 `normalizeBillingStatus` 统一产出（**不在这里再判一遍白名单** ——
+    // 两处判据会各带一种 trim 口径，正是空白变体静默消失的成因）。
+    return {
+        status,
+        ...statusUnknown === undefined ? {} : { statusUnknown },
+        ...Number.isFinite(baseMultiplier) ? { baseMultiplier } : {},
+        ...Number.isFinite(effectiveMultiplier) ? { effectiveMultiplier } : {},
+        ...statusNote === '' ? {} : { statusNote },
+        ...Array.isArray(raw) ? { discounts } : {},
+        ...unreadable ? { discountsUnreadable: true } : {},
+    };
+}
 /** 把远端模型条目归一（含展示名）。 */
 function normalizeRemoteModel(entry) {
     const id = typeof entry.name === 'string' ? entry.name.trim() : '';
@@ -82,10 +174,9 @@ function normalizeRemoteModel(entry) {
         ? entry.billing_effective_multiplier
         : Number.NaN;
     const base = typeof entry.billing_multiplier === 'number' ? entry.billing_multiplier : Number.NaN;
-    const rawStatus = typeof entry.billing_status === 'string' ? entry.billing_status : '';
-    const status = rawStatus === 'discount' || rawStatus === 'limited_free'
-        ? rawStatus
-        : 'normal';
+    // 归一只有一处实现（`normalizeBillingStatus`）：判 `status` 与「未知状态留痕」必须同源。
+    const billingStatus = normalizeBillingStatus(entry.billing_status);
+    const status = billingStatus.status;
     const statusNote = typeof entry.billing_status_note === 'string' ? entry.billing_status_note : '';
     const meta = {
         id,
@@ -108,12 +199,15 @@ function normalizeRemoteModel(entry) {
         // 「**默认支持**，只禁 RACCOON_TEXT_ONLY_MODELS 里实测确认的纯文本模型」，
         // 理由与实测证据见 `raccoon-product.ts` 的注释。
         supportsImage: raccoonSupportsImage(id),
+        // 计费活动的原料（未决候选），徽标在装配时刻现算 —— 见字段注释。
+        promotion: readRaccoonPromotionInput(entry, status, billingStatus.unknown, base, effective, statusNote),
     };
 }
 /**
  * Raccoon Work 认证服务。
  *
- * 登录走**本地页承载**的扫码/短信双路径（见 `raccoon-login-page.ts`），
+ * 登录走**本地页承载**的三条路径（见 `raccoon-login-page.ts`）：**浏览器授权**
+ * （默认 Tab；扫码确认页 `/login/mp` 自 2026-11-04 起全 404）、扫码、短信。
  * 续期走 `refresh_token` 轮换（与 Loomy 不同）。
  */
 export class RaccoonAuth extends Service {
@@ -381,6 +475,9 @@ export class RaccoonAuth extends Service {
         const credential = await this.resolveForFetchModels(pool);
         if (credential === undefined)
             return [];
+        // ★ IAM 业务会话确认（issue #147）：不确认 ⇒ model_catalog 回 200901 ⇒
+        //   模型目录恒空 ⇒ 用户选不到模型。忽略返回值（尽力前置）。
+        await ensureRaccoonSessionConfirmed(this.product, credential, this.fetchImpl);
         try {
             const response = await this.fetchImpl(`${this.product.apiBase}${this.product.llmApiPrefix}/model_catalog`, {
                 method: 'GET',
@@ -426,6 +523,15 @@ export class RaccoonAuth extends Service {
     /** 领取一次性登录奖励。 */
     async claimLoginReward(credential) {
         return claimRaccoonLoginReward(this.product, credential, this.fetchImpl);
+    }
+    /**
+     * 每日签到（办公端 `setting_info` 结算触发器 + 余额差核对）。
+     *
+     * ⚠️ 走实例方法而不是让 `provider-credits` 直接调自由函数：这样注入的
+     * `fetchImpl`（测试替身 / 代理）不会被绕过，与余额查询同一条口径。
+     */
+    async claimDailyCheckin(credential) {
+        return claimRaccoonDailyCheckin(this.product, credential, this.fetchImpl);
     }
     /** 查询一次性登录奖励是否已领。 */
     async fetchOnboardingStatus(credential) {

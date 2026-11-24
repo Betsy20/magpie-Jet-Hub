@@ -91,6 +91,14 @@ export interface UsageBadgeDeps {
      */
     collectQuota?(provider: string): BadgeRpcResult<RpcClineQuotaResponse> | undefined | Promise<BadgeRpcResult<RpcClineQuotaResponse> | undefined>;
     /** 该渠道的账号池条目（**同步**读内存副本；`enabled !== false` 视为启用）。 */
+    /**
+     * 读该 provider 是否「锁定永久积分」（进程内缓存，不产生 IO）。
+     *
+     * ⚠️ 必须由装配层注入（`pool.permanentLocked`），**不要在客户端另调一次
+     *    `account.getRotation`** —— 「可用」与「锁定」必须来自同一次读数，
+     *    否则两次调用之间用户在面板里改了开关，两个数字会互相矛盾。
+     */
+    readLocked?(provider: string): boolean;
     listAccounts(provider: string): readonly ProviderAccountEntry[];
     /** 读当前生效的显示偏好。 */
     readPreference(): BadgePreference;

@@ -72,6 +72,13 @@ export interface ProviderCreditsDeps {
     /** Raccoon auth 实例（省略时回退到自由函数 + 全局 fetch）。 */
     readonly raccoon?: {
         fetchCreditBalance(credential: RaccoonCredential): Promise<CreditBalance | null>;
+        /**
+         * 每日签到（办公端结算）。
+         *
+         * ⚠️ 与余额同一条口径：走实例方法才能保住注入的 `fetchImpl`
+         * （测试替身 / 代理）。省略时回退到自由函数。
+         */
+        claimDailyCheckin(credential: RaccoonCredential): Promise<ClaimOutcome>;
     };
     /** ZCode auth 实例（省略时回退到自由函数 + 全局 fetch）。 */
     readonly zcode?: {

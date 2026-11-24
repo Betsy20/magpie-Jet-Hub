@@ -555,14 +555,6 @@ export class AutoAdapter extends LlmAdapter {
      * ⚠️ 必须同时要求零输出 —— 有输出的 `max-tokens` 是「正常答到半截撞了输出
      * 上限」，那时换目标会**丢掉已产出的正文**（与 `aggregate-adapter.ts` 的
      * 「已吐内容就不许切换」是同一个安全方向）。
-     *
-     * ⚠️ **已透出帧的处理**：零输出意味着 `textDelta` 从未出现，而
-     * `block-start` 只在有内容时才发（`openai-compat.ts`）⇒ 这一轮唯一
-     * 可能已透出的只有 `usage` 帧，而它对 `BlockAssembler` 是**覆盖式**赋值
-     * ⇒ 重发安全。故这里**不必缓冲整个流**（那会把透传改成带前瞻的缓冲，属更大的
-     * 改动面，与 `aggregate-adapter.ts` 里「延迟 block-start」那条已知代价同类）。
-     * 一旦某天有适配器在零内容时也发 `block-start`，本条注释的前提即失效 ——
-     * 那时必须先缓冲再改道。
      */
     async *dispatch(target, options, viaImageFallback = false, 
     /** 本次请求内已撞过墙、不得再选的目标（递归传递，避免无限改道）。 */
@@ -590,8 +582,19 @@ export class AutoAdapter extends LlmAdapter {
         const base = { ...options, provider: target.provider, model: target.model };
         const forwarded = this.withTranslatedEffort(target, base, requested);
         let probe = emptyZeroOutputProbe();
+        // ⚠️ usage **先缓冲**、确认这个候选要留下才补发（PR #122）。
+        // 旧实现直接透传，理由是「对 BlockAssembler 是覆盖式赋值 ⇒ 重发安全」——
+        // 那条事实仍然成立，但「不炸」不等于「语义对」：把**失败候选**的缓存命中量
+        // 发给客户端会被读成「这次请求命中了 X」，而改道后实际用的是另一个账号。
+        // 代价（已登记）：usage 先于正文、且消费者在收到首帧前 abort 时这条 usage 会丢，
+        // 宿主的中断轮因此少记一次用量。两者不能同时要，这里选「宁可少记，不许错记」。
+        let pendingUsage;
         for await (const chunk of this.ctx.llm.stream(forwarded)) {
             probe = noteChunk(probe, chunk);
+            if (chunk.type === 'usage') {
+                pendingUsage = chunk;
+                continue;
+            }
             // ⚠️ 判定必须在**透出该终止帧之前**：一旦把 `max-tokens` 交给 harness，
             //    本轮就结束了（DSH 对 `max-tokens` 不自动重试），改道机会随即消失。
             if (chunk.type === 'finish' && isZeroOutputWallHit(probe)) {
@@ -617,8 +620,14 @@ export class AutoAdapter extends LlmAdapter {
                 this.ctx.logger?.warn?.(`[jet-hub-auto] ${target.provider}（${target.model}）收下请求却零输出，`
                     + `但池内已无其他候选可改道；如实上报该失败`);
             }
+            if (chunk.type === 'finish' && pendingUsage !== undefined) {
+                yield pendingUsage;
+                pendingUsage = undefined;
+            }
             yield chunk;
         }
+        if (pendingUsage !== undefined)
+            yield pendingUsage;
     }
     /**
      * 零输出撞墙后顺位选下一个目标；无候选时返回 `undefined`。

@@ -74,6 +74,7 @@
  * 不是第 7、8 轮引入的；只是**接入 Codex 用 Responses 端点之后才暴露** ——
  * 在那之前没有消费者会这样解读这两个字段。
  */
+import { readCacheTokenCount } from '../cache-token-count.js';
 /** 非负整数归一；非法值一律当 0（用量字段宁少不崩，绝不抛错中断整轮对话）。 */
 function count(value) {
     return typeof value === 'number' && Number.isFinite(value) && value > 0
@@ -89,10 +90,10 @@ function count(value) {
  * 故不进 `cachedTokens`。
  */
 export function toOpenAiUsage(usage) {
-    const cached = count(usage.cacheReadTokens);
+    const cached = readCacheTokenCount(usage.cacheReadTokens);
     const written = count(usage.cacheWriteTokens);
     // ⚠️ 这一行是本次修复的核心：DSH 的 `inputTokens` 不含缓存，必须加回去。
-    const inputTokens = count(usage.inputTokens) + cached + written;
+    const inputTokens = count(usage.inputTokens) + (cached ?? 0) + written;
     const outputTokens = count(usage.outputTokens);
     const reported = typeof usage.totalTokens === 'number' && Number.isFinite(usage.totalTokens) && usage.totalTokens > 0
         ? Math.trunc(usage.totalTokens)
@@ -106,7 +107,7 @@ export function toOpenAiUsage(usage) {
         // （本仓库无法穷举验证 14 个 provider），直接采信就会原样重现本缺陷。
         // 取较大者保证「只会多算、绝不漏算」—— 漏算的代价是自动压缩永不触发。
         totalTokens: Math.max(reported ?? 0, inputTokens + outputTokens),
-        cachedTokens: cached,
+        ...cached !== undefined ? { cachedTokens: cached } : {},
         ...count(usage.reasoningTokens) > 0 ? { reasoningTokens: count(usage.reasoningTokens) } : {},
     };
 }

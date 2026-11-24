@@ -49,14 +49,19 @@ console.log('--- 1) credits.balances 的回包形状 ---')
   // handler 里那两行：`const value = usesWindow ? {...} : {...}` 然后 `return { ok: true, value }`
   const iValue = rpcSrc.indexOf('const value = usesWindow')
   ok(iValue > 0, '找到 credits.balances handler 里的 `const value = usesWindow`')
-  const tail = rpcSrc.slice(iValue, iValue + 400)
+  const tail = rpcSrc.slice(iValue, iValue + 1200)
   ok(
-    /\{\s*accounts:\s*values\s*\}/.test(tail),
-    'value 是 `{ accounts: values }` 对象（不是裸的 values）',
+    /\{\s*accounts:\s*values\b/.test(tail),
+    'value 是 `{ accounts: values, … }` 对象（不是裸的 values）',
   )
+  // 2026-11-24 上游把这几个窗口天数从写死的 `buddyExpiringWindowDays()` 改成
+  // **字段驱动**的 `resolveCreditWindow(provider, reader)` —— 判据来自描述符的
+  // `usesExpiryWindow`，登记的正是原先那四段硬编码（buddy 系 + TRAE + LobsterAI，
+  // loomy 刻意不在内）。`imminentDays` 与 `windowDays` **成对回传**：只给一半会让
+  // 前端把「临期窗口」退化成「总窗口」，面板的临期段恒 0。
   ok(
-    /windowDays:\s*buddyExpiringWindowDays\(\)/.test(tail),
-    '带窗口的渠道额外带 windowDays（说明 value 是对象而不是数组）',
+    /windowDays:\s*w\.windowDays,\s*imminentDays:\s*w\.imminentDays/.test(tail),
+    '带窗口的渠道额外带 windowDays + imminentDays（成对回传，说明 value 是对象而不是数组）',
   )
   const iReturn = rpcSrc.indexOf('return { ok: true, value }', iValue)
   ok(iReturn > 0, 'handler 返回 `{ ok: true, value }`')

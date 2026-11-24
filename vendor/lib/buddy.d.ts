@@ -13,6 +13,7 @@
  *
  * 本模块只放常量与纯函数（无网络、无存储），网络流程见 buddy-oauth.ts。
  */
+import { type ModelPromotion, type ModelPromotionBadgeValue } from './model-promotions.js';
 /** 主 API 端点（product.json endpoint）。 */
 export declare const API_ENDPOINT = "https://copilot.tencent.com";
 /** API 路径前缀（product.json authentication.attributes.prefixPath）。 */
@@ -154,6 +155,15 @@ export declare function jwtExpiresAtMs(token: string): number | undefined;
  * 昵称只在 access_token 的声明里）。解析失败返回空串。
  */
 export declare function jwtNickname(token: string): string;
+/**
+ * 凭据的「上次签发/刷新时刻」（毫秒）；读不到返回 `undefined`。
+ *
+ * ⚠️ **刻意不做 `expires_at - access TTL` 的回退**：access TTL 上游按批次在缩
+ * （本机解出 60 / 30 / 28 天三批），我们无从得知某一代的确切值，回退算出来的
+ * 只会是个错的数。读不到就如实返回 `undefined`（= 保活腿不生效，行为退回改造前），
+ * 而不是编一个 —— 本仓红线。
+ */
+export declare function credentialIssuedAtMs(credential: BuddyCredential): number | undefined;
 /** 凭据是否已过期；无法解析过期时间时不判定过期（对齐 Rust is_expired）。 */
 export declare function isExpired(credential: BuddyCredential): boolean;
 /** 凭据是否携带可静默续期的 refresh_token。 */
@@ -171,6 +181,59 @@ export declare function isRefreshable(credential: BuddyCredential): boolean;
 export declare function credentialRequestHeaders(credential: BuddyCredential): Record<string, string>;
 /** 构造带 Bearer 令牌的认证请求头。 */
 export declare function credentialAuthHeaders(credential: BuddyCredential): Record<string, string>;
+/**
+ * 从 JWT payload 读取 `iat`（签发时刻，秒）并换算为毫秒。
+ *
+ * ## ⚠️⚠️ 这条腿同时服务「到期时间推算」与「保活续期」（issue #124，2026-11-19）
+ *
+ * `iat` 在**续期之后**恰好等于「上次刷新时刻」（续期会重签 access_token）。
+ * 本仓调度器每 30 分钟一轮，而 lead-time 判据只在「距过期不足 1 小时」放行
+ * ⇒ 对 access TTL 以**天**计的渠道，续期可能连续数十天一次都不发，
+ * `refresh_token` 被服务端**闲置失效**（CodeBuddy 实测 28 天 ⇒ 401
+ * `12153: refresh token is invalid`，面板写 `refreshable: false`，用户只能重登
+ * 且 **28 天后必复发**）。
+ *
+ * ⇒ 用「距上次刷新（= `iat`）的时长」做保活判据，比「按 TTL 比例 / 固定天数」
+ *   稳：本机解出三批样本的 access TTL 分别是 **60 / 30 / 28 天**且上游在持续
+ *   收缩，任何写死的天数或比例都会在某一代上贴到闲置窗口红线。
+ *
+ * ⚠️ 与 {@link jwtExpiresAtMs} 同口径：**只做 JWT payload 解码、不验签**
+ *    （该值只用于续期调度，不参与任何安全判定）。
+ *
+ * ## ⚠️ 解码口径：`'base64url'` 不是打字法事故（2026-11-19 实测订正）
+ *
+ * 本文件既有写法是 `Buffer.from(parts[1], 'base64url')`。我曾以为那是对
+ * `base64` 的打字法错误 —— **错**。三条独立证据：
+ * 1. `Buffer.isEncoding('base64url') === true`（对照组 `Buffer.isEncoding('zzzzzzzz') === false`）；
+ * 2. **`@types/node` 官方声明里就有它**：`buffer.d.ts` 的
+ *    「Valid string encodings: … | 'base64' | 'base64url' | …」，以及
+ *    `crypto.d.ts` 的 `type BinaryToTextEncoding = "base64" | "base64url" | …`；
+ * 3. 它是**内建**的（编译在 node 可执行文件内部），`node_modules` 对它 0 处
+ *    monkeypatch ⇒ 不存在「第三方改我们解码行为」的隐通道。
+ *
+ * ⇒ 它只是**不可读**，不是写错。
+ *
+ * ⚠️ **等价性只在「解码」方向成立**：`Buffer.from(x, 'base64')` 与
+ *    `Buffer.from(x, 'base64url')` **逐字节等价**（实测 800 组真实 JWT 形状 ×
+ *    payload 长度三种 mod 3 余数全覆盖 = 0 差异；23 组畸形输入也全同），因为
+ *    Node 的解码器对 `+/` 与 `-_` 两套字母表都接受。
+ *
+ *    但 **`buf.toString(...)` 方向不等价**：`'base64url'` 是 **base64url**
+ *    （URL-safe、无 padding），32 字节编出 **43** 字符，而 `'base64'` 编出
+ *    **44** 字符并带 `=`。本仓另有 6 处**编码**点依赖这个语义（PKCE 的
+ *    `code_verifier` / `challenge`、网关 API 密钥的定长 43 位判据
+ *    `KEY_PATTERN`）—— 改过去会**静默换 key ⇒ 所有客户端同时 401**。
+ *    **绝不可**照抄「两种写法等价」去改它们。
+ *
+ *    ⚠️ `TextDecoder('base64url')` 抛 `RangeError` **不能**当「非法」的证据 ——
+ *    `TextDecoder` 只认 WHATWG 标签，`'base64'` 同样不是合法 label。
+ *
+ *    ⚠️ 本处**沿用既有写法**，与同文件 `jwtExpiresAtMs` / `jwtNickname` 同一种
+ *    解码口径 —— 同一语义出现两种写法会给未来留下分叉口子（且因解码等价，
+ *    改错一处**测试全绿、行为不变**，双写法会静默固化）。要不要全仓统一
+ *    是**独立任务**（49 处、含 `accio-oauth.ts` 的 PKCE 生成），不在本 issue 范围。
+ */
+export declare function jwtIssuedAtMs(token: string): number | undefined;
 /**
  * 从 JSON 解析令牌数据（兼容 camelCase 字段名与数字型时间戳）。
  *
@@ -242,6 +305,15 @@ export interface BuddyRemoteModel {
     reasoningEfforts?: string[];
     /** 默认思考等级（data.models[].reasoning.defaultEffort）。 */
     defaultReasoningEffort?: string;
+    /**
+     * 该模型命中的**上游活动**候选（issue #101 的徽标腿）。
+     *
+     * ⚠️ **未决**形态：同 id 的多条活动全保留、按 priority 降序，挑一枚发生在装配时
+     * —— 徽标是「此刻」的函数，见 src/model-promotions.ts 的取舍 1。
+     * ⚠️ **没命中任何活动时该键整个缺席**，于是下游能用「键在不在」区分
+     * 「上游说没有活动」与「没读到上游」—— 两者都是空表，含义完全不同。
+     */
+    promos?: readonly ModelPromotion[];
     /**
      * 是否被**某个 agent 引用**（即服务端声明「该模型可在对话里选择」）。
      *
@@ -336,4 +408,59 @@ export declare function formatCreditsRate(rate: string | undefined, discounted: 
  * 解析失败时返回空数组，调用方回退内置列表。
  */
 export declare function parseModelsFromConfig(body: unknown): BuddyRemoteModel[];
+/**
+ * 活动候选按模型 id 归组（**未决**：同 id 的多条活动全保留，按 priority 降序）。
+ *
+ * ⚠️ 为什么归到 id 而不是直接摊成徽标：徽标是「此刻」的函数，见
+ * src/model-promotions.ts 的取舍 1。这里冻的是**候选**，挑一枚发生在装配时。
+ */
+export declare function promotionsById(promotions: readonly ModelPromotion[]): ReadonlyMap<string, readonly ModelPromotion[]>;
+/**
+ * 该模型**此刻**该画的徽标（宿主目录契约的 badge 字段）。
+ *
+ * ⚠️ 时钟必须在**这里**读：装配点（toCatalogEntry）每一次 listModels 都跑，
+ * 而宿主的重读由后台刷新器 / 目录变更播报驱动。把结果存进目录条目 = 把
+ * 「此刻」冻进缓存，正是 issue #101 要修的形态。
+ *
+ * @returns undefined ⇒ **整个键缺席**（不写 `badge: undefined`）：
+ * 宿主 `LlmRuntime.listModels` 判的是 `badge === void 0`，写显式 undefined
+ * 与不写等价，但 `resolveModelInfo` 那条路的白名单更严 —— 少一个键永远是安全的。
+ */
+export declare function buddyModelBadge(promos: readonly ModelPromotion[] | undefined, nowMs?: number): ModelPromotionBadgeValue | undefined;
+/**
+ * 候选表里下一个会改变徽标的时刻（epoch 毫秒），没有则 undefined。
+ *
+ * ## 为什么需要它
+ *
+ * 活动窗口是墙钟窗口（实测 23:00–7:50），而宿主缓存一次目录读取的结果。
+ * 没有这条，「窗口关了徽标还在」最长会持续一个后台刷新周期（20 分钟）——
+ * 那正是 issue #101 点名的「活动过期而用户仍按优惠期选择模型」。
+ *
+ * ⚠️ 播报**不会**多打一次上游：重读走 `loadCatalog`，而 `ensureRemoteModels`
+ * 的 20 分钟新鲜度判据会短路 ⇒ 边界时刻只是**用新时钟重算一遍候选表**。
+ */
+export declare function nextBuddyPromotionEdgeMs(models: readonly BuddyRemoteModel[], nowMs?: number): number | undefined;
+/**
+ * 本家目录里**全部**未决活动候选，按模型行展开（方案 A 的服务端出口）。
+ *
+ * ## 为什么必须有它
+ *
+ * 徽标的短标签走宿主数据面（`LlmModelInfo.badge`）已经够用，但上游那句活动说明
+ * （`hover`）与有效期**在宿主契约里没有格子可放**（0.2.2 的 badge 只有 text + tone）。
+ * 于是 `conversation.input.model.label` 的占位者要自己画悬停 ⇒ 它必须拿到候选表。
+ *
+ * ⚠️ 交出去的是**未决候选**，不是挑好的徽标：在解析/装配时刻把徽标定死并缓存,
+ * 正是 issue #101 要修的形态（取舍 1）。渲染侧每次读自己的时钟 ⇒ 跨过窗口边界
+ * 那一分钟行上的徽标会自己变，不需要重拉目录。
+ *
+ * ⚠️ 与 `nextBuddyPromotionEdgeMs` 同一条迭代（`model.promos`），**不另开一套取数**：
+ * 兜底表没有 promos（编译期快照，红线「静态表必然腐坏」）⇒ 离线路径这里同样是空,
+ * 与「上游没有活动」同形，如实。
+ *
+ * @returns 每行 `{ modelId, promotion }`；同一模型多条活动 ⇒ 多条。
+ */
+export declare function buddyPromotionCandidateRows(models: readonly BuddyRemoteModel[]): {
+    modelId: string;
+    promotion: ModelPromotion;
+}[];
 //# sourceMappingURL=buddy.d.ts.map

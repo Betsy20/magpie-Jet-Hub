@@ -138,6 +138,50 @@ export declare const CODEARTS_REASONING_EFFORTS: readonly {
  * 与 `trae-adapter.ts` 是既有问题，本次只修这一处新增注释）。
  */
 export declare const CODEARTS_DEFAULT_EFFORT = "on";
+/**
+ * 该模型的**声明档位表**（强度序：弱 → 强）。
+ *
+ * ## ⚠️⚠️ 必须保留 `off` / `on` 两个旧 id（issue #145 第 1 条注意事项）
+ *
+ * `dsh-agent-default-model` 把 `reasoningEffort` **持久化在 Config 里**、会话 header
+ * 也会存。而 `dsh-llm` 的 `resolveCallWithInfo()` 对**显式请求的档位严格校验**：
+ * 不在声明列表里就抛 `UNSUPPORTED_REASONING_EFFORT` —— 那是**整轮对话直接失败**，
+ * 不是降级。**删掉这两个 id 会打死所有存过它们的用户。**
+ *
+ * ⇒ 保留成**别名**：`off` = 最弱（按 `shutBy` 尽量真关），`on` = 最强（`max`）。
+ *   位置仍是强度序 ⇒ `off` 在最左、`on` 在最右。
+ *
+ * ⚠️ **`on` 落在最右**还有一层作用：`dsh-agent-default-model` 的
+ * `strongestDeclaredEffort` 会取「声明里最强的那一档」⇒ 默认自动落到 `max`。
+ *   这也是为什么本修复**不需要**单独调 `CODEARTS_DEFAULT_EFFORT`。
+ *
+ * ⚠️ **未登记的模型（`kimi-*` / `openpangu-*` / 手填 id）保持原来的两档** ——
+ *   它们**不校验** `reasoning_effort`，任何枚举都是推测；宁可不给，也不编。
+ */
+export declare function codeartsEffortsFor(modelId: string): readonly {
+    id: ReturnType<typeof ReasoningEffortId>;
+    name: string;
+}[];
+/**
+ * 出站时该模型**实际要发的思考字段**（issue #145 的修法核心）。
+ *
+ * ## 判据（三个分支，**两个字段只发一个，绝不并**）
+ *
+ * | 用户选的 | `shutBy` | 发什么 |
+ * |---|---|---|
+ * | `off` | `enable_thinking_false` | `enable_thinking: false` |
+ * | `off` | `reasoning_effort_none` | `reasoning_effort: 'none'` |
+ * | `off` | `cannot_shut` | `reasoning_effort: <最弱档>`（**如实降级**）|
+ * | 其他档 / `on` | — | `reasoning_effort: <该档>`（`on` ⇒ 最强）|
+ *
+ * ⚠️⚠️ **绝不并发两个字段**：`reasoning_effort: 'max'` + `enable_thinking: true`
+ * 谁赢**上游没定义**，那会让「档位不生效」变成更难查的问题（issue 第 3 条）。
+ *
+ * ⚠️ **不再发 `enable_thinking: true`**：作者实测它是**削弱开关**而不是开启开关 ——
+ * `glm-5.3` 用 `true` 是 **37** reasoning_tokens，而**不发该字段是 239**（比值 0.15）；
+ * `GLM-5.2` 是 470 vs 685。旧的 `on` 档因此**削弱**了思考。
+ */
+export declare function codeartsThinkingFields(modelId: string, requestedEffort: string | undefined): Record<string, unknown>;
 /** 该模型在本进程内是否已被「补头成功」证明过要带 `maas_type: benefit`。 */
 export declare function codeArtsBenefitLearnedFor(model: string): boolean;
 /** 记下「该模型补头后成功」；只由成功路径调用。 */
@@ -231,7 +275,18 @@ export declare function codeartsContextWindow(modelId: string): number;
 export declare function codeartsRateSuffix(display: string): string | undefined;
 export interface CodeArtsAdapterOptions {
     credentialRef: CredentialRef;
-    resolveCredential: () => Promise<CodeArtsCredential | undefined>;
+    /**
+     * ⚠️⚠️ **第二参 `sessionId` 是「轮换起点」的作用域键**（PR #59 正向审计 P1-b）。
+     *
+     * 适配器必须把 `GenerateOptions.sessionId` 透传进来，否则选号层的
+     * `preferredRotationFor(provider, sessionId)` 永远拿到 `undefined` ⇒
+     * 面板上选好的起点**完全不生效**（且零报错、tsc 也不报 —— 函数参数逆变，
+     * 签名少一个参数在 TypeScript 里是合法的）。
+     *
+     * 同一个坑在同仓 10 个适配器上已经踩过一轮（`rotation-session-id-wiring.spec.ts`
+     * 的 `ADAPTERS` 守着它们）；codearts 原先不在那张表里，故结构性看不见。
+     */
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<CodeArtsCredential | undefined>;
     refresh: () => Promise<void>;
     /** 动态拉取远端模型列表；失败时调用方回退到静态列表。 */
     fetchRemoteModels?: () => Promise<RemoteModel[]>;
@@ -533,8 +588,82 @@ export declare function isSseQueueErrorCode(code: string): boolean;
  *
  * 文案兜底（`insufficient quota`）不可省：万一上游换了码值，序列化后的
  * detail 文本仍能命中 —— 与 `zcode` / `qoder` 的既有做法一致。
+ *
+ * ## ⚠️⚠️ 2026-11-15：`4291` 只覆盖 benefit 通道，**账号积分耗尽走 `TM.00001050`**
+ *
+ * 真实报障「一个账号的积分用完后竟然不会切换账号」的**根因就是这里**：
+ * 积分耗尽回的是 `HTTP 400 {"error_code":"TM.00001050","error_msg":"您的积分已耗尽…"}`，
+ * 而旧的这两条腿对它**零命中** ⇒ 报文落进通用 4xx 分支 ⇒ 既不写
+ * `modelRateLimits`、也不调 `getAvailableAccount` ⇒ 换号整块静默失效
+ * （实测 `state.json` 里 codearts 两个账号**连 `modelRateLimits` 键都没有**）。
+ *
+ * 补的三条腿各有分工，**每条都有独立用例**（`codearts-credit-exhausted-rotation.spec.ts`
+ * 用一个 `it.each` 分别只喂 `code`、只喂 `message`、只喂中文文案 —— 审计指出
+ * 原先只有「组合输入」的用例，两条码值腿各自删掉都 6/6 全绿）：
+ *
+ * | 通道 | `code` 入参 | `message` 入参 | 由哪条腿命中 |
+ * |---|---|---|---|
+ * | SSE（200 首帧） | `data.error_code`（`TM.00001050`） | `data.error_msg` | `hasBusinessCode(code)` |
+ * | HTTP 4xx | `errorDetailForClassify(body)`（**可能为空串**） | 报文全文 | `hasBusinessCode(message)` |
+ * | 上游改码值 | 任意 | 中文文案 | `CREDIT_EXHAUSTED_PATTERN` |
+ *
+ * ⚠️ 码值腿**必须**走 {@link hasBusinessCode} 的数字边界：`TM.00001050` 与
+ * `TM.000010051`（「无权调用该模型」）**共享 9 字符词干 `TM.000010`** 后分叉，
+ * 两者实测在同一批请求里同时出现（同一账号 `glm-5.2` 回 `1051`、`glm-5.3`
+ * 回 `1050`）。按词干匹配会把「无权限」判成「没钱」⇒ 对一个**永远不会有积分**
+ * 的模型把整池账号轮一遍并全部沉底 ⇒ 比不换号更糟。
+ *
+ * ⚠️ 文案腿刻意复用共享常量 {@link CREDIT_EXHAUSTED_PATTERN}（它已认识
+ * 「积分已耗尽 / 额度用尽 / 余额不足」，2026-11-15 node 实测确认），
+ * **不在这里另写第二份中文正则** —— 两份同义判据必然漂移。
  */
 export declare function isSseQuotaExhaustedErrorCode(code: string, message: string): boolean;
+/**
+ * 错误体是否命中「benefit **免费额度**用尽」这条腿（2026-10-02 取证）。
+ *
+ * 单独成函数而不内联，是因为**文案分流要以它为先手**：上游可能发出一份
+ * 同时含 `InferHub.4291.200` 与英文 `quota exhausted` 的报文，而
+ * {@link CREDIT_EXHAUSTED_PATTERN} 认得 `quota exhausted` —— 那样两族会同时命中。
+ * 此时必须判成 benefit（码值比散文可信），否则用户会看到「去充值」而其实
+ * 等一天就恢复了。
+ */
+export declare function isBenefitQuotaExhausted(code: string, message: string): boolean;
+/**
+ * 错误体是否命中「**账号积分**耗尽」这条腿（而不是 benefit 免费额度）。
+ *
+ * ## 为什么必须与 {@link isSseQuotaExhaustedErrorCode} 分开
+ *
+ * 两者都表示「额度没了、要换号」，但**给用户的话完全不同**：
+ *
+ * | 条件 | 真实出路 | 说错话的后果 |
+ * |---|---|---|
+ * | benefit 免费额度用尽 | 等 UTC+8 次日重置（或换号） | —— |
+ * | **账号积分**耗尽 | **去 CodeArts 充值 / 领积分**（不会自己回来） | 让用户干等一整天，而额度永远不回来 |
+ *
+ * 2026-11-01 那次修复把新码接进换号分支后，文案仍然走
+ * {@link codeartsQuotaExhaustedMessage}（正文逐字写「免费额度（benefit）已用尽，
+ * 预计…后重置」）—— 对积分耗尽**是错的**，违反本仓库「文案本身就是出路」红线。
+ *
+ * ## 判据
+ *
+ * 只有「积分族」的三条腿算：两个码值腿 + 中文/英文文案腿。
+ * benefit 的 `4291` 与 `insufficient quota` **刻意不算**。
+ *
+ * ⚠️ 纯文案腿**先排除 benefit 缺失报文**（`InferHub.4004.200`）：那种报文该走
+ * 「去头重试一次」，不是「换号」。若上游把 benefit 缺失也改成中文措辞
+ *（如「免费额度已用尽」），`CREDIT_EXHAUSTED_PATTERN` 会命中 —— 那时会把
+ * 一次本来能自愈的请求误判成「没钱」并轮完整池。这条豁免是审计点出来的
+ * **顺序风险**，今天不可达（benefit 报文实测只带英文/码值），但加到这里是零成本的。
+ */
+export declare function isCreditExhaustedQuota(code: string, message: string): boolean;
+/**
+ * 「**账号积分**已耗尽」的用户可见文案。
+ *
+ * 与 {@link codeartsQuotaExhaustedMessage} 的**唯一区别**：**不承诺任何重置时刻**。
+ * 积分是充值 / 活动领来的，用完不会自己回来 —— 写「预计 N 后重置」等于告诉用户
+ * 在等一个永不到来的时刻。
+ */
+export declare function codeartsCreditExhaustedMessage(model: string): string;
 /**
  * HTTP **4xx** 报文里是否表示「该账号没有 benefit（免费额度）包」。
  *
@@ -809,6 +938,30 @@ export declare class CodeArtsAdapter extends LlmAdapter {
     providerInfo(provider: string): LlmProviderInfo;
     /** 动态模型缓存（首次 listModels 成功后填充）。 */
     private remoteModels;
+    /**
+     * ★★★ **本进程内最后一次成功拉到的目录**（2026-11-22，方案 B）。
+     *
+     * 为什么需要它：用户要求「直接走远端，不用本地兜底列表」⇒
+     * `remoteModels` 在远端还没拉到时是 `undefined`，而 **`syncCatalogEntries()`
+     * 是同步方法**（`listAllModels` 的契约，设置页在渲染路径上调它、不能 await）
+     * ⇒ 若那时返回 `[]`，`provider.status` 的 `total=0` 会让设置页把整个 provider
+     * **误显示为「已关闭」**（`closed = total > 0 && disabled === total`）。
+     *
+     * ⚠️ 它**不是静态表**：内容来自**上一次真实远端读取**，只是把那一份留着给同步路径用。
+     */
+    private lastRemoteSnapshot;
+    /**
+     * ★★★ **跨进程快照**（磁盘，方案 B 的第二级）。
+     *
+     * 复用 PR #135 已有的 `src/model-catalog-cache.ts`（`readCatalogCache` 是**同步**的，
+     * 实测读盘 + parse 1~5ms）。重启后第一次打开设置页时 `remoteModels` 还没拉到，
+     * 但磁盘上有**上次进程真实拉到的那份目录** ⇒ 设置页立刻正确，不必等网络。
+     *
+     * ⚠️ 只缓存**首次读盘结果**：`readCatalogCache` 每次调用都是同步 IO，
+     * 放在渲染路径上反复读会让设置页抖（本仓既有教训：`listModels` 的同步 IO 预算）。
+     */
+    private diskCatalogSnapshot;
+    private diskCatalogSnapshotRead;
     /**
      * AgentCenter 动态窗口表（**独立于目录可见性**）。
      *

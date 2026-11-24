@@ -13,6 +13,7 @@
  *
  * 本模块只放常量与纯函数（无网络、无存储），网络流程见 buddy-oauth.ts。
  */
+import { nextPromotionEdgeMs, parseTencentPromotions, promotionBadgeFor, sortPromotions, } from './model-promotions.js';
 // ── API 端点常量（逆向自 genie 扩展 product.json + index.js） ──
 /** 主 API 端点（product.json endpoint）。 */
 export const API_ENDPOINT = 'https://copilot.tencent.com';
@@ -150,6 +151,17 @@ export function jwtNickname(token) {
         return '';
     }
 }
+/**
+ * 凭据的「上次签发/刷新时刻」（毫秒）；读不到返回 `undefined`。
+ *
+ * ⚠️ **刻意不做 `expires_at - access TTL` 的回退**：access TTL 上游按批次在缩
+ * （本机解出 60 / 30 / 28 天三批），我们无从得知某一代的确切值，回退算出来的
+ * 只会是个错的数。读不到就如实返回 `undefined`（= 保活腿不生效，行为退回改造前），
+ * 而不是编一个 —— 本仓红线。
+ */
+export function credentialIssuedAtMs(credential) {
+    return jwtIssuedAtMs(credential.access_token);
+}
 /** 凭据是否已过期；无法解析过期时间时不判定过期（对齐 Rust is_expired）。 */
 export function isExpired(credential) {
     const expiresAt = credentialExpiresAtMs(credential);
@@ -242,8 +254,59 @@ function absoluteExpiryMs(record, absoluteKey, relativeKey, accessToken) {
     const baseMs = jwtIssuedAtMs(accessToken) ?? Date.now();
     return String(baseMs + relativeSeconds * 1000);
 }
-/** 从 JWT payload 读取 `iat`（秒）并换算为毫秒。 */
-function jwtIssuedAtMs(token) {
+/**
+ * 从 JWT payload 读取 `iat`（签发时刻，秒）并换算为毫秒。
+ *
+ * ## ⚠️⚠️ 这条腿同时服务「到期时间推算」与「保活续期」（issue #124，2026-11-19）
+ *
+ * `iat` 在**续期之后**恰好等于「上次刷新时刻」（续期会重签 access_token）。
+ * 本仓调度器每 30 分钟一轮，而 lead-time 判据只在「距过期不足 1 小时」放行
+ * ⇒ 对 access TTL 以**天**计的渠道，续期可能连续数十天一次都不发，
+ * `refresh_token` 被服务端**闲置失效**（CodeBuddy 实测 28 天 ⇒ 401
+ * `12153: refresh token is invalid`，面板写 `refreshable: false`，用户只能重登
+ * 且 **28 天后必复发**）。
+ *
+ * ⇒ 用「距上次刷新（= `iat`）的时长」做保活判据，比「按 TTL 比例 / 固定天数」
+ *   稳：本机解出三批样本的 access TTL 分别是 **60 / 30 / 28 天**且上游在持续
+ *   收缩，任何写死的天数或比例都会在某一代上贴到闲置窗口红线。
+ *
+ * ⚠️ 与 {@link jwtExpiresAtMs} 同口径：**只做 JWT payload 解码、不验签**
+ *    （该值只用于续期调度，不参与任何安全判定）。
+ *
+ * ## ⚠️ 解码口径：`'base64url'` 不是打字法事故（2026-11-19 实测订正）
+ *
+ * 本文件既有写法是 `Buffer.from(parts[1], 'base64url')`。我曾以为那是对
+ * `base64` 的打字法错误 —— **错**。三条独立证据：
+ * 1. `Buffer.isEncoding('base64url') === true`（对照组 `Buffer.isEncoding('zzzzzzzz') === false`）；
+ * 2. **`@types/node` 官方声明里就有它**：`buffer.d.ts` 的
+ *    「Valid string encodings: … | 'base64' | 'base64url' | …」，以及
+ *    `crypto.d.ts` 的 `type BinaryToTextEncoding = "base64" | "base64url" | …`；
+ * 3. 它是**内建**的（编译在 node 可执行文件内部），`node_modules` 对它 0 处
+ *    monkeypatch ⇒ 不存在「第三方改我们解码行为」的隐通道。
+ *
+ * ⇒ 它只是**不可读**，不是写错。
+ *
+ * ⚠️ **等价性只在「解码」方向成立**：`Buffer.from(x, 'base64')` 与
+ *    `Buffer.from(x, 'base64url')` **逐字节等价**（实测 800 组真实 JWT 形状 ×
+ *    payload 长度三种 mod 3 余数全覆盖 = 0 差异；23 组畸形输入也全同），因为
+ *    Node 的解码器对 `+/` 与 `-_` 两套字母表都接受。
+ *
+ *    但 **`buf.toString(...)` 方向不等价**：`'base64url'` 是 **base64url**
+ *    （URL-safe、无 padding），32 字节编出 **43** 字符，而 `'base64'` 编出
+ *    **44** 字符并带 `=`。本仓另有 6 处**编码**点依赖这个语义（PKCE 的
+ *    `code_verifier` / `challenge`、网关 API 密钥的定长 43 位判据
+ *    `KEY_PATTERN`）—— 改过去会**静默换 key ⇒ 所有客户端同时 401**。
+ *    **绝不可**照抄「两种写法等价」去改它们。
+ *
+ *    ⚠️ `TextDecoder('base64url')` 抛 `RangeError` **不能**当「非法」的证据 ——
+ *    `TextDecoder` 只认 WHATWG 标签，`'base64'` 同样不是合法 label。
+ *
+ *    ⚠️ 本处**沿用既有写法**，与同文件 `jwtExpiresAtMs` / `jwtNickname` 同一种
+ *    解码口径 —— 同一语义出现两种写法会给未来留下分叉口子（且因解码等价，
+ *    改错一处**测试全绿、行为不变**，双写法会静默固化）。要不要全仓统一
+ *    是**独立任务**（49 处、含 `accio-oauth.ts` 的 PKCE 生成），不在本 issue 范围。
+ */
+export function jwtIssuedAtMs(token) {
     if (typeof token !== 'string' || token.length === 0)
         return undefined;
     const parts = token.split('.');
@@ -400,8 +463,17 @@ function normalizeRate(value, prefixed, suffixed) {
     const match = prefixed.exec(head) ?? suffixed.exec(head);
     return match?.[1] !== undefined ? `x${match[1]}` : undefined;
 }
-/** 解析 `HH:MM`（容忍不补零）为当日分钟数；非法返回 undefined。 */
-function parseHHMM(value) {
+/**
+ * 解析 `HH:MM`（容忍不补零）为当日分钟数；非法返回 undefined。
+ *
+ * ⚠️ **`24:00` 只在「终点」位置合法**（= 当日末尾 1440）。原先这里一律要求
+ * `h < 24` ⇒ `{start:'23:00', end:'24:00'}` 的**终点**被拒 ⇒ 整个 slot 被丢
+ * ⇒ buddy 价格腿不出价，而徽标腿（`src/model-promotions.ts` 的 `clockMinute`
+ * 有 `role === 'end' && minute === 0` 的专门分支）亮着、qoder 价格腿退回
+ * `promotion.active` 快照 ⇒ **三处三种答案**（PR #104 正向审计 P2-2）。
+ * 现在三处统一为「`24:00` 是合法的当日终点」。
+ */
+function parseHHMM(value, allowEndOfDay = false) {
     if (typeof value !== 'string')
         return undefined;
     const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
@@ -409,7 +481,13 @@ function parseHHMM(value) {
         return undefined;
     const h = Number(m[1]);
     const min = Number(m[2]);
-    return h < 24 && min < 60 ? h * 60 + min : undefined;
+    if (min >= 60)
+        return undefined;
+    if (h > 24)
+        return undefined;
+    if (h === 24)
+        return allowEndOfDay && min === 0 ? 24 * 60 : undefined;
+    return h * 60 + min;
 }
 /**
  * 取指定时区「当前墙上时间」的当日分钟数。
@@ -466,7 +544,8 @@ function promotionActiveNow(item, now) {
         if (typeof slot !== 'object' || slot === null)
             return false;
         const start = parseHHMM(slot.start);
-        const end = parseHHMM(slot.end);
+        // 终点位置允许 `24:00`（= 当日末尾），与徽标腿 / qoder 腿同判据。
+        const end = parseHHMM(slot.end, true);
         if (start === undefined || end === undefined)
             return false;
         // 支持跨零点（如 23:00–7:50）。
@@ -617,6 +696,13 @@ export function parseModelsFromConfig(body) {
     // 促销折扣是**独立于 data.models 的全局活动表**，故先解析成 id → 促销价映射，
     // 再在 push 时按 id 关联（见 parsePromotions 的注释）。
     const promotions = parsePromotions(record);
+    // ★ **同一份 record** 的第二套判据（issue #101 的徽标腿）：活动候选表。
+    //
+    // ⚠️ 与上面的 `promotions` **不是重复实现**：那张表回答「此刻折到几倍」（价格腿，
+    // 判据在 parsePromotions，含 x 前后缀 / factor 0 = 免费 / 无窗口 0x 占位等实测规则），
+    // 本表回答「上游给了哪句活动文案、它在什么时间窗内成立」（徽标腿）。
+    // 两者读同一个 `data` ⇒ **零新增请求**；判据**各归各的**，谁也不许「顺手统一」。
+    const promotionCandidatesById = promotionsById(parseTencentPromotions(record.modelPromotions, record.modelTiers, 'Asia/Shanghai', warnPromotion));
     // 收集**全部** agent 引用的 id（含 craft/ask/plan/cli）。
     // 用于给模型打 `agentReferenced` 标记 —— 适配器的 `reconcileWithFallback`
     // 是白名单式重建，不在产品兜底表里的 id 会被丢弃，而两个端点下发的 id
@@ -648,12 +734,14 @@ export function parseModelsFromConfig(body) {
         const remoteName = typeof meta?.name === 'string' && meta.name.length > 0 ? meta.name : undefined;
         const rate = normalizeCreditsRate(meta?.credits);
         const discounted = promotions.get(id);
+        const promos = promotionCandidatesById.get(id);
         parsed.push({
             id,
             name: remoteName ?? displayNameForModel(id),
             ...parseModelMeta(meta),
             ...rate !== undefined ? { creditsRate: rate } : {},
             ...discounted !== undefined ? { discountedCreditsRate: discounted } : {},
+            ...promos !== undefined ? { promos } : {},
             ...agentReferencedIds.has(id) ? { agentReferenced: true } : {},
         });
     };
@@ -697,12 +785,14 @@ export function parseModelsFromConfig(body) {
         const meta = metaById.get(id);
         const rate = normalizeCreditsRate(meta?.credits);
         const discounted = promotions.get(id);
+        const promos = promotionCandidatesById.get(id);
         parsed.push({
             id,
             name: displayNameForModel(id),
             ...parseModelMeta(meta),
             ...rate !== undefined ? { creditsRate: rate } : {},
             ...discounted !== undefined ? { discountedCreditsRate: discounted } : {},
+            ...promos !== undefined ? { promos } : {},
             // 试用横幅本身就是「服务端推荐可用」的信号，与 agent 引用同义。
             agentReferenced: true,
         });
@@ -814,5 +904,106 @@ function parseModelMeta(record) {
         }
     }
     return meta;
+}
+/**
+ * 活动候选按模型 id 归组（**未决**：同 id 的多条活动全保留，按 priority 降序）。
+ *
+ * ⚠️ 为什么归到 id 而不是直接摊成徽标：徽标是「此刻」的函数，见
+ * src/model-promotions.ts 的取舍 1。这里冻的是**候选**，挑一枚发生在装配时。
+ */
+export function promotionsById(promotions) {
+    const byId = new Map();
+    for (const promotion of promotions) {
+        for (const modelId of promotion.modelIds) {
+            const list = byId.get(modelId);
+            if (list === undefined)
+                byId.set(modelId, [promotion]);
+            else
+                list.push(promotion);
+        }
+    }
+    const result = new Map();
+    for (const [modelId, list] of byId)
+        result.set(modelId, sortPromotions(list));
+    return result;
+}
+/**
+ * 活动时段读不懂时的告警。
+ *
+ * ⚠️ **不能省**：参考实现 issue #139 的实际症状就是「徽标只是不再出现,
+ * 而全仓一个字都没有」—— 那种缺陷用户无法自查、维护者也无法归因。
+ * 本函数只在**解析路径**上被调用（每次上游文档一遍），不在渲染路径上,
+ * 因此不会随轮询刷屏（同一条理由见 src/model-promotions.ts 的 parseDailyWindows）。
+ *
+ * 通道选 console.warn：本模块是「常量 + 纯函数」层（文件头就写着无网络无存储),
+ * 拿不到 ctx.logger；而 src/ 里既有告警同样走 console（buddy-adapter.ts 14 处)。
+ * 日志自身抛错**不得**让解析失败 ⇒ 包 try。
+ */
+function warnPromotion(message) {
+    try {
+        console.warn('[jet-hub] ' + message);
+    }
+    catch { /* 没有 console 的宿主照样解析 */ }
+}
+/**
+ * 该模型**此刻**该画的徽标（宿主目录契约的 badge 字段）。
+ *
+ * ⚠️ 时钟必须在**这里**读：装配点（toCatalogEntry）每一次 listModels 都跑，
+ * 而宿主的重读由后台刷新器 / 目录变更播报驱动。把结果存进目录条目 = 把
+ * 「此刻」冻进缓存，正是 issue #101 要修的形态。
+ *
+ * @returns undefined ⇒ **整个键缺席**（不写 `badge: undefined`）：
+ * 宿主 `LlmRuntime.listModels` 判的是 `badge === void 0`，写显式 undefined
+ * 与不写等价，但 `resolveModelInfo` 那条路的白名单更严 —— 少一个键永远是安全的。
+ */
+export function buddyModelBadge(promos, nowMs = Date.now()) {
+    return promotionBadgeFor(promos, nowMs);
+}
+/**
+ * 候选表里下一个会改变徽标的时刻（epoch 毫秒），没有则 undefined。
+ *
+ * ## 为什么需要它
+ *
+ * 活动窗口是墙钟窗口（实测 23:00–7:50），而宿主缓存一次目录读取的结果。
+ * 没有这条，「窗口关了徽标还在」最长会持续一个后台刷新周期（20 分钟）——
+ * 那正是 issue #101 点名的「活动过期而用户仍按优惠期选择模型」。
+ *
+ * ⚠️ 播报**不会**多打一次上游：重读走 `loadCatalog`，而 `ensureRemoteModels`
+ * 的 20 分钟新鲜度判据会短路 ⇒ 边界时刻只是**用新时钟重算一遍候选表**。
+ */
+export function nextBuddyPromotionEdgeMs(models, nowMs = Date.now()) {
+    const all = [];
+    for (const model of models) {
+        if (model.promos !== undefined)
+            all.push(...model.promos);
+    }
+    return nextPromotionEdgeMs(all, nowMs);
+}
+/**
+ * 本家目录里**全部**未决活动候选，按模型行展开（方案 A 的服务端出口）。
+ *
+ * ## 为什么必须有它
+ *
+ * 徽标的短标签走宿主数据面（`LlmModelInfo.badge`）已经够用，但上游那句活动说明
+ * （`hover`）与有效期**在宿主契约里没有格子可放**（0.2.2 的 badge 只有 text + tone）。
+ * 于是 `conversation.input.model.label` 的占位者要自己画悬停 ⇒ 它必须拿到候选表。
+ *
+ * ⚠️ 交出去的是**未决候选**，不是挑好的徽标：在解析/装配时刻把徽标定死并缓存,
+ * 正是 issue #101 要修的形态（取舍 1）。渲染侧每次读自己的时钟 ⇒ 跨过窗口边界
+ * 那一分钟行上的徽标会自己变，不需要重拉目录。
+ *
+ * ⚠️ 与 `nextBuddyPromotionEdgeMs` 同一条迭代（`model.promos`），**不另开一套取数**：
+ * 兜底表没有 promos（编译期快照，红线「静态表必然腐坏」）⇒ 离线路径这里同样是空,
+ * 与「上游没有活动」同形，如实。
+ *
+ * @returns 每行 `{ modelId, promotion }`；同一模型多条活动 ⇒ 多条。
+ */
+export function buddyPromotionCandidateRows(models) {
+    const rows = [];
+    for (const model of models) {
+        for (const promotion of model.promos ?? [])
+            rows.push({ modelId: model.id, promotion });
+    }
+    return rows;
 }
 //# sourceMappingURL=buddy.js.map

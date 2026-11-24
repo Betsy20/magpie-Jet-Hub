@@ -131,6 +131,14 @@ export type ClaimOutcome = (ClaimOutcomeCommon & {
     isStreakDay: boolean;
     delayedMessage?: string;
     /**
+     * 本次领到的逐笔积分及其到期时刻（毫秒）。目前只有 Qoder 下发
+     * （领取响应顶层 `expiresAt`），用于本地「领取记录」推算资源包逐笔到期。
+     */
+    grants?: ReadonlyArray<{
+        amount: number;
+        expiresAtMs: number;
+    }>;
+    /**
      * ★ `credit` 的单位（2026-10-03 新增）。
      *
      * ⚠ **缺省按「积分」处理** ⇒ 其余 provider 行为逐字不变。
@@ -373,6 +381,8 @@ export interface CreditBalance {
      * UI 可以据此提示「另有 N 已失效」，既不误导也不丢信息。
      */
     expiredTotal: number;
+    /** 日奖励发放记录中最近的到期时刻（毫秒），仅用于展示，不表示该批魔粒仍有余额。 */
+    dailyGrantExpiresAt?: number;
     /**
      * `total` 中**即将到期**的额度（可选；`undefined` = 上游未下发该口径）。
      *

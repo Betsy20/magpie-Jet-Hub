@@ -85,7 +85,7 @@ export interface LoomyAdapterOptions {
      * `AccountPool.getAvailableAccount` 的 `modelId` —— 早期实现传空串
      * （等于不按模型过滤），会让模型级限流失效。
      */
-    resolveCredential: (modelId?: string) => Promise<LoomyCredential | undefined>;
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<LoomyCredential | undefined>;
     /**
      * 凭据失效时的处理。
      *
@@ -186,7 +186,7 @@ export declare const LOOMY_PROBE_BACKOFF_MS: number;
  * （下一次请求报 `no usable credential; log in first`）。
  * buddy 的既有实现是分开的：只有限流类写标记，认证类只 `continue`。
  */
-export type LoomyFailureClass = 'quota' | 'rate' | 'auth' | 'other';
+export type LoomyFailureClass = 'quota' | 'rate' | 'auth' | 'upstream' | 'other';
 /**
  * 判定失败类别（与 {@link RaccoonFailureClass} 同构——raccoon 与 loomy 的额度
  * 错误形态同族：`14018 Credits exhausted`，HTTP 层无专用状态码，文案是主通道；
@@ -229,6 +229,32 @@ export declare function classifyLoomyFailure(errorText: string, status: number):
  * 的 429 边界那次已验证过）。
  */
 export declare function shouldRotateLoomyAccount(errorText: string, status: number): boolean;
+/**
+ * ★★ **是否值得「换下一个账号」** —— 与 {@link shouldRotateLoomyAccount} **不同**：
+ * `upstream`（上游网关 5xx）**不换号**。
+ *
+ * ## 为什么 upstream 不参与换号（2026-11-21 正向审计用数据推翻了我的第一版）
+ *
+ * 我第一版让 `upstream` 参与换号（对齐 qoder）。审计指出主形态是**模型级**故障：
+ *
+ * | 报文 | 次数 | 语义 |
+ * |---|---|---|
+ * | `该模型服务暂时不可用，请切换其他模型试试` | 18 / 23 | **模型级** —— 换账号大概率无效（同一模型在别的号上同样不可用）|
+ * | `<html>504 Gateway Time-out</html>` | 5/23 | 网关级，换号**可能**有效 |
+ *
+ * 而 swap 的代价：`LOOMY_MAX_ROTATE = 8` ⇒ 最坏 **8 发全量 prompt**，
+ * 比修前的「同一个号 1 次 + 宿主重试 5 次 = 6 发」更贵（池 ≥7 时 **+33% 成本**）。
+ * 而该会话 prompt 已达 **24.5 万 tokens** ⇒ 这是实打实的钱。
+ *
+ * ⇒ **只补归因，不动换号行为**（即报障者建议的「修法 1：零风险」）。
+ *   `upstream` 类的价值是：① 不再显示成「模型不可用」误导用户去手动切模型；
+ *   ② 不写冷却（网关抖动不是账号坏了）。
+ *
+ * ⚠️ **代价如实登记**：这只改归因，**不解决**「宿主 `llm-retry` 白重试 5 次」
+ *   （错误码仍是 `SERVER`，在宿主 `DEFAULT_RETRYABLE_CODES` 里）。要解决它得改
+ *   错误码或填准确 `providerRetryAfterMs`，属宿主策略面，本轮未动。
+ */
+export declare function rotatesLoomyAccount(cls: LoomyFailureClass): boolean;
 /**
  * **Loomy 专属**：`HTTP 200 + 业务码 100002` 是否该按「认证失败、值得换号」处理。
  *

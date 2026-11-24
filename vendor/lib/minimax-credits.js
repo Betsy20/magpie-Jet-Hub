@@ -586,8 +586,57 @@ export async function fetchMinimaxCreditBalance(credential, fetcher = fetch, pro
  * 本函数把它透出来，供 `fetchBalanceDetailed` 通道使用。
  */
 export async function fetchMinimaxCreditBalanceDetailed(credential, fetcher = fetch, product = MINIMAX, xff) {
-    const url = `${product.apiHost}${MINIMAX_CREDIT_DETAILS_PATH}`;
-    const result = await requestEnvelope(url, credential, { method: 'GET' }, fetcher, product, xff);
+    /**
+     * ★★★ **必须带 `page_size`**（issue #141，2026-11-23 用户报障）。
+     *
+     * ## 缺陷
+     *
+     * 该端点**默认只返回最近 20 个积分包**，而本函数把可见包的 `remaining_amount`
+     * 求和当余额 ⇒ **被挤出 20 条窗口的包，其剩余额度从界面上消失**。
+     *
+     * 用户每天签到新增一个包（400 / 1000 分），**最老的一个被挤出窗口** ⇒
+     * 当被挤出的包余额接近新增包金额时，**界面总额彻底不动** ——
+     * 这就是「明明显示签到成功、积分却不涨」的直接原因，且**误差随天数单调扩大**。
+     *
+     * ## 实测证据（issue #141 作者，真实账号，2026-11-22）
+     *
+     * `minimaxintl`，`total_count = 23`：
+     *
+     * | 请求 | `details` 条数 | Σ `remaining_amount` |
+     * |---|---|---|
+     * | 默认（无参数）| 20 | **11600.00** |
+     * | `?page_size=50` | 23 | **12781.43** |
+     *
+     * 差额 1181.43 分来自被截断的 3 个包（400 + 400 + 381.43）。
+     * `minimax`（国内站）一侧同为 24 条、默认只回 20 条。
+     *
+     * ## 为什么取 1000
+     *
+     * 作者实测 `page_size=50` 已能拿全 23/24 条；取 **1000** 是为了让**长期用户**
+     * 也不会撞上第二次截断（每天一个包 ⇒ 1000 天 ≈ 2.7 年）。
+     * ⚠️ 若上游哪天真的超过 1000 条，本函数仍会**静默少算** —— 这个残余风险
+     * 已如实登记，根治要循环分页（`page` 参数**未实测**，猜错会死循环，
+     * 故本轮不猜；`total_count` 是可用的自检点，见下方注释）。
+     */
+    const bareUrl = `${product.apiHost}${MINIMAX_CREDIT_DETAILS_PATH}`;
+    const sizedUrl = `${bareUrl}?page_size=1000`;
+    /**
+     * ⚠️⚠️ **带 `page_size` 失败必须回退到不带参数**（2026-11-23 对抗审计 P1-3）。
+     *
+     * 这一点很重要，因为**如果只加参数、不加回退，修复可能比原缺陷更糟**：
+     *
+     * - 作者真机只验证过 `page_size=50`，**`1000` 从未实测**；
+     * - 若上游校验上限并回 **4xx** ⇒ 本函数返回 `{ balance: null, error }`
+     *   ⇒ 折算层判 `UNUSABLE` ⇒ **minimax 从聚合轮换里静默消失**
+     *   —— 用户丢的是「整家渠道」，而不是「少算几百分」。
+     *
+     * ⇒ 先按大窗口取；**失败才退**回裸请求（拿到 20 条 = 旧行为，至少能用）。
+     *    这样最坏情况退化成修复前的样子，不会比修复前更差。
+     */
+    let result = await requestEnvelope(sizedUrl, credential, { method: 'GET' }, fetcher, product, xff);
+    if (!result.ok) {
+        result = await requestEnvelope(bareUrl, credential, { method: 'GET' }, fetcher, product, xff);
+    }
     if (!result.ok)
         return { balance: null, error: result.message };
     // ⚠️ 余额响应是**平铺**的（`details` / `total_count` 与 `base_resp` 同级，
@@ -599,6 +648,14 @@ export async function fetchMinimaxCreditBalanceDetailed(credential, fetcher = fe
     if (details === undefined && finiteNumber(data.total_count) === undefined) {
         return { balance: null, error: '余额响应形状不符合预期（服务端可能改版）' };
     }
+    /**
+     * ⚠️ **`total_count` 是记录总数、不是余额**（`fetchMinimaxCreditBalance` 已踩过这个坑）。
+     * 但它恰好是**截断的自检点**：`details.length < total_count` 说明这次仍被截断。
+     *
+     * 本轮**刻意不动返回值**（余额仍是有意义的，弹错会让一次上游改版把整块变红），
+     * 只把它写进注释并登记为残余风险 —— 若哪天真的超过 `page_size=1000`，
+     * 这里就是复发点，届时改用循环分页（`page` 参数未实测，猜错会死循环）。
+     */
     // ⚠️ 余额 = 各包 `remaining_amount` 之和；缺失 `details` ⇒ 0（真的为 0）。
     let total = 0;
     const packages = [];

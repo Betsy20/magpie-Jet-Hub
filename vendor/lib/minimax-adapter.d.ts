@@ -87,7 +87,7 @@ export interface MinimaxAdapterOptions {
     /** 单凭据回退 ref（无账号池时）。 */
     credentialRef: CredentialRef;
     /** 解析当前可用凭据。 */
-    resolveCredential: (modelId?: string) => Promise<MinimaxCredential | undefined>;
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<MinimaxCredential | undefined>;
     /** 凭据失效时的处理。 */
     refresh: () => Promise<void>;
     /** 拉取远端模型目录；失败时适配器回退兜底表。 */

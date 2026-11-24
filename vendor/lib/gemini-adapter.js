@@ -315,10 +315,10 @@ export class GeminiAdapter extends LlmAdapter {
             // 模型名写错是确定性失败：带上 404，网关才不会把它当 502 让客户端白重试。
             { status: 404 });
         }
-        let credential = await this.options.resolveCredential(options.model);
+        let credential = await this.options.resolveCredential(options.model, options.sessionId);
         if (credential === undefined || isGeminiExpired(credential)) {
             await this.options.refresh();
-            credential = await this.options.resolveCredential(options.model);
+            credential = await this.options.resolveCredential(options.model, options.sessionId);
         }
         if (credential === undefined || credential.access_token === '') {
             throw new LlmError('gemini: no usable credential; log in first', 'MISSING_CREDENTIAL');
@@ -587,7 +587,7 @@ export class GeminiAdapter extends LlmAdapter {
                 if (status === 401 && !refreshedOnce) {
                     refreshedOnce = true;
                     await this.options.refresh().catch(() => { });
-                    const refreshed = await this.options.resolveCredential(options.model).catch(() => undefined);
+                    const refreshed = await this.options.resolveCredential(options.model, options.sessionId).catch(() => undefined);
                     if (refreshed !== undefined && refreshed.access_token !== '') {
                         credential = refreshed;
                         continue;

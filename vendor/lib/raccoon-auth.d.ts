@@ -23,6 +23,7 @@ import { type CredentialRef } from '@deepseek-ai/dsh-credentials';
 import type { AccountPool } from './account-pool.js';
 import type { ClaimOutcome, CreditBalance } from './credits.js';
 import { type RaccoonCredential } from './raccoon.js';
+import type { RaccoonPromotionInput } from './model-promotions.js';
 import { type RaccoonProduct } from './raccoon-product.js';
 import { type StartedRaccoonLoginFlow } from './raccoon-login-page.js';
 /** 默认凭据 ref 名称（与 `RaccoonProduct.defaultCredentialRef` 一致）。 */
@@ -63,6 +64,16 @@ export interface RaccoonRemoteModel {
     contextWindow: number;
     maxTokens: number;
     supportsImage: boolean;
+    /**
+     * 上游的计费活动字段（`billing_status` / `billing_discounts` / 倍率）。
+     *
+     * ⚠️ 这里装的是**未决候选的原料**，不是挑好的徽标：徽标在 `toCatalogEntry`
+     * **装配时刻**现算（目录缓存 20 分钟，把「此刻」冻进缓存正是 issue #101 的形态）。
+     * ⚠️ 也**不是** `ModelPromotion[]`：构造函数 `raccoonPromotionCandidate` 有五种
+     * 丢弃/降级分支需要 `warn`，而本函数（`normalizeRemoteModel`）没有日志出口；
+     * 挪到装配层算才能每条坏数据只播一条痕（与 Qoder 的 `promotionWarn` 同做法）。
+     */
+    promotion?: RaccoonPromotionInput;
 }
 /** `RaccoonAuth` 的构造选项。 */
 export interface RaccoonAuthOptions {
@@ -78,7 +89,8 @@ export declare function parseRaccoonCredential(value: string): RaccoonCredential
 /**
  * Raccoon Work 认证服务。
  *
- * 登录走**本地页承载**的扫码/短信双路径（见 `raccoon-login-page.ts`），
+ * 登录走**本地页承载**的三条路径（见 `raccoon-login-page.ts`）：**浏览器授权**
+ * （默认 Tab；扫码确认页 `/login/mp` 自 2026-11-04 起全 404）、扫码、短信。
  * 续期走 `refresh_token` 轮换（与 Loomy 不同）。
  */
 export declare class RaccoonAuth extends Service {
@@ -172,6 +184,13 @@ export declare class RaccoonAuth extends Service {
     fetchCreditBalance(credential: RaccoonCredential): Promise<CreditBalance | null>;
     /** 领取一次性登录奖励。 */
     claimLoginReward(credential: RaccoonCredential): Promise<ClaimOutcome>;
+    /**
+     * 每日签到（办公端 `setting_info` 结算触发器 + 余额差核对）。
+     *
+     * ⚠️ 走实例方法而不是让 `provider-credits` 直接调自由函数：这样注入的
+     * `fetchImpl`（测试替身 / 代理）不会被绕过，与余额查询同一条口径。
+     */
+    claimDailyCheckin(credential: RaccoonCredential): Promise<ClaimOutcome>;
     /** 查询一次性登录奖励是否已领。 */
     fetchOnboardingStatus(credential: RaccoonCredential): Promise<{
         claimed: boolean;

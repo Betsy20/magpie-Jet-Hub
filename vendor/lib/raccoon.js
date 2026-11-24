@@ -15,8 +15,8 @@
  *    故改为「客户端本地生成 code + 自行轮询」—— 实测任意自造 code 都被接受。
  * 2. **手机号必须 AES-128-CFB 加密**（密钥见 `RACCOON_PHONE_CIPHER_SECRET`），
  *    否则 `send_sms` 回 `100003 params_encryted_error`。
- * 3. **每日 300 积分没有端点**：服务端按日自动发放（`daily_grant`）。
- *    不要把它实现成签到按钮 —— 见 `raccoon-credits.ts`。
+ * 3. **每日 300 积分的触发器在「办公端」**，不在 points 前缀 —— 见
+ *    {@link RACCOON_OFFICE_PREFIX}（那里有 2026-11-15 的完整实测记录）。
  */
 import { createCipheriv, randomBytes } from 'node:crypto';
 /** API 基址。 */
@@ -29,6 +29,51 @@ export const RACCOON_LLM_PREFIX = '/api/web/llm/v2';
 export const RACCOON_POINTS_PREFIX = '/api/web/points/v1';
 /** 桌面端端点前缀（含一次性登录奖励）。 */
 export const RACCOON_DESKTOP_PREFIX = '/api/web/desktop/v1';
+/**
+ * 积分**账单**前缀（v2）。
+ *
+ * ## ⚠️ 为什么账单必须走 v2
+ *
+ * v1（{@link RACCOON_POINTS_PREFIX}）的 `/bills` 按时间倒序返回**全部**记录
+ * （对话消耗 `desktop` 与发放 `daily_grant` / `reward_grant` 混在一起）。
+ * 2026-11-15 用 3 个真实账号实测：`paging.limit=50` 的 50 条**全是**
+ * `daily_grant` + `desktop`，`reward_grant` **一条都没有** ⇒ 用 v1 判
+ * 「登录奖励是否已领」时，明明领过的账号也会被判成「未领取」。
+ *
+ * v2 支持 `type=income|expense|all` 只取发放记录（实测 `income` 下 3~4 条
+ * `reward_grant` 一条不少），故账单判据一律走这里。
+ */
+export const RACCOON_POINTS_V2_PREFIX = '/api/web/points/v2';
+/**
+ * 办公端前缀 —— **每日积分的真正触发器**。
+ *
+ * ## ⚠️⚠️ 「Raccoon 没有签到端点」是**漏查**得出的旧结论
+ *
+ * `/points/v1` 与 `/points/v2` 下的 `sign_in` / `check_in` / `daily` /
+ * `claim` / `attendance` 确实全是 Go mux 的 `404 page not found`
+ * （2026-11-15 用真实 token 逐个复验，HTTP 404 + 纯文本 `404 page not found`）。
+ * 但每日积分的触发器根本不在 points 前缀下，而在**办公端**：
+ *
+ * ```
+ * GET /api/web/office/v3/setting_info     （只读 GET，按天幂等）
+ *   Authorization: Bearer <access_token>
+ *   X-Client-Platform: desktop-windows
+ *   X-Client-Version: v1.0.35
+ *   X-Raccoon-Language: zh
+ * ```
+ *
+ * 该端点的本职是「拉办公端设置」（空间用量、每日提问次数…），但服务端在处理它时
+ * **顺带结算当日每日积分**：2026-11-16 00:14（UTC+8，刚跨日）对 3 个真实账号
+ * 各调一次，三个账号的 `available_points` 全部 **+300**，`daily_points` 同步 +300，
+ * 响应里带 `point_grant_popups: [{source:"daily", display_name:"每日积分发放",
+ * points:300, expire_at:"2026-11-22T23:59:59+08:00"}]`；紧接着再调一次 ⇒
+ * `popups: []`、余额不变（**按天幂等**，重复调用不会多发）。
+ *
+ * ⇒ 这与「服务端按日自动发放、无需客户端」**并不矛盾**：自动发放是服务端的
+ * 权利，而这条 GET 是**客户端每天帮它结算一次**的入口；两者叠加的效果是
+ * 「用官方客户端就是每天到账，纯 API 用户不调它就可能漏发」。
+ */
+export const RACCOON_OFFICE_PREFIX = '/api/web/office/v3';
 /**
  * 手机号传输层加密密钥。
  *
@@ -47,11 +92,64 @@ export const RACCOON_PHONE_CIPHER_SECRET = 'senseraccoon2023';
 export const RACCOON_TOKEN_REFRESH_WINDOW_SECONDS = 300;
 /** 请求超时（毫秒）。 */
 export const RACCOON_REQUEST_TIMEOUT_MS = 60_000;
-/** 扫码轮询间隔（毫秒）。与客户端一致。 */
+/**
+ * 扫码轮询间隔（毫秒）—— **仅当服务端未下发 `poll_interval` 时的兜底**。
+ *
+ * 2026-11-14 起服务端在签发二维码时一并下发 `poll_interval`（实测 2 秒），
+ * 页面按它设轮询周期；这个常量只是防御（老版本服务端 / 字段缺失）。
+ */
 export const RACCOON_QR_POLL_INTERVAL_MS = 2_000;
+/**
+ * IAM 服务前缀。
+ *
+ * ⚠️⚠️ **与业务 API 前缀（`product.authApiPrefix = /api/web/auth/v1`）是两个不同的
+ * 东西**，别混用：扫码登录在 2026-11-14 前后整体迁到了 IAM。
+ *
+ * 依据：官网 `/login` 的渲染数据里 `qrOrigin: "https://xiaohuanxiong.com/"`，
+ * 而登录组件的 `t()` 请求函数 `baseUrl: "/api/iam/v1"`（chunk `1919-…`）。
+ * 实测 `POST https://xiaohuanxiong.com/api/iam/v1/auth/mp/qrcode` ⇒ 200。
+ */
+export const RACCOON_IAM_PREFIX = '/api/iam/v1';
+/** IAM 签发扫码二维码的路径（`POST`，服务端生成 `qrcode_code`）。 */
+export const RACCOON_IAM_QR_CREATE_PATH = '/auth/mp/qrcode';
+/** IAM 轮询扫码状态的路径（`POST`）。 */
+export const RACCOON_IAM_QR_LOGIN_PATH = '/auth/mp/qrcode/login';
+/**
+ * IAM 信封的成功码。
+ *
+ * ⚠️⚠️ 与业务 API 的成功码**不是同一个类型**：业务 API 是 `{ code: 0 }`（数字），
+ * IAM 是 `{ code: 'OK' }`（字符串），且多一个 `request_id`。两套信封必须分开解析
+ * （`parseIamEnvelope` 与 `parseEnvelope`），混用会让文案与分类双双错位。
+ */
+export const RACCOON_IAM_OK_CODE = 'OK';
+/** IAM 的二维码失效码（轮询时下发，HTTP 401）。 */
+export const RACCOON_IAM_QR_INVALID_CODE = 'AUTH_QRCODE_INVALID';
+/**
+ * 二维码**真的**过期时 IAM 回的码（HTTP **410**）。
+ *
+ * ⚠️⚠️ 与上面的 `AUTH_QRCODE_INVALID`（HTTP 401）**是两个不同的码，不能合并**：
+ * - `401 AUTH_QRCODE_INVALID`：传进来的 code 根本不是 IAM 签发的（乱码/伪造）。
+ * - `410 AUTH_QRCODE_EXPIRED`：这张票**曾经**有效，但已经过了 `expires_in`。
+ *
+ * 2026-11-15 真机实测：签一张真票后等它自然到期，`t+305s` 回
+ * `HTTP 410 {"code":"AUTH_QRCODE_EXPIRED","message":"mini-program QR code expired"}`。
+ * 只认 401 会让「票过期」被当成「继续等」⇒ 页面转圈到 5 分钟超时（Gitee IKVA90 残留症状）。
+ *
+ * 本仓曾经在这条上写错过：注释引用了正确的 `AUTH_QRCODE_EXPIRED`，常量却写成
+ * `AUTH_QRCODE_INVALID`（对抗审计 P0-1 抓出）。
+ */
+export const RACCOON_IAM_QR_EXPIRED_CODE = 'AUTH_QRCODE_EXPIRED';
 /** 扫码登录整体超时（毫秒）。 */
 export const RACCOON_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
-/** 扫码状态机的状态值。 */
+/**
+ * 扫码状态机的状态值。
+ *
+ * ⚠️ 这张表**只放服务端真的会下发的状态值**（pending / logging / canceled / success）。
+ * `expired` 不在这里：它是**我们**合成的轮询终态（IAM 回 `AUTH_QRCODE_INVALID`
+ * （HTTP 401）或 `AUTH_QRCODE_EXPIRED`（HTTP 410）时），官方前端同样把它映射成
+ * `expired` 分支（chunk `5348` 的 `"AUTH_QRCODE_EXPIRED"===e.code?"expired":"failed"`），
+ * 体验上等价。放进这张表会让「服务端下发了 expired」这个错误前提看起来成立。
+ */
 export const RACCOON_QR_STATUS = {
     pending: 'pending',
     logging: 'logging',

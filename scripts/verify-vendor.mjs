@@ -3,7 +3,7 @@
 //
 //   node scripts/verify-vendor.mjs /path/to/upstream     # upstream = 跑过 npm install 的上游仓库根
 //
-// 为什么需要它：`docs/vendor.md` 里「1170 个文件、其中 1157 个与上游逐字节一致」这条
+// 为什么需要它：`docs/vendor.md` 里「1334 个文件、其中 1321 个与上游逐字节一致」这条
 // 基线是**整份快照唯一可复核的地方**。原来只能手动 `find … sha256sum | sort | diff`，
 // 一旦临时目录被清掉就再也说不清「这 13 个差异到底是补丁还是被人手改了」。这个脚本
 // 把两件事钉死：
@@ -68,13 +68,13 @@ const PATCH_SHA256 = {
   'lib/backup.js': '53631bb8e2c0022b8794c638089a2013ffff7da0291c37e796c7f4a829e431ba',
   'lib/gemini-oauth.d.ts': 'cbc9c21e0b39ecedee4eaf3749bc81439cbe45f77550b1d6bea5b38d3e332c52',
   'lib/gemini-oauth.js': '0e78a047d0ea62f70d30e54e16196a9530abf0c77e60ae027e4fb93d17220320',
-  'lib/jet-hub-rpc.js': 'b72491d639a62e56dbdaf6eff7f8db6ee3f541229776122aa90ce3e55ccb52d9',
+  'lib/jet-hub-rpc.js': 'b2a2e35237b0c384a11996840f59bba49b7d3b690d21fed9b20d82ddc0a152c4',
   'lib/leveldb-sstable.js': '2d6954eccdb63a46ec68d0cf57fdd7ded2d31df5463d77e5569ed29457ddb853',
   'lib/magicrew-browser-login.d.ts': '5e7c3359790c77badfb1f9ebe9de6c4d26509075957dd7ac9813861ff5d7fc97',
   'lib/magicrew-browser-login.js': 'e81f252e2cea662c336d39122b3ec8d0094bd54ec04256c0ae48d67afdbf42c4',
   'lib/magicrew-local-browser.d.ts': '7198b59278585fa3da5afbc68a23fa917575cc17a8ec096b2da3a31da3a30758',
   'lib/magicrew-local-browser.js': '6adc02a9116267151dd1c0f5fccb56e714637160512b5c27b44e33493143b435',
-  'lib/types.d.ts': 'c259c4878f5f526494f9ebf28066d88a730ce519b4ef6a2ee0adfefe60849add',
+  'lib/types.d.ts': '284068b15c8e9db39420ed53ebf653f794369851256a731d272af6a09026244a',
   'lib/baizhi-rpc.js': 'a7aeabc1e0b156b29d42520b41bad9b696546a0d4e293782925a559f7d3ec9de',
   'lib/baizhi-rpc.d.ts': '87628eedb198b8f8e15f6d00854c3bc8fd909de52484506c9983701f81b39b42',
 }
@@ -82,14 +82,14 @@ const PATCH_SHA256 = {
 /**
  * 文档里写死的两个数（docs/vendor.md「与上游构建产物的差异」）。
  *
- * ⚠ `identical` 是「**归一化后**算一致」的数（**1157**），不是真逐字节（**1156**）：
- * `lib/client/jet-hub.js` 由 esbuild 打包，`__export` 的变量名取入口 basename ——
- * 本仓 `package.json` 的 `esbuild ^0.24.0` 给 `client_exports`、上游作者用的 0.25.x
- * 给 `index_exports`，差 3 字节。见 `BUILD_ARTIFACTS` / `normalizeExports`：
- * **归一化后仍要求逐字节相等**（不是整份文件豁免），所以干净快照算「一致」、
- * 手改任何一位都会进 `differing` 判污染。
+ * ⚠ `identical` 是「**归一化后**算一致」的数（**1321**）。本轮实测真逐字节也是 1321
+ *（归一化 0 个），但归一化这一步仍然留着：`lib/client/jet-hub.js` 由 esbuild 打包，
+ * `__export` 的变量名取入口 basename —— 本仓 `package.json` 的 `esbuild ^0.24.0` 给
+ * `client_exports`、上游作者用别的 0.25.x 时给 `index_exports`，差 3 字节。
+ * 见 `BUILD_ARTIFACTS` / `normalizeExports`：**归一化后仍要求逐字节相等**
+ *（不是整份文件豁免），所以干净快照算「一致」、手改任何一位都会进 `differing` 判污染。
  */
-const EXPECT = { libFiles: 1170, identical: 1157, localeFiles: 2, maps: 584, mapMiB: '4.00' }
+const EXPECT = { libFiles: 1334, identical: 1321, localeFiles: 2, maps: 666, mapMiB: '4.61' }
 
 /**
  * 上游构建产物里**随工具链版本漂移**的文件 —— 既不是补丁，也不是污染。

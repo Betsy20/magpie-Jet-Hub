@@ -146,6 +146,46 @@ const MARVIS = mark(
 )
 
 /**
+ * 豆包（`doubao`，2026-11-24 上游新增）：字节跳动的对话助手，同样没有公开矢量
+ * 标识。上游 `plugin-src/client/provider-icons.js` 的 `DOUBAO_ICON` 也是手绘占位
+ * （`#3370FF` 蓝底 + 圆脸 + 两只眼 + 下方一道笑弧），这里按同一张图放大到 64 视口 ——
+ * 与上游并排时不至于像两个产品。
+ */
+const DOUBAO = mark(
+  '#3370FF',
+  '<circle cx="32" cy="26.7" r="10.7" fill="#fff"/>' +
+    '<circle cx="27.7" cy="25.6" r="2.4" fill="#3370FF"/>' +
+    '<circle cx="36.3" cy="25.6" r="2.4" fill="#3370FF"/>' +
+    '<path d="M18.7 44c4.3 5.3 22.4 5.3 26.7 0" fill="none" stroke="#fff" stroke-width="4.3" stroke-linecap="round"/>',
+)
+
+/**
+ * AgnesCode（`agnescode`，2026-11-24 上游新增）：官网 `app.agnes-ai.cn` 根路径实测
+ * 403 维护页、LobeHub 未收录 ⇒ 上游 `AGNESCODE_ICON` 也是占位（`#0F766E` 青绿底 +
+ * 白色字母 A，字母中间镂空留底色）。这里按同一张图放大到 64 视口。
+ *
+ * 图形抽成 `AGNESCODE_INNER` 是因为国际站要复用同一张 A（两站是同一个产品的两套
+ * 部署、共用一份图标资产，见上游 registry 的 `logoClass: 'agnescode'`）。
+ */
+const AGNESCODE_INNER =
+  '<path d="M29.6 13.3h4.8L45.3 50.7H38.4l-2.4-8H28l-2.4 8H18.7L29.6 13.3z" fill="#fff"/>' +
+  '<path d="M32 24.5l-3.7 9.8H35.7L32 24.5z" fill="#0F766E"/>'
+
+const AGNESCODE = mark('#0F766E', AGNESCODE_INNER)
+
+/**
+ * AgnesCode 国际版：与国内站同品牌同图，但图标必须不同（否则「每家图标互不相同」
+ * 的断言红）⇒ 叠一圈虚线地球环。记号与 `autoclawintl` / `qodercn` 一致，只是那些走
+ * `intl()`（28 视口的 badge），这里是 64 视口的自绘图，环直接画在同一个视口里。
+ */
+const AGNESCODE_INTL = mark(
+  '#0F766E',
+  AGNESCODE_INNER +
+    '<circle cx="32" cy="32" r="29.5" fill="none" stroke="#fff" stroke-width="2.5" ' +
+    'stroke-dasharray="4 5" opacity=".9"/>',
+)
+
+/**
  * WorkBuddy 官方彩色图标（LobeHub 图标库的 `workbuddy-color.svg`，和 magpie 供应商
  * 列表里那张 WorkBuddy PNG 同图：圆角渐变底 + 黄色小球）。
  * 图形自带底与渐变，所以不再套 `badge()`；宽高固定成 24，不用 `1em`（`<img>` 里
@@ -189,13 +229,12 @@ function withIntl(dataUri) {
     + `</svg>`
 }
 
-/** Marvis 占位标识：上游 `MARVIS_ICON` 里那个白色 M 字形（24×24 视口）。 */
-const MARVIS_MARK =
-  '<path d="M5 18V6h2.6l4.4 7.1L16.4 6H19v12h-2.5V9.9l-3.9 6.2h-1.2L7.5 9.9V18H5z"/>'
-
 const PROVIDER_SVG = {
   // Accio 是阿里的业务，用阿里 logo
   accio: badge(ALIBABA),
+  // AgnesCode（2026-11-24 上游新增）：占位图，见上面 AGNESCODE 的注释
+  agnescode: AGNESCODE,
+  agnescodeintl: AGNESCODE_INTL,
   // AStudio 属讯飞
   astudio: badge(IFLYTEK),
   // AutoClaw 属智谱
@@ -206,6 +245,8 @@ const PROVIDER_SVG = {
   // CodeArts 是华为云的
   codearts: badge(HUAWEICLOUD),
   codely: `data:image/png;base64,${CODELY_PNG_BASE64}`,
+  // 豆包（2026-11-24 上游新增）：占位图，见上面 DOUBAO 的注释
+  doubao: DOUBAO,
   gemini: badge(GEMINI),
   lobsterai: `data:image/png;base64,${LOBSTERAI_PNG_BASE64}`,
   loomy: `data:image/png;base64,${LOOMY_PNG_BASE64}`,
@@ -234,10 +275,6 @@ const PROVIDER_SVG = {
   workbuddy: WORKBUDDY,
   // ZCode 只有官方 PNG（智谱 GLM 那条产品线），见 src/zcode-icon.mjs
   zcode: ZCODE_URI,
-  // 腾讯 Marvis（2026-11-10 并入）：上游自己也只有占位图 —— 蓝底白 M 字形
-  // （`plugin-src/client/provider-icons.js` 的 `MARVIS_ICON`，310 字符的
-  // 纯 SVG，不是 PNG）。这里用 `badge` 复刻同一张图，底色取它那个 #0B5FFF。
-  marvis: badge(MARVIS_MARK, { bg: '#0B5FFF', mono: '#ffffff' }),
 }
 
 /**

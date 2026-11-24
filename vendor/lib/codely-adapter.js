@@ -1647,6 +1647,13 @@ export class CodelyAdapter extends LlmAdapter {
             if (models === undefined || models.length === 0)
                 return false;
             this.remoteModels = models;
+            /**
+             * ★ **落盘（SWR 写盘那一半）** —— 2026-11-20，与 `buddy-adapter` 同款。
+             *
+             * ⚠️ 本家只有一个目录来源 ⇒ 「拿到非空目录」即 `complete`
+             *（与 `RemoteCatalogGate` 对裸布尔的归一化口径一致）。
+             */
+            this.catalog.rememberForDisk?.(this.catalogEntries());
             return true;
         });
     }

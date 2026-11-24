@@ -68,6 +68,21 @@ export interface RpcQoderTestProxyResponse {
 /** 账号池的最小依赖面（结构化类型，避免绑定具体类）。 */
 export interface QoderPoolLike {
     setQoderProxy(accountId: string, proxy: string): Promise<void>;
+    listAccountsByProvider(provider: string): ReadonlyArray<{
+        id: string;
+        credentialRef: string;
+    }>;
+}
+export interface RpcQoderWebSessionRequest {
+    accountId: string;
+    /** 浏览器复制的 Cookie（裸 Cookie / `Cookie:` 行 / cURL 都行）；空串 = 清除。 */
+    cookie: string;
+}
+export interface RpcQoderWebSessionResponse {
+    /** 是否已保存会话（清除后为 false）。 */
+    saved: boolean;
+    /** 校验时读到的带日期资源包笔数。 */
+    packages: number;
 }
 /**
  * 处理一个 `qoder.*` RPC 方法。
@@ -77,5 +92,5 @@ export interface QoderPoolLike {
  *          `gemini-rpc.ts` 的契约：对未知方法回信封会把别的 provider 的
  *          方法名误判成「格式错误」）。
  */
-export declare function handleQoderRpc(_ctx: Context, pool: QoderPoolLike, method: string, payload: unknown): Promise<unknown>;
+export declare function handleQoderRpc(ctx: Context, pool: QoderPoolLike, method: string, payload: unknown): Promise<unknown>;
 //# sourceMappingURL=qoder-rpc.d.ts.map

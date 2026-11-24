@@ -2,6 +2,9 @@ import { Context } from '@deepseek-ai/cordis';
 import type { BuddyCredential } from './buddy.js';
 import type { BuddyProduct } from './product.js';
 import type { AggregateAllowedMap, AggregateOrderMap, AggregateOrderMode, AggregateRejectionMap, JetHubState, ModelDisableMap, PanelEntry, PermanentLockMap } from './jet-hub-store.js';
+import type { CreditWindowSetting, RotationStartTier, SubagentRotationSetting } from './jet-hub-store.js';
+import type { SubagentAssignment, SubagentAssignmentMap } from './subagent-rotation.js';
+import { type QoderTrafficProvider } from './qoder-traffic-guard.js';
 import type { CodeArtsCredential, ProviderAccountEntry, ProviderAccountStatus } from './types.js';
 export { JET_HUB_NS } from './jet-hub-store.js';
 export type { ModelDisableMap, ProviderClosedMap } from './jet-hub-store.js';
@@ -269,6 +272,7 @@ export declare class AccountPool {
      * 的唯一后果是回到默认启用，用户再关一次即可。
      */
     private gatewayEnabledCache;
+    private qoderTrafficGuard;
     /**
      * 「允许局域网访问」开关的进程内副本（2026-10-20）。
      *
@@ -310,6 +314,24 @@ export declare class AccountPool {
      * 「用户仍需要显式开一次开关」，那是可见、可逆的。
      */
     private strictManualOrderCache;
+    /**
+     * per-provider 分档窗口覆盖值的进程内副本（{@link CreditWindowMap}）。
+     *
+     * 缺键语义是**回落环境变量/默认**（= 升级前行为：全局 15 / 5）。
+     *
+     * ⚠️ **每次现读，不缓存给调用方**（与 {@link strictManualOrderCache} 同款纪律）：
+     * 用户在弹窗里保存后，窗口必须**立刻**对后续请求生效 ——
+     * 消费者（`resolveCreditWindow`）每次都问本表，不允许把值存进构造期字段。
+     */
+    private creditWindowCache;
+    /**
+     * 子代理分配表（provider → sessionId → 分配）。
+     *
+     * ⚠️ **必须持久化**：插件重启后收不到已发过的 `subagent/start`，
+     * 若不落盘，正在跑的子代理会退化成「用主代理起点」。
+     */
+    private subagentAssignmentCache;
+    private preferredRotationCache;
     /**
      * 「面板入口」的进程内副本：Jet Hub 的唯一入口位置（两个取值互斥）。
      *
@@ -660,6 +682,8 @@ export declare class AccountPool {
      * {@link gatewayEnabledCache}。
      */
     gatewayEnabled(): boolean;
+    qoderTrafficGuardEnabled(provider: QoderTrafficProvider): boolean;
+    setQoderTrafficGuardEnabled(provider: QoderTrafficProvider, enabled: boolean): Promise<void>;
     /**
      * 打开/关闭本机 OpenAI 网关并落盘。
      *
@@ -736,6 +760,161 @@ export declare class AccountPool {
      * 不能自己 `store.save(...)` —— 那会与账号/黑名单的写入乱序覆盖。
      */
     setStrictManualOrder(provider: string, enabled: boolean): Promise<void>;
+    /**
+     * 读某 provider 的**分档窗口覆盖设置**（`undefined` = 未设置 ⇒ 回落环境变量/默认）。
+     *
+     * ⚠️ **调用方必须每次现读**，不能把返回值存进构造期字段：
+     * 用户在弹窗里保存后，窗口必须立刻对后续请求生效（不需要重启/重选模型/切会话）。
+     * 消费者的唯一正确用法见 `src/credit-window.ts` 的 `resolveCreditWindow`。
+     *
+     * ⚠️ 返回的是**副本**：调用方拿到后即使改了也不会污染缓存
+     * （`strictManualOrder` 返回布尔没有这个问题，本方法返回对象故必须防御）。
+     */
+    creditWindow(provider: string): CreditWindowSetting | undefined;
+    /**
+     * 写某 provider 的分档窗口并落盘。
+     *
+     * @param setting - `undefined` / 两个字段都 `undefined` ⇒ **删键**（恢复默认）
+     *
+     * ## ⚠️ 三条纪律
+     *
+     * 1. **稀疏表删键**：恢复默认时 `delete`，不写 `{}` / `null` / `0`
+     *    （`0` 是合法值「关掉该档」，不能兼作「未设置」）。
+     * 2. **走 `queueStoreSave()`**：与 `setStrictManualOrder` 同款 ——
+     *    自己 `store.save()` 会与账号/黑名单的写入乱序覆盖。
+     * 3. **先更内存再落盘**：落盘失败不影响本次会话的正确性
+     *    （与 `setPermanentLocked` 同取向）。
+     */
+    setCreditWindow(provider: string, setting: CreditWindowSetting | undefined): Promise<void>;
+    /**
+     * ★★★ **取某 provider 的子代理设置**（2026-11-23）。
+     *
+     * ⚠️ 每次现读，不缓存（与 `preferredRotationFor` 同款）：用户随时可能在面板上改。
+     *
+     * @returns `undefined` = 没配子代理设置 ⇒ 调用方走主代理逻辑（与加本功能之前逐字节相同）
+     */
+    subagentRotationFor(provider: string): SubagentRotationSetting | undefined;
+    /**
+     * 写子代理设置（`undefined` = 清除）。
+     *
+     * ⚠️ **合并语义**：只传 `subagent` 时**不动** `windowDays` / `imminentDays`。
+     * 这是刻意的 —— 用户在「子代理」那块点保存，不该顺带把窗口天数重置。
+     */
+    setSubagentRotation(provider: string, setting: SubagentRotationSetting | undefined): Promise<void>;
+    /**
+     * ★★★ **按 sessionId 反查它属于哪个 provider**（2026-11-24）。
+     *
+     * ## 为什么需要
+     *
+     * `subagent/end` 事件的 payload **只有 `id`**（子代理会话 id），
+     * **没有 provider** —— 而 `recordSubagentEnd(provider, sessionId)` 需要它。
+     *
+     * 分配表的结构是「provider → sessionId → 记录」⇒ 反查要遍历 provider 键。
+     *
+     * ## ⚠️ 为什么允许遍历
+     *
+     * provider 数量是**个位数**（本机 10 家左右），而分配表每个 provider 至多
+     * 128 条 ⇒ 最坏 1280 次键查找，且只在 `subagent/end` 时跑一次
+     * （子代理结束时），不在热路径上。
+     *
+     * @returns 找到的 provider 列表（**理论上 1 个**，但同一 sessionId
+     *   在多家各有一条记录时会是多个 —— 那种情况全部标记，不漏）
+     */
+    providersOfSubagentSession(sessionId: string): string[];
+    /** 取某 provider 的子代理分配表（**只读快照**）。 */
+    subagentAssignmentsFor(provider: string): Readonly<SubagentAssignmentMap>;
+    /** 取单个子代理的分配（热路径：每次 `resolveCredential` 都会问）。 */
+    subagentAssignmentOf(provider: string, sessionId: string | undefined): SubagentAssignment | undefined;
+    /**
+     * 记录一个子代理分配（`subagent/start` 时调）。
+     *
+     * @returns 实际分配的 slot（幂等：已存在则返回原 slot）
+     */
+    recordSubagentStart(provider: string, sessionId: string, parentSessionId: string, now: number): Promise<number>;
+    /** 标记子代理结束（`subagent/end` 时调）。**不清除记录**（见 `markSubagentEnded` 的注释）。 */
+    recordSubagentEnd(provider: string, sessionId: string): Promise<void>;
+    /**
+     * ★★★ **钉住某子代理的账号**（2026-11-24 用户要求：拉起时定死）。
+     *
+     * ## 为什么要钉
+     *
+     * > 「我是希望『拉起时定死，只有该号不可用才换』，
+     * >   这样可以保证子代理的缓存命中率高，如果频繁换帐号，缓存命中率就低了。」
+     *
+     * 原理：prompt cache 按（账号 + 模型 + 前缀）命中 ⇒ 换号即缓存全失效。
+     *
+     * ⚠️ **同步更新缓存**（与 `recordSubagentStart` 同纪律）：调用方紧接着
+     * 还要读它，不能等落盘。
+     *
+     * @returns `true` = 有新值（同值返回 `false`，调用方据此跳过重复写盘）
+     */
+    pinSubagentAccount(provider: string, sessionId: string, accountId: string): Promise<boolean>;
+    /**
+     * ★★★ **记录用户手动选的账号**（2026-11-24 用户定 B 方案）。
+     *
+     * 语义：用户在该子代理对话页面手动选起点时，写这个字段；
+     * 它的优先级**高于** `pinnedAccountId`（见 `credential-resolver.ts`）。
+     *
+     * ⚠️ 主代理没有分配记录 ⇒ `setUserPickedAccount` 原样返回 ⇒ 无副作用。
+     *
+     * ⚠️ **同步更新缓存**（与 `pinSubagentAccount` 同纪律）：调用方紧接着
+     * 还要读它（回传 `selected`），不能等落盘。
+     *
+     * @param accountId - `undefined` = 清除手动选择（回落到 pin）
+     * @returns `true` = 有新值（同值返回 `false`，调用方据此跳过重复写盘）
+     */
+    setUserPickedAccount(provider: string, sessionId: string, accountId: string | undefined): Promise<boolean>;
+    /**
+     * ★ **轮换起点选定那一刻的档位**（S6，2026-11-20）。
+     *
+     * 返回 `undefined` **只有一种含义**：该会话没配起点。
+     *
+     * ## ⚠️ 2026-11-20 收窄：不再有「老数据无快照」这一支
+     *
+     * 用户决定「最彻底：清除已选的起点」⇒ `sanitizePreferredRotation` 会丢弃
+     * 一切没有 `tierAtSelection` 的条目 ⇒ 缓存里**只要有条目，档位必然存在**。
+     * ⇒ 本方法的 `undefined` 现在唯一表示「没设起点」。
+     *
+     * ⚠️ 与 {@link preferredRotationFor} 分开读：后者返回 `accountId`
+     * （消费方定位账号），本方法返回档位枚举。**签名上别造假耦合**，
+     * 将来若两者语义分叉会很难改。
+     *
+     * ⚠️ 每次现读，不缓存（与 `preferredRotationFor` 同款）。
+     */
+    rotationStartTierFor(provider: string, sessionId: string | undefined): RotationStartTier | undefined;
+    /**
+     * 「轮换起点」：某 provider 在某**会话**下指定的起始账号 id。
+     *
+     * `undefined` = 默认起点（不干预）。**只挪起点，不改任何选号策略**。
+     *
+     * ⚠️ 空 `sessionId` 恒返回 `undefined` —— 空串会让「默认」与「某会话」撞成同一个键。
+     * ⚠️ **每次现读，不缓存**：用户随时可能在面板上改。
+     * ⚠️ 返回的 id **可能已失效**（账号被删/停用）：本方法不做存在性校验，
+     *    消费方按「找不到就原样」处理（见 `rotateFromPreferred`）。
+     */
+    preferredRotationFor(provider: string, sessionId: string | undefined): string | undefined;
+    /**
+     * 写入「轮换起点」；`position` 传 `null` = 恢复默认起点。
+     *
+     * @param tierAtSelection - ★ **选定那一刻的档位**（S6，2026-11-20）。
+     *   落盘后用于判断「起点那一档是否已烧完」。`undefined` = 不知道
+     *   （老客户端 / 老数据）⇒ 消费方回落 S5 语义。
+     *
+     * ⚠️ 与 {@link setStrictManualOrder} 同款：走同一条写队列（`queueStoreSave`），
+     * 不能自己 `store.save(...)` —— 那会与账号/黑名单的写入乱序覆盖。
+     * ⚠️ 稀疏表：`null` 时**删键**，整层空了连 provider 层一起删
+     *    （与 `sanitizePreferredRotation`「空层不保留」对称）。
+     */
+    setPreferredRotation(provider: string, sessionId: string, position: number | null, 
+    /**
+     * ★ **选定那一刻的档位**（S6 必填，2026-11-20）。
+     *
+     * ⚠️ `position === null`（恢复默认）时**忽略本参数**；其余情况**必须提供**
+     * —— 没有档位的条目会被 `sanitizePreferredRotation` 丢弃，等于白写。
+     * 故这里的类型是「`position` 非空时必填」，但 TS 无法表达这种依赖，
+     * 运行时兜底：`position !== null && tierAtSelection === undefined` ⇒ 直接 return（不写脏数据）。
+     */
+    tierAtSelection?: RotationStartTier): Promise<void>;
     /**
      * 「面板入口」的当前取值：Jet Hub 的唯一入口位置。
      *
@@ -1244,6 +1423,42 @@ export declare class AccountPool {
      */
     hasLoggedInAccount(provider: string): Promise<boolean>;
     /**
+     * ★★★ **该 provider 是否有「已登录**且启用**」的账号**（2026-11-20，真实启动卡顿修复）。
+     *
+     * ## 它与 {@link hasLoggedInAccount} 的唯一差别：**看 `enabled`**
+     *
+     * | 方法 | 判据 | 用途 |
+     * |---|---|---|
+     * | `hasLoggedInAccount` | 凭据可解析（**不看 enabled**）| 目录**展示**门控（既有语义，**不要改它**）|
+     * | **本方法** | 凭据可解析 **且** `enabled !== false` | 判断「这个 provider 值不值得为它拉目录」|
+     *
+     * ## 为什么必须新增而不是改 `hasLoggedInAccount`
+     *
+     * `hasLoggedInAccount` 刻意不看 `enabled`，理由写在它的注释里：
+     * 「停用只应影响自动选号，与是否已登录无关」（与续期调度器同一条约定）。
+     * 那条语义是**对的**，不能动。
+     *
+     * 但**目录拉取**是另一回事：一个被用户**主动停用**的 provider，其目录
+     * 拉下来也没人看，却要付真实代价 —— 实测（本机）：
+     *
+     * ```
+     * cline: 账号已停用但凭据还在 ⇒ 通过 hasLoggedInAccount 门控
+     *        ⇒ 真的去拉「两个端点 + models.dev」
+     *        ⇒ models.dev 实测 25 秒超时、MODELS_DEV_TIMEOUT_MS=90s、重试 3 次
+     *        ⇒ 首屏被拖到 60 秒+
+     * ```
+     *
+     * ⇒ 目录拉取的判据应当比「展示」更严：**停用的 provider 不拉目录**。
+     *
+     * ⚠️ **不影响**「停用账号也能测试/重测」那条既有能力 —— 那些路径走的是
+     * `resolveCredentialForAccount`（按 id 显式探测），与本方法无关。
+     *
+     * ⚠️ 无账号 / 全部停用 ⇒ `false`；读凭据异常 ⇒ 保守返回 `true`
+     *（宁可多拉一次，也不要让目录因一次读取抖动而消失 —— 与
+     * `providerCatalogVisible` 的保守方向一致）。
+     */
+    hasEnabledLoggedInAccount(provider: string): Promise<boolean>;
+    /**
      * 按账号 id 解析凭据（**不检查 enabled**）。
      *
      * 限流重测必须能对已停用账号发请求（用户明确要求"停用的账号也能发送"），
@@ -1344,7 +1559,14 @@ export declare class AccountPool {
      * 还有测试桩与 `ResolverPool` 这类结构化替身，去掉默认值会让它们全部编译失败，
      * 而它们本就不关心具体形状。
      */
-    getAvailableAccount<TCredential = CodeArtsCredential | BuddyCredential>(provider: string, modelId: string, excludeAccountIds?: ReadonlySet<string>): Promise<{
+    getAvailableAccount<TCredential = CodeArtsCredential | BuddyCredential>(provider: string, modelId: string, excludeAccountIds?: ReadonlySet<string>, 
+    /**
+     * 「轮换起点」：本会话指定的起始账号 id（可选；`undefined` = 默认起点）。
+     *
+     * ⚠️ **只旋转，不增删** —— 它不可用时仍会选中别的号（`tried` 循环照旧）。
+     * ⚠️ 本路径**没有余额档位**（候选已过 enabled / 封禁 / 限流）⇒ 纯旋转即可。
+     */
+    rotationStartId?: string): Promise<{
         entry: ProviderAccountEntry;
         credential: TCredential;
     } | null>;
@@ -1368,11 +1590,33 @@ export declare class AccountPool {
         credential: TCredential;
     } | null>;
     /**
+     * 把**外部已经选好的**候选序列按会话亲和 + 溢出均衡重排（纯排序，不取凭据）。
+     *
+     * 用途：槽制 provider（marvis，2026-11-17 用户要求「11 个号要真轮流分担」）
+     * 的候选是接线层自己拼的（凭据要解析成 `MarvisCredential` 并塞进请求头），
+     * 没法复用 {@link getAvailableAccountForSession} 的「取第一个」语义 —— 它需要
+     * 的是**完整有序序列**，因为适配器要在一轮里按序换号重发。
+     *
+     * 排序语义与 {@link getAvailableAccountForSession} **完全一致**（同一份
+     * `rankAccountsBySessionWithOverflow` + 同一份 {@link sessionLoadIndex} 兜底），
+     * 差别只在「返回全部」而不是「返回第一个」：
+     * - `sessionId` 非空 ⇒ rendezvous 哈希亲和 + 达阈值账号沉底；
+     * - `sessionId` 空/未传 ⇒ 按传入顺序原样返回（**不洗牌**：调用方若是槽制接线层，
+     *   原样返回才等于「手动顺序优先」的既有语义；要不要随机由调用方决定）。
+     *
+     * ⚠️ 与 {@link getAvailableAccountForSession} 的区别：本方法**不做**候选过滤
+     * （`enabled` / 封禁 / 模型限流）—— 那是调用方的事（marvis 接线层已经滤过
+     * 一遍，含 `modelRateLimits`）。这里只负责**顺序**。
+     */
+    orderAccountsForSession<T extends {
+        readonly id: string;
+    }>(provider: string, accounts: readonly T[], sessionId?: string): T[];
+    /**
      * 今日账号负载索引（`provider` 维度）；任何读取异常都退化为**空表**。
      *
      * 抽成方法是为了让「失败兜底」只有一份实现（`getAvailableAccountForSession`
-     * 与将来的调用点共用），也让单测能单独验证兜底语义（见
-     * `tests/unit/session-balance.spec.ts` 的「账本读取抛错」用例）。
+     * / `orderAccountsForSession` 与将来的调用点共用），也让单测能单独验证兜底语义
+     * （见 `tests/unit/session-balance.spec.ts` 的「账本读取抛错」用例）。
      */
     private sessionLoadIndex;
     /**

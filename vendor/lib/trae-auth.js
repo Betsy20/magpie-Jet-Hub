@@ -138,7 +138,15 @@ export class TraeAuth extends Service {
         });
         const result = started.result.then((flow) => this.persistLogin(flow, flowOptions));
         result.catch(() => { });
-        return { loginUrl: started.loginUrl, result, close: started.close };
+        // ⚠️ **必须透传**：RPC 层拿到的就是本方法的返回值，漏这一行会让
+        //    `account.submitCallback` 在生产上拿到 `undefined` —— 类型层不报错
+        //    （可选键），症状是「用户粘了合法链接，却被告知会话已失效」。
+        return {
+            loginUrl: started.loginUrl,
+            result,
+            close: started.close,
+            submitManualCallback: started.submitManualCallback,
+        };
     }
     /**
      * 持久化一次登录结果。

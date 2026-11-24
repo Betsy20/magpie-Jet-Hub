@@ -11,6 +11,43 @@
 
 ## 1.0.0（未发布）
 
+- `feat(vendor)`: **同步上游到 `3c99183`（`0.2.1-rc.5`，365 个提交），接入豆包 / AgnesCode 三家渠道（家数 29 → 32）**。
+
+  `vendor/` 从 `1d12f80` 升到 `3c9918367baf7d26cc09528156c0afaf50849630`：
+  `lib/` **1170 → 1334** 个文件（`.map` 584 → **666** 个 / 4.00 → **4.61 MiB**），
+  逐字节一致 **1321** 个、本仓补丁仍是 13 个文件 / 7 类。
+
+  - **新增 3 家真渠道**：`doubao`（豆包 / 字节，签到 + 每日额度）、`agnescode` 与
+    `agnescodeintl`（AgnesCode 国内站 / 国际版，**独立账号体系**，两站共用一份图标）。
+    上游 `PROVIDER_REGISTRY` 现在 33 个 id，`aggregate`（`channel: false`）是唯一路由组
+    ⇒ 真家 **32**。9 处同步点全改：`DSH_PROVIDERS` / `NAMES` / `FALLBACK_MODELS` /
+    `index.mjs` 工厂导出 / `src/icons.mjs` 内联图标 / `snapshot-models.mjs` 显示名 /
+    两个测试常量 / `README` 与 `docs/testing.md` 的家数。
+  - **AgnesCode 两家故意不给兜底模型**：上游 `AGNESCODE_FALLBACK_MODELS` 是
+    `Object.freeze([])`，目录纯靠远端 `/v2/models` —— 硬塞静态 id 会让未登录和登录后的
+    目录对不上。豆包给 `doubao/9`（豆包 2.1 Auto），取自上游 2026-11-22 的真机 14 条快照。
+  - **补丁重打只动了 2 个文件**：上游这 365 个提交里 `src/gemini-oauth.ts` / `backup.ts` /
+    `magicrew-browser-login.ts` / `magicrew-local-browser.ts` / `leveldb-sstable.ts` /
+    `baizhi-rpc.ts` 的提交数都是 **0** ⇒ 那 11 个补丁文件直接 `git checkout HEAD --` 沿用；
+    只有 `src/jet-hub-rpc.ts`（85 次）和 `src/types.ts`（23 次）变了，手工重打。
+    其中 `setDisabledMany` 的第三参上游仍写死 `true` —— 本仓继续按「目标意图」三态
+    （`closeProvider ? true : 'keep'`）落盘，理由见 `docs/vendor.md`。
+  - **上游自己 `tsc` 是红的**（125 条 `TS2345`：`'QUEUE'` / `'QUOTA_EXCEEDED'` 等字面量
+    失败码不在 `@deepseek-ai/dsh-llm` 的类型里，仓库也没有 CI 类型门禁）。
+    `tsconfig.json` 没设 `noEmitOnError` ⇒ 照样全量 emit，所以 `copy-assets` /
+    `client/build` / `sync-bootstrap-lib` 必须单独跑。已写进 `docs/vendor.md` 的「取法」。
+  - **控制台接上 5 个新设置项**：`loginPreferences.*`（新建账号时自动打开授权页）、
+    `reasoningDefault.*`（默认开启思考）、`doubao.autoCheckin` / `modelscope.autoCheckin` /
+    `zcode.autoCheckin`（按家的自动签到开关）。宿主 RPC 从 93 涨到 **117** 个方法，
+    控制台接 **74** 个；剩下 13 个在 `tests/t-rpc-cover.mjs` 的 `DROPPED` 表里逐条
+    写清为什么不接（`resume.*` 5 个是会话级钩子、两个 `submitCallback` 是宿主的回调
+    登记链、`account.getRotation` / `provider.closed` 控制台已有等价读数、
+    `promotion.candidates` 与 `qoderTrafficGuard.*` 没有对应界面）。
+  - **测试口径**：`t-checkin` 的「只应有 ZCODE 一条特判」护栏要跳过新增的
+    「签到成功后清余额缓存」分支；`t-console-credits` 的窗口天数断言跟着上游从
+    `buddyExpiringWindowDays()` 改成字段驱动的 `resolveCreditWindow()`；
+    `t-rpc-cover` 的总数常量 94 → 117。全量 **38 通过 / 0 失败**。
+
 - `chore(security)`: **移除运维坐标与凭据，补两道机器守卫**（2026-11-12 安全事件）。
 
   `scripts/deploy-plugin-*.sh`（两个）是**本地部署脚本**，

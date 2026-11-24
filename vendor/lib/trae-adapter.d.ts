@@ -42,7 +42,7 @@ export interface TraeAdapterOptions {
      *
      * 与 `LoomyAdapterOptions.resolveCredential` 同款（那里是既有正确实现）。
      */
-    resolveCredential: (modelId?: string) => Promise<TraeCredential | undefined>;
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<TraeCredential | undefined>;
     /** 静默续期凭据。 */
     refresh: () => Promise<void>;
     /** 动态拉取远端模型列表；失败时回退到 `product.fallbackModels`。 */
@@ -132,6 +132,18 @@ export declare class TraeAdapter extends LlmAdapter {
     private readonly catalog;
     /** 远端模型元数据索引。 */
     private remoteMeta;
+    /**
+     * 闲时折扣的**未决候选表**（模型 id → 规则），远端目录落地时重建一次。
+     *
+     * ⚠️ 存的是**规则**不是**结论**：「此刻画不画」由 `toCatalogEntry` 用当时的
+     * 时钟现算（issue #101 的核心取舍 1）。这里如果存成 badge，22:59 读到的
+     * 闲时折扣会一路挂到第二天早上 —— 而那正是本 issue 点名的事故。
+     *
+     * ⚠️ 也**不能**在 `toCatalogEntry` 里现解析：解析一次就要 warn 一次「窗口
+     * 读不懂」，而那是一条**文档形状**的事实、与时刻无关 —— 放在渲染路径上
+     * 会变成每次 listModels 刷屏（模块头「判定路径不打日志」那条纪律）。
+     */
+    private promotionIndex;
     /** 产品级兜底模型索引。 */
     private readonly fallbackIndex;
     /**
@@ -165,6 +177,27 @@ export declare class TraeAdapter extends LlmAdapter {
      * 远端一直在目录里声明该能力，且直发图片后模型真的看得见。
      */
     private inputModalitiesFor;
+    /**
+     * 远端目录落地时重建候选表（**每次读取一遍**，渲染路径零解析、零日志）。
+     *
+     * 兜底表没有 `offPeakDiscount` ⇒ 索引为空 ⇒ 离线路径不画徽标（与「上游没有
+     * 活动」同形，如实；不编）。
+     */
+    private rebuildPromotionIndex;
+    /**
+     * 候选表里下一个会改变徽标的时刻（epoch 毫秒），没有则 undefined。
+     *
+     * 供全局活动边界播报器排程（src/index.ts 的 edgeSources）。闲时窗口是**墙钟**
+     * 窗口（真机 V4-Flash：`[1..7] 00:00–08:00` 与 `[1..7] 22:00–24:00` 两段，
+     * 见 docs §18 的留档。「工作日/周末分开下发」在仓内**没有依据**，别照抄），
+     * 而宿主缓存一次目录读取的结果 —— 没有这条，窗口关了徽标最长再挂一个后台
+     * 刷新周期（20 分钟），正是 issue #101 点名的形态。
+     *
+     * ⚠️ 时钟与 `toCatalogEntry` **同源**（同一个 `options.now`）：两处各读一次
+     * 真实时钟，单测里会给出两个「现在」。
+     * ⚠️ **零网络**：只读内存里的候选表。
+     */
+    nextPromotionEdgeAt(nowMs?: number): number | undefined;
     /**
      * 该模型所属的聊天通道（`function`）。
      *

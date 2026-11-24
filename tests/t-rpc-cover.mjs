@@ -241,7 +241,7 @@ console.log(`  其中共享实现体的标签: ${fallThrough.length ? fallThroug
 // 控制台已按 14 家分档渠道接线 —— 见 console.js 的 BALANCE_TIERED_PROVIDERS）。
 // → 94（2026-11-11 本仓新增 `baizhi.setSession`：给已有账号补网页登录态。
 // 它落在 `startsWith('baizhi.')` 前缀改道里，所以是前缀 23 → 24、主 switch 不变）。
-const EXPECTED_RPC_METHOD_COUNT = 94
+const EXPECTED_RPC_METHOD_COUNT = 117
 ok(methods.length === EXPECTED_RPC_METHOD_COUNT,
   `本体可调度方法总数应为 ${EXPECTED_RPC_METHOD_COUNT}，实际 ${methods.length}（上游加减方法时必须同步这个常量）`)
 // baizhi.startSession 不走 `startsWith` 前缀，是单独一条 `if (method === '…')`；
@@ -491,6 +491,24 @@ const DROPPED = new Map([
   ...['catalog', 'expiryOrder', 'activeProvider', 'setOrderMode', 'clearRejected',
     'rejectNonExpiring', 'setAllowed', 'setRejected', 'setOrder']
     .map((m) => [`aggregate.${m}`, '聚合路由配置：magpie 侧没有对等入口，且插件不注册 aggregate']),
+  // ── 2026-11-24 上游 365 个提交带进来的 20 个主 switch 方法 ───────────────────
+  // 其中 7 个控制台**接上了**（`loginPreferences.*` / `reasoningDefault.*` /
+  // 三个 `*.autoCheckin`，见 console/index.html 的设置页），剩下 13 个在这里
+  // 逐条写明为什么控制台不接。分三组，理由各不相同，别合并成一句「暂不支持」。
+  //
+  // 组一：会话级钩子 —— 控制台没有「会话」这个概念。
+  ...['getState', 'setEnabled', 'setArmed', 'fireNow', 'forget']
+    .map((m) => [`resume.${m}`, '限流自动续跑的会话钩子（按 sessionId 挂/摘、立刻投递、丢弃记录）：控制台是配置界面，没有会话上下文，也没有对话错误行可挂按钮；上游面板在对话报错行里自己调']),
+  // 组二：登录回调提交 —— 控制台的登录链不走宿主那套 pendingManualCallbacks。
+  ['account.submitCallback', '手动粘贴 OAuth 回调：控制台登录走插件自己的 oauth 链（account.beginLogin → login.poll），没有「宿主登记回调入口再转调」这一环'],
+  ['login.submitCallback', '同上，是它的本地回调服务器版本：控制台的账号登录不用本地回调服务，也就没有状态码可转文案'],
+  // 组三：控制台已有等价读数，或压根没有对应概念。
+  ['account.getRotation', '轮换起点（运行时调度状态）：控制台的账号顺序由卡片拖拽表达，走的是 provider.getOrder / setOrder（已 DELEGATED 给 magpie Providers 页）；「下次从哪个账号开始轮」没有对应界面'],
+  ['account.setRotation', '同上'],
+  ['provider.closed', '批量读「用户关没关这家」：控制台只在打开某家账号页时用 provider.status 读一家（那份结果里就带 closed，且是同一判据 closedByIntent）；批量端点是为徽标一次读全部减少往返，配置界面用不上'],
+  ['promotion.candidates', '促销候选（各 adapter 的 promotionCandidates）：控制台没有任何促销展示位，模型目录也不按促销排序'],
+  ['qoderTrafficGuard.getEnabled', 'Qoder 风控守门开关：只对 qoder / qodercn 两家生效，控制台没有「按家设置」区（现有设置项都是全局或按 ZCode 的），接进来会变成设置页里一个只对两家有意义的开关'],
+  ['qoderTrafficGuard.setEnabled', '同上'],
 ])
 
 // 交给别人接的 + 主动弃用的，合起来才是「控制台不该再接」的全集。

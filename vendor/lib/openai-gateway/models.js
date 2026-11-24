@@ -1,3 +1,4 @@
+import { TtlCache } from '../ttl-cache.js';
 import { effortView } from './effort-view.js';
 export function toOpenAiModelId(provider, model) {
     return `${provider}/${model}`;
@@ -16,10 +17,19 @@ export function toOpenAiModelId(provider, model) {
  * 某个 `listModels()` 返回非数组、provider 条目缺 id。
  * （`llm` 来自 DSH 的 service，真实形态与类型声明可能不一致，故不假设它守规矩。）
  */
-export async function collectGatewayModels(llm, onError) {
+export async function collectGatewayModels(llm, onError, 
+/**
+ * 覆盖 provider 列表（省略则用 `llm.listProviders()`）。
+ *
+ * 给设置页用：它有一条「`listProviders` 取不到时用已注册适配器的 key 兜底」
+ * 的策略（`src/jet-hub-rpc.ts` 的 `providerIdsOf`），兜底结果必须能传进来。
+ * ⚠️ 传了它就用它，**不再**调 `llm.listProviders()` —— 两处各算一份会让
+ * 「设置页显示的渠道」与「实际采集的渠道」漂移。
+ */
+providersOverride) {
     let providers = [];
     try {
-        const raw = llm?.listProviders?.();
+        const raw = providersOverride ?? llm?.listProviders?.();
         if (Array.isArray(raw))
             providers = raw.filter((entry) => typeof entry?.id === 'string');
     }
@@ -152,6 +162,104 @@ export async function collectGatewayEffortViews(llm, groups, onError) {
     // 与窗口解析共用同一次逐模型 `resolveModelInfo`（见 GatewayModelDetails）。
     const { effortViews } = await collectGatewayModelDetails(llm, groups, onError);
     return effortViews;
+}
+/**
+ * 网关目录缓存的有效期（毫秒）。
+ *
+ * ⚠️ 与 `src/model-catalog.ts` 的 20 分钟**刻意不同**：那里是「用户在 Jet Hub
+ * 改完开关 ⇒ 该渠道目录必须立即失效」的交互目录（带 `invalidatedAt` 主动失效
+ * 表）；这里是只读展示，30 秒的滞后不可感知，而每次命中省掉几百次
+ * `resolveModelInfo`。
+ */
+const GATEWAY_CATALOG_TTL_MS = 30_000;
+/**
+ * 按 `llm` 实例分桶的目录缓存。
+ *
+ * ⚠️ 为什么 key 是 `llm` 而不是模块级单例：不同 ctx（不同会话）可能给不同
+ * `llm` 对象，而它们的 provider 登录状态可能完全不同。模块级单例会让 A 会话
+ * 的目录串到 B 会话 —— 症状是「明明没登录的渠道却出现在目录里」。
+ */
+const catalogCacheSlots = new WeakMap();
+function catalogSlotFor(llm) {
+    const existing = catalogCacheSlots.get(llm);
+    if (existing !== undefined)
+        return existing;
+    const created = {
+        cache: new TtlCache({
+            ttlMs: GATEWAY_CATALOG_TTL_MS,
+            load: () => loadGatewayCatalog(llm, created),
+        }),
+    };
+    catalogCacheSlots.set(llm, created);
+    return created;
+}
+async function loadGatewayCatalog(llm, slot) {
+    const failedProviders = [];
+    const markFailed = (provider, error) => {
+        if (!failedProviders.includes(provider))
+            failedProviders.push(provider);
+        slot.onError?.(provider, error);
+    };
+    const groups = await collectGatewayModels(llm, markFailed, slot.providers);
+    // ⚠️ 逐模型 `resolveModelInfo` 失败**不算渠道级失败**：渠道本身是好的，只是
+    //    某几个模型拿不到窗口。这些模型会缺 `contextWindow`、被计划层判为
+    //    `skipped`，而「skipped 的模型如果目标里已有就必须保留」由
+    //    `src/sync-targets.ts` 的 skip 分支负责（保护粒度 = **单个模型**）。
+    //    若在这里把整条渠道塞进 `failedProviders`，一个模型抖动会冻结整条渠道
+    //    （新模型也进不来），反而更差。
+    //
+    //    但诊断信息仍要透出 —— 故这里把调用方的 `onError` 原样传下去。
+    const details = await collectGatewayModelDetails(llm, groups, slot.onError);
+    return { groups, details, failedProviders };
+}
+/**
+ * 采集（或复用 30 秒内的）网关目录快照。
+ *
+ * ## 为什么必须缓存（真实缺陷）
+ *
+ * `collectGatewayModels` + `collectGatewayModelDetails` 每次都是**全量采集**：
+ * 12 个 `listModels` 并发 + **每个模型**一次 `resolveModelInfo`（实测 369 次，
+ * 全并发且无上限）。而这条链路上有四个**各自独立采集**的调用点：
+ *
+ * - `GET /v1/models`（`server.ts` 的 `handleModels`）
+ * - `GET /v1/reasoning-efforts`（`server.ts` 的 `handleReasoningEfforts`）
+ * - 设置页 `gateway.getEnabled`（`jet-hub-rpc.ts`）
+ * - `sync.preview`（`sync-service.ts` 的 `collectSyncCatalog`）
+ *
+ * 后果（真实报障）：打开「同步模型」面板时组件挂载连发两次 preview
+ * ⇒ **738 次** `resolveModelInfo`；每勾选一个渠道再 +369 次。
+ *
+ * ## 为什么 `details` 与 `groups` 必须**一起**缓存
+ *
+ * `collectGatewayModelDetails` 的入参就是 `groups`。分开缓存会让「第二次拿到的
+ * `groups` 与 `details` 对不上」，症状是同一份清单里两次出现不同的档位/窗口。
+ *
+ * ## 为什么「部分失败」也缓存
+ *
+ * 两个采集函数都承诺**永不抛错**（失败走 `onError` 并降级为空/缺字段），故
+ * `TtlCache` 的 `load` 不会抛错，缓存里存的是「一致的部分失败快照」。这正确：
+ * 保护集（`failedProviders`）与目录**必须**来自同一次采集。
+ *
+ * @param options.force 强制重新采集。⚠️ UI 的「刷新」按钮**必须**传 `true`，
+ *   否则点刷新会命中 30 秒缓存、看起来「没反应」。
+ * @param options.onError 采集失败的诊断回调（**仅真正采集的那一次**触发）。
+ */
+export async function collectGatewayCatalogSnapshot(llm, options) {
+    const slot = catalogSlotFor(llm);
+    if (options?.onError !== undefined)
+        slot.onError = options.onError;
+    if (options?.providers !== undefined)
+        slot.providers = options.providers;
+    return slot.cache.get({ force: options?.force === true });
+}
+/**
+ * 丢弃某个 `llm` 实例的目录缓存。
+ *
+ * 用于「用户刚登录/退出某渠道」这类**已知目录变化**的场景，以及单测清理。
+ * 不需要手动调用的场景（绝大多数）靠 30 秒 TTL 自愈。
+ */
+export function clearGatewayCatalogCache(llm) {
+    catalogCacheSlots.get(llm)?.cache.clear();
 }
 /** 将 DSH 的 provider 分组目录转换为 OpenAI models 响应中的 data 项。 */
 export function toOpenAiModels(groups, effortViews) {

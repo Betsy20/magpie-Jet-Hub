@@ -37,6 +37,7 @@
  * - 兜底表长什么样 —— 各家私有（`loadCatalog` 内部自己选）。
  */
 import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm';
+import type { ModelPromotionBadgeValue } from './model-promotions.js';
 import { type AccountPool } from './account-pool.js';
 /**
  * `listModels` 实际返回的模型信息：宿主契约 + **附加的 `contextWindow`**。
@@ -106,6 +107,24 @@ export interface CatalogEntry {
     readonly reasoning?: LlmResolvedModelInfo['reasoning'];
     /** 是否免费（供 Jet Hub 模型列表分组）。 */
     readonly isFree?: boolean;
+    /**
+     * 模型选择器里名字旁边的那枚**徽标**（issue #101：上游活动信息）。
+     *
+     * ⚠️ 形状是宿主 `LlmModelInfo.badge`（`{ text, tone }`）。本仓**刻意不**从
+     * `@deepseek-ai/dsh-llm` 导入那个类型名：peer 下界 `^0.1.2-rc.1` 里它还不存在
+     * （0.2.2 才加），导入会让下界编译不过。类型见
+     * `src/model-promotions.ts` 的 `ModelPromotionBadgeValue`（逐字同形）。
+     *
+     * ⚠️ **省略即不声明**（与 inputModalities 同一个三态约定）：宿主
+     * `LlmRuntime.listModels` 判 `badge === void 0`，而 `buildModelCatalog` 的
+     * 白名单同样只在 `!== undefined` 时写出该键 —— 写 `badge: undefined` 不报错，
+     * 但会把「没有活动」与「有活动」在快照比对里混成两件事，故骨架**不写空值**。
+     *
+     * ⚠️ **只有 `listModels` 这条路**：宿主的 `resolveModelInfo`（exact-route）
+     * 契约上就**不带** badge（宿主类型注释原文「exact-route resolution omits it」），
+     * 所以骨架的 `resolveModel` 不搬这个字段，别「顺手补齐」。
+     */
+    readonly badge?: ModelPromotionBadgeValue;
 }
 export interface ModelCatalogDeps {
     readonly accountPool?: AccountPool;
@@ -114,6 +133,8 @@ export interface ModelCatalogConfig {
     readonly product: {
         readonly id: string;
     };
+    /** Disable the display-only disk cache when entries omit request-routing data. */
+    readonly diskCache?: boolean;
     /**
      * **目录里没有该 id** 时 `resolveModel` 该报什么模态。
      *
@@ -460,6 +481,28 @@ export interface ModelCatalog {
      * @returns 无；失败由实现自己消化（后台刷新没有调用方可通知）
      */
     refresh?(): Promise<void>;
+    /**
+     * ★ **把「已确认完整」的目录写入磁盘缓存**（2026-11-20，SWR 的写盘那一半）。
+     *
+     * ## ⚠️ 为什么由**适配器**调，而不是骨架自己写盘
+     *
+     * 落盘必须以 `complete === true` 为前提（残缺目录落盘会被固化 ⇒ 下次启动
+     * 读到它，缺失的模型**永久消失**，见 `model-catalog-cache.ts` 模块头）。
+     *
+     * 而 `complete` 只有各适配器知道 —— 它来自 `RemoteCatalogGate.run()` 的返回值
+     *（`{ got, complete }`），骨架拿到的 `loadCatalog()` 只有 `CatalogEntry[]`。
+     *
+     * ⇒ 骨架提供本方法，适配器在**它自己的** `complete === true` 分支里调一次。
+     *
+     * ## ⚠️ 为什么是**可选**成员
+     *
+     * 与 `refresh?()` 同因：`createModelCatalog` 有 12 家在用，加必选会打破所有实现
+     *（本仓库铁律）。可选成员「实现了就生效、没实现就跳过」。
+     *
+     * ⚠️ **不调它的后果只是少了加速**（下次启动仍要拉网络），**不是缺陷**。
+     * 故各适配器可以逐步接入，未接入的家行为与加缓存前**逐字相同**。
+     */
+    rememberForDisk?(entries: readonly CatalogEntry[]): void;
 }
 export declare function createModelCatalog(deps: ModelCatalogDeps, config: ModelCatalogConfig): ModelCatalog;
 /**

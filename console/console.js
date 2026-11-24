@@ -1855,17 +1855,31 @@ async function loadSettings() {
     (value) => ({ ok: true, value }),
     (error) => ({ ok: false, value: {}, error: String(error?.message ?? error) }),
   )
-  const [ns, pe, xff, sb] = await Promise.all([
+  const [ns, pe, xff, sb, ao, rd, dk, mk, zk] = await Promise.all([
     grab('nativeSearch.getEnabled'),
     grab('panelEntry.get'),
     grab('minimax.getXff'),
     grab('sessionBalance.getEnabled'),
+    // 2026-11-24 上游新增的五个设置项。四个读端点返回的形状都是 `{ enabled }`：
+    // `loginPreferences.getEnabled` / `reasoningDefault.getEnabled` 是全局偏好文档，
+    // 三个 `*.autoCheckin` 省略 `enabled` 就是只读（给了非布尔会被上游拒绝，
+    // 所以这里只读、写入一律走 `saveSetting` 传真布尔）。
+    grab('loginPreferences.getEnabled'),
+    grab('reasoningDefault.getEnabled'),
+    grab('doubao.autoCheckin'),
+    grab('modelscope.autoCheckin'),
+    grab('zcode.autoCheckin'),
   ])
   $('#setSearch').checked = ns.value?.enabled === true
   $('#setSession').checked = sb.value?.enabled === true
+  $('#setAutoOpen').checked = ao.value?.enabled === true
+  $('#setReasoning').checked = rd.value?.enabled === true
+  $('#setDoubao').checked = dk.value?.enabled === true
+  $('#setModelScope').checked = mk.value?.enabled === true
+  $('#setZcode').checked = zk.value?.enabled === true
   if (pe.value?.entry) $('#setPanel').value = pe.value.entry
   $('#setXff').value = xff.value?.xff ?? ''
-  const failed = [ns, pe, xff, sb].filter((r) => !r.ok)
+  const failed = [ns, pe, xff, sb, ao, rd, dk, mk, zk].filter((r) => !r.ok)
   if (failed.length > 0) {
     say('#setMsg', `${failed.length} 项没读出来（${failed[0].error}），下面显示的可能不是真实状态`, 'err')
   } else {
@@ -1882,6 +1896,14 @@ async function saveSetting(what, value) {
     if (what === 'panel') await rpc('panelEntry.set', { entry: value })
     if (what === 'xff') await rpc('minimax.setXff', { xff: value })
     if (what === 'session') await rpc('sessionBalance.setEnabled', { enabled: value })
+    // 2026-11-24 上游新增的五个开关。两个全局偏好用 `setEnabled`，三个按家的签到
+    // 开关是同一个方法读写两用（传 `enabled` 即写），**写入不会立刻跑一轮** ——
+    // 上游明确「改的是下一轮参不参加」，所以这里也不假装触发领取。
+    if (what === 'autoOpen') await rpc('loginPreferences.setEnabled', { enabled: value })
+    if (what === 'reasoning') await rpc('reasoningDefault.setEnabled', { enabled: value })
+    if (what === 'doubao') await rpc('doubao.autoCheckin', { enabled: value })
+    if (what === 'modelscope') await rpc('modelscope.autoCheckin', { enabled: value })
+    if (what === 'zcode') await rpc('zcode.autoCheckin', { enabled: value })
     say('#setMsg', '已保存', 'ok')
   } catch (e) {
     // 落盘失败就把控件拨回**真实**状态（同 `saveStrictOrder` 的做法）——
@@ -2345,6 +2367,11 @@ async function boot() {
   $('#setPanel').addEventListener('change', (e) => saveSetting('panel', e.target.value))
   $('#setXff').addEventListener('change', (e) => saveSetting('xff', e.target.value.trim()))
   $('#setSession').addEventListener('change', (e) => saveSetting('session', e.target.checked))
+  $('#setAutoOpen').addEventListener('change', (e) => saveSetting('autoOpen', e.target.checked))
+  $('#setReasoning').addEventListener('change', (e) => saveSetting('reasoning', e.target.checked))
+  $('#setDoubao').addEventListener('change', (e) => saveSetting('doubao', e.target.checked))
+  $('#setModelScope').addEventListener('change', (e) => saveSetting('modelscope', e.target.checked))
+  $('#setZcode').addEventListener('change', (e) => saveSetting('zcode', e.target.checked))
   $('#capDemand').addEventListener('click', (e) => captchaAction(e.currentTarget, 'demand'))
   $('#capCarrier').addEventListener('click', (e) => captchaAction(e.currentTarget, 'carrier'))
   $('#capContribute').addEventListener('click', (e) => captchaAction(e.currentTarget, 'contribute'))

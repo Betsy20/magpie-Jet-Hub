@@ -12,6 +12,7 @@ import type { CredentialRef } from '@deepseek-ai/dsh-credentials';
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 import { AccountPool } from './account-pool.js';
 import type { GenerateOptions, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm';
+import type { PromotionCandidateRow } from './promotion-tooltip.js';
 import type { BuddyCredential, BuddyRemoteModel } from './buddy.js';
 import { type BuddyProduct } from './product.js';
 import { type ImageRequestTarget } from './image-budget.js';
@@ -38,7 +39,7 @@ export interface BuddyAdapterOptions {
     /** 前缀缓存会话标识（prompt_cache_key）；未提供时随机生成一个。 */
     sessionId?: string;
     /** 从凭据存储解析凭据。 */
-    resolveCredential: (modelId?: string) => Promise<BuddyCredential | undefined>;
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<BuddyCredential | undefined>;
     /** 静默续期凭据。 */
     refresh: () => Promise<void>;
     /** 动态拉取远端模型列表（含上下文窗口与能力，若远端下发）；失败时调用方回退到静态列表。 */
@@ -322,6 +323,16 @@ export declare class BuddyAdapter extends LlmAdapter {
      */
     isFreeModel(modelId: string | undefined): Promise<boolean>;
     /**
+     * 下一个会**改变徽标**的时刻（epoch 毫秒）；没有排定边界时 undefined。
+     *
+     * 供接线层的「徽标保鲜」定时器排程（见 src/promotion-edge-broadcast.ts）。
+     *
+     * ⚠️ **同步**且**不打网络**：只读已落地的远端目录。编译期兜底表**没有**活动
+     * 字段（活动是运行时事实），因此离线路径返回 undefined —— 那意味着「没有
+     * 已知的窗口边界」，而不是「一切都好」。
+     */
+    nextPromotionEdgeAt(nowMs?: number): number | undefined;
+    /**
      * 描述本适配器拥有的 provider 路由。
      *
      * DSH 会强制校验 `info.id === provider` 且 `info.name` 为非空字符串；
@@ -532,6 +543,20 @@ export declare class BuddyAdapter extends LlmAdapter {
         name: string;
     }[];
     /**
+     * ★ 本家目录里的**未决**活动候选（方案 A：选择器悬停的数据来源）。
+     *
+     * ⚠️ 读的是 `remoteModels`，**不是** `listAllModels()` 那份骨架目录：骨架条目
+     * 只带**挑定的徽标**（`badge`），候选表在装配后就丢了；而悬停要的是「按此刻
+     * 重算」的原料。同一份 `promos` 也是 `nextBuddyPromotionEdgeMs` 的输入 ——
+     * 两条腿读同一个数组，不另开取数点。
+     *
+     * ⚠️ 兜底表没有 promos（编译期快照，红线「静态表必然腐坏」）⇒ 离线路径返回**空**,
+     * 与「上游没有活动」同形；客户端因此回落到宿主自己的徽标数据面。
+     *
+     * ⚠️ **同步、零网络**：`remoteModels` 是已落缓存的那份。
+     */
+    promotionCandidates(): readonly PromotionCandidateRow[];
+    /**
      * 把本家条目转成共享骨架的中间结构。
      *
      * ⚠️ **`all` 是「用于同名消歧的集合」，必须传未过滤的全量集合** ——
@@ -633,4 +658,30 @@ export declare function registerBuddyLlm(ctx: Context, options: BuddyAdapterOpti
  * @throws {WebNativeError} 无可用账号 / 上游非 2xx / 响应无法解析 / 超时。
  */
 export declare function performBuddySearch(query: string, credential: unknown, signal: AbortSignal, product: BuddyProduct): Promise<NativeSource[]>;
+/**
+ * ★★★ **腾讯系 `parameters` 的递归 sanitize**（issue #138，2026-11-23）。
+ *
+ * ## 为什么需要它
+ *
+ * `copilot.tencent.com` / `www.workbuddy.ai` 对工具 `parameters` 做**严格 JSON Schema
+ * 校验**：工具表里**任意一个**工具不合规，**整个请求**就 400 `11129`，
+ * 而且响应里**不带工具名** ⇒ 只能靠二分法排查（成本极高）。
+ * 更糟的是校验严格度**随模型变化**（`hy4flash-free` 不校验、`deepseek-v4.1-flash` 严格）
+ * ⇒ 用户会得到「换个模型就好」的假象。
+ *
+ * ## 修的四类（都是真机实测过的形态）
+ *
+ * 1. **根级 / 嵌套 `{type:'object'}` 缺 `properties`** → 补 `{}`；
+ * 2. **裸对象**（无 `type` 也无组合键）→ 补 `type:'object', properties:{}`；
+ * 3. **根级 `$schema` / `$id`** → 剥掉（只是 draft 声明，无语义损失）；
+ * 4. **`pattern` 含 `\0`** → 改写成 `\^@`（语义不变，腾讯接受）。
+ *
+ * ## 判据要点
+ *
+ * - **只加不改**：能补的补（`properties` / `items`），**不删**有语义的字段；
+ * - **不碰无关字段**（`description` / `enum` / `$ref` / `const` / `prefixItems` 一律原样）；
+ * - **结构共享友好**：没变就返回**原对象**（`===` 可判），避免整棵 schema 深拷贝；
+ * - `\0` 判断用**字符串里真有那两个字符**（反斜杠 + `0`），不是 `\u0000`。
+ */
+export declare function sanitizeToolSchema<T>(node: T, isRoot?: boolean): T;
 //# sourceMappingURL=buddy-adapter.d.ts.map

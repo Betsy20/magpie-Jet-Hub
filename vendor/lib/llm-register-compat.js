@@ -72,6 +72,7 @@
  */
 import { withDeadModelPruning } from './dead-model-store.js';
 import { withAnalyzeImageScoping } from './codearts-vision.js';
+import { withStrongestReasoningDefault } from './reasoning-default.js';
 /** dsh-llm 对「configurable provider 已存在」抛的 code。**当前仅作防御**保留。 */
 const DUPLICATE_DIRECTORY = 'DUPLICATE_DIRECTORY';
 /**
@@ -256,8 +257,13 @@ export async function* recordThroughStream(openStream, meta, accountContext = cr
                         inputTokens = input;
                     if (output !== undefined)
                         outputTokens = output;
+                    // ⚠️ 明确上报的 0 必须原样保留（PR #122）：`0` = 这次没命中缓存，
+                    // `undefined` = 上游没上报。折叠成 undefined 会让面板的命中率与网关
+                    // 对外口径对不上（那边已经把两者分开了）。
+                    // 下面 cacheWrite / reasoning 仍按旧的 `> 0` 省略 —— 那两个字段的
+                    // 「0 与未上报」在本仓没有区分需求，别顺手改成同一套（会扩大改动面）。
                     if (cacheRead !== undefined)
-                        cacheReadTokens = cacheRead > 0 ? cacheRead : undefined;
+                        cacheReadTokens = cacheRead;
                     if (cacheWrite !== undefined)
                         cacheWriteTokens = cacheWrite > 0 ? cacheWrite : undefined;
                     if (reasoning !== undefined)
@@ -383,6 +389,28 @@ export function registerAdapterIdempotent(llm, providers, adapter, warn, pruning
     //    于是 this.stream 命中记账陷阱；反过来则 this 落到裸适配器、记账被绕过。
     let target = wrapAdapterWithTokenLedger(providers, adapter);
     if (typeof adapter === 'object' && adapter !== null) {
+        /**
+         * **思考档位默认取最强**（2026-11-11 用户功能，见 `reasoning-default.ts`）。
+         *
+         * 它改的是**元数据内容**（`resolveModel` / `prepareCall` 返回值的
+         * `reasoning.defaultEffort`），与另外两层改的东西互不重叠：记账改 `this` 与流，
+         * 剔除改 `listModels` 与流内错误，作用域摘除改 `options.tools`。
+         *
+         * ⚠️ 包装顺序（自内向外）：适配器 → 记账 → **档位** → 作用域 → 剔除。
+         *    把档位放在记账**之外**是刻意的：记账那层的 `prepareCall` 会**重建**返回
+         *    对象（`{...call, stream}`），档位层若在它里面就得处理重建后的形状；
+         *    在外侧只需对最终那份 `.model` 做一次改写，且外层（剔除）拿到的也是
+         *    改写后的 `model` —— 与宿主最终 `normalizeModelInfo` 看到的完全一致。
+         *
+         * ⚠️ 包装失败**不阻断注册**（与剔除同理）：它只影响「默认档多强」，
+         * 为它挂掉整个 provider 不值得。
+         */
+        try {
+            target = withStrongestReasoningDefault(providers, target);
+        }
+        catch (error) {
+            warn?.(`[llm-register] 思考档位默认最强包装失败，使用原适配器: ${String(error)}`);
+        }
         // ⚠️ **最外层**：作用域摘除要在记账与失效剔除**之外** —— 它改的是 `options`
         //    （工具表），而内两层改的是 `this`/返回值；放最外层时 options 先被摘干净，
         //    内层拿到的就是已摘好的工具表。⚠️ 顺序反过来也能工作（内层只是透传），

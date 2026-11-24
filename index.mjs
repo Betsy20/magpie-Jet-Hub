@@ -27,6 +27,12 @@ for (const id of PROVIDER_IDS) {
 /** 本体 `accio`（magpie id `jet-hub-accio`）。 */
 export const JetHubAccioPlugin = byId.get('jet-hub-accio')
 
+/** 本体 `agnescode`（magpie id `jet-hub-agnescode`）。2026-11-24 上游新增。 */
+export const JetHubAgnescodePlugin = byId.get('jet-hub-agnescode')
+
+/** 本体 `agnescodeintl`（magpie id `jet-hub-agnescodeintl`）。国际站，独立账号体系。 */
+export const JetHubAgnescodeintlPlugin = byId.get('jet-hub-agnescodeintl')
+
 /** 本体 `astudio`（magpie id `jet-hub-astudio`）。 */
 export const JetHubAstudioPlugin = byId.get('jet-hub-astudio')
 
@@ -50,6 +56,9 @@ export const JetHubCodeartsPlugin = byId.get('jet-hub-codearts')
 
 /** 本体 `codely`（magpie id `jet-hub-codely`）。 */
 export const JetHubCodelyPlugin = byId.get('jet-hub-codely')
+
+/** 本体 `doubao`（magpie id `jet-hub-doubao`）。2026-11-24 上游新增。 */
+export const JetHubDoubaoPlugin = byId.get('jet-hub-doubao')
 
 /** 本体 `gemini`（magpie id `jet-hub-gemini`）。 */
 export const JetHubGeminiPlugin = byId.get('jet-hub-gemini')

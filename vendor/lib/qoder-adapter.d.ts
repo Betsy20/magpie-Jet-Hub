@@ -30,6 +30,7 @@ import { type QoderCredential } from './qoder.js';
 import { type QoderInferMessage, type QoderInferTool } from './qoder-wasm.js';
 import { type NativeSource } from './native-search-contract.js';
 import { type QoderFallbackModel, type QoderModelPromotion, type QoderProduct } from './qoder-product.js';
+import type { PromotionCandidateRow } from './promotion-tooltip.js';
 import { type ImageRequestTarget } from './image-budget.js';
 import { BILLING_BUSINESS_CODE, BILLING_BUSINESS_CODES, QUEUE_BUSINESS_CODE, QUEUE_MAX_ATTEMPTS, QUEUE_MAX_DELAY_MS, isBillingBusinessCode, isQueueBusinessCode, looksLikeBillingError, nextUtc8DayStartMs, parseQueueError, queueDelayMs, type QueueInfo } from './model-queue.js';
 /**
@@ -98,7 +99,8 @@ export { BILLING_BUSINESS_CODE as QODER_BILLING_CODE, BILLING_BUSINESS_CODES as 
  * ⚠️ 顺序不变：**额度腿优先**（见 `classifyQoderFailure`），
  * 故「504 + billing 文案」仍归 `quota`。
  */
-export declare function looksLikeUpstreamProviderError(text: string): boolean;
+import { looksLikeUpstreamProviderError } from './upstream-error.js';
+export { looksLikeUpstreamProviderError };
 /**
  * Qoder 的失败类别。
  *
@@ -141,7 +143,14 @@ export declare function looksLikeUpstreamProviderError(text: string): boolean;
  * 后者是**额度专用**判据（含文案兜底），保留原样不动（既有调用方与测试
  * 依赖它）。本函数是**更宽**的分类入口，额度也在其中。
  */
-export type QoderFailureClass = 'quota' | 'rate' | 'auth' | 'upstream' | 'other' | 'transport';
+/**
+ * `.` `slot-busy`（issue #117）：**本地并发名额被占** —— 不是上游错误，是
+ * 「这个账号正在跑别的请求」。语义上属于「**要换号、但绝不写冷却**」：
+ * - {@link shouldRotateQoderAccount} 是 `cls !== 'other'` ⇒ 自动为 true ✅
+ * - {@link recordsQoderRateLimit} 只认 `quota`/`rate` ⇒ 自动为 false ✅
+ *   （名额忙不是账号额度问题，写冷却会把**好号**封掉）
+ */
+export type QoderFailureClass = 'quota' | 'rate' | 'auth' | 'upstream' | 'other' | 'transport' | 'slot-busy';
 /**
  * 单次 `stream()` 里，**传输级失败**最多允许的额外尝试次数（不含首发）。
  *
@@ -227,6 +236,49 @@ export declare const PROVIDER = "qoder";
  */
 export declare function qoderEffortsFor(model: QoderFallbackModel): string[];
 /**
+ * 排队等待策略（`DSH_QODER_QUEUE_WAIT_MODE`）。
+ *
+ * 为什么需要这个开关（真实故障，2026-11-10）：Qoder 高峰期会把请求放进**模型级
+ * 队列**（业务码 `10605`）。默认的 `wait` 档在网关内部静默等待，**期间一个字节
+ * 都不发给客户端**，而上限是 30 分钟 —— 于是调用方（OpenViking / 各类 OpenAI
+ * SDK）总是先被自己的超时（100~120 秒）掐断，表现为「连接建立了、什么都不回、
+ * 最后超时」，与「死机」无法区分。同类项目（qoder2api-hub / qoder2api /
+ * 9router-qoder-plus）都因此引入了「可见 / 快速失败」两档。
+ *
+ * - `wait`（**默认**，保持既有行为）：内部等待后重试，期间不产出任何帧。
+ * - `visible`：等待**分片进行**，每片产出一帧空 `text-delta` 心跳。空串不会
+ *   改动正文（`content += ''`），只让 SSE 通道持续有字节 —— 客户端与中间层
+ *   因此不会把「排队中」误判成卡死。
+ * - `fast`：**不等待**，立刻抛 `QUEUE` 错误，把「等还是换模型」的决定交还给
+ *   调用方（OpenViking 等多凭据客户端会据此切到备用模型，而不是干等）。
+ *
+ * ⚠️ 排队**不是**账号故障：三档都**不换号、不刷新凭据、不写冷却**
+ *（与 qoder2api-hub 的 `ShouldFailover=false` 同判据 —— 队列是模型级的，
+ * 换号对同一模型无效，还会把多个号一起打进冷却）。
+ */
+export type QoderQueueWaitMode = 'wait' | 'visible' | 'fast';
+export declare function resolveQueueWaitMode(): QoderQueueWaitMode;
+/**
+ * 本次排队**实际生效**的策略：聚合派发内一律 `fast`，否则按环境变量。
+ *
+ * ## 为什么聚合调用要无视 `DSH_QODER_QUEUE_WAIT_MODE`（真实故障，2026-11-14）
+ *
+ * 聚合（`aggregate/*`）只在候选**报错**时切换下一个候选：
+ * - `wait` 档静默等待（上限 30 分钟）⇒ 聚合永远等不到错误，请求被锁死在 qoder 上；
+ * - `visible` 档先吐空 `text-delta` 心跳 ⇒ 被聚合的 `isVisibleContent` 判成
+ *   「已产出内容」⇒ **禁止切换**（防两段回答拼接），同样锁死。
+ *
+ * 只有 `fast`（立刻抛 `QUEUE`）能让聚合换到下一个能用的候选。直连 qoder 时没有
+ * 「下一个候选」可换，仍按环境变量等待 / 向下游报排队，行为不变。
+ *
+ * ⚠️ 判据来自 `aggregate-dispatch-context.ts` 的异步上下文，不读请求字段
+ *（宿主不保证透传私有字段，理由见该模块头）。
+ */
+export declare function resolveEffectiveQueueWaitMode(): {
+    mode: QoderQueueWaitMode;
+    viaAggregate: boolean;
+};
+/**
  * 把 DSH 的工具 schema 映射成加密端点认的 `tools[]`。
  *
  * 形态取自客户端 `$Hc(A)`：
@@ -276,10 +328,21 @@ interface QoderWireMessage {
 export declare function buildQoderHistory(messages: readonly QoderWireMessage[]): QoderInferMessage[];
 /** `QoderAdapter` 的构造选项。 */
 export interface QoderAdapterOptions {
+    trafficGuardEnabled?: () => boolean;
     /** 默认凭据 ref（仅用于类型/日志，实际解析走 `resolveCredential`）。 */
     credentialRef: CredentialRef;
-    /** 从凭据存储解析凭据。 */
-    resolveCredential: (modelId?: string) => Promise<QoderCredential | undefined>;
+    /**
+     * 从凭据存储解析凭据。
+     *
+     * ⚠️⚠️ **第二参 sessionId 是「轮换起点」的作用域键**（用户 2026-11-11 报障）：
+     * 适配器必须把 `GenerateOptions.sessionId` 透传进来，否则选号层的
+     * `preferredRotationFor(provider, undefined)` 恒返回 `undefined`
+     * ⇒ **下拉框选了永远不生效、且零报错**。
+     *
+     * 这曾是一个真实缺陷：本接口原签名只有 `modelId`，全仓各适配器的
+     * 调用点**无一传 sessionId** ⇒ 功能上线后用户实测「选了 0959 仍用 4016」。
+     */
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<QoderCredential | undefined>;
     /** 静默续期凭据。 */
     refresh: () => Promise<void>;
     /** 多账号池（用于限流时切换账号与模型黑名单）。 */
@@ -400,6 +463,13 @@ export declare class QoderAdapter extends LlmAdapter {
     private readonly product;
     private readonly fetchImpl;
     /**
+     * **构造期**的全局 `fetch` 引用：判「是否注入了单测替身」的比较基准。
+     *
+     * ⚠️ 必须单独存一份，**不能**拿调用点的全局 `fetch` 当基准 —— 见
+     * {@link hasInjectedFetchImpl} 的失效形态。
+     */
+    private readonly baselineFetch;
+    /**
      * 按账号取出口 fetcher（`undefined` = 恒直连）。
      *
      * ⚠️ 与 `fetchImpl` **并存不是替代**：`fetchImpl` 是单测替身（优先级最高），
@@ -407,20 +477,34 @@ export declare class QoderAdapter extends LlmAdapter {
      */
     private readonly fetchFor;
     /**
-     * 出口 fetcher 是否被**单测替身**顶掉了（= 注入的 `fetchImpl` 不等于全局 `fetch`）。
+     * 出口 fetcher 是否被**单测替身**顶掉了（= 注入的 `fetchImpl` 不等于**构造期**的全局 `fetch`）。
      *
-     * ⚠️ 为什么用「`!==` 全局 `fetch`」而**不是**在构造期记一个
+     * ⚠️ 为什么用「引用不等于基准」而**不是**在构造期记一个
      * `options.fetchImpl !== undefined` 布尔：`ratelimit-misreport-behavior.spec.ts`
      * 这类既有用例是**构造后直接 `adapter.fetchImpl = 替身`** 的（拿不到构造参数），
      * 构造期布尔对它恒为 false ⇒ 实现落到 `fetchFor` / 全局 `fetch` ⇒ 真发网络，
      * 全量跑起来表现为 `expected 'TRANSPORT' to be 'QUOTA_EXCEEDED'`（本轮实测）。
-     * 而「引用不等于全局 `fetch`」这一判据**同时覆盖**「构造期注入」与「事后赋值」。
+     * 而「引用不等于基准」这一判据**同时覆盖**「构造期注入」与「事后赋值」。
+     *
+     * ⚠️⚠️ **基准必须是构造期快照，不能是调用点的全局 `fetch`**（真实缺陷，
+     * 2026-11-16 由宿主侧接入出站对齐层时暴露）：
+     *
+     * | 场景 | 拿全局 `fetch` 当基准（旧） | 拿构造期快照当基准（新） |
+     * |---|---|---|
+     * | 构造期注入替身 | 判为已注入 ✅ | 判为已注入 ✅ |
+     * | 构造后 `adapter.fetchImpl = 替身` | 判为已注入 ✅ | 判为已注入 ✅ |
+     * | **构造后全局 `fetch` 被包装**（宿主对齐层 / OTel 埋点 / mock server / 代理库） | **判为已注入 ❌** | 判为未注入 ✅ |
+     *
+     * 旧判据在最后一行会**静默跳过 `fetchFor`（per-账号出口代理）**，并回落到
+     * **构造期捕获的原始全局 `fetch`** ⇒ 换号只换了凭据、出口没换。症状与
+     * `2026-10-21` 那次真实报障同族：墙外环境下恒 connect 超时、且**无任何报错**，
+     * 该渠道从聚合轮换里静默消失。
      *
      * ⚠️ 也不能只把两个分支调序了事 —— `fetchImpl` 在构造期已被 `?? fetch` 填满，
      * 靠判空无法区分「注入」与「默认」。
      *
-     * ⚠️ 残余弱点（如实登记）：调用方注入一份**恰好等于全局 `fetch` 的引用**时会被
-     * 判成「未注入」—— 但那时两种语义**没有可观察差异**，不构成缺陷。
+     * ⚠️ 残余弱点（如实登记）：调用方注入一份**恰好等于构造期全局 `fetch` 的引用**时
+     * 会被判成「未注入」—— 但那时两种语义**没有可观察差异**，不构成缺陷。
      */
     private get hasInjectedFetchImpl();
     /**
@@ -609,6 +693,37 @@ export declare class QoderAdapter extends LlmAdapter {
         name: string;
     }[];
     /**
+     * ★ 本家目录里的**未决**活动候选（方案 A：选择器悬停的数据来源）。
+     *
+     * ⚠️ 与 buddy 家**刻意不同**的一处：本家交的是 `catalogSource()`（远端 ∪ 兜底表
+     * 归一后的同一形状），所以**离线路径也有候选** —— 兜底表本来就带 promotion,
+     * 与 `qoderDisplayName` 的倍率后缀同判据（不是新增一份静态猜测）。buddy 家
+     * 反过来：它的兜底表**没有** promos，离线只能空。
+     *
+     * ⚠️ 逐条走 `qoderPromotionCandidate`（与 toCatalogEntry 同一个构造函数）,
+     * 不另写一份解析：同一 schema 两套判据是本仓的复发缺陷形态。日志出口也复用
+     * `this.promotionWarn`（按消息去重，免得渲染路径刷屏）。
+     *
+     * ⚠️ 交出去的是**未决候选**：徽标在装配时刻挑定并缓存正是 issue #101 要修的
+     * 形态；悬停侧每次渲染重读时钟。
+     */
+    promotionCandidates(): readonly PromotionCandidateRow[];
+    /**
+     * 徽标解析的日志出口（与 `options.warn` 同一个通道），**按消息去重**。
+     *
+     * ⚠️ 为什么必须去重：本回调挂在 toCatalogEntry 上，而它对**目录里每一条**、
+     * 每次 listModels 都跑。上游若真的发出读不懂的窗口，不去重就是
+     * 「每次打开选择器 × 每个坏条目」一行 —— 参考实现把日志留在解析路径正是
+     * 为了躲开这一格（docs/PROMO_BADGE.md 与 src/promo.ts 的 parseDaily）。
+     * 这里没有独立的解析点（Qoder 的活动就在目录行里），所以改为**每条消息只播一次**。
+     *
+     * ⚠️ 上限：去重表按消息文本存，条目数量级 = 目录大小，仍要封顶，
+     * 免得长期运行的进程攒出一张没人读的字典。封顶后**不再播**也不清空 ——
+     * 宁可少一条日志，也不要一个会自己长大的内存。
+     */
+    private readonly promotionWarned;
+    private readonly promotionWarn;
+    /**
      * 把本家目录条目（**远端优先**，回退兜底表）转成共享骨架的中间结构。
      *
      * ⚠️ 远端条目经 `src/qoder-catalog.ts` 归一成与兜底表**同形**的结构后才到这里
@@ -680,6 +795,16 @@ export declare class QoderAdapter extends LlmAdapter {
      * @returns true 仅当目录明确标记 `is_free`。
      */
     isFreeModel(modelId: string | undefined): Promise<boolean>;
+    /**
+     * 下一个会**改变徽标**的时刻（epoch 毫秒）；没有排定边界 ⇒ undefined。
+     *
+     * 供接线层的活动边界播报器排程（src/promotion-edge-broadcast.ts）。
+     *
+     * ⚠️ 同步、**不打网络**：只读已落地的目录（远端 ?? 兜底表 —— 本家兜底表
+     * **带** promotion 字段，与倍率后缀同源，故离线路径也有真实边界）。
+     * ⚠️ 时钟用注入的 nowImpl：单测里要让边界随假时钟走。
+     */
+    nextPromotionEdgeAt(nowMs?: number): number | undefined;
     /**
      * 懒加载远端模型目录（**每 20 分钟**一次；失败/空结果走闸门冷却）。
      *
@@ -772,13 +897,44 @@ export declare class QoderAdapter extends LlmAdapter {
      *   忘记传时静默退化成「一律记额度冷却」—— 那正是 2026-10-10「全池被封」的形态。
      * @returns 新凭据；无可用账号时 `undefined`（调用方如实抛出原错误）。
      */
+    /**
+     * 申请本地并发名额；**名额被占时自动换下一个账号**（GitHub issue #117）。
+     *
+     * ## 为什么单独抽一个方法而不是就地 `try/catch`
+     *
+     * 调用点用的是 `using slot = …`（`Disposable` 的**作用域**释放）。若把
+     * `await acquireQoderRequest(...)` 直接包进 `try`，「换号后 continue」与
+     * 「slot 在迭代结束时释放」这两件事会混在同一个 try 里 —— 换号路径上
+     * `using` 根本没执行，而正常路径上它又必须活到迭代末尾。抽成「返回
+     * `{kind:'ok', slot}` 或 `{kind:'rotate', …}`」就干净了：调用方拿到结果再决定
+     * `continue` 还是 `using`，两件事各自在自己的作用域里。
+     *
+     * ## 三条边界（issue 逐条点名的，全部在这里）
+     *
+     * 1. **拿不到当前账号 id ⇒ 不换号**：没有身份就无法把它加进 `tried`，
+     *    池可能把同一个号再给回来（死循环风险）。
+     * 2. **已 `emitted` ⇒ 不换号**：换号会重发整条请求，已输出的片段会被再吐一遍
+     *    （与 PR #79 对抗审计 P0 那条不变式**同源**）。
+     * 3. **换不到号 ⇒ 抛原错误**：所有号都忙时，「本地排队」才是正确结论 ——
+     *    不能静默挂起、也不能变成无限重试。
+     *
+     * ⚠️ 计数语义：本路径**不消费** `transportRetries` / `queueAttempts` ——
+     * 名额是本地资源竞争，不是上游让我等、也不是传输故障。上限由 `tried` 集合
+     * 与池的大小天然兜住（每个号最多试一次）。
+     */
+    private acquireSlotOrRotate;
     private switchAccountOnQuota;
     /**
      * 排队等待（HTTP 层与 SSE 层**共用**）。
      *
      * 两处形态必须走同一套判据，否则会再次出现「只修了一条路径」的缺陷。
+     *
+     * ⚠️ 自 2026-11-10 起该方法**是异步生成器**：`visible` 档要在等待期间产出
+     * 心跳帧，故调用方必须 `for await (…) yield frame` 而不是 `await` ——
+     * 直接 `await` 一个生成器只会拿到生成器对象、永远不执行（语法上不报错，
+     * 是最容易漏的改法）。
      */
-    private waitForQueue;
+    private waitForQueueFrames;
     /**
      * 确保凭据带 **`uid`**（加密推理必需），必要时经注入钩子补齐。
      *

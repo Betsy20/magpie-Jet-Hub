@@ -5,9 +5,12 @@
  *
  * 2026-11-09 在本机真实账号（QQ·Jet）上实测了 magpie-marvis 的整张槽位表：
  * 每一个槽位都能跑通推理（`hy3-preview-agent`、`claude-sonnet-4-6` 等），
- * 但**用户明确裁定只暴露 `main-auto`**——它由服务端自动路由到
- * `deepseek-v4-1-flash-261017`（响应体 `model` 字段可证），其余槽位属于
- * Marvis 自己的产品线，与本插件的「一个渠道 = 一个可预期模型」定位不符。
+ * 但**用户明确裁定只暴露一条**——其余槽位属于 Marvis 自己的产品线，
+ * 与本插件的「一个渠道 = 一个可预期模型」定位不符。
+ *
+ * 上行槽位 2026-11-14 由 `main-auto` 改为 `deepseek-v4-pro-external`（用户裁定）；
+ * 展示名仍是 `DeepSeek V4.1 Flash`。存量配置里的 `main-auto` / `0` / 真实模型 id
+ * 由 `normalizeMarvisModelId` 归一到新槽位，老会话不会失效。
  *
  * ⚠️ 因此本文件**不**是「上游目录的镜像」，而是**产品决策**：
  * 想加回别的槽位要先问清楚它是不是真模型（`claude-*` 那几个在本账号下
@@ -64,12 +67,19 @@ export interface MarvisFallbackModel {
     readonly supportsImage: boolean;
 }
 /**
+ * 上行槽位 id。
+ *
+ * ⚠️ 这是**槽位名**（模型网关只认槽位名），不是真实模型 id ——
+ * 真实 id `deepseek-v4-1-flash-261017` 直传上游会 `400 4130001 无效模型id`。
+ * 2026-11-14 起目录唯一条目与「存量归一」的归一出点都是它。
+ */
+export declare const MARVIS_SLOT_ID = "deepseek-v4-pro-external";
+/**
  * 唯一的目录条目。
  *
  * ⚠️ 显示名是**产品决策**（用户要求「映射被 ds v4.1 flash 的美化名字」），
  * 不是上游下发的名字 —— 上游只回真实模型 id `deepseek-v4-1-flash-261017`。
- */
-/**
+ *
  * ⚠️ **刻意不声明 `maxTokens`**（2026-11-09 评审 M4 的定案，不是遗漏）。
  *
  * magpie 的 `DEFAULT_OUTPUT = 32_000` 是**它自己**给 OpenAI SDK 用的默认值：
@@ -90,7 +100,12 @@ export declare function findMarvisFallback(modelId: string): MarvisFallbackModel
  * 的 `"0".."7"`），而响应体里的 **真实模型 id** 也常被用户直接粘进模型字段
  * ——两者都不是合法槽位。真实 id 直传上游会 400 `4130001 无效模型id`，
  * 但**静默替换成别的模型更糟**（用户以为在跟 A 说话，实际是 B）。
- * 故只归一**确知等价**的两种写法，其余原样交给上游判错。
+ * 故只归一**确知等价**的写法，其余原样交给上游判错。
+ *
+ * ⚠️ 2026-11-14 起槽位由 `main-auto` 切到 `deepseek-v4-pro-external`：
+ * 存量配置里的 `main-auto`（以及它的等价写法 `0` / 真实模型 id）**全部迁移**
+ * 到新槽位 —— 否则老会话会「目录未命中」静默退化成未知模型
+ * （text-only、无上下文、无图片能力，而且**不报错**）。
  */
 export declare function normalizeMarvisModelId(model: string): string;
 /** 错误分类（**语义**，不是 LlmError 码）。 */
@@ -102,6 +117,16 @@ export interface MarvisErrorInfo {
     /** 面向用户的可读描述（**禁止**裸 JSON）。 */
     detail: string;
 }
+/**
+ * 把 `marvis: HTTP 400 — {…}` 这类**包装过**的错误消息还原成上游原始响应体。
+ *
+ * ⚠️ 存在的理由：`streamVia()` 抛 `LlmError` 时把原文拼进了 message，而
+ * `classifyMarvisFailure()` 只能拿到 message —— 直接 `JSON.parse(message)`
+ * 必然失败（前缀 `marvis: HTTP …— ` 不是 JSON），业务码就丢了。
+ */
+export declare function marvisErrorBodyOf(message: string): string;
+/** 该错误是否属于「上游瞬时参数抖动」（值得换号重发）。 */
+export declare function isTransientMarvisInvalidParameter(message: string): boolean;
 /**
  * 把一次失败的 HTTP 响应归类为语义化错误。
  *

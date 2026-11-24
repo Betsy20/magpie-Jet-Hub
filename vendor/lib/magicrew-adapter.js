@@ -235,7 +235,7 @@ export class MagicrewAdapter extends LlmAdapter {
      * 否则会把这段 JSON 当 SSE 读，症状退化成「没收到任何内容块」，与真因相距很远。
      */
     async *stream(options) {
-        const credential = await this.resolveCredentialImpl();
+        const credential = await this.resolveCredentialImpl(options.model, options.sessionId);
         if (credential === undefined || credential.apiKey === undefined || credential.apiKey.length === 0) {
             throw new LlmError('超级麦吉账号未登录或缺少 api_key，请重新登录', 'AUTH');
         }

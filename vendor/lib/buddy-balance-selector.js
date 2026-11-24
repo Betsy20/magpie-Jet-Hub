@@ -36,8 +36,10 @@
  * 里面不含「按 now 现算」的成分，所以它没有这个问题 —— 不是漏改。
  */
 import { fetchCreditBalance } from './credits.js';
-import { buddyExpiringWindowDays, buddyBalanceTier, BUDDY_BALANCE_TIER, buddyTierUsable, rankBuddyAccountsByBalance, rankBuddyAccountsByManualOrder, splitBuddyCreditsByExpiry, } from './buddy-balance-rank.js';
+import { buddyBalanceTier, BUDDY_BALANCE_TIER, buddyTierUsable, rankBuddyAccountsByBalance, rankBuddyAccountsByManualOrder, resolveImminentWindowMs, rotateFromPreferred, splitBuddyCreditsByExpiry, } from './buddy-balance-rank.js';
+import { resolveCreditWindow } from './credit-window.js';
 /** 余额缓存 TTL（毫秒），与 Loomy 同值。 */
+const DAY_MS = 24 * 60 * 60 * 1000;
 export const BUDDY_BALANCE_CACHE_TTL_MS = 60_000;
 /**
  * **失败**结果的缓存 TTL（毫秒）—— 比成功短一个数量级。
@@ -73,11 +75,87 @@ export class BuddyBalanceSelector {
     /**
      * 当前生效的「临时积分」窗口（毫秒）。
      *
-     * ⚠️ **每次调用都重新解析环境变量**，不能缓存：窗口可被用户随时改，
+     * ⚠️ **每次调用都重新解析**，不能缓存：窗口可被用户随时改，
      * 而提示文案与选号判据必须取同一个值 —— 缓存会让两者在不同时刻分裂。
+     *
+     * ⚠️⚠️ **2026-11-19 起改为 per-provider**：取值走 `resolveCreditWindow`
+     * （全仓唯一取值点），优先级 = 本渠道设置 > 环境变量 > 内置默认。
+     * 这样用户在面板弹窗里保存后**立刻**对后续请求生效
+     *（不需要重启 / 重选模型 / 切会话）。
+     *
+     * ⚠️ `deps.windowMs` 仍是**显式覆盖的逃生门**（单测与特殊渠道用）：
+     * 它一旦注入就**完全绕开** per-provider 逻辑 —— 这是刻意的，
+     * 否则单测无法把窗口固定成确定值。
+     * ⚠️ **绝不能**把 per-provider 的值写进 `deps.windowMs`：
+     * 那是构造期字段，写进去就永久固定，保存后不再生效。
      */
     windowMs() {
-        return this.deps.windowMs ?? buddyExpiringWindowDays() * 24 * 60 * 60 * 1000;
+        if (this.deps.windowMs !== undefined)
+            return this.deps.windowMs;
+        return this.resolvedWindow().windowDays * DAY_MS;
+    }
+    /**
+     * 当前生效的**完整窗口解析结果**（天 + 来源 + 是否钳制）。
+     *
+     * ⚠️ 与 {@link windowMs} / {@link imminentWindowMs} 共用同一份解析，
+     * 避免「毫秒版」与「天数版」两次调用时环境变量被中途改掉而分裂
+     *（`resolveCreditWindow` 内部会读两次 env，但都发生在同一次调用内）。
+     */
+    resolvedWindow() {
+        const providerId = this.deps.product.id ?? '';
+        return resolveCreditWindow(providerId, (provider) => this.deps.readCreditWindow?.(provider));
+    }
+    /**
+     * 当前生效的「临期」窗口（毫秒），**恒 ≤ `windowMs`**。
+     *
+     * ⚠️ 同样**每次调用都重新解析**（理由见 `windowMs()` 上方）：
+     * 一笔「5 天 + 30 秒」的余额，半分钟后就成了临期 ——
+     * 缓存这个值会让选号继续按「短期」处理一笔马上要作废的积分。
+     *
+     * ## ⚠️⚠️ 三层取值（2026-11-20 修真实缺陷）
+     *
+     * ```
+     * deps.imminentWindowMs（单测/特殊渠道的显式覆盖，最高优先）
+     *   > 本渠道设置的 imminentDays（resolveCreditWindow 已算好并钳制）
+     *   > 环境变量 / 内置默认（resolveImminentWindowMs 的回落层）
+     * ```
+     *
+     * ## 缺陷本体（用户 2026-11-20 报障「设了窗口但选号没用上临期」）
+     *
+     * 原实现是：
+     * ```ts
+     * return resolveImminentWindowMs(windowMs, this.deps.imminentWindowMs)
+     * ```
+     * —— **只认 `deps` 覆盖**，而 `resolveImminentWindowMs` 在第二参为
+     * `undefined` 时回落到 `buddyImminentWindowMs()`（**全局环境变量/默认 5 天**）。
+     *
+     * 于是 per-provider 改造时：
+     * - `windowMs()` 取到了本渠道设置 ✅
+     * - `imminentWindowMs()` **完全没读本渠道设置** ❌
+     *
+     * ⇒ 用户设「临期 30 / 短期 60」后，20 天后到期的积分被判成**短期**
+     *   （临期段恒为空 ⇒ `imminentBalance = 0` ⇒ `tier` 永远到不了 0）
+     *   ⇒ 选号**永远不优先烧临期积分**，而面板三档分色却按新窗口显示
+     *   —— 正是本仓红线「一文件两套同义判据」的又一次复发。
+     *
+     * ⚠️ 注意「更宽 vs 更窄」两种方向都会错：
+     * - 设置比默认**宽**（30 > 5）：该算临期的算成短期 ⇒ 不优先烧；
+     * - 设置比默认**窄**（1 < 5）：不该算临期的算成临期 ⇒ 提前烧掉长期积分。
+     */
+    imminentWindowMs(windowMs) {
+        // ① 显式覆盖优先（单测 / 特殊渠道）—— 注入即完全绕开下面两层
+        if (this.deps.imminentWindowMs !== undefined) {
+            return resolveImminentWindowMs(windowMs, this.deps.imminentWindowMs);
+        }
+        /**
+         * ② 本渠道设置（已由 `resolveCreditWindow` 钳制到 `<= windowDays`）。
+         * ⚠️ 用**同一次** `resolvedWindow()` 的结果，但 `windowMs()` 可能已被
+         *    `deps.windowMs` 覆盖 ⇒ 这里的 `imminentDays` 必须再按**实际生效的**
+         *    `windowMs` 钳一次，否则 `deps.windowMs` 比设置窄时会出现「临期 > 短期」。
+         *    `resolveImminentWindowMs` 正是那个钳制入口，故直接复用它。
+         */
+        const { imminentDays } = this.resolvedWindow();
+        return resolveImminentWindowMs(windowMs, imminentDays * DAY_MS);
     }
     /**
      * 查一个账号的余额分类（**缓存原料、每次现算**）。
@@ -96,6 +174,46 @@ export class BuddyBalanceSelector {
      * `BUDDY_BALANCE_ERROR_CACHE_TTL_MS`）：把一次抖动缓存满 60 秒，会让
      * 「查不到」伪装成「额度用尽」整整一分钟。
      */
+    /**
+     * ★★★ **从缓存读某账号当前的档位**（2026-11-24，上游审计 P1-3 的修复）。
+     *
+     * ## 为什么要它
+     *
+     * `credential-resolver.ts` 的 `sameTierAsMainStart()` 需要「主代理起点在哪个档」
+     * 才能把子代理的错开限制在**同一档位内**（用户要求「档次优先不变」）。
+     *
+     * ⚠️ **上游审计实测：全仓零实现** ⇒ 那个函数恒走 `typeof !== 'function'` 的
+     * 降级分支 ⇒ 退化为「全量账号」⇒ 子代理可能**先烧永久积分**（违背档次优先）。
+     *
+     * ## ⚠️ 只读缓存，绝不发起网络请求
+     *
+     * 选号路径**不能**因为查档位而多打一次上游（那会把每一发请求的延迟翻倍）。
+     * 缓存没有 / 已过期 ⇒ 返回 `undefined`，由调用方降级（它已支持）。
+     *
+     * ⚠️ 「过期」的判据与 `balanceOf` 的**长 TTL** 一致（成功 60s / 失败 5s）：
+     * 缓存里的原料本身是好的，只是可能旧了 —— 但「档位」这种粗粒度判断
+     * 60 秒内变化极小，且 `splitBuddyCreditsByExpiry` 会用**当前时刻**重算，
+     * 所以旧原料也能给出正确的「相对档位」。
+     *
+     * @returns 0=临期 / 1=短期 / 2=永久 / 3=不可用；无缓存或读失败 ⇒ `undefined`
+     */
+    cachedTierOf(account, allowPermanent) {
+        try {
+            const cached = this.cache.get(account.id);
+            if (cached === undefined)
+                return undefined;
+            const now = this.deps.now?.() ?? Date.now();
+            /**
+             * ⚠️ 用 `classify()` 而不是自己重算：那是**同一条**分档实现，
+             * 两处各写一份必然漂移（本仓红线）。
+             */
+            const entry = this.classify(account.id, cached.source, now);
+            return buddyBalanceTier(entry, { allowPermanent });
+        }
+        catch {
+            return undefined;
+        }
+    }
     async balanceOf(account) {
         const now = this.deps.now?.() ?? Date.now();
         const cached = this.cache.get(account.id);
@@ -135,13 +253,20 @@ export class BuddyBalanceSelector {
         if (source.ok !== true)
             return failedEntry(id, source.error);
         const windowMs = this.windowMs();
-        const split = splitBuddyCreditsByExpiry(source.balance, now, windowMs);
+        const imminentMs = this.imminentWindowMs(windowMs);
+        const split = splitBuddyCreditsByExpiry(source.balance, now, windowMs, imminentMs);
         if (split === undefined)
             return failedEntry(id, '余额响应无法解析出积分池');
         const entry = {
             id,
             ok: true,
             expiringBalance: split.expiring,
+            /**
+             * ⚠️ 子量缺席（= 没有临期额度）时写 `0` 而不是留 `undefined`：
+             * `buddyBalanceTier` 用 `positiveOrZero` 判，两者等价；但写 0 让
+             * `entry` 的形状稳定（下游日志/用例读它时不必再 `?? 0`）。
+             */
+            imminentBalance: split.imminent ?? 0,
             permanentBalance: split.permanent,
             split,
             // ⚠️ 透传「降级」：总额可信、明细不可达 ⇒ 下游不得据此断言 exhausted。
@@ -244,10 +369,20 @@ export class BuddyBalanceSelector {
         // 并发查余额：账号数通常个位数，并发比串行快得多。
         const balances = await Promise.all(candidates.map((c) => this.balanceOf(c)));
         const byId = new Map(candidates.map((c, i) => [c.id, { account: c, balance: balances[i] }]));
-        const ranked = options.strictManualOrder === true
+        const rankedByStrategy = options.strictManualOrder === true
             // 严格手动顺序：档位只当「可用 / 不可用」判据，先后完全按用户的拖拽序。
             ? rankBuddyAccountsByManualOrder(balances, options)
             : rankBuddyAccountsByBalance(balances, options);
+        /**
+         * 「轮换起点」：**唯一旋转点**，必须在两种策略各自排完序之后。
+         *
+         * ⚠️ 不能放进那两个排序函数里 —— 会变成「同一语义两份实现」，
+         *    且默认模式与严格模式各一份，必然漂移。
+         * ⚠️ 必须在排序**之后** —— 放在前面会被排序覆盖掉。
+         * ⚠️ `rotationStartId` 为 `undefined` 时 `rotateFromPreferred` 原样返回
+         *    ⇒ 与改动前**逐字节相同**（本功能的唯一回归面）。
+         */
+        const ranked = rotateFromPreferred(rankedByStrategy, options);
         const first = ranked[0];
         if (first === undefined) {
             return { ok: false, reason: noAccountReason(balances) };
@@ -379,6 +514,33 @@ export async function pickBuddyAccount(selector, candidates, options) {
             // ⚠️ 每次迭代都带上：降级分支会把 `allowPermanent` 翻真，而本项与它无关，
             //    不能因为走了降级就把「严格手动顺序」丢掉（那会让用户开了开关却偶发失效）。
             ...(options.strictManualOrder === true ? { strictManualOrder: true } : {}),
+            // 「轮换起点」：同样每次迭代都带上（与 strictManualOrder 同因）——
+            // 降级会改变 `allowPermanent`、从而改变「哪些号可用」，起点必须跟着重算。
+            ...(options.rotationStartId === undefined ? {} : { rotationStartId: options.rotationStartId }),
+            // 「起点定位基准」同理：每次迭代都带上（降级会改变 `allowPermanent`，
+            // 从而改变「哪些号可用」，起点落点必须跟着重算）。
+            ...(options.enabledAccountIds === undefined ? {} : { enabledAccountIds: options.enabledAccountIds }),
+            /**
+             * ★★★ **起点档位快照**（2026-11-23 补，真实缺陷修复）。
+             *
+             * ⚠️⚠️ 没有这一行，「起点烧完临期后自动换人」（S6）**从未生效**：
+             * `rotateFromPreferred` 里 `tierAtSelection` 恒 `undefined`
+             * ⇒ `tierStillHeld` 恒 `false` ⇒ 永远走「交出首位」分支
+             * ⇒ 起点**不享受跨档优先**，退化成「同档内的循环原点」。
+             *
+             * ⚠️ 与 `rotationStartId` **成对**：只传 id 不传档位等于没配 S6。
+             * （`credential-resolver.ts` 那段注释逐字写过这个失效形态，
+             *  但本层当时没接线，所以那句话在本层没人兑现。）
+             *
+             * ⚠️ 同样**每次迭代都带上**（与上面两项同因）。
+             */
+            ...(options.rotationStartTier === undefined ? {} : { rotationStartTier: options.rotationStartTier }),
+            /**
+             * ⚠️ **必须与 `rotationStartTier` 成对**：子代理传 `pinnedFirst` 是因为
+             * 它**不传**档位快照（那快照属于主代理的起点）—— 只用 `pinnedFirst`
+             * 才能让「不传快照 ⇒ tierStillHeld=false ⇒ 交出首位」那个坑不生效。
+             */
+            ...(options.pinnedFirst === true ? { pinnedFirst: true } : {}),
         });
         if (!picked.ok) {
             /**

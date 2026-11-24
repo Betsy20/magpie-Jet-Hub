@@ -131,11 +131,25 @@ export interface OfficeAceLockDeps {
     readonly now?: () => number;
     /** 临期窗口（毫秒），默认 `buddyExpiringWindowMs()`。 */
     readonly windowMs?: () => number;
+    /**
+     * 「临期」子窗口（毫秒）。省略时经 `resolveImminentWindowMs` 从环境变量解析，
+     * 并**钳制到 `windowMs` 以内**（两个窗口是嵌套关系，见 `buddy-balance-rank.ts`）。
+     */
+    readonly imminentWindowMs?: () => number;
 }
-/** 两个桶的合计。 */
+/**
+ * 三个桶的合计。
+ *
+ * ⚠️ `imminent` 是 `expiring` 的**子量**（`0 <= imminent <= expiring`），
+ * 与 `src/buddy-balance-rank.ts` 的 `BuddyCreditSplit` **逐格同构**。
+ * 保留 `expiring` 的 15 天语义是刻意的：它是「锁定永久积分」的可用性判据
+ *（`split.expiring > 0` ⇒ 该号可烧），改含义会让锁定态误判。
+ */
 export interface OfficeAceCreditSplit {
     /** 窗口内到期的积分合计（锁定期间唯一可消耗的额度）。 */
     readonly expiring: number;
+    /** {@link expiring} 的子量：其中临期子窗口内到期的部分。只在 `> 0` 时出现。 */
+    readonly imminent?: number;
     /** 其余积分合计（≥ 窗口，或到期时间未知）。 */
     readonly permanent: number;
 }
@@ -156,7 +170,23 @@ export interface OfficeAceCreditSplit {
  *   筛号窗口就与文案窗口分叉，且**不会有任何红**）。删掉默认值让「忘了传」变成
  *   编译错误。
  */
-export declare function splitOfficeAceCreditsByExpiry(summary: OfficeAceSubscriptionSummary, now: number, windowMs: number): OfficeAceCreditSplit;
+export declare function splitOfficeAceCreditsByExpiry(summary: OfficeAceSubscriptionSummary, now: number, windowMs: number, 
+/**
+ * 「临期」子窗口（毫秒）。
+ *
+ * ⚠️ **必填，与 `windowMs` 同款**（该处 :151-170 的注释解释过为什么去掉默认值）。
+ *
+ * 关键区别在于「忘了传会怎样」：
+ * - `windowMs` 取错 ⇒ 直接误烧/漏烧长期积分（不可撤回）；
+ * - `imminentMs` 取错 ⇒ 临期与短期的**归属**偏了，但「能不能烧」不变
+ *   （那个判据是 `expiring > 0`）。
+ *
+ * 即便如此仍然必填：给默认值后任何 3 参调用会传 `undefined`
+ * ⇒ `left < undefined` **恒为 false** ⇒ 临期档**静默消失**、日志零字。
+ * 本 PR 实测发现 6 处既有测试全是 3 参调用（当时靠 `undefined` 侥幸通过），
+ * 正是这个形态 —— 改成必填能让「忘了传」变成编译错误或立即显形。
+ */
+imminentMs: number): OfficeAceCreditSplit;
 /**
  * 「读不到」结论的缓存时长：**5 秒**。
  *

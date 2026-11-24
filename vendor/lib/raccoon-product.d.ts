@@ -16,7 +16,7 @@
  * - 手机号加密密钥：渲染层模块 68284 的 `yv(e, t = "senseraccoon2023")`
  * - 阿里云验证码：渲染层模块 37907 的 `q3`（SceneId）/ `$j`（prefix）
  * - 兜底模型表：2026-09-26 用本机登录态实测
- *   `GET /api/web/llm/v2/model_catalog` 取 `visible:true` 的 6 条
+ *   `GET /api/web/llm/v2/model_catalog` 取 `visible:true` 的 7 条
  */
 /**
  * 思考档位：小浣熊**只有两态（开 / 关）**，这是实测确证的。
@@ -93,7 +93,7 @@ export declare const RACCOON_EFFORT_NAMES: Readonly<Record<string, string>>;
 /**
  * 该模型可选的思考档位（**顺序 = 强度序：弱 → 强**，Issue IKLIDV）。
  *
- * ⚠️ **所有 6 个可见模型都返回这两档** —— 实测 `extra_body.thinking` 是
+ * ⚠️ **所有可见模型都返回这两档** —— 实测 `extra_body.thinking` 是
  * **provider 级方言**，与模型无关（`thinking.type` 的枚举在服务端全局一致）。
  * 故不做 per-model 分派（那会是凭空猜测）。
  *
@@ -196,7 +196,7 @@ export interface RaccoonProduct {
         sceneId: string;
         prefix: string;
     };
-    /** 远端模型列表不可用时的兜底目录（6 个可见模型）。 */
+    /** 远端模型列表不可用时的兜底目录（7 个可见模型）。 */
     fallbackModels: readonly RaccoonFallbackModel[];
 }
 /**

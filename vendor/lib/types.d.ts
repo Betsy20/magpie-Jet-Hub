@@ -274,6 +274,11 @@ export interface ProviderAccountStatus extends ProviderAccountEntry {
      */
     modelscopeKeyMask?: string;
     /**
+     * Qoder 账号是否已保存网页会话 Cookie（用于读资源包逐笔到期）。
+     * 只下发布尔值，Cookie 本身绝不下发。
+     */
+    qoderWebSession?: boolean;
+    /**
      * 七牛云 API Key 的**打码串**（宿主侧 `maskQiniuKey` 生成，形如 `sk-a…wxyz`）。
      *
      * ⚠️ 只下发打码串，**绝不下发明文**（凭据经 RPC 明文下发等于把它摊到客户端的
@@ -580,6 +585,26 @@ export interface RpcPollLoginRequest {
     provider: string;
 }
 /**
+ * RPC: 手动提交回调链接（codearts 华为云 / trae 字节跳动）。
+ *
+ * 用途：授权回调被定向到**宿主本机**的 `127.0.0.1:<port>`，用户在手机 /
+ * 另一台电脑上完成登录时那一跳打不开，但地址栏里留下一条合法的回调链接。
+ * 把它交回来即可在本机完成原来只有浏览器能完成的那一步。
+ *
+ * 两家机制不同（codearts 回传 code 需交换、trae 直传 token），但「人工搬运
+ * 回调链接」是同一语义 ⇒ 共用本端点；由登记时的 provider 决定转调哪个提交入口。
+ */
+export interface RpcSubmitCallbackRequest {
+    /** `account.create` 返回的占位账号 id（本进程内存里的那一轮登录）。 */
+    accountId: string;
+    /**
+     * 用户粘贴的整条回调链接。
+     * - codearts：`http://127.0.0.1:<port>/oauth/callback?code=…`（或旧流程 `secret=`）；
+     * - trae：`http://127.0.0.1:<port>/authorize?refreshToken=…&userInfo=…&userJwt=…`。
+     */
+    callbackUrl: string;
+}
+/**
  * RPC: 轮询登录进度（`login.poll`）。
  *
  * ## 三态 —— ⚠️ 必须按 `done` **与** `success` 两个字段判
@@ -602,6 +627,68 @@ export interface RpcPollLoginResponse {
     done: boolean;
     success?: boolean;
     error?: string;
+}
+/**
+ * RPC: 手动提交 OAuth 回调地址（`login.submitCallback`）。
+ *
+ * ## 为什么需要它
+ *
+ * 回调式 provider 的 OAuth 都把浏览器重定向到
+ * `http://127.0.0.1:<port>/<各自的回调路径>`。这个地址**只在运行 DSH 的那台
+ * 机器上有效**。
+ *
+ * ⚠️ **各家路径互不相同**（PR #8 审计 P2-1 实测，别照抄任何一家）：
+ * codearts `/oauth/callback`（`src/oauth.ts` 的 `REDIRECT_PATH`，**只有它用这个
+ * 常量**）、gemini `/oauth-callback`（且 host 是 `localhost`）、lobsterai 与
+ * accio `/auth/callback`、autoclaw 国际版 `/auth/callback-zai`、trae `/authorize`。
+ *
+ * 用户通过外网（反向代理 / 端口转发 / 远程桌面）访问 DSH 时，浏览器跑在
+ * **用户本地**，`127.0.0.1` 指向用户自己的电脑 ⇒ 回调打到一台没有监听端口的
+ * 机器上，浏览器报「拒绝连接」，宿主永远收不到 `code` ⇒ 前端只能干等到
+ * 5 分钟上限后报「登录超时」。**这是网络拓扑问题，不是任何一个 provider 的
+ * 协议缺陷。**
+ *
+ * ## 修法
+ *
+ * 用户把浏览器地址栏里那条回调 URL **原样复制回来**，由**宿主代替用户**去访问
+ * 它 —— 宿主就在那台机器上，回调服务器正在 `127.0.0.1:<port>` 上监听。
+ * 于是各 provider 的 `createServer` 处理器**一行都不用改**，它们本来就在等这个
+ * 请求；`code` / `secret` / `fingerprint` / `token` 四种回调形态（见
+ * `src/login.ts` 的 `startCallbackServer` 与 `startOAuthCallbackServer`）全部
+ * 自动支持，换 token / 写凭据 / `login.poll` 报 `done` 的既有链路原样复用。
+ *
+ * ## ⚠️ 为什么**不**复用 `RpcSubmitCallbackRequest`
+ *
+ * 那个类型是 `account.submitCallback` 的入参（`{ accountId, callbackUrl }`），
+ * 它要求账号已经在宿主侧登记了专用解析器。本端点**不需要 accountId** ——
+ * 它只把 URL 交给宿主盲发一次 GET，由各 provider 自己的回调服务器处理。
+ * 同名声明会被 TypeScript 接口合并成一个「三个字段全必填」的类型 ——
+ * **危害在编译期**（PR #8 审计 P3 修正：运行时本就不校验、`payload as T` 照旧，
+ * 所以不会「互相污染」；真实后果是**合并后错通道的载荷看起来合法**：
+ * 只传 `{ url }` 的调用点不再报 TS2345，一路编译通过、运行时在
+ * `pendingManualCallbacks.get(undefined)` 处静默查不到）⇒ 必须换名。
+ */
+export interface RpcLoginSubmitCallbackRequest {
+    /** 浏览器地址栏里那条完整回调 URL（含 `code` / `state` 等查询参数）。 */
+    url: string;
+}
+/**
+ * RPC: 手动提交回调地址的响应。
+ *
+ * ⚠️ `status` 只是**回调服务器回给宿主的 HTTP 状态码**，不代表登录已成功：
+ * 真正的成功判据仍是 `login.poll` 报 `{done:true, success:true}`
+ * （回调处理器内部还要拿 `code` 去换 token，那是异步的）。
+ *
+ * 只有**成功**（2xx / 3xx）才会走到这里。各 provider 的典型取值：
+ * `200`（回调处理器已受理，`code` 换 token 在后台继续）/ `204`（OPTIONS 预检）/
+ * `307`（`secret` 分支换成功后跳 portal 结果页）。
+ *
+ * ⚠️ **`400` / `5xx` 不再是成功路径的值**（PR #8 对抗审计 P2-1）：`400` 是
+ * `state` 不匹配（过期地址）、`5xx` 是换凭据失败，两者都必须返回
+ * `ok:false` —— 否则客户端拿不到失败信号、按钮永久停在「提交中…」。
+ */
+export interface RpcLoginSubmitCallbackResponse {
+    status: number;
 }
 export interface RpcUpdateAccountRequest {
     accountId: string;
@@ -984,6 +1071,17 @@ export interface RpcPermanentLockResponse {
      * Loomy 没有窗口概念（它看服务端的当日池），故不带该字段。
      */
     windowDays?: number;
+    /**
+     * 当前生效的「临期」窗口（天）—— 与 {@link windowDays} **同生共死**。
+     *
+     * 面板据此把「15 天内」再切成「临期（< N 天）」与「短期（N ~ 15 天）」两段。
+     *
+     * ⚠️ **必须与 `windowDays` 同时回传**：`imminentDays` 缺席时前端会退化成
+     * 「临期窗口 = 总窗口」（即 `imminent` 恒 0、全部落短期）= 引入三档之前的
+     * 展示形态。那是**有意的向后兼容**，不是缺陷 —— 但若只在部分出口漏传，
+     * 用户会看到「有的渠道四段、有的渠道三段」，且**不会有任何报错**。
+     */
+    imminentDays?: number;
 }
 /**
  * 单个账号的积分余额。
@@ -1032,6 +1130,56 @@ export interface RpcCreditsBalanceExtra {
 export interface RpcCreditsBalancesResponse {
     accounts: RpcCreditsBalanceAccount[];
     /**
+     * ★★★ **本次读数是否来自磁盘缓存**（2026-11-21，仅供客户端**内部**判断）。
+     *
+     * ## 为什么需要它
+     *
+     * 磁盘缓存让「重启后首屏」从 1~2 秒降到毫秒级，代价是**首帧显示的是上次会话的旧值**。
+     * 服务端在返回旧值的同时会 fire-and-forget 刷新，新值在 1~2 秒后就绪。
+     *
+     * **但客户端不会自动重绘** —— 面板只在「挂载 / 切 provider / 手动刷新」时读一次
+     *（60 秒轮询此前**只对 modelscope 生效**，见 `jet-hub.js` 的
+     * `if (provider !== 'modelscope') return`）。
+     *
+     * ⇒ 用户实测：「重启后过了 3 秒首次打开，显示的还是很旧的旧值」
+     *（`workbuddy` 面板：可用 269.68，而真实值已是 246.22）。
+     *
+     * ## 用法（客户端）
+     *
+     * 本字段**不上屏**（用户明确要求「前端不显示任何信息」），只用于决定
+     * 「是否在 2~3 秒后静默补读一次」。
+     *
+     * ⚠️ **不要用它渲染任何文案** —— 那是用户明确否决过的做法
+     *（他原话：「我要求的是显示积分，而不是积分的来源」）。
+     *
+     * ## 语义
+     *
+     * - `true` ⇒ 本次读数**至少有一个账号**来自磁盘缓存（可能是混合：部分缓存 + 部分实时）；
+     * - 省略 / `false` ⇒ 全部来自实时查询（或内存新鲜值）。
+     *
+     * ⚠️ 是「任一命中即为 true」而不是「全部命中」：只要有一条旧值，
+     * 界面就可能显示旧数字 ⇒ 都该触发补读。
+     */
+    fromCache?: boolean;
+    /**
+     * 该 provider 当前是否处于「**锁定永久积分**」状态。
+     *
+     * ⚠️⚠️ 2026-11-18 补齐（真实缺陷）：客户端「可用积分 = 短期 + 临期」的显示
+     *    完全依赖本字段（`value.locked`），但此前**本响应从未回传它**
+     *    ⇒ `value.locked` 恒为 `undefined` ⇒ 用户明明在面板里锁定了永久积分，
+     *    胶囊与弹窗右上角的「可用/总」却始终不出现（用户报障）。
+     *
+     * ⚠️ 为什么不能由客户端去调 `account.getRotation` 取：那会多一次 RPC、
+     *    且两处读数的时刻不同（面板可能在两次调用之间被改），
+     *    「可用」与「锁定」必须来自**同一次响应**才自洽。
+     *
+     * 语义：
+     * - `true`  ⇒ 选号只消耗短期/临期，客户端显示「可用 X / 总 Y」
+     * - `false` ⇒ 全部积分都可消费，客户端只显示总计
+     * - 缺省（旧后端）⇒ 客户端按 `!== true` 处理，退回只显总计（向后兼容）
+     */
+    locked?: boolean;
+    /**
      * 当前生效的「临时积分」窗口（天）—— **CodeBuddy / WorkBuddy / TRAE /
      * LobsterAI 返回**。
      *
@@ -1059,6 +1207,18 @@ export interface RpcCreditsBalancesResponse {
      * 的账号上才非 0**。这不是缺陷，是「上游不下发 ⇒ 不编造」的如实结果（本仓库红线）。
      */
     windowDays?: number;
+    /**
+     * 当前生效的「临期」窗口（天）—— 与 {@link windowDays} **同生共死**。
+     *
+     * 判据是 registry 的 `usesExpiryWindow`（不是「是不是 buddy」）：
+     * TRAE / LobsterAI / Qoder / astudio / autoclaw / magicrew / minimax /
+     * officeace 都走同一套按到期时间分桶，故都必须回传。
+     *
+     * ⚠️ 缺席 ⇒ 前端 `normalizeImminentDays` 退化成「临期窗口 = 总窗口」
+     * ⇒ 面板只剩「永久 / 长期 / 短期」三段（临期段消失）。这是**刻意的向后兼容**，
+     * 但只在**所有** `usesExpiryWindow` 渠道都漏传时才自洽；漏一家就会不一致。
+     */
+    imminentDays?: number;
 }
 /**
  * ========================================
@@ -1346,6 +1506,17 @@ export interface RpcModelListRequest {
 export interface RpcModelListEntry {
     id: string;
     name: string;
+    /**
+     * 模型介绍（适配器从远端读到的原文，如 CodeArts 的
+     * `【限时体验】许愿式编程一键成真`）。
+     *
+     * ⚠️ **缺失 = 该家没下发介绍**（不是空介绍）：客户端据此决定要不要画第二行，
+     * 缺失时逐字节保持旧布局（与全仓「未知不编造」同一条约定）。
+     *
+     * ⚠️ 文案是**上游的**：既不裁 `【限时体验】` 之类前缀，也不改写措辞 ——
+     * 它不代表我们能推断活动时间（时间窗口得看 `billing_discounts` 那类字段）。
+     */
+    description?: string;
     /** true = 已关闭（不出现在对话框的模型选择里）。 */
     disabled: boolean;
     /**
@@ -1368,6 +1539,24 @@ export interface RpcModelListEntry {
      * 恢复路径。这是「误判代价不对称」的必然要求：能藏，但必须能找回。
      */
     dead: boolean;
+    /**
+     * `true` = 该模型**只由 benefit（免费额度）通道提供**（Gitee issue IKJOF7）。
+     *
+     * ⚠️ **缺失 = 不该下这个判断**，既不是 `false` 也不是「确认不需要福利包」：
+     * 判据是远端 `opengw gateway/config` 的 benefit 集合，而冷缓存 / 远端降级时
+     * 那份集合是「**未确认**」。把「未确认」渲染成任何一种标记都会在冷启动那一帧
+     * 给每条模型挂错提示（与 `dead-model-store.ts` 的「拿读不到反推已下架」同型）。
+     *
+     * ⚠️ 只有 `codearts` 会写这个字段（benefit 是它独占的概念），其余供应商恒缺失。
+     *
+     * ## 为什么值得占一个字段
+     *
+     * 这类模型不带 `maas_type: benefit` 头会回 `002002009.404 The model is not
+     * registered`，而纯积分制账号没有福利包 ⇒ 最终错误与「模型名写错」**同形**，
+     * 用户看不出真正原因是「要走福利通道」。设置页标一句「需福利包」就把这条
+     * 因果讲清楚了。
+     */
+    benefitOnly?: boolean;
 }
 /** RPC: 列出某 provider 的模型响应 */
 export interface RpcModelListResponse {
@@ -1657,7 +1846,7 @@ export interface RpcModelSetDisabledManyRequest {
     /**
      * 关闭方向是否同时落「供应商关闭」意图。默认 `true`。
      *
-     * ⚠️ 与 {@link RpcModelSetAllDisabledRequest.closeProvider} 同一条契约 ——
+     * ⚠ 与 {@link RpcModelSetAllDisabledRequest.closeProvider} 同一条契约 ——
      * 两个入口写的是同一张黑名单，不给这条就会出现「同一份黑名单状态经两个入口
      * 得到不同意图」，随后打开任意模型时又被清掉，状态反向跳变。
      */
@@ -1895,6 +2084,17 @@ export interface RpcGatewayStatusResponse {
      * - `factory-missing`：插件装配异常，压根没有可用的网关实例工厂
      */
     lastError: RpcGatewayLastError | null;
+    /**
+     * 对外地址（env `DSH_OPENAI_GATEWAY_PUBLIC_URL` 的解析结果），非法值降级为 `null`。
+     *
+     * ⚠️ **必填**（不是 `?`）：三个网关 RPC（`gateway.getEnabled` /
+     * `gateway.setEnabled` / `gateway.setAllowLan`）都必须回传它 —— 客户端
+     * `setGatewayStatus(res)` 拿到响应就整份覆盖本地状态（`plugin-src/client/jet-hub.js`
+     * 三处），漏一处 ⇒ 用户拨一下开关，面板就把该字段冲成 `undefined`，地址退回
+     * `0.0.0.0` 并重新弹出「把 0.0.0.0 换成本机局域网 IP」的提示（PR #54 审计 P1）。
+     * 写成必填，新增构造点漏字段时由 `tsc` 拦下，不再靠人记。
+     */
+    publicUrl: string | null;
 }
 /** 网关「期望运行但未监听」的结构化原因（见 {@link RpcGatewayStatusResponse.lastError}）。 */
 export interface RpcGatewayLastError {
@@ -1977,6 +2177,50 @@ export interface RpcGatewaySetEnabledRequest {
 export interface RpcGatewaySetAllowLanRequest {
     allowLan: boolean;
 }
+/**
+ * RPC: 「默认取最强思考档」开关的读取响应（2026-11-11）。
+ *
+ * 开 = 在模型选择器里选完模型后，思考强度自动落在该模型支持的最高档；
+ * 关 = 逐字节回到改动前的行为（各家适配器自己声明的 `defaultEffort`）。
+ */
+export interface RpcReasoningDefaultGetEnabledResponse {
+    enabled: boolean;
+}
+/** RPC: 「默认取最强思考档」开关写入请求。 */
+export interface RpcReasoningDefaultSetEnabledRequest {
+    enabled: boolean;
+}
+/**
+ * RPC: 「默认取最强思考档」开关写入响应。
+ *
+ * ⚠️ 回传的是**落盘后重读的值**，不是请求里的值 —— 与 `gateway.setEnabled`
+ * 同取向：客户端一律以后端回传为准，不做乐观更新。
+ */
+export interface RpcReasoningDefaultSetEnabledResponse {
+    enabled: boolean;
+}
+/**
+ * RPC: 「新建账号时自动打开浏览器授权页」开关的读取响应（2026-11-23）。
+ *
+ * 开（默认）= 点「+ 新建账号」后宿主 / 客户端自动打开授权页；
+ * 关 = 不自动开窗，把授权链接复制到剪贴板并显示在账号面板里。
+ */
+export interface RpcLoginPreferencesGetEnabledResponse {
+    enabled: boolean;
+}
+/** RPC: 「新建账号时自动打开浏览器授权页」开关写入请求。 */
+export interface RpcLoginPreferencesSetEnabledRequest {
+    enabled: boolean;
+}
+/**
+ * RPC: 「新建账号时自动打开浏览器授权页」开关写入响应。
+ *
+ * ⚠️ 回传的是**落盘后重读的值**，不是请求里的值 —— 与 `gateway.setEnabled`
+ * 同取向：客户端一律以后端回传为准，不做乐观更新。
+ */
+export interface RpcLoginPreferencesSetEnabledResponse {
+    enabled: boolean;
+}
 /** RPC: 「渠道原生搜索」开关的读取响应。 */
 export interface RpcNativeSearchGetEnabledResponse {
     /** `true` = 支持原生搜索的渠道走自己后端的搜索接口；`false` = 全部回官方搜索。 */
@@ -2048,6 +2292,147 @@ export interface RpcStrictManualOrderSetRequest {
  */
 export interface RpcStrictManualOrderSetResponse {
     enabled: boolean;
+}
+/**
+ * RPC: per-provider 积分分档窗口的**读取**请求。
+ *
+ * 用于面板「分档窗口」弹窗：打开时读一次，显示当前生效的两条线与来源。
+ */
+export interface RpcCreditWindowGetRequest {
+    provider: string;
+}
+/**
+ * RPC: per-provider 积分分档窗口的**响应**（读写共用）。
+ *
+ * ## ⚠️ 三个字段缺一不可
+ *
+ * | 字段 | 用途 | 缺了会怎样 |
+ * |---|---|---|
+ * | `windowDays` / `imminentDays` | 弹窗输入框的预填值 + 面板分档 | 输入框空白、三档分色错 |
+ * | `source` | 弹窗显示「当前用的是哪一级」 | 用户分不清「我设的 7 天」与「环境变量恰好 7 天」|
+ * | `clamped` | 提示「原填 N 已被钳制为 M」 | **静默改写用户输入**（本仓明令禁止）|
+ */
+export interface RpcCreditWindowResponse {
+    /**
+     * 当前生效的「短期窗口」（天）：距过期 **≤** 此值算「短期」。
+     *
+     * ⚠️ 这是**钳制后**的生效值，不是用户原始输入。
+     */
+    windowDays: number;
+    /**
+     * 当前生效的「临期窗口」（天）：距过期 **<** 此值算「临期」。
+     *
+     * ⚠️ 恒 `<= windowDays`（临期 ⊂ 短期，倒挂会让「短期」段变负）。
+     */
+    imminentDays: number;
+    /**
+     * 这一对值来自哪一级。
+     *
+     * - `'setting'` = 本渠道单独设置（覆盖了下一级）
+     * - `'env'` = 环境变量
+     * - `'default'` = 内置默认（15 / 5）
+     */
+    source: 'setting' | 'env' | 'default';
+    /**
+     * `imminentDays` 是否被**钳制**过（用户填的临期 > 短期）。
+     *
+     * ⚠️ 弹窗必须据此提示「原填 N 天，已钳制为 M 天」——
+     * 静默改写会让用户以为保存失败或行为异常。
+     */
+    clamped: boolean;
+}
+/**
+ * RPC: per-provider 积分分档窗口的**写入**请求。
+ *
+ * ## ⚠️ 三态语义（`undefined` 与 `0` 必须分清）
+ *
+ * | 传入 | 结果 |
+ * |---|---|
+ * | 两个字段都 `undefined` / 都省略 | **删除本渠道设置**（回落环境变量/默认）|
+ * | `windowDays: 7, imminentDays: 3` | 存 7 / 3 |
+ * | `windowDays: 0` | **合法**（关掉「短期」档 ⇒ 全部算永久）|
+ * | `imminentDays: 0` | **合法**（关掉「临期」档 ⇒ 全部落「短期」）|
+ *
+ * ⚠️ 无法用 `null` 表达「清除」：JSON 的 `null` 到这里是 `null` 而非
+ * `undefined`，两者都按「未提供」处理（保守：不会误清用户设置）。
+ *
+ * ⚠️ 只传一个字段时，另一个**保持原值**（不是清空）—— 弹窗总是两个都传，
+ * 但允许「只清一项」的调用方。
+ */
+/**
+ * ★ RPC: 档次窗口用的「可选模型 + 思考强度」清单（2026-11-23）。
+ *
+ * ## 为什么单独开一个端点
+ *
+ * `model.list` 的返回形状是「设置页的完整目录」，不含 `efforts`；
+ * 而档次窗口只需要「**已启用**的模型 + 它们的思考档位」这一小块。
+ *
+ * ⚠️ 不复用 `model.list`：那会让设置页的响应跟着膨胀（它已有 20+ 字段），
+ * 且「已启用」这条过滤与设置页的「全部 + 禁用标记」语义不同。
+ */
+export interface RpcCreditWindowModelsRequest {
+    provider: string;
+}
+/**
+ * 一个可选模型。
+ */
+export interface RpcCreditWindowModelEntry {
+    /** 模型 id（写进 `subagent.model` 的值）。 */
+    id: string;
+    /** 展示名（列表里显示的文字，含计费倍率后缀）。 */
+    name: string;
+    /**
+     * 该模型的思考档位（弱 → 强）。
+     *
+     * ⚠️ 空数组 = 该模型**不支持**思考 ⇒ UI 不渲染强度下拉。
+     */
+    efforts: ReadonlyArray<{
+        id: string;
+        name: string;
+    }>;
+    /** 默认档位（渠道或上游给的）。`undefined` = 没有默认，UI 取 `efforts` 的**最后一档**（最强）。 */
+    defaultEffort?: string;
+}
+/** RPC: 档次窗口可选模型清单响应。 */
+export interface RpcCreditWindowModelsResponse {
+    models: RpcCreditWindowModelEntry[];
+    /**
+     * 该渠道设置里的「默认最高档」策略是否开启。
+     *
+     * ⚠️ `true` ⇒ UI 的强度下拉默认选 `efforts` 的**最后一档**；
+     * `false` ⇒ 用模型自己的 `defaultEffort`。
+     */
+    preferHighestEffort?: boolean;
+}
+export interface RpcCreditWindowSetRequest {
+    provider: string;
+    windowDays?: number;
+    imminentDays?: number;
+    /**
+     * ★ 子代理专属设置（2026-11-23）。
+     *
+     * `undefined` = **不动**它（合并语义）；传 `null` = **清除**它。
+     * ⚠️ 与 `windowDays` / `imminentDays` 的「undefined = 不动」一致 ——
+     * 用户在「子代理」那块点保存，不该顺带把窗口天数重置。
+     */
+    subagent?: RpcSubagentRotationSetting | null;
+}
+/**
+ * ★ 子代理设置的 RPC 形状（2026-11-23）。
+ *
+ * ⚠️ 与 `SubagentRotationSetting` **字段一致但不复用同一个类型**：
+ * RPC 层要能表达「非法值」以便端点做**严格校验**并回 `bad-request`
+ *（用户 2026-11-23 的要求：非法值不得静默丢弃）。
+ */
+export interface RpcSubagentRotationSetting {
+    /** 起点策略：`follow` / `sequence` / `reverse` / `hash` / `fixed`。 */
+    startMode?: string;
+    /** `fixed` 模式的账号位次（1-based）。 */
+    fixedPosition?: number;
+    /** 子代理模型 id（本 provider 内）。 */
+    model?: string;
+    /** 思考强度 id（模型声明的渐之一）。 */
+    reasoningEffort?: string;
 }
 /**
  * RPC: 「面板入口」的读取响应（插件详情页设置卡片里的下拉）。
@@ -2147,6 +2532,14 @@ export interface LoginFlowOptions {
     maxAttempts?: number;
     /** 登录流程选择：'oauth'（默认）或 'ticket'（旧流程回退）。 */
     flow?: 'oauth' | 'ticket';
+    /**
+     * 回调等待预算（毫秒）；默认 180 秒。
+     *
+     * ⚠️ 只为**可测**而存在：超时后必须把收码器标记为已结算，否则用户粘回来的
+     * 链接会被接受并回「成功」（PR #57 正向审计 P3-8）。没有这个入口就只能
+     * 真等 180 秒，超时分支的守卫等于没有。
+     */
+    callbackTimeoutMs?: number;
 }
 /**
  * buddy (腾讯 CodeBuddy) 凭据，存储在 BUDDY_ACCESS_TOKEN 下。
@@ -2425,6 +2818,19 @@ export interface RpcUsageBadgeResponse {
     disabledCount: number;
     /** 临时 / 长期分桶的窗口天数（沿用 `credits.balances` 的口径）。 */
     windowDays?: number;
+    /** 「临期」子窗口天数（与 {@link windowDays} 同生共死，缺省时前端退化成三段）。 */
+    imminentDays?: number;
+    /**
+     * 该 provider 当前是否「**锁定永久积分**」。
+     *
+     * ⚠️ 2026-11-18 补（真实缺陷）：客户端「可用积分 = 短期 + 临期」的显示
+     *    完全依赖本字段（`value.locked`），但徽标响应此前**从未回传它**
+     *    ⇒ 用户明明在面板里锁定，胶囊与弹窗右上角的「可用/总」始终不出现。
+     *
+     * - `true`  ⇒ 显示「可用 X / 总 Y」
+     * - `false` / 缺省 ⇒ 只显示总计（未锁定时两者相等，多显示一组是噪音）
+     */
+    locked?: boolean;
     /** 订阅读数；该渠道没有订阅数据、或订阅查询失败时**整个字段缺席**。 */
     subscription?: RpcUsageBadgeSubscription;
     /** 当前生效的显示偏好（顺带回传，省一次往返）。 */
@@ -2494,9 +2900,19 @@ export interface RpcUsageBadgePreferenceResponse {
  * 数据来自进程内存的 `src/token-ledger.ts`：记账点在注册收敛层
  * （`llm-register-compat.ts` 的包装适配器），渠道由网关侧打标区分。
  * **重启即丢**（第 1 期不持久化），UI 需说明这一点而不是伪装成历史报表。
+ *
+ * ⚠️ **汇总与明细的范围不同**（2026-11-20 用户要求）：
+ * - `snapshot.totals` / `snapshot.channels[]` = **进程启动至今全部请求**（无上限）
+ * - `snapshot.entries[]` = 最近 {@link TOKEN_LEDGER_ENTRY_LIMIT} 条
+ *
+ * ⇒ 不要用 `entries` 求和去当汇总。
  */
 export interface RpcUsageTokenLedgerRequest {
-    /** 明细最多多少条；省略 = 服务端上限（`TOKEN_LEDGER_LIMIT`）。 */
+    /**
+     * **明细**最多多少条；省略 = 服务端上限（`TOKEN_LEDGER_ENTRY_LIMIT`，500）。
+     *
+     * ⚠️ 它只影响 `entries[]`，**不影响** `totals` / `channels[]`。
+     */
     limit?: number;
 }
 /** Token 账本快照响应（形状直透 `TokenLedgerSnapshot`，不另造一份平行类型）。 */
@@ -2618,6 +3034,18 @@ export interface RpcUsageAutoCheckinState {
      *（否则用户关过一次就再也看不到新结果了）。
      */
     dismissed: boolean;
+    /**
+     * ★ 豆包「自动签到」开关的**生效值**（2026-11-22 用户需求：「面板里面加个
+     * 豆包自动签到的开关」）。
+     *
+     * 语义是**三态**的结果值：`AutoCheckinDoc.doubaoEnabled` 有值时以用户的表态
+     * 为准，缺席则跟随 registry 的 `autoCheckinExcluded`（见 `doubaoCheckinEnabled()`）。
+     * 客户端直接照它渲染勾选态，**不要自己再算一遍默认值**。
+     *
+     * ⚠️ 宿主是**旧代码**时本字段缺席：客户端必须按「不渲染这个开关」处理，
+     * 不能当成 `false` —— 那会让用户看到「开关关着」、而豆包其实在自动跑。
+     */
+    doubaoCheckinEnabled: boolean;
 }
 /**
  * RPC: 读写「每日首次启动自动签到」开关，以及关闭常驻状态文字。

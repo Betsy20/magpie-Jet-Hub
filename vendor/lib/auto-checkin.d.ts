@@ -45,13 +45,13 @@
  *
  * 「哪些渠道能签到」的权威是客户端的 `credits-capabilities.js`（12 个渠道逐项
  * 登记）。在本模块再抄一份必然漂移（本仓库已有「两份名单漂移」的真实缺陷）。
- * 故判据交给 `credits.claimAll` 自己：cline / raccoon / **workbuddy** 三条分支
+ * 故判据交给 `credits.claimAll` 自己：当前只有 `cline` 这一条分支
  * **不发任何上游请求**就返回「不支持每日签到」，本模块把这类错误计为**跳过**，
  * 既不算失败也不重试。
  *
- * ⚠️ 其中 **workbuddy 的那条守卫是本功能先补上的**：此前它会落到 buddy 产品
- * 分支、真去发必然失败的签到请求（客户端从不调用它，是因为能力表写着 false，
- * 所以这个洞一直没被触发）。补上之后，「调用即判定」这条规则才真正安全。
+ * ⚠️ **workbuddy 已于 2026-11-15 退出这一组**：国际版其实**有**签到端点（与国内版
+ * 逐字同形），此前那条「不支持」的守卫是误判，现已改为真发领取 + 活跃上报
+ * （见 `workbuddy-intl-activity.ts` 与 `docs/agent-notes/providers-workbuddy-intl-checkin.md`）。
  *
  * ## ⚠️「调用即判定」管不到的一类：签到**有代价**的渠道
  *
@@ -80,6 +80,42 @@ export interface AutoCheckinDoc {
      * `enabled !== false` 惯例一致。
      */
     enabled: boolean;
+    modelscopeEnabled?: false;
+    /**
+     * zcode 参加自动签到的**opt-in** 开关。**默认关闭**。
+     *
+     * ⚠️ 这一格与本文件其余开关的惯例**刻意相反**：`enabled` / `modelscopeEnabled`
+     * 是「缺席 = 开」（只有显式 `false` 才算关），而它是「缺席 = 关」（只有显式
+     * `true` 才算开）。原因不是风格分歧，而是 zcode 的签到**有代价**：`claimAll`
+     * 会拉起 headful Chromium 产阿里云 captcha，且该配额按**设备**限流
+     * （见 {@link isAutoCheckinExcluded}）。上游把 zcode 登记进
+     * `PROVIDER_REGISTRY.autoCheckinExcluded` 正是为了「用户没点头就不许起浏览器」，
+     * 默认打开等于替所有用户做了这个决定。
+     *
+     * ⚠️ 落盘形态同样反过来：**只在打开时写 `zcodeEnabled: true`，关闭时删键**。
+     * 若照抄 modelscope 的「关时落 `false`」，那么「默认关 + 缺席」与「用户点过关」
+     * 两种状态在磁盘上同形，面板就再也无法区分「没设置过」与「特意关掉」。
+     */
+    zcodeEnabled?: true;
+    /**
+     * 豆包参加自动签到的**逐渠道开关**（2026-11-22 用户需求：「面板里面加个豆包
+     * 自动签到的开关」）。**三态**，与上面两格都不同：
+     *
+     * - 缺席 = **跟随 registry**（`autoCheckinExcluded` 说了算）；
+     * - `true` = 用户明确要它进自动链（即使 registry 把它登记成「有代价」）；
+     * - `false` = 用户明确不要它进（即使 registry 默认把它算进来）。
+     *
+     * ## 为什么不照抄 `zcodeEnabled` 的「只写 true、关时删键」
+     *
+     * zcode 那格是 **opt-in**（默认关，只有用户点头才开），因为它的代价是
+     * **设备级** captcha 配额；而豆包的代价只是「每账号每天起一次 headless
+     * Chromium」，默认口径**由 registry 决定**。两格默认方向不同，落盘语义也就不能
+     * 照抄：这里缺席**不是**「关」，而是「没表态」。
+     *
+     * ⚠️ 因此**两个值都要落盘**（`true` / `false`）：删键会让「没表态」与「用户
+     * 特意关掉」在磁盘上同形，面板下次打开就分不出这个开关到底该显示成谁的意思。
+     */
+    doubaoEnabled?: boolean;
     /**
      * 每天**两个**执行时刻（`HH:MM`，UTC+8，升序、去重、恰好两个）。
      *
@@ -404,8 +440,15 @@ interface RunTotals {
     errors: number;
 }
 /**
- * 「不支持每日签到」的判据：`credits.claimAll` 对 cline / raccoon / workbuddy
- * 返回的**显式**错误文案（这三条分支都不发上游请求）。
+ * 「不支持每日签到」的判据：`credits.claimAll` 对**没有签到实现**的渠道返回的
+ * **显式**错误文案（这一条分支不发上游请求）。
+ *
+ * ⚠️ 这张名单**一直在缩小**，别把历史结论当成契约：
+ *   - `raccoon` 曾在这里（判据是「每日积分无端点」）—— 2026-11-15 被真实账号
+ *     推翻并接通了签到（办公端 `GET /api/web/office/v3/setting_info` 结算）⇒ **已移出**；
+ *   - `workbuddy` 国际版也曾在这里（判据是「内核只有 `get-dosage-notify`」）——
+ *     同一天查清签到端点是前端直接调的、与国内版逐字同形 ⇒ **已移出**（PR #87）。
+ *   两家移出后只剩 `cline`：对整个 sidecar 做字符串扫描都没有 checkin / campaign 端点。
  *
  * ⚠️ 兜底认 `unsupported provider`：那是 `productById` 找不到产品时的文案，
  * 语义同样是「这个渠道没有可用的签到实现」，计成失败只会制造假警报。
@@ -438,8 +481,38 @@ export declare function isUnsupportedCheckin(message: string): boolean;
  *   一旦 zcode 的 claim 分支又开始调 `mintCaptcha`，而本表没登记，用例会红）。
  * - 用户仍可在面板里**手动**点 zcode 的「一键领取积分」—— 那是有意行为，
  *   浏览器弹出来是用户自己能理解的交互。
+ * - 2026-11-20 追加：面板上另有一个**默认关闭**的 opt-in 开关
+ *   （{@link isAutoCheckinOptedIn}）。它**不改这张表**，只在
+ *   `performRun` 那一格放行时多问一句「用户是否明确点过开」—— registry 仍是
+ *   「谁有代价」的唯一真相源，本表的反向守护用例照旧有效。
  */
 export declare function isAutoCheckinExcluded(provider: string): boolean;
+/**
+ * 用户是否**明确点过「开」**，允许某个「有代价」的渠道参加自动签到。
+ *
+ * ## 为什么放行判据单独成一个函数
+ *
+ * 排除表（{@link isAutoCheckinExcluded}）记的是客观事实「这家签到要起浏览器」，
+ * 而「用户同意不同意」是主观授权，两者不能揉进同一个判据 —— 揉进去之后
+ * `provider-registry.spec.ts` / `provider-registry-consumers.spec.ts` 那几条
+ * 「排除表 == registry 名单」的锚点就再也锁不住 registry 了。故
+ * `performRun` 里是「**先查排除表，再问有没有 opt-in**」两格。
+ *
+ * ⚠️ 判据是 `=== true`（缺席 / 脏数据 = 不放行），与 `enabled` 那格相反：
+ *    放行的代价由用户的设备级 captcha 配额与浏览器进程树支付，宁可保守。
+ * ⚠️ 目前只有 `zcode` 有这一格；新增「有代价」渠道时要在这里加一条，
+ *    并在 `AutoCheckinDoc` 上补对应的 opt-in 字段。
+ */
+export declare function isAutoCheckinOptedIn(provider: string, doc: Pick<AutoCheckinDoc, 'zcodeEnabled'>): boolean;
+/**
+ * 豆包这一轮该不该参加自动签到（三态，见 `AutoCheckinDoc.doubaoEnabled`）。
+ *
+ * ⚠️ 缺席 ⇒ 跟随 registry；`true` / `false` ⇒ 用户的明确表态说了算。
+ * ⚠️ 本函数**只认豆包**，但把 `provider === 'doubao'` 的守卫留在调用方
+ *    （`performRun` 的豆包分支）—— 免得将来有人拿它当「任意渠道的通用判据」，
+ *    那会跳过 modelscope / zcode 各自的专用格。
+ */
+export declare function doubaoCheckinEnabled(doc: Pick<AutoCheckinDoc, 'doubaoEnabled'>): boolean;
 /** 把一轮结果拼成一句中文摘要（给状态灯提示与日志用）。 */
 export declare function describeRun(totals: RunTotals): string;
 /**
@@ -537,6 +610,31 @@ export interface AutoCheckinDeps {
 export interface AutoCheckin {
     /** 实时状态（供 RPC 与状态灯；`enabled` 等取自内存，不重新读盘）。 */
     state(): RpcUsageAutoCheckinState;
+    modelscopeEnabled(): boolean;
+    setModelscopeEnabled(enabled: boolean): Promise<void>;
+    /**
+     * zcode 是否获准参加自动签到（opt-in，**默认 `false`**）。
+     * 与 `modelscopeEnabled()` 的默认值相反，语义见 {@link AutoCheckinDoc.zcodeEnabled}。
+     */
+    zcodeEnabled(): boolean;
+    /**
+     * 写 zcode 的 opt-in。⚠️ **不立刻跑一轮**（与 `setModelscopeEnabled` 一致，
+     * 与 `setEnabled` 不同）：这一格打开的副作用是「到点拉起浏览器」，
+     * 用户点完立刻弹一个 Chromium 窗口比「下个时段再生效」更让人意外。
+     */
+    setZcodeEnabled(enabled: boolean): Promise<void>;
+    /**
+     * 豆包这一轮是否参加自动签到（**三态**，语义见 {@link AutoCheckinDoc.doubaoEnabled}）：
+     * 用户表态优先，缺失则跟随 registry。
+     */
+    doubaoEnabled(): boolean;
+    /**
+     * 写豆包的逐渠道开关（面板上那个「豆包自动签到」）。
+     *
+     * ⚠️ 与 `setZcodeEnabled` 一致：**不立刻跑一轮**（改的是「下一轮参不参加」，
+     * 不是「现在就跑」；想立刻领请点面板的「一键领取积分」）。
+     */
+    setDoubaoEnabled(enabled: boolean): Promise<void>;
     /** 写开关；**打开时若有时段没跑，立刻跑一轮**（否则用户会以为开关没生效）。 */
     setEnabled(enabled: boolean): Promise<RpcUsageAutoCheckinState>;
     /**

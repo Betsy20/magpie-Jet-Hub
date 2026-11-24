@@ -1,8 +1,11 @@
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
-import { createJetHubStore, clearRejectionLayer, DEFAULT_PANEL_ENTRY, isValidResetAtMs, MAX_DATE_MS, mergeLegacyLoomyLock, sanitizeAccounts, sanitizeDisabledModels, sanitizeMinimaxXff, sanitizePanelEntry, sanitizePermanentLocks, sanitizeProviderClosed, sanitizeStrictManualOrder, withAllowed, withoutAllowed } from './jet-hub-store.js';
+import { createJetHubStore, clearRejectionLayer, DEFAULT_PANEL_ENTRY, sanitizeSubagentRotation, isValidResetAtMs, MAX_DATE_MS, mergeLegacyLoomyLock, sanitizeAccounts, sanitizeDisabledModels, sanitizeMinimaxXff, sanitizePanelEntry, sanitizePermanentLocks, sanitizePreferredRotation, sanitizeProviderClosed, sanitizeCreditWindows, sanitizeStrictManualOrder, withAllowed, withoutAllowed } from './jet-hub-store.js';
+import { markSubagentEnded, nextSubagentSlot, pinSubagentAccount, recordSubagentAssignment, sanitizeSubagentAssignments, setUserPickedAccount } from './subagent-rotation.js';
 import { createPermanentLockStore } from './permanent-lock-store.js';
 import { normalizeOpencodeGeneration } from './opencode-auth.js';
 import { maskProxyPassword } from './proxy-mask.js';
+import { qoderWebRefName } from './qoder-web-usage.js';
+import { qoderTrafficGuardEnabled } from './qoder-traffic-guard.js';
 // ⚠️ `model-queue.ts` **零 import**（纯函数模块，见其模块头）⇒ 不引入环。
 import { nextUtc8DayStartMs } from './model-queue.js';
 import { readTokenLedgerDayMap, utc8DayKey } from './token-ledger.js';
@@ -16,6 +19,30 @@ export { JET_HUB_NS } from './jet-hub-store.js';
  * 没有黑名单；共享同一个冻结集合可以避免每次调用都分配一个新 Set。
  */
 const EMPTY_MODEL_SET = new Set();
+/**
+ * 归一化「子代理分配表」（provider → sessionId → 分配）。
+ *
+ * ⚠️ 抽成包装函数而不是在 `subagent-rotation.ts` 里再写一个 —— 避免
+ * 「同一语义两套实现」。子级 `sanitizeSubagentAssignments` 管**单个 provider**
+ * 的表，这里只负责逐 provider 展开。
+ *
+ * ⚠️ provider id 为空、或归一化后为空的条目直接丢弃
+ *（否则会留下永远查不到的噪音键）。
+ */
+function sanitizeSubagentAssignmentMapOf(raw) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+        return {};
+    const result = {};
+    for (const [provider, table] of Object.entries(raw)) {
+        if (provider.length === 0)
+            continue;
+        const clean = sanitizeSubagentAssignments(table);
+        if (Object.keys(clean).length === 0)
+            continue;
+        result[provider] = clean;
+    }
+    return result;
+}
 /**
  * 判定「某 provider 的启用账号是否**全部**因目标模型处于限流期」。
  *
@@ -278,6 +305,35 @@ export function proxyLogText(value) {
 export function isPolicyBlockedAccount(entry) {
     return isValidResetAtMs(entry.policyBlockedAtMs);
 }
+/**
+ * 「轮换起点」在**无余额档位**路径上的旋转（池选号专用）。
+ *
+ * ## 与 `buddy-balance-rank.ts` 的 `rotateFromPreferred` 的分工
+ *
+ * | | 本函数 | `rotateFromPreferred` |
+ * |---|---|---|
+ * | 用于 | 池选号（codearts / cline / gemini / opencode …） | 余额分档渠道（buddy 系 / trae / qoder …） |
+ * | 判可用性 | **不需要** —— 候选已过 enabled / 封禁 / 限流 ⇒ 全是可用项 | 需要（锁定永久积分时「只剩永久」不可用） |
+ * | 语义 | 纯旋转 | 旋转 + **起点跳到往后第一个可用项** |
+ *
+ * ⚠️ **刻意不合并**：合并会把「需要余额才能判可用性」这件事带进池选号路径，
+ *    而那条路径**拿不到余额**（也不该为它查一次）。
+ *
+ * ## 三条不变量
+ *
+ * 1. **集合不变**：只旋转，不增删；
+ * 2. **保序**：起点前后各保持原相对顺序；
+ * 3. **找不到 / 首位 ⇒ 原样**（仍返回新数组，不改入参）。
+ */
+function rotateFromAccountId(candidates, rotationStartId) {
+    const copy = [...candidates];
+    if (rotationStartId === undefined || rotationStartId.length === 0)
+        return copy;
+    const index = copy.findIndex((c) => c.id === rotationStartId);
+    if (index <= 0)
+        return copy;
+    return [...copy.slice(index), ...copy.slice(0, index)];
+}
 export class AccountPool {
     ctx;
     /** 持久化后端；两个后端都不可用时是仅内存实现。 */
@@ -364,6 +420,7 @@ export class AccountPool {
      * 的唯一后果是回到默认启用，用户再关一次即可。
      */
     gatewayEnabledCache = true;
+    qoderTrafficGuard = {};
     /**
      * 「允许局域网访问」开关的进程内副本（2026-10-20）。
      *
@@ -405,6 +462,24 @@ export class AccountPool {
      * 「用户仍需要显式开一次开关」，那是可见、可逆的。
      */
     strictManualOrderCache = {};
+    /**
+     * per-provider 分档窗口覆盖值的进程内副本（{@link CreditWindowMap}）。
+     *
+     * 缺键语义是**回落环境变量/默认**（= 升级前行为：全局 15 / 5）。
+     *
+     * ⚠️ **每次现读，不缓存给调用方**（与 {@link strictManualOrderCache} 同款纪律）：
+     * 用户在弹窗里保存后，窗口必须**立刻**对后续请求生效 ——
+     * 消费者（`resolveCreditWindow`）每次都问本表，不允许把值存进构造期字段。
+     */
+    creditWindowCache = {};
+    /**
+     * 子代理分配表（provider → sessionId → 分配）。
+     *
+     * ⚠️ **必须持久化**：插件重启后收不到已发过的 `subagent/start`，
+     * 若不落盘，正在跑的子代理会退化成「用主代理起点」。
+     */
+    subagentAssignmentCache = {};
+    preferredRotationCache = {};
     /**
      * 「面板入口」的进程内副本：Jet Hub 的唯一入口位置（两个取值互斥）。
      *
@@ -540,6 +615,7 @@ export class AccountPool {
             this.aggregateOrderModeCache = state.aggregateOrderMode === 'manual' ? 'manual' : 'expiry';
             // 网关开关同理：老文档没有该键 → 保持默认启用。
             this.gatewayEnabledCache = state.gatewayEnabled !== false;
+            this.qoderTrafficGuard = state.qoderTrafficGuard ?? {};
             // 局域网开关同理：老文档没有该键 → 保持默认关闭（安全默认，暴露面变大
             // 必须是显式选择）。与 store 侧 `sanitizeGatewayAllowLan` 同一判据。
             this.gatewayAllowLanCache = state.gatewayAllowLan === true;
@@ -562,6 +638,15 @@ export class AccountPool {
             // 严格手动顺序同理：老文档没有该键 → 空表（= 全部走余额分档，与升级前一致）。
             // 过一遍 sanitize：老契约后端可能绕过 schema 直接给出原始文档。
             this.strictManualOrderCache = sanitizeStrictManualOrder(state.strictManualOrder);
+            this.creditWindowCache = sanitizeCreditWindows(state.creditWindows);
+            /**
+             * 子代理分配表（读写两侧都 sanitize，与 creditWindows 同纪律）。
+             *
+             * ⚠️ 老文档没有该键 ⇒ 空表 ⇒ 所有子代理走主代理起点
+             *（= 与加本功能之前逐字节相同，这是唯一回归面）。
+             */
+            this.subagentAssignmentCache = sanitizeSubagentAssignmentMapOf(state.subagentAssignments);
+            this.preferredRotationCache = sanitizePreferredRotation(state.preferredRotation);
         }
         this.loadLocks(state);
     }
@@ -631,53 +716,68 @@ export class AccountPool {
      * `.catch()` 派生量更新 {@link storeChain}，让**链本身不被一次失败打断**
      * ——否则后续所有写都会跟着拒绝，账号池进入永不落盘状态。
      */
-    queueStoreSave() {
-        if (this.store.kind === 'memory')
+    queueStoreSave(qoderUpdate) {
+        if (this.store.kind === 'memory' && qoderUpdate === undefined)
             return Promise.resolve();
         const next = this.storeChain.then(async () => {
-            await this.store.save({
-                accounts: this.cache,
-                disabledModels: this.modelCache,
-                // 与上面两份同源快照（见本方法注释：分两次快照会让同一份文档里的字段互相矛盾）。
-                aggregateRejections: this.aggregateRejectionCache,
-                // ⚠️⚠️ 三个新键**必须**与上面取自**同一时刻**的快照（`replace` 是整体替换语义）：
-                //    漏一个 ⇒ 该键永不落盘，且**任何**账号/黑名单写入都会顺带把它抹掉。
-                //    其中白名单丢失属「静默改路由」（用户手工打开的无临期渠道悄悄回到不参与）。
-                aggregateAllowed: this.aggregateAllowedCache,
-                aggregateOrder: this.aggregateOrderCache,
-                aggregateOrderMode: this.aggregateOrderModeCache,
-                ...this.lockFields(),
-                // ⚠️ 必须与账号、黑名单取自**同一时刻**的快照（见本方法的注释）：
-                // 分两次快照会让同一份文档里的字段互相矛盾。
-                gatewayEnabled: this.gatewayEnabledCache,
-                // ⚠️ 必须与上面取自同一时刻的快照（replace 是整体替换语义）：
-                //    漏键 ⇒ 用户打开的「允许局域网访问」在任何一次其它写入时被抹掉，
-                //    重启后静默回到只绑回环（用户会以为开关坏了）。
-                gatewayAllowLan: this.gatewayAllowLanCache,
-                nativeWebSearchEnabled: this.nativeWebSearchCache,
-                // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同一个整体替换陷阱）：
-                //    漏键会让用户明确关闭的「会话负载均衡」在任何一次其它写入时被抹掉，
-                //    重启后静默回到开启。
-                sessionBalanceEnabled: this.sessionBalanceCache,
-                // ⚠️ **必须带上本键**（与上面几个新键是同一个 `replace` 整体替换陷阱）：
-                //    漏键 ⇒ 用户开过的「严格手动顺序」在**任何**一次其它写入时被抹掉，
-                //    重启后静默回到余额分档优先（用户只看到「拖拽又不灵了」）。
-                strictManualOrder: this.strictManualOrderCache,
-                // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同一个整体替换陷阱）：
-                //    漏键会让用户改过的面板入口在**任何**一次账号/黑名单/网关/顺序写入时
-                //    被静默清掉，重启后入口又变回默认「仅侧栏」。
-                panelEntry: this.panelEntryCache,
-                providerOrder: this.providerOrderCache,
-                // ⚠️ **必须带上本键**（同 `nativeWebSearchEnabled` 的坑）：
-                //    `write` 是整体替换语义 ⇒ 漏键会让用户设的 XFF 在**任何**一次
-                //    改账号 / 改黑名单 / 改网关 / 拖顺序时被静默清掉，
-                //    症状是「国际站明明设好了 XFF，过一阵又开始 307」。
-                minimaxXff: this.minimaxXffCache,
-                // ⚠️⚠️ **必须与上面几份取自同一时刻的快照**（`replace` 是整体替换语义）：
-                //    漏键 ⇒ 关闭意图**永不落盘**，且任何账号/黑名单写入都会把它抹掉
-                //    ⇒ 重启后供应商静默回到「已打开」（Gitee issue IKP8OF 原样复发）。
-                providerClosed: this.providerClosedCache,
-            });
+            const qoderTrafficGuard = qoderUpdate === undefined
+                ? this.qoderTrafficGuard
+                : { ...this.qoderTrafficGuard, [qoderUpdate.provider]: qoderUpdate.enabled };
+            if (this.store.kind !== 'memory')
+                await this.store.save({
+                    accounts: this.cache,
+                    disabledModels: this.modelCache,
+                    // 与上面两份同源快照（见本方法注释：分两次快照会让同一份文档里的字段互相矛盾）。
+                    aggregateRejections: this.aggregateRejectionCache,
+                    // ⚠️⚠️ 三个新键**必须**与上面取自**同一时刻**的快照（`replace` 是整体替换语义）：
+                    //    漏一个 ⇒ 该键永不落盘，且**任何**账号/黑名单写入都会顺带把它抹掉。
+                    //    其中白名单丢失属「静默改路由」（用户手工打开的无临期渠道悄悄回到不参与）。
+                    aggregateAllowed: this.aggregateAllowedCache,
+                    aggregateOrder: this.aggregateOrderCache,
+                    aggregateOrderMode: this.aggregateOrderModeCache,
+                    ...this.lockFields(),
+                    // ⚠️ 必须与账号、黑名单取自**同一时刻**的快照（见本方法的注释）：
+                    // 分两次快照会让同一份文档里的字段互相矛盾。
+                    gatewayEnabled: this.gatewayEnabledCache,
+                    qoderTrafficGuard,
+                    // ⚠️ 必须与上面取自同一时刻的快照（replace 是整体替换语义）：
+                    //    漏键 ⇒ 用户打开的「允许局域网访问」在任何一次其它写入时被抹掉，
+                    //    重启后静默回到只绑回环（用户会以为开关坏了）。
+                    gatewayAllowLan: this.gatewayAllowLanCache,
+                    nativeWebSearchEnabled: this.nativeWebSearchCache,
+                    // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同一个整体替换陷阱）：
+                    //    漏键会让用户明确关闭的「会话负载均衡」在任何一次其它写入时被抹掉，
+                    //    重启后静默回到开启。
+                    sessionBalanceEnabled: this.sessionBalanceCache,
+                    // ⚠️ **必须带上本键**（与上面几个新键是同一个 `replace` 整体替换陷阱）：
+                    //    漏键 ⇒ 用户开过的「严格手动顺序」在**任何**一次其它写入时被抹掉，
+                    //    重启后静默回到余额分档优先（用户只看到「拖拽又不灵了」）。
+                    strictManualOrder: this.strictManualOrderCache,
+                    /**
+                     * ⚠️⚠️ **必须带上本键**（与 `strictManualOrder` 同一个「整体替换」陷阱，
+                     * 漏一行 ⇒ 用户设过的分档窗口在**任何一次**其它写入（改账号/黑名单/开关）时
+                     * 被静默抹掉，重启后回到全局默认窗口 —— 而用户只看到「我设的 7 天又变回 15 了」，
+                     * 且没有任何日志或提示指向真正的原因。
+                     */
+                    creditWindows: this.creditWindowCache,
+                    subagentAssignments: this.subagentAssignmentCache,
+                    preferredRotation: this.preferredRotationCache,
+                    // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同一个整体替换陷阱）：
+                    //    漏键会让用户改过的面板入口在**任何**一次账号/黑名单/网关/顺序写入时
+                    //    被静默清掉，重启后入口又变回默认「仅侧栏」。
+                    panelEntry: this.panelEntryCache,
+                    providerOrder: this.providerOrderCache,
+                    // ⚠️ **必须带上本键**（同 `nativeWebSearchEnabled` 的坑）：
+                    //    `write` 是整体替换语义 ⇒ 漏键会让用户设的 XFF 在**任何**一次
+                    //    改账号 / 改黑名单 / 改网关 / 拖顺序时被静默清掉，
+                    //    症状是「国际站明明设好了 XFF，过一阵又开始 307」。
+                    minimaxXff: this.minimaxXffCache,
+                    // ⚠️⚠️ **必须与上面几份取自同一时刻的快照**（`replace` 是整体替换语义）：
+                    //    漏键 ⇒ 关闭意图**永不落盘**，且任何账号/黑名单写入都会把它抹掉
+                    //    ⇒ 重启后供应商静默回到「已打开」（Gitee issue IKP8OF 原样复发）。
+                    providerClosed: this.providerClosedCache,
+                });
+            this.qoderTrafficGuard = qoderTrafficGuard;
         });
         this.storeChain = next.catch(() => { });
         return next;
@@ -1089,6 +1189,14 @@ export class AccountPool {
         this.ensureLoaded();
         return this.gatewayEnabledCache;
     }
+    qoderTrafficGuardEnabled(provider) {
+        this.ensureLoaded();
+        return this.qoderTrafficGuard[provider] ?? qoderTrafficGuardEnabled();
+    }
+    setQoderTrafficGuardEnabled(provider, enabled) {
+        this.ensureLoaded();
+        return this.queueStoreSave({ provider, enabled });
+    }
     /**
      * 打开/关闭本机 OpenAI 网关并落盘。
      *
@@ -1238,6 +1346,487 @@ export class AccountPool {
         this.loaded = true;
         if (this.store.kind === 'memory') {
             this.ctx.logger?.warn?.('[jet-hub] 无持久化后端，严格手动顺序开关仅本次会话有效');
+            return;
+        }
+        await this.queueStoreSave();
+    }
+    /**
+     * 读某 provider 的**分档窗口覆盖设置**（`undefined` = 未设置 ⇒ 回落环境变量/默认）。
+     *
+     * ⚠️ **调用方必须每次现读**，不能把返回值存进构造期字段：
+     * 用户在弹窗里保存后，窗口必须立刻对后续请求生效（不需要重启/重选模型/切会话）。
+     * 消费者的唯一正确用法见 `src/credit-window.ts` 的 `resolveCreditWindow`。
+     *
+     * ⚠️ 返回的是**副本**：调用方拿到后即使改了也不会污染缓存
+     * （`strictManualOrder` 返回布尔没有这个问题，本方法返回对象故必须防御）。
+     */
+    creditWindow(provider) {
+        this.ensureLoaded();
+        if (provider.length === 0)
+            return undefined;
+        const entry = this.creditWindowCache[provider];
+        if (entry === undefined)
+            return undefined;
+        return { ...entry };
+    }
+    /**
+     * 写某 provider 的分档窗口并落盘。
+     *
+     * @param setting - `undefined` / 两个字段都 `undefined` ⇒ **删键**（恢复默认）
+     *
+     * ## ⚠️ 三条纪律
+     *
+     * 1. **稀疏表删键**：恢复默认时 `delete`，不写 `{}` / `null` / `0`
+     *    （`0` 是合法值「关掉该档」，不能兼作「未设置」）。
+     * 2. **走 `queueStoreSave()`**：与 `setStrictManualOrder` 同款 ——
+     *    自己 `store.save()` 会与账号/黑名单的写入乱序覆盖。
+     * 3. **先更内存再落盘**：落盘失败不影响本次会话的正确性
+     *    （与 `setPermanentLocked` 同取向）。
+     */
+    async setCreditWindow(provider, setting) {
+        this.ensureLoaded();
+        if (provider.length === 0)
+            return;
+        const windowDays = setting?.windowDays;
+        const imminentDays = setting?.imminentDays;
+        const validWindow = typeof windowDays === 'number' && Number.isFinite(windowDays) && windowDays >= 0;
+        const validImminent = typeof imminentDays === 'number' && Number.isFinite(imminentDays) && imminentDays >= 0;
+        const next = { ...this.creditWindowCache };
+        /**
+         * ⚠️⚠️ **必须保留 `subagent`**（2026-11-24 用户报障，真缺陷）。
+         *
+         * ## 症状（用户原话）
+         *
+         * > 「档次窗口中，只要在模型下拉框重新选择模型了，点击保存后，
+         * >   档次窗口中的短期和临期天数就会自动回归默认」
+         *
+         * ## 根因
+         *
+         * 只改模型时 `credits.window.set` 收到的是**只有 `subagent` 的载荷**
+         * ⇒ 本函数拿到 `setting === undefined`（因为 RPC 在
+         * 「两个天数都没传」时传 `undefined`）⇒ 走下面的 `delete next[provider]`
+         * ⇒ **整条记录被删** ⇒ 窗口天数回到内置默认。
+         *
+         * 更隐蔽的是：删掉之后 `subagent` 也没了，但子代理设置是**同一次请求**
+         * 刚写进去的 —— 两个功能互相踩。
+         *
+         * ## 修法
+         *
+         * 删键前先看**是否还有 `subagent`**：有就只删两个天数、保留 subagent；
+         * 都没有才整条删（避免留下空对象噪音）。
+         */
+        const existingSubagent = next[provider]?.subagent;
+        if (!validWindow && !validImminent) {
+            /**
+             * 「恢复默认」语义：删掉两个天数。
+             *
+             * ⚠️ 但**不能**连 `subagent` 一起删 —— 那是另一个功能的设置，
+             * 用户点「恢复默认」针对的是窗口天数。
+             */
+            if (existingSubagent !== undefined) {
+                next[provider] = { subagent: existingSubagent };
+            }
+            else {
+                // 恢复默认：删键（不留空对象噪音）
+                if (next[provider] === undefined)
+                    return;
+                delete next[provider];
+            }
+        }
+        else {
+            next[provider] = {
+                ...(validWindow ? { windowDays: windowDays } : {}),
+                ...(validImminent ? { imminentDays: imminentDays } : {}),
+                /**
+                 * ⚠️ **必须带上 `subagent`**（与上面同一个「整体替换」陷阱）。
+                 *
+                 * 漏这一行 ⇒ 任何一次「只改窗口天数」的保存都会静默抹掉子代理设置
+                 * （用户会看到「我设的子代理模型又变回去了」，且零报错）。
+                 */
+                ...(existingSubagent === undefined ? {} : { subagent: existingSubagent }),
+            };
+        }
+        this.creditWindowCache = next;
+        this.loaded = true;
+        if (this.store.kind === 'memory') {
+            this.ctx.logger?.warn?.('[jet-hub] 无持久化后端，分档窗口设置仅本次会话有效');
+            return;
+        }
+        await this.queueStoreSave();
+    }
+    /**
+     * ★★★ **取某 provider 的子代理设置**（2026-11-23）。
+     *
+     * ⚠️ 每次现读，不缓存（与 `preferredRotationFor` 同款）：用户随时可能在面板上改。
+     *
+     * @returns `undefined` = 没配子代理设置 ⇒ 调用方走主代理逻辑（与加本功能之前逐字节相同）
+     */
+    subagentRotationFor(provider) {
+        this.ensureLoaded();
+        if (provider.length === 0)
+            return undefined;
+        return this.creditWindowCache[provider]?.subagent;
+    }
+    /**
+     * 写子代理设置（`undefined` = 清除）。
+     *
+     * ⚠️ **合并语义**：只传 `subagent` 时**不动** `windowDays` / `imminentDays`。
+     * 这是刻意的 —— 用户在「子代理」那块点保存，不该顺带把窗口天数重置。
+     */
+    async setSubagentRotation(provider, setting) {
+        this.ensureLoaded();
+        if (provider.length === 0)
+            return;
+        const next = { ...this.creditWindowCache };
+        const current = next[provider];
+        const clean = sanitizeSubagentRotation(setting);
+        if (clean === undefined) {
+            if (current === undefined || current.subagent === undefined)
+                return;
+            const rest = {
+                ...(current.windowDays === undefined ? {} : { windowDays: current.windowDays }),
+                ...(current.imminentDays === undefined ? {} : { imminentDays: current.imminentDays }),
+            };
+            /**
+             * ⚠️ 去掉 subagent 后若**只剩空对象**，整条删键
+             *（否则会留下一个永不消费的噪音 provider 键）。
+             */
+            if (rest.windowDays === undefined && rest.imminentDays === undefined)
+                delete next[provider];
+            else
+                next[provider] = rest;
+        }
+        else {
+            next[provider] = { ...(current ?? {}), subagent: clean };
+        }
+        this.creditWindowCache = next;
+        this.loaded = true;
+        if (this.store.kind === 'memory') {
+            this.ctx.logger?.warn?.('[jet-hub] 无持久化后端，子代理设置仅本次会话有效');
+            return;
+        }
+        await this.queueStoreSave();
+    }
+    /**
+     * ★★★ **按 sessionId 反查它属于哪个 provider**（2026-11-24）。
+     *
+     * ## 为什么需要
+     *
+     * `subagent/end` 事件的 payload **只有 `id`**（子代理会话 id），
+     * **没有 provider** —— 而 `recordSubagentEnd(provider, sessionId)` 需要它。
+     *
+     * 分配表的结构是「provider → sessionId → 记录」⇒ 反查要遍历 provider 键。
+     *
+     * ## ⚠️ 为什么允许遍历
+     *
+     * provider 数量是**个位数**（本机 10 家左右），而分配表每个 provider 至多
+     * 128 条 ⇒ 最坏 1280 次键查找，且只在 `subagent/end` 时跑一次
+     * （子代理结束时），不在热路径上。
+     *
+     * @returns 找到的 provider 列表（**理论上 1 个**，但同一 sessionId
+     *   在多家各有一条记录时会是多个 —— 那种情况全部标记，不漏）
+     */
+    providersOfSubagentSession(sessionId) {
+        if (typeof sessionId !== 'string' || sessionId.length === 0)
+            return [];
+        this.ensureLoaded();
+        const hits = [];
+        for (const [provider, table] of Object.entries(this.subagentAssignmentCache)) {
+            if (table[sessionId] !== undefined)
+                hits.push(provider);
+        }
+        return hits;
+    }
+    /** 取某 provider 的子代理分配表（**只读快照**）。 */
+    subagentAssignmentsFor(provider) {
+        this.ensureLoaded();
+        return this.subagentAssignmentCache[provider] ?? {};
+    }
+    /** 取单个子代理的分配（热路径：每次 `resolveCredential` 都会问）。 */
+    subagentAssignmentOf(provider, sessionId) {
+        if (typeof sessionId !== 'string' || sessionId.length === 0)
+            return undefined;
+        this.ensureLoaded();
+        return this.subagentAssignmentCache[provider]?.[sessionId];
+    }
+    /**
+     * 记录一个子代理分配（`subagent/start` 时调）。
+     *
+     * @returns 实际分配的 slot（幂等：已存在则返回原 slot）
+     */
+    async recordSubagentStart(provider, sessionId, parentSessionId, now) {
+        this.ensureLoaded();
+        if (provider.length === 0 || sessionId.length === 0)
+            return -1;
+        const current = this.subagentAssignmentCache[provider] ?? {};
+        const existing = current[sessionId];
+        /**
+         * ⚠️ 幂等：resume 会重复发 `subagent/start`，此时**保留原 slot**
+         *（否则同一个子代理会越跑越往后挪，浪费已分配的账号）。
+         */
+        const slot = existing === undefined ? nextSubagentSlot(current) : existing.slot;
+        const next = recordSubagentAssignment(current, sessionId, parentSessionId, slot, now);
+        /**
+         * ⚠️⚠️ **同步更新缓存，必须在 `await` 之前**（2026-11-24 实测修正）。
+         *
+         * ## 为什么
+         *
+         * 调用方（`resolveCredential`）在**同一个函数内**紧接着就读
+         * `subagentAssignmentOf()` 算起点。若缓存更新排在 `await queueStoreSave()`
+         * 之后，那次同步读取拿到的是**旧值**（`undefined`）
+         * ⇒ 子代理的第一发请求必然用主代理起点。
+         *
+         * ⇒ 缓存赋值**不依赖任何 await**，落盘才是异步的。
+         */
+        this.subagentAssignmentCache = { ...this.subagentAssignmentCache, [provider]: next };
+        /**
+         * ★★★ **只在「分配真的变了」时才落盘**（2026-11-24 第四轮审计「性能」）。
+         *
+         * ## 原缺陷（上游原话）
+         *
+         * > 「**每请求重复登记一次 ⇒ 每请求写一次 `state.json`**」
+         *
+         * `resolveCredential` 是**每一发请求**都跑的，而它在开头的登记块里
+         * **无条件**调 `recordSubagentStart` —— 即使这个子代理早已登记过，
+         * 上一版照样 `await queueStoreSave()` ⇒ **每发请求写一次盘**。
+         *
+         * ## ⚠️ 判据**不能**用 `next !== current`（我第一版就这么写，实测无效）
+         *
+         * `recordSubagentAssignment` 的实现是
+         * `return { ...assignments, [sessionId]: {...} }` —— **永远返回新对象**
+         * ⇒ 引用比较恒 `true` ⇒ 等于没加守卫（实测 mtime 照样每次都变）。
+         *
+         * ## 正确判据：**该条目是否已存在且内容等价**
+         *
+         * | 情况 | 该落盘? |
+         * |---|---|
+         * | 该 sessionId **没登记过** | ✅ 要（新分配）|
+         * | 已登记，且 `parentSessionId` / `slot` / `ended` 都没变 | ❌ **不要** |
+         * | 已登记，但 `ended` 需要复位（resume）| ✅ 要 |
+         *
+         * ⚠️ `at` **不参与比较**：`recordSubagentAssignment` 对已存在记录
+         *    **刻意保留原 `at`**（淘汰按它排序，resume 刷新会让长期子代理永不淘汰）
+         *    ⇒ 它本来就不会变。
+         */
+        const nextEntry = next[sessionId];
+        const changed = existing === undefined
+            || nextEntry === undefined
+            || nextEntry.parentSessionId !== existing.parentSessionId
+            || nextEntry.slot !== existing.slot
+            || (nextEntry.ended === true) !== (existing.ended === true);
+        this.subagentAssignmentCache = { ...this.subagentAssignmentCache, [provider]: next };
+        if (changed && this.store.kind !== 'memory')
+            await this.queueStoreSave();
+        return slot;
+    }
+    /** 标记子代理结束（`subagent/end` 时调）。**不清除记录**（见 `markSubagentEnded` 的注释）。 */
+    async recordSubagentEnd(provider, sessionId) {
+        this.ensureLoaded();
+        const current = this.subagentAssignmentCache[provider];
+        if (current === undefined)
+            return;
+        const next = markSubagentEnded(current, sessionId);
+        if (next === current)
+            return;
+        this.subagentAssignmentCache = { ...this.subagentAssignmentCache, [provider]: next };
+        if (this.store.kind !== 'memory')
+            await this.queueStoreSave();
+    }
+    /**
+     * ★★★ **钉住某子代理的账号**（2026-11-24 用户要求：拉起时定死）。
+     *
+     * ## 为什么要钉
+     *
+     * > 「我是希望『拉起时定死，只有该号不可用才换』，
+     * >   这样可以保证子代理的缓存命中率高，如果频繁换帐号，缓存命中率就低了。」
+     *
+     * 原理：prompt cache 按（账号 + 模型 + 前缀）命中 ⇒ 换号即缓存全失效。
+     *
+     * ⚠️ **同步更新缓存**（与 `recordSubagentStart` 同纪律）：调用方紧接着
+     * 还要读它，不能等落盘。
+     *
+     * @returns `true` = 有新值（同值返回 `false`，调用方据此跳过重复写盘）
+     */
+    async pinSubagentAccount(provider, sessionId, accountId) {
+        this.ensureLoaded();
+        if (provider.length === 0 || sessionId.length === 0 || accountId.length === 0)
+            return false;
+        const current = this.subagentAssignmentCache[provider];
+        if (current === undefined)
+            return false;
+        const next = pinSubagentAccount(current, sessionId, accountId, Date.now());
+        /** ⚠️ 同值 ⇒ 原对象返回 ⇒ 这里判等跳过落盘（避免每发请求都写一次磁盘）。 */
+        if (next === current)
+            return false;
+        this.subagentAssignmentCache = { ...this.subagentAssignmentCache, [provider]: next };
+        if (this.store.kind !== 'memory')
+            await this.queueStoreSave();
+        return true;
+    }
+    /**
+     * ★★★ **记录用户手动选的账号**（2026-11-24 用户定 B 方案）。
+     *
+     * 语义：用户在该子代理对话页面手动选起点时，写这个字段；
+     * 它的优先级**高于** `pinnedAccountId`（见 `credential-resolver.ts`）。
+     *
+     * ⚠️ 主代理没有分配记录 ⇒ `setUserPickedAccount` 原样返回 ⇒ 无副作用。
+     *
+     * ⚠️ **同步更新缓存**（与 `pinSubagentAccount` 同纪律）：调用方紧接着
+     * 还要读它（回传 `selected`），不能等落盘。
+     *
+     * @param accountId - `undefined` = 清除手动选择（回落到 pin）
+     * @returns `true` = 有新值（同值返回 `false`，调用方据此跳过重复写盘）
+     */
+    async setUserPickedAccount(provider, sessionId, accountId) {
+        this.ensureLoaded();
+        if (provider.length === 0 || sessionId.length === 0)
+            return false;
+        const current = this.subagentAssignmentCache[provider];
+        if (current === undefined)
+            return false;
+        const next = setUserPickedAccount(current, sessionId, accountId, Date.now());
+        /** ⚠️ 同值 ⇒ 原对象返回 ⇒ 跳过落盘。 */
+        if (next === current)
+            return false;
+        this.subagentAssignmentCache = { ...this.subagentAssignmentCache, [provider]: next };
+        if (this.store.kind !== 'memory')
+            await this.queueStoreSave();
+        return true;
+    }
+    /**
+     * ★ **轮换起点选定那一刻的档位**（S6，2026-11-20）。
+     *
+     * 返回 `undefined` **只有一种含义**：该会话没配起点。
+     *
+     * ## ⚠️ 2026-11-20 收窄：不再有「老数据无快照」这一支
+     *
+     * 用户决定「最彻底：清除已选的起点」⇒ `sanitizePreferredRotation` 会丢弃
+     * 一切没有 `tierAtSelection` 的条目 ⇒ 缓存里**只要有条目，档位必然存在**。
+     * ⇒ 本方法的 `undefined` 现在唯一表示「没设起点」。
+     *
+     * ⚠️ 与 {@link preferredRotationFor} 分开读：后者返回 `accountId`
+     * （消费方定位账号），本方法返回档位枚举。**签名上别造假耦合**，
+     * 将来若两者语义分叉会很难改。
+     *
+     * ⚠️ 每次现读，不缓存（与 `preferredRotationFor` 同款）。
+     */
+    rotationStartTierFor(provider, sessionId) {
+        this.ensureLoaded();
+        if (provider.length === 0)
+            return undefined;
+        if (typeof sessionId !== 'string' || sessionId.length === 0)
+            return undefined;
+        const entry = this.preferredRotationCache[provider]?.[sessionId];
+        return entry?.tierAtSelection;
+    }
+    /**
+     * 「轮换起点」：某 provider 在某**会话**下指定的起始账号 id。
+     *
+     * `undefined` = 默认起点（不干预）。**只挪起点，不改任何选号策略**。
+     *
+     * ⚠️ 空 `sessionId` 恒返回 `undefined` —— 空串会让「默认」与「某会话」撞成同一个键。
+     * ⚠️ **每次现读，不缓存**：用户随时可能在面板上改。
+     * ⚠️ 返回的 id **可能已失效**（账号被删/停用）：本方法不做存在性校验，
+     *    消费方按「找不到就原样」处理（见 `rotateFromPreferred`）。
+     */
+    preferredRotationFor(provider, sessionId) {
+        this.ensureLoaded();
+        if (provider.length === 0)
+            return undefined;
+        if (typeof sessionId !== 'string' || sessionId.length === 0)
+            return undefined;
+        const entry = this.preferredRotationCache[provider]?.[sessionId];
+        if (entry === undefined)
+            return undefined;
+        /**
+         * ⚠️ **只数「启用」账号**（与下拉框、`account.getRotation` 同口径）。
+         *    停用账号在 UI 上根本不出现，若把它算进位次会让两边错位。
+         */
+        const enabled = this.readAccounts()
+            .filter((a) => a.provider === provider && a.enabled !== false);
+        /**
+         * **位次 → 当前账号**（用户 2026-11-10 要求「跟随位次」）。
+         *
+         * ## ⚠️ 2026-11-20 起这里**只有一种格式**
+         *
+         * 旧版曾在此处判三种历史形态（裸字符串 / `{accountId,at}` / `{position,at}`），
+         * 其中裸字符串那支还踩过 `'accountId' in entry` 抛 TypeError 的真实缺陷。
+         *
+         * 现在 `sanitizePreferredRotation` **丢弃**一切没有 `position` 或没有
+         * `tierAtSelection` 的条目（用户决定「最彻底：清除已选起点」）⇒
+         * 缓存里只可能是 `{ position, at, tierAtSelection }` ⇒
+         * 那段兼容代码已**无消费可能**，随本次改动一起删除。
+         *
+         * ⚠️ 三条边界**全部回落默认**，绝不 clamp —— clamp 会在账号变少时
+         *    **静默**把设置挪到别的号上，而「回落默认」至少是用户能理解的行为。
+         */
+        const index = entry.position - 1;
+        if (index < 0 || index >= enabled.length)
+            return undefined;
+        return enabled[index].id;
+    }
+    /**
+     * 写入「轮换起点」；`position` 传 `null` = 恢复默认起点。
+     *
+     * @param tierAtSelection - ★ **选定那一刻的档位**（S6，2026-11-20）。
+     *   落盘后用于判断「起点那一档是否已烧完」。`undefined` = 不知道
+     *   （老客户端 / 老数据）⇒ 消费方回落 S5 语义。
+     *
+     * ⚠️ 与 {@link setStrictManualOrder} 同款：走同一条写队列（`queueStoreSave`），
+     * 不能自己 `store.save(...)` —— 那会与账号/黑名单的写入乱序覆盖。
+     * ⚠️ 稀疏表：`null` 时**删键**，整层空了连 provider 层一起删
+     *    （与 `sanitizePreferredRotation`「空层不保留」对称）。
+     */
+    async setPreferredRotation(provider, sessionId, position, 
+    /**
+     * ★ **选定那一刻的档位**（S6 必填，2026-11-20）。
+     *
+     * ⚠️ `position === null`（恢复默认）时**忽略本参数**；其余情况**必须提供**
+     * —— 没有档位的条目会被 `sanitizePreferredRotation` 丢弃，等于白写。
+     * 故这里的类型是「`position` 非空时必填」，但 TS 无法表达这种依赖，
+     * 运行时兜底：`position !== null && tierAtSelection === undefined` ⇒ 直接 return（不写脏数据）。
+     */
+    tierAtSelection) {
+        this.ensureLoaded();
+        if (provider.length === 0 || sessionId.length === 0)
+            return;
+        // ⚠️ 位次必须是正整数（1-based）；`null` = 恢复默认
+        if (position !== null && (!Number.isInteger(position) || position < 1))
+            return;
+        /**
+         * ⚠️ **设起点却没给档位 ⇒ 拒绝写入**（2026-11-20）。
+         *
+         * 写进去也会被 `sanitizePreferredRotation` 丢掉（它要求档位必填），
+         * 结果是「RPC 回 ok、但设置没生效」—— 那种静默失败最难排查。
+         * ⇒ 在源头就 return，让调用方看到「没有变化」。
+         */
+        if (position !== null && tierAtSelection === undefined)
+            return;
+        const current = this.preferredRotationCache[provider]?.[sessionId];
+        const currentPosition = current?.position ?? null;
+        /**
+         * ⚠️ **档位变了也要写**：只比较位次会在「用户重选同一位次、但该号档位
+         * 已变化」时不落盘 ⇒ 快照过期 ⇒ 新语义按错误的档位判断。
+         */
+        const currentTier = current?.tierAtSelection;
+        if (position === currentPosition && tierAtSelection === currentTier)
+            return;
+        const next = { ...this.preferredRotationCache };
+        const sessions = { ...(next[provider] ?? {}) };
+        // ⚠️ 写入时**带上 at**：淘汰按它排序（见 `prunePreferredRotation`）。
+        if (position === null)
+            delete sessions[sessionId];
+        else if (tierAtSelection !== undefined) {
+            sessions[sessionId] = { position, at: Date.now(), tierAtSelection };
+        }
+        if (Object.keys(sessions).length > 0)
+            next[provider] = sessions;
+        else
+            delete next[provider];
+        this.preferredRotationCache = sanitizePreferredRotation(next);
+        this.loaded = true;
+        if (this.store.kind === 'memory') {
+            this.ctx.logger?.warn?.('[jet-hub] 无持久化后端，轮换起点仅本次会话有效');
             return;
         }
         await this.queueStoreSave();
@@ -2082,6 +2671,20 @@ export class AccountPool {
             await this.ctx.credentials.unset(credentialRef(entry.credentialRef));
         }
         catch { /* 凭据可能已被删除 */ }
+        /**
+         * Qoder 的网页会话 Cookie 与领取记录存在独立条目里，随账号一并清理。
+         *
+         * ⚠️⚠️ **后缀必须走 `qoderWebRefName()`，不许在这里内联 `${ref}_web`**
+         * （2026-11-14 对抗审计 P2-⑥；本仓红线「同一判据只留一份实现」）：两处各拼一次
+         * 时，将来改命名规则（比如加版本后缀）会只改一处 ⇒ 删号时**漏清 Cookie**，
+         * 而漏清是**静默**的（没人看得到凭据库里多了一条能登录官网的会话）。
+         */
+        if (entry.provider === 'qoder' || entry.provider === 'qodercn') {
+            try {
+                await this.ctx.credentials.unset(credentialRef(qoderWebRefName(entry.credentialRef)));
+            }
+            catch { /* 本就不存在 */ }
+        }
         // ⚠ **必须重新读一次**（真实缺陷，审查发现）：`credentials.unset` 会挂起若干
         // 微任务/IO，期间并发的 `addAccount` 已经把新条目写进 `this.cache` 与磁盘。
         // 若此时拿 `await` **之前**的快照做 filter 再整体写回，那个新账号会被静默丢失
@@ -2387,6 +2990,52 @@ export class AccountPool {
         return false;
     }
     /**
+     * ★★★ **该 provider 是否有「已登录**且启用**」的账号**（2026-11-20，真实启动卡顿修复）。
+     *
+     * ## 它与 {@link hasLoggedInAccount} 的唯一差别：**看 `enabled`**
+     *
+     * | 方法 | 判据 | 用途 |
+     * |---|---|---|
+     * | `hasLoggedInAccount` | 凭据可解析（**不看 enabled**）| 目录**展示**门控（既有语义，**不要改它**）|
+     * | **本方法** | 凭据可解析 **且** `enabled !== false` | 判断「这个 provider 值不值得为它拉目录」|
+     *
+     * ## 为什么必须新增而不是改 `hasLoggedInAccount`
+     *
+     * `hasLoggedInAccount` 刻意不看 `enabled`，理由写在它的注释里：
+     * 「停用只应影响自动选号，与是否已登录无关」（与续期调度器同一条约定）。
+     * 那条语义是**对的**，不能动。
+     *
+     * 但**目录拉取**是另一回事：一个被用户**主动停用**的 provider，其目录
+     * 拉下来也没人看，却要付真实代价 —— 实测（本机）：
+     *
+     * ```
+     * cline: 账号已停用但凭据还在 ⇒ 通过 hasLoggedInAccount 门控
+     *        ⇒ 真的去拉「两个端点 + models.dev」
+     *        ⇒ models.dev 实测 25 秒超时、MODELS_DEV_TIMEOUT_MS=90s、重试 3 次
+     *        ⇒ 首屏被拖到 60 秒+
+     * ```
+     *
+     * ⇒ 目录拉取的判据应当比「展示」更严：**停用的 provider 不拉目录**。
+     *
+     * ⚠️ **不影响**「停用账号也能测试/重测」那条既有能力 —— 那些路径走的是
+     * `resolveCredentialForAccount`（按 id 显式探测），与本方法无关。
+     *
+     * ⚠️ 无账号 / 全部停用 ⇒ `false`；读凭据异常 ⇒ 保守返回 `true`
+     *（宁可多拉一次，也不要让目录因一次读取抖动而消失 —— 与
+     * `providerCatalogVisible` 的保守方向一致）。
+     */
+    async hasEnabledLoggedInAccount(provider) {
+        for (const entry of this.listAccountsByProvider(provider)) {
+            // ★ 与 hasLoggedInAccount 的唯一差别：跳过停用账号。
+            if (entry.enabled === false)
+                continue;
+            const credential = await this.resolveCredentialByRef(entry.credentialRef);
+            if (credential !== undefined)
+                return true;
+        }
+        return false;
+    }
+    /**
      * 按账号 id 解析凭据（**不检查 enabled**）。
      *
      * 限流重测必须能对已停用账号发请求（用户明确要求"停用的账号也能发送"），
@@ -2570,7 +3219,14 @@ export class AccountPool {
      * 还有测试桩与 `ResolverPool` 这类结构化替身，去掉默认值会让它们全部编译失败，
      * 而它们本就不关心具体形状。
      */
-    async getAvailableAccount(provider, modelId, excludeAccountIds) {
+    async getAvailableAccount(provider, modelId, excludeAccountIds, 
+    /**
+     * 「轮换起点」：本会话指定的起始账号 id（可选；`undefined` = 默认起点）。
+     *
+     * ⚠️ **只旋转，不增删** —— 它不可用时仍会选中别的号（`tried` 循环照旧）。
+     * ⚠️ 本路径**没有余额档位**（候选已过 enabled / 封禁 / 限流）⇒ 纯旋转即可。
+     */
+    rotationStartId) {
         const candidates = this.candidateAccounts(provider, modelId, excludeAccountIds);
         if (candidates.length === 0)
             return null;
@@ -2584,7 +3240,7 @@ export class AccountPool {
         //
         // 注意 candidates 来自 readAccounts() 的 filter，而 filter 保持原数组
         // 顺序，故这里天然就是手动顺序，无需任何排序。
-        return await this.resolveFirstCredential(provider, candidates);
+        return await this.resolveFirstCredential(provider, rotateFromAccountId(candidates, rotationStartId));
     }
     /**
      * 按 **sessionId** 选号（ZCode 专用，2026-10-30 用户要求）。
@@ -2627,11 +3283,37 @@ export class AccountPool {
         return await this.resolveFirstCredential(provider, ordered);
     }
     /**
+     * 把**外部已经选好的**候选序列按会话亲和 + 溢出均衡重排（纯排序，不取凭据）。
+     *
+     * 用途：槽制 provider（marvis，2026-11-17 用户要求「11 个号要真轮流分担」）
+     * 的候选是接线层自己拼的（凭据要解析成 `MarvisCredential` 并塞进请求头），
+     * 没法复用 {@link getAvailableAccountForSession} 的「取第一个」语义 —— 它需要
+     * 的是**完整有序序列**，因为适配器要在一轮里按序换号重发。
+     *
+     * 排序语义与 {@link getAvailableAccountForSession} **完全一致**（同一份
+     * `rankAccountsBySessionWithOverflow` + 同一份 {@link sessionLoadIndex} 兜底），
+     * 差别只在「返回全部」而不是「返回第一个」：
+     * - `sessionId` 非空 ⇒ rendezvous 哈希亲和 + 达阈值账号沉底；
+     * - `sessionId` 空/未传 ⇒ 按传入顺序原样返回（**不洗牌**：调用方若是槽制接线层，
+     *   原样返回才等于「手动顺序优先」的既有语义；要不要随机由调用方决定）。
+     *
+     * ⚠️ 与 {@link getAvailableAccountForSession} 的区别：本方法**不做**候选过滤
+     * （`enabled` / 封禁 / 模型限流）—— 那是调用方的事（marvis 接线层已经滤过
+     * 一遍，含 `modelRateLimits`）。这里只负责**顺序**。
+     */
+    orderAccountsForSession(provider, accounts, sessionId) {
+        if (sessionId === undefined || sessionId.length === 0)
+            return [...accounts];
+        if (accounts.length <= 1)
+            return [...accounts];
+        return rankAccountsBySessionWithOverflow(accounts, sessionId, provider, this.sessionLoadIndex(provider), overflowRequestsThreshold());
+    }
+    /**
      * 今日账号负载索引（`provider` 维度）；任何读取异常都退化为**空表**。
      *
      * 抽成方法是为了让「失败兜底」只有一份实现（`getAvailableAccountForSession`
-     * 与将来的调用点共用），也让单测能单独验证兜底语义（见
-     * `tests/unit/session-balance.spec.ts` 的「账本读取抛错」用例）。
+     * / `orderAccountsForSession` 与将来的调用点共用），也让单测能单独验证兜底语义
+     * （见 `tests/unit/session-balance.spec.ts` 的「账本读取抛错」用例）。
      */
     sessionLoadIndex(provider) {
         try {
@@ -3479,11 +4161,32 @@ export async function providerCatalogVisible(accountPool, provider) {
         return true;
     if (accountPool === undefined)
         return true;
-    // 能力检测：单测替身通常只 mock 了 disabledModelsFor 等少量方法。
-    if (typeof accountPool.hasLoggedInAccount !== 'function')
-        return true;
+    /**
+     * ★★★ **2026-11-20：优先用「已登录**且启用**」判据**（真实启动卡顿修复）。
+     *
+     * 改前只查 `hasLoggedInAccount`（**不看 `enabled`**）⇒ **停用账号挡不住门控**
+     * ⇒ 本机 `cline`（账号已停用但凭据还在）照样去拉目录 ⇒ 拉 models.dev
+     * ⇒ 实测 25 秒超时 × `MODELS_DEV_TIMEOUT_MS=90s` × 3 次重试 ⇒ **首屏 60 秒+**。
+     *
+     * ⚠️ **语义变化（有意为之）**：停用账号的 provider 现在**不展示模型**。
+     * 这与用户预期一致（他主动停用了），且「停用 ≠ 登出」—— 重新启用即恢复。
+     * ⚠️ `hasLoggedInAccount` 的「不看 enabled」语义**保持不变**，它仍服务于
+     * 其它调用方；本函数只是改用更严的那个判据。
+     */
+    const strict = accountPool.hasEnabledLoggedInAccount;
+    if (typeof strict !== 'function') {
+        // 单测替身只 mock 了旧方法 ⇒ 退回既有判据（不改变替身行为）。
+        if (typeof accountPool.hasLoggedInAccount !== 'function')
+            return true;
+        try {
+            return await accountPool.hasLoggedInAccount(provider);
+        }
+        catch {
+            return true;
+        }
+    }
     try {
-        return await accountPool.hasLoggedInAccount(provider);
+        return await strict.call(accountPool, provider);
     }
     catch {
         // 读凭据异常（存储损坏等）时保守展示：宁可多显示，也不要让用户

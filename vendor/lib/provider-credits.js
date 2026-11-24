@@ -62,8 +62,9 @@ import { fetchGeminiCreditBalance } from './gemini-credits.js';
 import { claimLobsteraiDailyCheckin, fetchLobsteraiCreditBalance } from './lobsterai-credits.js';
 import { claimLoomyDailyQuota, fetchLoomyCreditBalance } from './loomy-credits.js';
 import { claimMinimaxDailyCheckin, fetchMinimaxCreditBalanceDetailed, fetchMinimaxSigninStatus, } from './minimax-credits.js';
-import { fetchRaccoonCreditBalance } from './raccoon-credits.js';
+import { claimRaccoonDailyCheckin, fetchRaccoonCreditBalance } from './raccoon-credits.js';
 // ⚠️ **本 fork 独有**（魔搭，2026-10-17）：魔粒余额原语。
+import { claimModelscopeDaily } from './modelscope-checkin.js';
 import { fetchModelscopeBalanceDetailed } from './modelscope-credits.js';
 import { MODELSCOPE } from './modelscope-product.js';
 // ⚠️ 腾讯 Marvis（2026-11-09）：钱包余额原语（`/v3/marvis_get_wallet`）。
@@ -79,11 +80,17 @@ import { MAGICREW, MAGICREW_INTL } from './magicrew-product.js';
 // 2026-10-20 起接每日签到（`/api/points/check-in`，实测 200）。
 import { claimCodelyDailyCheckIn, fetchCodelyBalanceDetailed } from './codely-credits.js';
 import { fetchAccioBalanceDetailed } from './accio-credits.js';
+// ⚠️ AgnesCode（2026-11-19）：订阅积分池（两个标量桶，无逐笔日期）。
+import { fetchAgnescodeBalanceDetailed } from './agnescode-credits.js';
+import { AGNESCODE, AGNESCODE_INTL } from './agnescode-product.js';
 import { fetchAstudioBalanceDetailed, claimDaily } from './astudio-credits.js';
+// ⚠️ **本 fork 独有**（豆包，2026-10-29）：签到/余额原语（端点待实测，如实 inactive）。
+import { claimDoubaoDailyCheckin, fetchDoubaoBalanceDetailed } from './doubao-credits.js';
 import { fetchAutoclawBalanceDetailed, claimAutoclawDailyQuota } from './autoclaw-credits.js';
 import { AUTOCLAW_INTL } from './autoclaw-product.js';
 import { fetchTraeCreditBalance, claimTraeDailyCheckin, fetchTraeCheckinStatus } from './trae-credits.js';
 import { collectBuddyGrowth } from './buddy-growth.js';
+import { keepWorkBuddyIntlActivity } from './workbuddy-intl-activity.js';
 import { fetchZcodeBalance } from './zcode-upstream.js';
 import { claimDailyCheckin, fetchCheckinStatus, fetchCreditBalance, } from './credits.js';
 import { participateTraeLottery } from './trae-lottery.js';
@@ -386,9 +393,21 @@ export function createProviderCredits(deps = {}) {
          * ⚠️ 用 {@link ProviderCredits.fetchBalanceDetailed}：三种失败的**用户动作**
          * 完全不同（Key 失效 → 重生成；端点侧拒绝 → 多半是账号未实名，换 Key 无用；
          * 缺字段 → 上游改版该报「读数格式变了」），压成笼统的「查询失败」会误导。
+         *
+         * ⚠️⚠️ **`precheckStatus: false` 的理由（2026-11-15，PR #83）：本家必须在账本上
+         * 预检，不是查状态端点。** `claimModelscopeDaily` 自己先读一遍发放记录，
+         * 只要今天已经有 `daily_active`（且金额 > 0）就直接返回 `already-claimed`，
+         * **一次登录请求都不发**。外部再走一遍 `CheckinStatus` 只会多打一次上游
+         * —— 而本家唯一的状态来源就是同一份发放记录，等于把同一个请求发两遍。
+         *
+         * ⚠️ 反过来也成立：**「不发登录请求」这条约束只有 claim 内部守得住**
+         * （外部预检看不见「今天已到账但 `CheckinStatus` 未就绪」这个中间态）。
+         * 所以这一格**不要**照抄 `codearts`/`autoclaw` 那几家的 `true`。
          */
         modelscope: {
             fetchBalanceDetailed: async (credential) => fetchModelscopeBalanceDetailed(credential, MODELSCOPE),
+            precheckStatus: false,
+            claim: (credential) => claimModelscopeDaily(credential),
         },
         /**
          * 腾讯 Marvis（2026-11-09）：**本 fork 独有**。
@@ -516,16 +535,32 @@ export function createProviderCredits(deps = {}) {
                 return balance === null ? fail('积分查询失败（凭据失效或响应异常）') : ok(balance);
             },
             /**
-             * ⚠️ **raccoon 没有签到端点**：每日 300 积分由服务端按日自动发放
-             *（账单里的 `daily_grant`，实测注册后 1 分钟即到账）⇒ **刻意不提供 `claim`**。
-             * 客户端按能力矩阵（`raccoon: { balance: true, onboardingTasks: true }`，
-             * **无** `dailyCheckin`）根本不会渲染「一键领取积分」按钮。
+             * 每日签到 = **办公端 `setting_info` 结算触发器** + 余额差核对。
              *
-             * ⚠️ 文案**逐字保留**，含那句可操作指引「登录奖励请在『新手任务』中领取」
-             * —— 用户看完才知道下一步该点哪里（压成泛化模板会丢掉它）。
+             * ## ⚠️⚠️ 旧注释「raccoon 没有签到端点」已作废（2026-11-15 真实账号复验）
+             *
+             * 原依据「`/points/v1|v2` 下 `sign_in` / `check_in` / `daily` 全 404」
+             * **仍然成立**，但结论下早了 —— 每日积分的触发器在**办公端**：
+             * `GET /api/web/office/v3/setting_info` 带桌面端身份头访问一次，服务端就
+             * **按天幂等**结算当日每日积分。实测（2026-11-16 00:14 UTC+8，3 个真实
+             * 账号）三个账号的 `available_points` 各 **+300**，响应带
+             * `point_grant_popups: [{source:'daily', points:300}]`；紧接着再调一次
+             * ⇒ `popups: []` + 余额不变。
+             *
+             * ⚠️ 走实例方法（`deps.raccoon.claimDailyCheckin`）以保留注入的
+             * `fetchImpl`；未传实例时回退到自由函数，与余额查询同一条口径。
+             * ⚠️ 必须 `precheckStatus: false`：本渠道**没有**与 `CheckinStatus` 同构的
+             * 状态端点（签到状态判据在余额差 / 账单里），而骨架默认值 `true` 会拿
+             * **buddy 式**的 `fetchCheckinStatus` 去打 Raccoon 端点 —— 一次**必然失败的
+             * 真实上游请求**（与 loomy 同型）。幂等由服务端按天保证，不需要外部预检。
              */
-            claimUnavailableReason: 'Raccoon Work 不支持每日签到（每日积分由服务端自动发放；'
-                + '登录奖励请在「新手任务」中领取）',
+            claim: async (credential) => {
+                const viaInstance = deps.raccoon?.claimDailyCheckin;
+                return typeof viaInstance === 'function'
+                    ? await viaInstance.call(deps.raccoon, credential)
+                    : await claimRaccoonDailyCheckin(RACCOON, credential);
+            },
+            precheckStatus: false,
         },
         /**
          * Accio（阿里）：三个**只读**端点聚合出的带原因余额。
@@ -590,6 +625,27 @@ export function createProviderCredits(deps = {}) {
         },
         accio: {
             fetchBalanceDetailed: async (credential) => await fetchAccioBalanceDetailed(credential),
+        },
+        /**
+         * 豆包：使用账号的扫码登录会话查询额度；签到继续走已有页面会话。
+         * ⚠️ 签到侧是**实测**的（`POST DOUBAO_CHECKIN_PATH` 回
+         *    `checked_in:true, reward_amount:200, continuous_days:2, idempotent:true`，
+         *    2026-11-03 真机 + `docs/agent-notes/providers-doubao.md`）。
+         *    ⚠️ 此前本段注释写「上游端点待实测」「本家没有独立的签到状态端点」两句
+         *    **都是错的**（2026-11-13 审计 P2 更正）：状态端点确实存在
+         *    （`DOUBAO_CHECKIN_STATUS_PATH = '/alice/ug/campaign/landing/get'`，
+         *    被 `buildCheckinPageScript` 真请求），只是它**不能短路签到**。
+         */
+        doubao: {
+            fetchBalanceDetailed: async (credential) => await fetchDoubaoBalanceDetailed(credential),
+            claim: async (credential) => await claimDoubaoDailyCheckin(credential),
+            // ⚠️ `precheckStatus: false` 的**真实理由**（2026-11-13 更正）：状态端点
+            //    `landing/get` 虽存在，但**已签账号也回空活动**（签完当天就没有可领对象
+            //    了，2026-11-03 实测）⇒ 据它短路会把「今天已签」误报成「没有活动」
+            //    （`src/doubao-signin.ts:214-217` 逐字记着这条）。预检拿不到确定性结论，
+            //    只会白发一次带 `a_bogus` 签名的请求（那要现场起一棵浏览器进程树）。
+            //    与 codely / loomy 同因。
+            precheckStatus: false,
         },
         /**
          * AStudio（讯飞 AstronStudio）：额度来自账号后端
@@ -802,21 +858,44 @@ export function createProviderCredits(deps = {}) {
              */
             afterClaim: (credential, entry, run) => collectBuddyGrowth(credential, CODEBUDDY, entry, run.budgetMs, run.roundDeadlineAt),
         },
+        /**
+         * WorkBuddy 国际版：**有**签到（2026-11-15 更正）。
+         *
+         * ## 为什么此前写的是「没有签到接口」
+         *
+         * 那条结论来自**只搜 CLI 内核字面量**：内核里确实只有 `get-dosage-notify`
+         * （用量通知）。但签到端点是 **IDE 前端 / 网页前端**直接调的，不在内核里，
+         * 静态搜索必然搜不到 —— 这正是 `credits.ts` 对余额端点记过的同一个坑。
+         * 社区实现（L0NE-6/WorkBuddy-Daily 的 `workbuddy_intl_daily.py`）用真实凭据
+         * 跑通了国际版全链路，端点与国内版**逐字同形**，只有 baseURL 随
+         * `product.endpoint` 切到 `www.workbuddy.ai`。实证与迁移说明见
+         * `docs/agent-notes/providers-workbuddy-intl-checkin.md`。
+         *
+         * ## 国际版与国内版的两处差异（`claim` 之外的部分）
+         *
+         * 1. 国际版的每日奖励**挂在活动上**：活动没开时 `/daily-checkin` 回 `41000`
+         *    （活动未开始或已结束），属正常状态而非失败（`credits.ts` 已归入
+         *    `inactive`）；
+         * 2. 活动没开时积分改由**活跃**异步发放 ⇒ `afterClaimNote` 补一发活跃上报
+         *    （见 `workbuddy-intl-activity.ts`）。这一发对「已签到」的账号同样要跑。
+         *
+         * ⚠️ 精确说法（PR #87 审计 P1-1）：**接线层对四种 `outcome.kind` 都会调用**
+         * `afterClaimNote`（它拿不到种类闸门），真正的闸门在实现内部首行 ——
+         * `keepWorkBuddyIntlActivity` 只对 `claimed` / `already-claimed` 发请求，
+         * `inactive` / `failed` 回 `undefined` 且**零上游请求**。
+         * 悬空不动的话，「领取失败却建了会话」这条副作用链没有任何守卫钉住。
+         */
         workbuddy: {
             fetchBalance: (credential) => fetchCreditBalance(credential, WORKBUDDY),
-            // ⚠️ 国际版**没有签到接口**，但**状态端点**与余额一样存在（两个产品通用），
-            // 故这里注册 fetchStatus。真正禁止的是 `claimAll`（那由能力表与
-            // `credits.claimAll` 的显式守卫成对拦住）。
+            // 状态端点两个产品通用，与余额一样只有 baseURL 之差。
             fetchStatus: (credential) => fetchCheckinStatus(credential, WORKBUDDY),
-            /**
-             * ⚠️ **这条守卫是载荷性的，必须有**：没有它时 `workbuddy` 会落到
-             * `credits.claimAll` 的通用分支，用**国际版**凭据去发**国内版**的签到
-             * 请求 —— 必然失败，而且是一次**真实的上游请求**。而「每日首次启动自动
-             * 签到」（`src/auto-checkin.ts`）正是靠「调 `claimAll`、按返回的信封判
-             * 跳过」来决定遍历范围的，它**不维护第二份能力名单** ⇒ 这里漏一个守卫，
-             * 它就会真去发一轮必然失败的请求。
-             */
-            claimUnavailableReason: 'WorkBuddy 国际版不支持每日签到（其后端没有签到接口）',
+            claim: (credential) => claimDailyCheckin(credential, WORKBUDDY),
+            // ⚠️ **必须**把 `outcome` 传下去并据此短路（PR #87 对抗审计 P1-1/P1-2）：
+            //    - `claimed` / `already-claimed` ⇒ 本次确实「今天已有痕迹」，才发活跃；
+            //    - `inactive`（41000 活动未开）/ `failed` ⇒ **不发**。
+            //      `inactive` 不计 `coversToday`（`auto-checkin.ts`），会自动重试；
+            //      若无条件发，中招日两个时段各发一次 ⇒ 用户账号里 **2 个 `Hi` 会话/天**。
+            afterClaimNote: (credential, _entry, _call, outcome) => keepWorkBuddyIntlActivity(credential, WORKBUDDY, outcome),
         },
         /**
          * 超级麦吉（Magicrew，2026-10-29）。
@@ -1015,6 +1094,22 @@ export function createProviderCredits(deps = {}) {
             fetchBalanceDetailed: async (credential, call) => fetchBaizhiBalanceDetailed(credential, BAIZHI, { warn: call.warn }),
             claim: (credential, _entry, call) => claimBaizhiDailyCheckin(credential, BAIZHI, { warn: call.warn }),
             precheckStatus: false,
+        },
+        /**
+         * AgnesCode 国内站（2026-11-19，本 fork 独有）。
+         *
+         * ⚠️ 两站**必须是两条 entry**（与 monkeycode / minimax 同纪律）：
+         *    `createProviderCredits` 是**按 provider id 显式登记**的表，
+         *    只写一条会让另一站的积分行恒「无余额实现」（面板显示查询失败）。
+         *    实现完全共用，只在 `product` 上分叉。
+         *
+         * ⚠️ 没有 `claim`：本家**没有**签到接口（未取证到，不凭空接一个）。
+         */
+        agnescode: {
+            fetchBalanceDetailed: async (credential) => fetchAgnescodeBalanceDetailed(AGNESCODE, credential),
+        },
+        agnescodeintl: {
+            fetchBalanceDetailed: async (credential) => fetchAgnescodeBalanceDetailed(AGNESCODE_INTL, credential),
         },
     };
 }

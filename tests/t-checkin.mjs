@@ -173,9 +173,19 @@ if (typeof toMagpieCheckin === 'function') {
     //   ① `=== ZCODE.id`  ② `=== 'magicrew'`（字符串字面量）
     //   ③ `=== CODELY_PROVIDER_ID`（裸常量，`vendor/lib/jet-hub-rpc.js` 里就有这种）
     //   ④ `['lobsterai'].includes(req.provider)`（列表写法）
-    const branches = [
-      ...seg.matchAll(/req\.provider\s*===\s*(?:([A-Z_$][\w$]*)(?:\.id)?|'([^']+)'|"([^"]+)")/g),
-    ].map((m) => m[1] ?? m[2] ?? m[3])
+    const branches = []
+    for (const m of seg.matchAll(/req\.provider\s*===\s*(?:([A-Z_$][\w$]*)(?:\.id)?|'([^']+)'|"([^"]+)")/g)) {
+      // ⚠ 2026-11-24 上游新增一类**形状相同、但不是「谁能签到」特判**的行：
+      //   `if (req.provider === MODELSCOPE.id && value.summary.claimed + … > 0)`
+      //   紧跟一行 `balanceCacheOf()?.clear(MODELSCOPE.id);`
+      //   —— 判的是「签到成功后要不要失效余额缓存」，不是签到**能力**。
+      //   算进来这条护栏就退化成品行报警：上游每加一家要清缓存的家都得改测试。
+      //   ⇒ 命中行或它**下一行**出现 `balanceCacheOf()?.clear(` 的一律跳过。
+      const lineEnd = seg.indexOf(String.fromCharCode(10), m.index)
+      const ctx = seg.slice(m.index, lineEnd < 0 ? seg.length : lineEnd + 200)
+      if (/balanceCacheOf\(\)\?\.clear\(/.test(ctx)) continue
+      branches.push(m[1] ?? m[2] ?? m[3])
+    }
     for (const ls of seg.matchAll(/\[([^\]]*)\]\s*\.includes\(\s*req\.provider\s*\)/g)) {
       for (const q of (ls[1] ?? '').matchAll(/'([^']+)'|"([^"]+)"/g)) branches.push(q[1] ?? q[2])
     }
@@ -240,13 +250,19 @@ if (typeof toMagpieCheckin === 'function') {
   // 反向固定几个代表：文档与答复里点过名的，别让判据整体漂掉
   // 2026-11-02 上游同步：magicrew 系新增了 claimMagicrewLoginGift / claimMagicrewOnboardingTasks，
   // 在 provider-credits 表里已带 claim ⇒ 从「不该声明」名单移除。
-  const unsupported = ['jet-hub-cline', 'jet-hub-workbuddy', 'jet-hub-raccoon', 'jet-hub-modelscope', 'jet-hub-opencode', 'jet-hub-officeace', 'jet-hub-accio', 'jet-hub-gemini']
+  // 2026-11-24 上游同步：workbuddy / raccoon / modelscope 三家也补上了 claim
+  // （`createProviderCredits({})` 的表里已能查到 `claim=function`）⇒ 同样移出本名单、
+  // 并入下面的 `supported`。名单是**反向固定代表**，不是能力真源 —— 真源永远是能力表。
+  const unsupported = ['jet-hub-cline', 'jet-hub-opencode', 'jet-hub-officeace', 'jet-hub-accio', 'jet-hub-gemini']
   for (const id of unsupported) {
     const [, fn] = mod.PLUGINS.find(([i]) => i === id)
     const plugin = await fn({}, iso.options())
     ok(typeof plugin.auth.checkin !== 'function', `${id}: 上游没有签到实现，不该声明 auth.checkin（否则 magpie 会画一个必然失败的开关）`)
   }
-  const supported = ['jet-hub-trae', 'jet-hub-qoder', 'jet-hub-qodercn', 'jet-hub-zcode', 'jet-hub-lobsterai', 'jet-hub-loomy']
+  const supported = [
+    'jet-hub-trae', 'jet-hub-qoder', 'jet-hub-qodercn', 'jet-hub-zcode', 'jet-hub-lobsterai', 'jet-hub-loomy',
+    'jet-hub-workbuddy', 'jet-hub-raccoon', 'jet-hub-modelscope', 'jet-hub-doubao',
+  ]
   for (const id of supported) {
     const [, fn] = mod.PLUGINS.find(([i]) => i === id)
     const plugin = await fn({}, iso.options())
@@ -265,9 +281,9 @@ if (typeof toMagpieCheckin === 'function') {
 // 也就**不要**再调 `skipLive()`：那会让 `scripts/test-all.mjs` 的汇总行永远挂着
 // 「设 JET_HUB_LIVE=1 才会跑」，而这一节再也不会因为那个变量而跑（假承诺）。
 {
-  const [, wb] = mod.PLUGINS.find(([i]) => i === 'jet-hub-workbuddy')
-  const wbPlugin = await wb({}, iso.options())
-  ok(typeof wbPlugin.auth.checkin !== 'function', 'workbuddy 不该有 auth.checkin（上游没有签到实现）')
+  const [, oa] = mod.PLUGINS.find(([i]) => i === 'jet-hub-officeace')
+  const oaPlugin = await oa({}, iso.options())
+  ok(typeof oaPlugin.auth.checkin !== 'function', 'officeace 不该有 auth.checkin（上游没有签到实现）')
   // 真支持签到的家必须有。这里只查形状、不真调 —— 真调会真的给账号领积分。
   const [, tr] = mod.PLUGINS.find(([i]) => i === 'jet-hub-trae')
   const trPlugin = await tr({}, iso.options())

@@ -398,6 +398,24 @@ export interface TraeRemoteModel {
      */
     discountEndsAtSec?: number;
     /**
+     * **闲时折扣**（`activity_discount.data.off_peak`）—— 未决的形状，
+     * 「此刻是不是闲时」由装配点现算（见 src/model-promotions.ts 的
+     * `traePromotionCandidate`）。
+     *
+     * ⚠️⚠️ 这条与上面的 `originalCreditsRate` **不是同一件事，也不重叠**。
+     * 真机（2026-11-17，51 条带 activity_discount 的行）：
+     * - `current.discount_type` 只有 `subsidy`(13) 与 `none`(38) 两种取值；
+     * - 全部 32 条带 `off_peak` 的行，`current` 都是 `none` 且
+     *   `before_consumption_rate === consumption_rate` ⇒ 现有价格腿
+     *   （`readActivityDiscount`）**必然返回 undefined**，箭头永远不亮；
+     * - 而折后价只写在 `data.off_peak.after_consumption_rate`
+     *   （实测 DeepSeek-V4-Flash `0.2 → 0.1`、V4-Pro `0.72 → 0.36`、
+     *   V4.1-Flash `0.12 → 0.06`，`discount: 50`）。
+     * ⇒ 也就是说本仓此前**从未读过**这个分支。这里补的是解析，
+     *   展示（徽标）在适配器侧按「此刻」判定。
+     */
+    offPeakDiscount?: TraeOffPeakDiscount;
+    /**
      * 用途（`usage`），如 `"chat_completion"`、`"multimodal"` 等。
      *
      * `batch_get_detail_param` 响应的每条 `config_info_list` 条目都有该字段，
@@ -565,6 +583,66 @@ export declare function readActivityDiscount(entry: Record<string, unknown>, now
     originalRate: number;
     endsAtSec?: number;
 } | undefined;
+/** 闲时窗口的**一条**时段（当日分钟数，起点含、终点不含）。 */
+export interface TraeOffPeakWindow {
+    /** ISO 序：1=周一 … 7=周日。**缺席** = 每天（上游两种形态都实测到了）。 */
+    weekdays?: number[];
+    startMinute: number;
+    /** 实测可为 `1440` = 到当日结束（**不是**次日 00:00 的另一件事）。 */
+    endMinute: number;
+}
+/** `activity_discount.data.off_peak` 的已解析形状（结构与 model-promotions 的 `TraeOffPeakInput` 同形）。 */
+export interface TraeOffPeakDiscount {
+    beforeRate: number;
+    rate: number;
+    /** 上游 `discount` = **支付比例**百分数（实测 50 = 半价、100 = 原价）。 */
+    discountPercent?: number;
+    /**
+     * 上游 `time_zone`。
+     *
+     * ⚠️ **实测 32 条带 off_peak 的行里只有 6 条下发**（`off_peak_member_discount_18_9`
+     * 那批给 `Asia/Shanghai`，`off_peak_discount` 那批完全不给）⇒ 兜底时区是
+     * **主路径**。兜底值必须与展示腿同值，见 model-promotions 模块头那条警告。
+     */
+    timeZone?: string;
+    subKey?: string;
+    windows: TraeOffPeakWindow[];
+    /**
+     * 上游**是否声明过** `time_windows`（哪怕一条都读不出）。
+     *
+     * 区分「没声明时段」（= 全天，真机不存在这种行但要兼容）与「声明了却读不懂」
+     * （= 规则看不清，**不得**当成全天）。缺这一位时展示层只能拿到 `windows: []`，
+     * 两者同形 ⇒ 读不懂的行会被画成 24/7 常亮（PR #106 双审计 P1-1）。
+     */
+    windowsDeclared: boolean;
+}
+/**
+ * 解析 `activity_discount.data.off_peak` —— 闲时折扣的**规则**，不是「此刻的结论」。
+ *
+ * ## 为什么不能并入 `readActivityDiscount`
+ *
+ * 那三条判据（`discount_type !== 'none'`、`before > after`）是**价格腿**对
+ * `current` 的读法，而 `current` 在闲时条目上恒为 `none` + `before === rate`。
+ * 把两支混进一个函数会让「现在多少钱」与「闲时多少钱」共用一个布尔 ——
+ * 正是本仓「一文件两套同义判据」要修的形状。
+ *
+ * ## 判据
+ *
+ * 1. `display_contact_config` 是**一个 JSON 字符串**（与倍率、折扣同一份文档，
+ *    直接读字段永远得到 undefined）；
+ * 2. `activity_discount.enable !== false`（**缺省即启用**）；
+ * 3. 只认 `data.off_peak` 这一支。`member` / `subsidy` **不产出候选**：它们是
+ *    「另一条付费路径的价格对比」，没有「此刻生效」的判据 —— 参考实现同判据，
+ *    且真机上把 member 当折扣画会**凭空多打一折**（`off_peak_member_discount_18_9`
+ *    的两条路是**不叠加**的：会员全天 0.06、免费用户闲时 0.06，写成 0.03 就是说谎）。
+ * 4. `time_windows` 原样带出（含非法项），**换算与丢弃在展示层**
+ *    （`traePromotionCandidate`）—— 两层各判一次会漂移。
+ *
+ * ⚠️ **不读 `features`**：那是参考实现走 SOLO Remote 目录时的第二个载体；
+ * 本家只拉 `batch_get_detail_param`，真机 51 条全部落在
+ * `display_contact_config` 上。为没测到的形态开一条路 = 写死代码。
+ */
+export declare function readTraeOffPeakDiscount(entry: Record<string, unknown>): TraeOffPeakDiscount | undefined;
 /**
  * 解析 `get_detail_param`（单通道）响应。
  *

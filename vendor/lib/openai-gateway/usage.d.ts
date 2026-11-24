@@ -88,8 +88,7 @@ export interface OpenAiUsage {
     outputTokens: number;
     /** 总 token = 总输入 + 输出。 */
     totalTokens: number;
-    /** 总输入里**命中缓存**的那部分（上者的子集）。 */
-    cachedTokens: number;
+    cachedTokens?: number;
     /** 思考 token（输出的子集）；上游没报时为 `undefined`。 */
     reasoningTokens?: number;
 }

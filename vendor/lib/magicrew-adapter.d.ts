@@ -64,7 +64,12 @@ export interface MagicrewAdapterOptions {
     readonly warn?: (message: string) => void;
     readonly now?: () => number;
     readonly accountPool?: AccountPool;
-    readonly resolveCredential?: () => Promise<MagicrewCredential | undefined>;
+    /**
+     * ⚠️ **第二参 `sessionId` 是「轮换起点」的作用域键**（PR #59 正向审计 P1-b）：
+     * 适配器必须把 `GenerateOptions.sessionId` 透传进来，否则选号层永远拿到
+     * `undefined` ⇒ 面板选的起点**静默失效**（tsc 因函数参数逆变不报）。
+     */
+    readonly resolveCredential?: (modelId?: string, sessionId?: string) => Promise<MagicrewCredential | undefined>;
     readonly fetchRemoteModels?: () => Promise<readonly MagicrewCatalogModel[]>;
     /**
      * 读图入口（任务 6 在 `index.ts` 桥接 `ctx.attachments.readImage`）。

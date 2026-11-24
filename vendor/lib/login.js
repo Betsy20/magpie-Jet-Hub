@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { getRandomValues, randomUUID, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { autoOpenBrowserEnabled } from './login-preferences.js';
 import { CLIENT_ID, REDIRECT_PATH, credentialFromTokenResponse, exchangeAuthorizationCode, generateDpopKeyPair, generatePkcePair, } from './oauth.js';
 export const CODEARTS_LOGIN_BASE = 'https://devcloud.cn-north-4.huaweicloud.com/doer/redirect';
 export const HUAWEI_AUTH_BASE = 'https://auth.huaweicloud.com/authui/login.html';
@@ -121,6 +122,13 @@ export async function pollForCredential(ticketId, secret, options = {}) {
  * 不因它挂起，后者补上缺失的监听器，二者缺一不可。
  */
 export function openBrowser(url) {
+    // ★ 「新建账号时自动打开浏览器授权页」开关（2026-11-23，默认开）。
+    //   关闭后**不 spawn**，但把地址写进日志 —— 阻塞式入口（`runOAuthFlow` 等）
+    //   没有可展示链接的面板，这条日志是用户唯一能拿到的地址。
+    if (!autoOpenBrowserEnabled()) {
+        console.info('[codearts-auth] 已关闭「自动打开浏览器」，请手动打开登录地址:', url);
+        return;
+    }
     const warn = (error) => {
         console.error('[codearts-auth] failed to open browser; open manually:', url, error);
     };
@@ -352,6 +360,14 @@ export function openIncognitoWindow(url) {
     // 下一个用例换个 URL 就会复发。必须按**运行环境**一刀切断。
     if (process.env.NODE_ENV === 'test')
         return false;
+    // ★ 「新建账号时自动打开浏览器授权页」开关（2026-11-23，默认开）。
+    //   关闭后**不 spawn 无痕窗**，返回 `false` —— 与「读不到默认浏览器 / spawn
+    //   失败」走**同一条回退语义**（调用方本来就要处理 false）。
+    //   ⚠️ 必须在测试断路器**之后**判：单测里无论如何都不该走到这里。
+    if (!autoOpenBrowserEnabled()) {
+        console.info('[codearts-auth] 已关闭「自动打开浏览器」，未拉起无痕窗口；登录地址:', url);
+        return false;
+    }
     const exe = defaultBrowserExecutable();
     if (exe === undefined)
         return false;
@@ -535,14 +551,87 @@ export function buildOAuthLoginUrl(port, pkce, ticketId) {
         // 多余的 auth_callback_url 会被 portal 视为异常并回退旧流程，切勿添加。
         + `&ticket_id=${ticketId}&plugin-name=${LOGIN_PLUGIN_NAME}&plugin-version=${LOGIN_PLUGIN_VERSION}`;
 }
-/** 新式 OAuth 的本地回调服务器：收到 code（新流程）或 secret（旧流程回退）后换取凭据并 resolve。 */
-export function startOAuthCallbackServer(ticketId, pkce, keyPair, options) {
+/**
+ * OAuth 回调收码闸门 —— 授权码**唯一的落点**（手动回调链接）。
+ *
+ * ## 为什么抽出来
+ *
+ * `code` 有两条来路：
+ * 1. 浏览器被 portal 跳回本地回调服务器（原路径）；
+ * 2. 用户在**别的设备**上完成登录后，把回调链接**手动粘贴**进设置页。
+ *
+ * 手机/另一台电脑的浏览器打不开宿主本机的 `127.0.0.1:<port>`，那条跳转必然失败，
+ * 但地址栏里躺着一个**合法的 code** —— 它只对签发它的 PKCE/DPoP 与端口有效。
+ *
+ * 两条来路必须**走同一段收码逻辑**：code 一次性、只能换一次；换取用的
+ * `code_verifier` / DPoP 密钥对 / 回调端口三者缺一不可
+ * （`redirect_uri` 必须与授权时逐字一致，见 `exchangeAuthorizationCode`）。
+ * 若手动那条另写一套，必然出现「一条能换、一条换不了」或「各换一次把 code 烧掉」。
+ *
+ * ## 幂等与竞态
+ *
+ * `settled` 闸门是必须的：用户可能在浏览器跳转成功的**同一瞬间**又粘一次，
+ * 或先粘错再粘对 ⇒ 第二次 `exchangeAuthorizationCode` 必然报 code 已被使用，
+ * 不拦就会把**已经成功**的那次结果 reject 掉。
+ */
+function createOAuthCallbackReceiver(ticketId, pkce, keyPair, options) {
     let resolveResult;
     let rejectResult;
     const result = new Promise((resolve, reject) => {
         resolveResult = resolve;
         rejectResult = reject;
     });
+    let settled = false;
+    const acceptSecret = (secret) => {
+        if (settled || typeof secret !== 'string' || secret.trim() === '')
+            return false;
+        settled = true;
+        // 旧流程回退：portal 判定 OAuth 授权不可用时以 secret+redirect 回调。
+        // 后台轮询 ticket 端点换取凭据（plugin-name/version 必须用 portal 那套）。
+        void pollForCredential(ticketId, secret.trim(), {
+            ...options,
+            pluginName: LOGIN_PLUGIN_NAME,
+            pluginVersion: LOGIN_PLUGIN_VERSION,
+        }).then((credential) => resolveResult({ access: JSON.stringify(credential), expires: expiresFromCredential(credential), loginUrl: '' }), (error) => rejectResult(error));
+        return true;
+    };
+    /**
+     * 用授权码换凭据（新式流程）。
+     *
+     * @param port - `redirect_uri` 里的端口，**必须是 portal 看到的那个**：
+     *   本地服务器这条腿是它自己的监听端口；手动粘贴这条腿来自**链接本身**。
+     *   ⚠️ 不能改用手动路径时「当前服务器」的端口 —— 那是另一个地址，
+     *   STS 会以 `redirect_uri` 不匹配直接拒掉。
+     * @returns 交换结果（**永不拒绝**）；已被占用或参数不合法时 `undefined`。
+     *
+     * ⚠️⚠️ 返回的 promise **绝不能 reject**：手动提交那条路径会丢弃它
+     *   （只关心「有没有接管」），一个被丢弃的拒绝就是**未处理的 Promise 拒绝**
+     *   ⇒ 宿主日志里冒出 `Unhandled Rejection`，而用户其实只是粘错了一条链接。
+     *   真实成败仍由 `result` 的 resolve/reject 表达（那是调用方 await 的那一个）。
+     */
+    const acceptCode = (code, port) => {
+        if (settled || typeof code !== 'string' || code.trim() === '')
+            return undefined;
+        if (!Number.isInteger(port) || port <= 0 || port > 65_535)
+            return undefined;
+        // 先占住闸门：换 token 是一次网络往返，期间的重复提交必须被拒。
+        settled = true;
+        return exchangeAuthorizationCode(code.trim(), pkce.codeVerifier, port, keyPair, options.fetcher)
+            .then((token) => {
+            const credential = credentialFromTokenResponse(token, pkce, keyPair);
+            resolveResult({ access: JSON.stringify(credential), expires: expiresFromCredential(credential), loginUrl: '' });
+            return true;
+        }, (error) => {
+            rejectResult(error instanceof Error ? error : new Error(String(error)));
+            // 浏览器那一侧据此把 307 跳到 login_succeed=false；本 promise 不 reject。
+            return false;
+        });
+    };
+    return { result, acceptCode, acceptSecret, isSettled: () => settled, expire: () => { settled = true; } };
+}
+/** 新式 OAuth 的本地回调服务器：收到 code（新流程）或 secret（旧流程回退）后换取凭据并 resolve。 */
+export function startOAuthCallbackServer(ticketId, pkce, keyPair, options) {
+    const receiver = createOAuthCallbackReceiver(ticketId, pkce, keyPair, options);
     const server = createServer((request, response) => {
         const url = new URL(request.url ?? '/', `http://127.0.0.1:${request.socket.localPort}`);
         if (url.pathname !== REDIRECT_PATH && !url.pathname.startsWith(REDIRECT_PATH)) {
@@ -559,30 +648,27 @@ export function startOAuthCallbackServer(ticketId, pkce, keyPair, options) {
         if (callbackSecret) {
             const redirectTo = url.searchParams.get('redirect') ?? buildPortalLoginResultUrl(true);
             response.writeHead(307, { ...CORS_HEADERS, Location: redirectTo }).end();
-            void pollForCredential(ticketId, callbackSecret, {
-                ...options,
-                pluginName: LOGIN_PLUGIN_NAME,
-                pluginVersion: LOGIN_PLUGIN_VERSION,
-            }).then((credential) => resolveResult({ access: JSON.stringify(credential), expires: expiresFromCredential(credential), loginUrl: '' }), (error) => rejectResult(error));
+            receiver.acceptSecret(callbackSecret);
             return;
         }
         const code = url.searchParams.get('code');
         if (code) {
             // localPort 在监听中的服务器上必然存在；?? 0 仅用于类型收窄。
-            void exchangeAuthorizationCode(code, pkce.codeVerifier, request.socket.localPort ?? 0, keyPair, options.fetcher).then((token) => {
-                const credential = credentialFromTokenResponse(token, pkce, keyPair);
-                // 对齐真实插件：换取成功后 307 重定向浏览器到 portal 登录结果页。
-                response.writeHead(307, { ...CORS_HEADERS, Location: buildPortalLoginResultUrl(true) }).end();
-                resolveResult({ access: JSON.stringify(credential), expires: expiresFromCredential(credential), loginUrl: '' });
-            }, (error) => {
-                response.writeHead(307, { ...CORS_HEADERS, Location: buildPortalLoginResultUrl(false) }).end();
-                rejectResult(error);
+            const exchanged = receiver.acceptCode(code, request.socket.localPort ?? 0);
+            if (exchanged === undefined) {
+                response.writeHead(400).end('This callback is already in progress');
+                return;
+            }
+            // 对齐真实插件：换取成功 307 到 login_succeed=true，失败则 307 到 false。
+            // ⚠️ `acceptCode` 的 promise **永不 reject**，故这里只需判布尔值。
+            exchanged.then((succeeded) => {
+                response.writeHead(307, { ...CORS_HEADERS, Location: buildPortalLoginResultUrl(succeeded) }).end();
             });
             return;
         }
         response.writeHead(400).end('Missing authorization code or secret');
     });
-    return listenOnCallbackPort(server).then((port) => ({ port, server, result }));
+    return listenOnCallbackPort(server).then((port) => ({ port, server, result: receiver.result, receiver }));
 }
 /** 新式 OAuth 回调等待预算（浏览器打开 + 用户操作，180 秒）。 */
 const OAUTH_CALLBACK_TIMEOUT_MS = 180_000;
@@ -610,6 +696,170 @@ function listenOnCallbackPort(server) {
         tryListen(0);
     });
 }
+/** 手动回调链接解析失败时统一使用的前缀（RPC 层原样展示，不再改写）。 */
+export const MANUAL_CALLBACK_FAIL_PREFIX = '回调链接无法使用';
+/** 本机回调允许的主机名（portal 只会把浏览器跳到这些）。 */
+const MANUAL_CALLBACK_LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+/** 形如 `https://…` 的绝对 URL。 */
+const MANUAL_CALLBACK_ABSOLUTE_URL_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+/**
+ * 回调路径。
+ *
+ * ⚠️ 与 `REDIRECT_PATH`（`./oauth.js`，本文件顶部已 import）**必须同值**：
+ * 解析器判的是「这一跳是不是授权回调」，而服务器认的是 `REDIRECT_PATH` ——
+ * 两者一旦漂移，用户粘回来的合法链接会被判 `WRONG_PATH`，而**没有任何报错**。
+ * 保留独立常量只为让错误文案（「应为 /oauth/callback」）有一个具名来源；
+ * 相等关系由 `tests/unit/codearts-manual-callback.spec.ts` 断言。
+ */
+const MANUAL_CALLBACK_PATH = '/oauth/callback';
+const MANUAL_CALLBACK_REASONS = {
+    EMPTY: '回调链接是空的。请把手机（或另一台电脑）浏览器地址栏里的整条链接复制过来粘贴。',
+    NOT_A_URL: '这不像一条回调链接（无法解析成网址）。请从地址栏整条复制，不要只复制一部分。',
+    NOT_LOOPBACK: '这条链接的主机不是本机回调地址。授权回调只会跳转到 127.0.0.1 / localhost —— '
+        + '若你复制的是 portal 的结果页（codearts.huaweicloud.com/portal/login…），它不含授权码。',
+    WRONG_PATH: '这条链接的路径不是授权回调路径（应为 /oauth/callback）。'
+        + 'portal 的「登录成功」结果页不含授权码，请回到跳转失败的那一页复制地址栏。',
+    NO_PORT: '这条回调链接里没有可用的端口号，无法知道是哪一轮登录的回调。请整条复制（应含 :端口）。',
+    PORT_OUT_OF_RANGE: '这条链接的端口号超出有效范围（1–65535），不像真实的授权回调地址。',
+    NO_CODE: '这条回调链接里既没有 code 也没有 secret，无法完成登录。'
+        + '请确认复制的是「跳转失败 / 无法访问」那一页的地址栏，而不是已成功的页面。',
+};
+function manualCallbackError(code) {
+    return { kind: 'error', code, message: MANUAL_CALLBACK_REASONS[code] };
+}
+function manualCallbackPort(text) {
+    if (!/^\d{1,5}$/.test(text))
+        return undefined;
+    const port = Number(text);
+    return port > 0 && port <= 65_535 ? port : undefined;
+}
+/** 从一段文本里抓显式声明的端口（`new URL` 对越界端口会直接抛，故先自己判）。 */
+function manualCallbackDeclaredPort(text) {
+    const match = /:(\d{1,5})(?=[/?#]|$)/.exec(text);
+    return match === null ? undefined : match[1];
+}
+/**
+ * `NO_PORT` 的**文案分流**（PR #57 正向审计 P2-2）。
+ *
+ * 同一个错误码背后有三种不同的粘贴失误，修法完全不同 —— 一句话糊在一起，
+ * 用户只会重粘一次同样的东西：
+ *
+ * | 形态 | 用户实际做的 | 该说什么 |
+ * |---|---|---|
+ * | `…:0/oauth/callback?code=…` | 端口被写成 0 | 这不可能是真实回调 |
+ * | `?code=…`（只有查询串） | 只复制了问号之后 | 把主机与端口一起带上 |
+ * | 其它（无端口） | 少复制了 `:端口` | 整条复制 |
+ */
+function manualCallbackMissingPort(text) {
+    if (/:0(?=[/?#]|$)/.test(text)) {
+        return {
+            kind: 'error',
+            code: 'NO_PORT',
+            message: '这条回调链接的端口号是 0，不可能是真实的授权回调地址。'
+                + '请回到「无法访问此页面」那一页，重新复制整条地址栏。',
+        };
+    }
+    if (text.trimStart().startsWith('?')) {
+        return {
+            kind: 'error',
+            code: 'NO_PORT',
+            message: '只粘到了查询串（`?code=…`）。请把前面的'
+                + ' `http://127.0.0.1:端口/oauth/callback` 一起带上 —— 端口决定这是哪一轮登录。',
+        };
+    }
+    return manualCallbackError('NO_PORT');
+}
+function manualCallbackReadParams(params, port, rawText) {
+    const code = params.get('code');
+    if (typeof code === 'string' && code.trim().length > 0) {
+        if (port === undefined)
+            return manualCallbackMissingPort(rawText);
+        return { kind: 'code', code: code.trim(), port };
+    }
+    const secret = params.get('secret');
+    if (typeof secret === 'string' && secret.trim().length > 0) {
+        return { kind: 'secret', secret: secret.trim() };
+    }
+    return manualCallbackError('NO_CODE');
+}
+function manualCallbackParseAbsolute(text) {
+    let url;
+    try {
+        url = new URL(text);
+    }
+    catch {
+        const rest = text.split('://')[1] ?? '';
+        const declared = manualCallbackDeclaredPort(`http://${rest}`);
+        if (declared !== undefined && manualCallbackPort(declared) === undefined) {
+            return manualCallbackError('PORT_OUT_OF_RANGE');
+        }
+        return manualCallbackError('NOT_A_URL');
+    }
+    if (!MANUAL_CALLBACK_LOOPBACK_HOSTS.has(url.hostname.toLowerCase())) {
+        return manualCallbackError('NOT_LOOPBACK');
+    }
+    // ⚠️ **精确相等**，不是 `startsWith`（PR #57 正向审计 P1-2）：
+    //   前缀判会放行 `/oauth/callbackevil` 与 `/oauth/callback/`，
+    //   而它们都不是 portal 的真实回调路径；反过来把常量写短一个字符
+    //   （`/oauth/callbac`）时前缀判**仍然全绿**，真实链接却被全拒。
+    //   这里没有「未来可能多一段路径」的兼容诉求 —— portal 的回调是固定形态。
+    if (url.pathname !== MANUAL_CALLBACK_PATH) {
+        return manualCallbackError('WRONG_PATH');
+    }
+    return manualCallbackReadParams(url.searchParams, manualCallbackPort(url.port), text);
+}
+function manualCallbackParseQueryOnly(text) {
+    const hashAt = text.indexOf('#');
+    const withoutHash = hashAt >= 0 ? text.slice(0, hashAt) : text;
+    const questionAt = withoutHash.indexOf('?');
+    let query;
+    if (withoutHash.startsWith('?')) {
+        query = withoutHash.slice(1);
+    }
+    else if (questionAt >= 0) {
+        query = withoutHash.slice(questionAt + 1);
+    }
+    else {
+        query = withoutHash;
+    }
+    return manualCallbackReadParams(new URLSearchParams(query), undefined, text);
+}
+/**
+ * 解析用户在**另一台设备**上复制回来的 OAuth 回调链接 —— 纯函数。
+ *
+ * ## 为什么需要它
+ *
+ * portal 把授权跳转定向到宿主本机的 `http://127.0.0.1:<port>/oauth/callback?code=…`。
+ * 用户在手机上完成登录时，那个浏览器打不开宿主所在的 `127.0.0.1` ⇒ 跳转必然失败，
+ * 但地址栏里留下一条**完全合法**的回调链接。用户把它复制回来粘贴，
+ * 就能在本机完成原来只有浏览器才能完成的那一跳。
+ *
+ * ## 纪律
+ *
+ * 1. **纯函数**：结果只取决于入参，故每一种坏输入都能在单测里逐条断言。
+ * 2. **文案由这里给出**：调用方不得再各写一份同义判据。
+ * 3. 返回的 `port` 一律是**链接里那个**端口，绝不是「当前服务器」的端口 ——
+ *    `redirect_uri` 必须与授权时逐字一致。
+ *
+ * @param raw - 用户粘贴的原文（允许首尾空白、尖括号、引号包裹）。
+ */
+export function parseManualCallbackUrl(raw) {
+    const text = typeof raw === 'string' ? raw.trim() : '';
+    if (text.length === 0)
+        return manualCallbackError('EMPTY');
+    // 从邮件 / 微信 / 文档里复制时常见的包裹字符。
+    const stripped = text.replace(/^[<"']+|[>"']+$/g, '').trim();
+    if (stripped.length === 0)
+        return manualCallbackError('EMPTY');
+    if (MANUAL_CALLBACK_ABSOLUTE_URL_RE.test(stripped)) {
+        return manualCallbackParseAbsolute(stripped);
+    }
+    const looksLikeQuery = stripped.includes('?') || stripped.startsWith('#')
+        || /^(?:code|secret)=/.test(stripped) || /[?&](?:code|secret)=/.test(stripped);
+    if (looksLikeQuery)
+        return manualCallbackParseQueryOnly(stripped);
+    return manualCallbackError('NOT_A_URL');
+}
 /**
  * 启动 OAuth 登录流程并**立即返回**登录 URL（不打开浏览器、不等用户）。
  *
@@ -621,7 +871,7 @@ export async function startOAuthFlow(options = {}) {
     const ticketId = randomBytes(32).toString('hex');
     const pkce = generatePkcePair();
     const keyPair = await generateDpopKeyPair();
-    const { port, server, result } = await startOAuthCallbackServer(ticketId, pkce, keyPair, options);
+    const { port, server, result, receiver } = await startOAuthCallbackServer(ticketId, pkce, keyPair, options);
     const loginUrl = buildOAuthLoginUrl(port, pkce, ticketId);
     let closed = false;
     const close = async () => {
@@ -633,14 +883,43 @@ export async function startOAuthFlow(options = {}) {
     const resultWithUrl = Promise.race([
         result,
         new Promise((_, reject) => {
-            const timer = setTimeout(() => reject(new Error('CodeArts OAuth login timed out')), OAUTH_CALLBACK_TIMEOUT_MS);
+            const timer = setTimeout(() => {
+                // ⚠️ 超时**必须**把收码器标记为已结算（PR #57 正向审计 P3-8）：
+                //   下面 `finally` 会关掉服务器，但收码器不知道「这一轮已经结束」，
+                //   用户随后粘回来的链接仍会被接受并回 `{ ok: true }`。
+                if (!receiver.isSettled())
+                    receiver.expire();
+                reject(new Error('CodeArts OAuth login timed out'));
+            }, options.callbackTimeoutMs ?? OAUTH_CALLBACK_TIMEOUT_MS);
             timer.unref?.();
         }),
     ]).then((outcome) => ({ ...outcome, loginUrl }));
     // 先挂一个空处理器：结果可能在调用方 await 之前就落定（用户授权极快、
     // 或立刻超时），那一段窗口里 Node 会把它当成未处理拒绝并打印告警。
     resultWithUrl.catch(() => { }).finally(() => { void close(); });
-    return { loginUrl, result: resultWithUrl, close };
+    /**
+     * 手动提交回调链接（另一台设备完成登录后粘回来）。
+     *
+     * ⚠️ 不另写收码逻辑：只解析并交给**同一轮**的 `receiver`。
+     * ⚠️ 端口一律取链接里的那个 —— `redirect_uri` 必须与授权时逐字一致。
+     */
+    const submitManualCallback = (raw) => {
+        const parsed = parseManualCallbackUrl(raw);
+        if (parsed.kind === 'error') {
+            return { ok: false, message: `${MANUAL_CALLBACK_FAIL_PREFIX}：${parsed.message}` };
+        }
+        const accepted = parsed.kind === 'code'
+            ? receiver.acceptCode(parsed.code, parsed.port) !== undefined
+            : receiver.acceptSecret(parsed.secret);
+        if (!accepted) {
+            return {
+                ok: false,
+                message: '这轮登录已经结束了（成功或超时），这份回调未再使用。请重新点击「+ 新建账号」。',
+            };
+        }
+        return { ok: true };
+    };
+    return { loginUrl, result: resultWithUrl, close, submitManualCallback };
 }
 /**
  * 运行完整的新式 IAM OAuth 登录流程（默认登录方式）。

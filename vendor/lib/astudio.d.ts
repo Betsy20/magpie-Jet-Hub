@@ -7,8 +7,13 @@
  * 1. **信封**：控制面（模型目录、`bot/models/configs`）是 `{code, message, data}`，
  *    ⚠️ **HTTP 200 但 `code !== 0` 也是失败**（本仓库反复踩过的「成功但没内容」格）；
  *    推理面是 OpenAI 裸体，错误形态是 `{"error":{code,message,type}}`。
- * 2. **鉴权头**：`Authorization: Bearer <modelBearerToken>`，可选
- *    `X-Account-Id` / `clientType` / `studioVersion`（实测三者**都不带也能 200**）。
+ * 2. **鉴权头**：推理面 `Authorization: Bearer <modelBearerToken>`、控制面 `Cookie`；
+ *    `X-Account-Id` / `clientType` / `studioVersion` 三者对**推理**是可选的
+ *    （实测都不带也 200），但 ⚠️⚠️ **对签到面不是**：`GET …/client-popups/pending`
+ *    不带 `clientType`+`studioVersion` 会回 `code 11001001`
+ *    `客户端平台、版本或构建号无效`（2026-11-16 实测）；`points/balance` 则对版本
+ *    完全不敏感（3.5.2 / 3.6.4 / 不带三档响应逐字节相同）。⇒ **版本头只能从签到面
+ *    删，不能从推理面「统一」掉**。
  *    ⚠️ **没有** bkn / DJB2 之类的现算签名（`astudioCookieHeader` 是纯字符串拼接）。
  * 3. **凭据失效的唯一触发点是上游 HTTP 401**：磁盘上**没有任何 TTL / expiresAt**，
  *    所以本地**无法**预判到期 —— 见 {@link astudioCredentialExpiresAtMs}。
@@ -244,7 +249,7 @@ export declare function astudioAuthRetryPlan(params: {
     refreshFailed: boolean;
 }): AstudioAuthRetryAction;
 /** 推理失败的语义分类。 */
-export type AstudioErrorKind = 'auth' | 'model-not-found' | 'quota' | 'rate-limit' | 'context-window' | 'timeout' | 'transport' | 'server' | 'bad-request' | 'unknown';
+export type AstudioErrorKind = 'auth' | 'model-not-found' | 'quota' | 'permission-denied' | 'rate-limit' | 'context-window' | 'timeout' | 'transport' | 'server' | 'bad-request' | 'unknown';
 /** {@link classifyAstudioError} 的输出。 */
 export interface AstudioErrorInfo {
     kind: AstudioErrorKind;
@@ -493,38 +498,79 @@ export interface AstudioEffortDecision {
  * 而「不发这个字段」是可用的降级。
  */
 export declare function astudioEffortForRequest(requested: string | undefined, declared: readonly string[] | undefined): AstudioEffortDecision;
-/** {@link buildAstudioChatRequest} 的入参（对齐 DSH 的 `GenerateOptions` 子集）。 */
-export interface AstudioChatRequestInput {
-    /** **裸 slug**（上游唯一认得的形态，见模块头第 4 条与 {@link astudioBareSlugOf}）。 */
+/** 构造 `POST {base}/responses` 的请求体。字段语义见上面的对照表。 */
+export interface AstudioResponsesRequestInput {
+    /** **裸 slug**（上游唯一认得的形态；`builtin/<base64>` 会 404 `model_not_found`）。 */
     model: string;
+    /** `serializeMessages()` 产出的 **chat 形状** 消息，由本模块转成 Responses 条目。 */
     messages: readonly Record<string, unknown>[];
+    /** one-shot system（与 `messages` 里的 system 合并进 `instructions`）。 */
     system?: string;
-    tools?: readonly unknown[];
+    /** **已是扁平形态**的工具定义（`{type:'function',name,description,parameters}`）。 */
+    tools?: readonly Record<string, unknown>[];
     temperature?: number;
     maxTokens?: number;
     stop?: string[];
-    /** 已经过 {@link astudioEffortForRequest} 校验的档位；`undefined` = 不发。 */
+    /** 已过 {@link astudioEffortForRequest} 校验的档位；`'none'` ⇒ 不发（= 关思考）。 */
     reasoningEffort?: string;
     stream: boolean;
     /** 账号 id → 请求体 `user`（实测客户端会带；上游不强求）。 */
     user?: string;
 }
 /**
- * 构造 `POST {maasBaseUrl}/chat/completions` 的请求体。
+ * 把 chat 形状的消息序列转成 Responses 的 `input[]` 条目。
  *
- * 三条实测驱动的取舍：
- * 1. **`model` 用裸 slug**：`builtin/<base64>` 形态会 502 `model_not_found`（fact 380），
- *    这里再兜一次 {@link astudioBareSlugOf} —— 目录将来若下发别名形态也不会翻车。
- * 2. **不发就省键**（`temperature` / `max_tokens` / `stop` / `reasoning_effort`）：
- *    写 `null` 会被火山网关当成显式空值（部分字段直接 400），省略才是「用服务端默认」。
- * 3. `stream` **恒带**，且流式时带 `stream_options.include_usage`（实测末 chunk
- *    只有这样才能拿到 usage；不带时流里没有 usage 帧，计费与统计双缺）。
+ * 覆盖四种（实测全部 200，见 `astudio-responses.spec.ts` 的对照）：
+ * - `user` → `{role:'user', content:[{type:'input_text'}…]}`
+ * - `assistant` 正文 → `{role:'assistant', content:[{type:'output_text'}]}`；
+ *   其 `tool_calls` → 紧随其后的 `{type:'function_call', call_id, name, arguments}`
+ * - `tool` 结果 → `{type:'function_call_output', call_id, output}`
+ * - `system` → 由调用方收进 `instructions`（**不**进 `input`）
  *
- * ⚠️ `system` 折成第一条 `role:'system'` 消息而不是顶层字段：OpenAI Chat
- * Completions 没有顶层 `system`，而本仓库的 `serializeMessages` 已经会把 harness
- * 消息里的 system 排好序，这里只补适配器**额外**拿到的 one-shot system。
+ * ⚠️ 历史里的 `reasoning_content` **不回传**：Responses 的 `input` 没有这一格，
+ * 硬塞会被上游当未知字段忽略/拒绝（实测只接受规定的条目类型）。
  */
-export declare function buildAstudioChatRequest(input: AstudioChatRequestInput): Record<string, unknown>;
+export declare function astudioResponsesInputItems(messages: readonly Record<string, unknown>[]): {
+    items: Array<Record<string, unknown>>;
+    instructions: string[];
+};
+/**
+ * 构造 `POST {base}/responses` 的请求体。
+ *
+ * ⚠️ 三条与 chat 版**刻意不同**的取舍：
+ * 1. **`model` 再兜一次裸 slug**：`builtin/<base64>` 实测 404 `model_not_found`；
+ * 2. **不发就省键**（`temperature` / `max_output_tokens` / `stop` / `reasoning`）：
+ *    上游对 `null` 的容忍度未验证，省略才是「用默认」；
+ * 3. ⚠️⚠️ **`none` 必须显式发出去，不能改写成「省略该键」**（2026-11-16 实测）：
+ *    对 `spark-x2.6`，**省略 `reasoning` ⇒ 思考照开**（`reasoning_tokens=49`），
+ *    而 `{effort:'none'}` ⇒ `reasoning_tokens=0`、只出一个 `message` 条目。
+ *    ⇒ 「省略」与「关闭」**不等价**：把 `none` 省掉，等于用户选了「关闭思考」
+ *    却照付思考的 token（本仓库明令禁止的静默失效）。
+ */
+export declare function buildAstudioResponsesRequest(input: AstudioResponsesRequestInput): Record<string, unknown>;
+/**
+ * 把 Responses 的 SSE **翻译**成 Chat Completions 的 SSE，复用既有消费器。
+ *
+ * ## 为什么是「翻译」而不是另写一个消费器
+ *
+ * `consumeOpenAiSse` 里已累积了 1000 行实测驱动的守卫（思考/正文死循环检测、
+ * 空白思考抑制、空名字工具调用剔除、usage 口径、finish 归类）。为新协议再写
+ * 一份等价实现 ⇒ 两套判据必然分叉（本仓库明令禁止的失效形态）。
+ * 故这里只做**形状翻译**，语义全部留给那一个消费器。
+ *
+ * ## 逐条映射（左 = 实测上游事件，右 = 产出的 chat 帧）
+ *
+ * - `reasoning_summary_text.delta` → `delta.reasoning_content`
+ * - `output_text.delta` → `delta.content`
+ * - `output_item.added`(`type:'function_call'`) → `delta.tool_calls[{index,id,name,arguments:''}]`
+ * - `function_call_arguments.delta` → `delta.tool_calls[{index, function:{arguments}}]`
+ * - `completed` / `incomplete` → 末帧（带 usage）+ `finish_reason` + `[DONE]`
+ * - `error` 事件 / `type:'error'` 数据 → `data: {"error":{…}}`（由消费器归类）
+ *
+ * ⚠️ `finish_reason` 取值：有工具调用 ⇒ `tool_calls`；`status==='incomplete'`
+ * （实测 = 撞输出上限，`reasoning_tokens` 也吃预算）⇒ `length`；其余 `stop`。
+ */
+export declare function astudioResponsesToChatSse(response: Response): Response;
 /**
  * 把远端目录条目转成兜底表同形（少一个类型、少一处可能分叉的映射）。
  *

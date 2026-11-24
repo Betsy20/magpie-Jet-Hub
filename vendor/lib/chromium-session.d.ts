@@ -272,8 +272,35 @@ export declare function browserCandidates(input?: {
      */
     exists?: (path: string) => boolean;
 }): string[];
-/** 在候选链里挑第一个**存在**的绝对路径。 */
-export declare function findBrowserExecutable(): string | undefined;
+/**
+ * 浏览器探测的**入参**（与 {@link browserCandidates} 逐字段同义）。
+ *
+ * ⚠️ 抽成具名类型只为一件事：让「兜底到跨平台探测」的那一层（豆包的
+ * `doubaoLoginBrowserExecutable` / `doubaoSigninBrowserExecutable`）能**原样透传**
+ * 这份入参，而不是各自抄一遍形状 —— 抄一份就会漂移出第二个口径
+ * （本仓「一文件两套同义判据」的教训，见 `docs/agent-notes/misc.md`）。
+ */
+export interface BrowserLookup {
+    platform?: NodeJS.Platform;
+    env?: Record<string, string | undefined>;
+    home?: string;
+    exists?: (path: string) => boolean;
+}
+/**
+ * 在候选链里挑第一个**存在**的绝对路径。
+ *
+ * ## ⚠️ 可选入参 `lookup`：让「跨平台兜底」本身可测（Gitee issue IKV5HC）
+ *
+ * 原签名不接受任何入参，于是**只能**用 `process.platform` 与本机 `existsSync`
+ * 跑 —— 在 Windows 开发机上「macOS 分支」永远走不到，这类「平台路径」缺陷
+ * 结构上不可能被 CI 发现（豆包 provider 就是这么漏的：它的候选链全是
+ * Windows 路径，而 macOS 用户点「新建账号」只会看到「未找到可执行文件」）。
+ *
+ * 入参与 {@link browserCandidates} **逐字段同义**（直接透传），因此
+ * `findBrowserExecutable()` 与 `findBrowserExecutable({ platform: 'darwin', … })`
+ * 的差别只在「用谁的环境」，判据仍只有这一处。
+ */
+export declare function findBrowserExecutable(lookup?: BrowserLookup): string | undefined;
 /**
  * 找不到浏览器时的**用户可执行提示**（按平台说人话）。
  *

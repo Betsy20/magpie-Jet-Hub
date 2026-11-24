@@ -112,7 +112,61 @@ export function normalizeModelId(id) {
     }
     return id;
 }
+/**
+ * 文本「实际上有没有内容」——**`trim()` 不认零宽字符**。
+ *
+ * `\u200B`（ZWSP）/ `\u200C` / `\u200D` / `\u200E` / `\u200F` / `\u2060` / `\uFEFF`
+ * 都是 `Cf`（格式字符），`String.prototype.trim` 只认 `WhiteSpace` 与 `LineTerminator`
+ * ⇒ `'\u200B'.trim().length` 是 **1**。
+ *
+ * 后果：上游若只发这几个字符，判断会通过 ⇒ 客户端画出一格**看不见的第二行**
+ * （行高 +24px，看起来像列表莫名变松）。这与本仓 `protocol-wire.md` 里
+ * 「不可见字符按 Unicode 类别处理、枚举码点必漏」是同一条教训的展示层版本 ——
+ * 这里只判「有没有」，不需要完整类别表，故用**显式小集合**（覆盖 Cf 里实际会
+ * 出现在文案字段的那几个），不做通用化。
+ */
+function hasVisibleText(text) {
+    // ⚠️⚠️ **必须按 Unicode 类别剥，不能枚举码点**（2026-11-18 复核 GitHub PR #115 时实测）。
+    //
+    // 初版是 `/[\u200b-\u200f\u2060\ufeff]/g`（5 段枚举），我在它上面跑了 18 格矩阵，
+    // **逃逸 5 个**：`\u180e`(MONGOLIAN VOWEL SEPARATOR，Unicode 6.3 起由 `Zs` 改归 `Cf`)、
+    // `\u2066`/`\u2067`/`\u2069`(LRI/RLI/PDI)、`\u061c`(ARABIC LETTER MARK)、
+    // `\ufff9`(行间注解起)… 一族 —— 每一个都能让 `trim()` 后长度 > 0 ⇒ 客户端画出
+    // **一格看不见的第二行**（行高 +24px，用户只看到「列表莫名变松」），
+    // 而那正是本函数存在的理由。`\p{Cf}` 一族有 160+ 个码点，枚举必漏。
+    //
+    // 剥掉的类别：
+    // - `Cf` 格式符（零宽、方向控制、软连字符、BOM…）：**不可见**
+    // - `Cc` 控制符（`\u0001` 等）：`trim()` 不认，原样留着就会落键
+    // - `Cs` 代理项（孤立代理，仅在畸形串里出现）
+    // - `Mn`/`Me` 组合/包围标记：单个组合符单独出现时不可见（`e\u0301` 剥完仍是 `e`，
+    //   不会把「有内容」判成「没内容」）
+    //
+    // ⚠️ **刻意不剥 `Zs`**：普通空格 `U+0020` 在**句中**是正常内容（`'a b'` 该保留），
+    // 两端空白由后面的 `trim()` 负责。
+    // ⚠️ 判据在 `src/models.ts` 与 `plugin-src/client/jet-hub.js` **各有一份**
+    // （客户端不能 import 服务端源码）⇒ 两处必须**逐字同构**，且
+    // `tests/unit/models.spec.ts` 的「零宽矩阵」是它们的共同守卫。
+    // ⚠️⚠️ **光有类别还不够，另有一族「填充符」**（2026-11-18 对抗审计点名、我逐个实测复现）：
+    // `U+115F`（Hangul Choseong Filler）、`U+1160`（Jungseong Filler）、`U+3164`（Hangul Filler）、
+    // `U+FFA0`（Halfwidth Hangul Filler）都是 **`Lo`**（字母），
+    // `U+2800`（Braille Pattern Blank）与 `U+FFFC`（Object Replacement Character）是 **`So`**
+    // —— 它们**视觉上完全空白**，但上面五个类别一个都不含 ⇒ 单靠类别仍会放行。
+    // 实测（`fetchCodeArtsRemoteModels` 真跑，15 格）：这 6 个**全部 LEAK**，
+    // 客户端会画出一格约 16px 的空白行，并把该行的 `title` 从 `model.id` 抢成不可见字符
+    // （`.dim-jh-modelId` 有 `max-width:46%` + ellipsis ⇒ 悬停是该模型 id 唯一看全的入口）。
+    return text.replace(/[\p{Cf}\p{Cc}\p{Cs}\p{Mn}\p{Me}\u115F\u1160\u2800\u3164\uFFA0\uFFFC]/gu, '').trim().length > 0;
+}
 function parseModelInfo(m, seen, 
+/**
+ * 已解析条目的索引（`id → RemoteModel`）。
+ *
+ * ⚠️ **必须有**：同一条 id 可能被**两个端点**各下发一次（`opengw gateway/config`
+ * 的 benefit 组在前、`/v1/model/builtin` 在后），而 gateway 那侧**没有
+ * `model_desc`**。只靠 `seen` 做「先到先得」的话，先到的 gateway 条目会赢，
+ * 介绍就**静默消失**（正是本 PR 要修的那一类丢字段）。见下方去重分支。
+ */
+byId, 
 /** 取倍率时用的「现在」（单测注入；缺省 `Date.now()`）。 */
 nowMs) {
     const rawId = m['model_id'];
@@ -147,10 +201,49 @@ nowMs) {
      * 用户要看的版本信息（裁掉就与旧版同名、无法区分）。
      */
     const name = typeof rawName === 'string' && rawName.length > 0 ? rawName : id;
-    if (seen.has(id))
+    /**
+     * 模型介绍（`model_desc`，2026-11-17 真机取证：`/v1/model/builtin` **12 条全带**，
+     * 且与 CodeArts 客户端选择器上那行灰字**逐字相同**）：
+     *
+     * ```
+     * "model_id":"deepseek-v4.1-flash-1017","model_desc":"【限时体验】许愿式编程一键成真"
+     * ```
+     *
+     * ⚠️ 三态：字段缺失 / 不是字符串 / 只有空白（含**零宽字符**，见 `hasVisibleText`）
+     *   ⇒ **不落键**（不写 `''`）。写空串会让宿主把「上游没给介绍」渲染成一格空的灰字，
+     *   与「有介绍」同形。
+     * ⚠️ 只 trim 两端空白，**不改字**（既不裁 `【限时体验】` 前缀，也不改写措辞）。
+     */
+    const rawDescription = m['model_desc'];
+    const description = typeof rawDescription === 'string' && hasVisibleText(rawDescription)
+        ? rawDescription.trim()
+        : undefined;
+    if (seen.has(id)) {
+        /**
+         * ⚠️⚠️ 同一条 id 第二次出现 ⇒ 不新增条目，但**要把介绍补齐**。
+         *
+         * 真实顺序是 `gateway/config`（benefit 组，**无 `model_desc`**）先、
+         * `/v1/model/builtin`（带 `model_desc`）后。两个端点对同一条 id 各下发一次时
+         * （例：`deepseek-v4.1-flash` 既在 gateway 的 benefit 组、也在 builtin 里），
+         * 「先到先得」会让 **gateway 那份赢** ⇒ 介绍在合并阶段就没了，
+         * 表现为「这个模型在另一个端点明明有介绍，界面上却是空白」。
+         * 这里只补**缺**的字段（已有的不覆盖），避免后到的名/倍率把先到的顶掉。
+         */
+        const existing = byId.get(id);
+        if (existing !== undefined && existing.description === undefined && description !== undefined) {
+            existing.description = description;
+        }
         return undefined;
+    }
     seen.add(id);
-    return { id, name, ...readRateLabel(m, nowMs) };
+    const model = {
+        id,
+        name,
+        ...(description === undefined ? {} : { description }),
+        ...readRateLabel(m, nowMs),
+    };
+    byId.set(id, model);
+    return model;
 }
 /**
  * 从 `/v1/model/builtin` 的单条模型里读**展示用倍率串**。
@@ -581,6 +674,14 @@ nowMs = Date.now()) {
     }
     const models = [];
     const seen = new Set();
+    /**
+     * `id → 已解析条目`（与 `seen` 同一批键，多存一份对象引用）。
+     *
+     * ⚠️ 存在的唯一理由：两个端点可能对同一条 id 各下发一次，而**只有 builtin
+     * 带 `model_desc`** ⇒ 后到的那份要把介绍补到先到的条目上（见
+     * `parseModelInfo` 的去重分支）。没有它就只能「先到先得」并静默丢掉介绍。
+     */
+    const byId = new Map();
     // 来自 gateway/config 的 benefit 模型 id —— 调用时必须带 maas_type: benefit。
     //
     // ⚠️ 只记录**未被去掉日期后缀**的 id（即 chat 请求真正发出的那个 id）。
@@ -607,7 +708,7 @@ nowMs = Date.now()) {
             if (typeof item === 'object' && item !== null) {
                 const entry = item;
                 const rawId = typeof entry['model_id'] === 'string' ? entry['model_id'] : '';
-                const mi = parseModelInfo(entry, seen, nowMs);
+                const mi = parseModelInfo(entry, seen, byId, nowMs);
                 if (mi) {
                     // 仅当归一化未改写 id 时才记为 benefit（见上方说明）
                     if (rawId.length > 0 && normalizeModelId(rawId) === rawId)
@@ -647,7 +748,7 @@ nowMs = Date.now()) {
                     if (typeof rawId === 'string' && rawId.length > 0)
                         builtinImageIds.push(rawId);
                 }
-                const mi = parseModelInfo(entry, seen, nowMs);
+                const mi = parseModelInfo(entry, seen, byId, nowMs);
                 if (mi)
                     models.push(mi);
             }
@@ -939,8 +1040,28 @@ export function setBenefitMemoryCache(ids) {
  * 一次。因此**没有静态表也不会卡死新模型**，只是首次多一轮往返。
  */
 export function isCodeArtsBenefitModelKnown(model) {
+    const ids = codeArtsBenefitModelIds();
+    return ids !== undefined && ids.includes(model);
+}
+/**
+ * benefit（免费额度）模型 id 集合的**三态**读取（`undefined` = 未确认）。
+ *
+ * ## 为什么必须能区分「未确认」与「确认无」
+ *
+ * {@link isCodeArtsBenefitModelKnown} 对「未确认」与「确认无」都返回 `false` ——
+ * 那个二分对**要不要带头**是正确的默认（不带，靠自愈补头），但**不能**用来
+ * 给用户下判断。设置页要标「该模型需要福利包」时，若拿 `false` 当判据，
+ * 冷缓存（还没拉到远端目录）下**每一条模型都会被标上**，用户会以为全站模型
+ * 都不可用 —— 与 `dead-model-store.ts` 里「拿读不到反推已下架」是同一条禁令。
+ *
+ * ⇒ 展示层的判据必须是本函数（三态），门禁层才用二分的那两个。
+ *
+ * ⚠️ 两个函数**共用同一份内存/磁盘缓存**（本函数是唯一读取口），不得各读一份：
+ * 两套判据会在「刚拉完远端目录」的那一瞬间分叉。
+ */
+export function codeArtsBenefitModelIds() {
     if (benefitMemoryCache === undefined)
         benefitMemoryCache = loadBenefitCache();
-    return benefitMemoryCache !== undefined && benefitMemoryCache.includes(model);
+    return benefitMemoryCache;
 }
 //# sourceMappingURL=models.js.map

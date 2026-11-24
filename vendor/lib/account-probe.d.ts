@@ -32,6 +32,7 @@ import { type LlmAdapter } from '@deepseek-ai/dsh-llm';
 import type { BuddyCredential } from './buddy.js';
 import type { LobsteraiCredential } from './lobsterai.js';
 import type { QoderCredential } from './qoder.js';
+import type { QoderTrafficProvider } from './qoder-traffic-guard.js';
 import type { ClineCredential } from './cline.js';
 import type { ZcodeCredential } from './zcode.js';
 import type { TraeCredential } from './trae.js';
@@ -51,6 +52,7 @@ type ProbeCredential = CodeArtsCredential | BuddyCredential | LobsteraiCredentia
  * 真实的 {@link AccountPool} 结构上即满足此接口。
  */
 export interface ProbePool {
+    qoderTrafficGuardEnabled?(provider: QoderTrafficProvider): boolean;
     /** 按 id 查找账号（含已停用）。 */
     findAccount(id: string): ProviderAccountEntry | undefined;
     /** 列出某 provider 的全部账号（含已停用）。 */
@@ -105,7 +107,9 @@ export interface ProbeDeps {
  * ⚠️ 判据是 `runtime?.probe === undefined` —— **不能**只看 `runtimeOf(provider)`
  * 是否有值：只注册了 `expiry` 等其它域的 provider **同样不支持重测**。
  */
-export declare function adapterForProbe(provider: string, refName: string, credential: unknown, entry?: ProviderAccountEntry): LlmAdapter;
+export declare function adapterForProbe(provider: string, refName: string, credential: unknown, entry?: ProviderAccountEntry, options?: {
+    qoderTrafficGuardEnabled?: boolean;
+}): LlmAdapter;
 /**
  * 重测单个账号：对该账号每个带限流标记的模型发一次真实请求，
  * 正常返回的模型清除标记。

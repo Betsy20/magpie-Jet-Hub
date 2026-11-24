@@ -4,15 +4,23 @@
  * ## 本文件只干三件事（协议判据一律来自 `astudio.ts`，不在此重复）
  *
  * 1. **发请求**：`POST {maasBaseUrl}{chatPath}`
- *    （实测 = `https://maas-api.cn-huabei-1.xf-yun.com/v1/chat/completions`）。
- *    请求体**一律**交给 {@link buildAstudioChatRequest}，本文件绝不自己拼 body ——
- *    那函数已把三条实测取舍固化在纯函数层（裸 slug、空值省键、`stream_options.include_usage`），
- *    在这里再拼一遍就是第二处实现，必然漂移。
- * 2. **解析流**：复用仓库共享件 {@link consumeOpenAiSse}（`reasoning_content` 独立成块、
- *    `tool_calls` 按 index 合并、`finish_reason` 映射、**HTTP 200 + SSE 内嵌错误帧**归为
- *    `LlmError`）。本家实测是**标准 OpenAI 增量**，故不需要「累积全文→增量 diff」；
- *    但仍套一层 {@link astudioWrapIncremental} 作**防御**（幂等透传，上游哪天改形态不至于把
- *    正文拼成三份）。
+ *    （实测 = `https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/responses`
+ *    —— **Responses 协议**，⚠️ **不是** Chat Completions；同一基址的
+ *    `/chat/completions` 恒 404，详见 `astudio-product.ts` 的基址注释）。
+ *    请求体**一律**交给 {@link buildAstudioResponsesRequest}，本文件绝不自己拼 body ——
+ *    那函数已把实测取舍固化在纯函数层（裸 slug、`instructions`、扁平 tools、
+ *    `max_output_tokens`、`reasoning.effort`、空值省键）。
+ * 2. **解析流**：先把上游 Responses 事件翻译成 chat 帧
+ *    （{@link astudioResponsesToChatSse}），再交给仓库共享件 {@link consumeOpenAiSse}
+ *    （`reasoning_content` 独立成块、`tool_calls` 按 index 合并、`finish_reason` 映射、
+ *    **HTTP 200 + SSE 内嵌错误帧**归为 `LlmError`）。⚠️ 翻译层只做**形状**，语义守卫
+ *    只有一份；为新协议另写一个消费器会让两套判据分叉。
+ *    ⚠️⚠️ **绝不套** {@link astudioWrapIncremental}：它的语义是「同一 Id 累积全文 ⇒
+ *    只发差量」，而翻译器产出的是**真增量**（协议里每个 delta 就是本帧新增文本）。
+ *    套上去会把「本帧恰好是已发全文的前缀」当成重复**静默丢弃** —— 实测
+ *    `["a","a","a","b"] ⇒ "ab"`、`["The","The"," weather"] ⇒ "The weather"`
+ *    （重复词/重复代码行在模型输出里很常见）。旧 chat 通路同样套过它，但那条
+ *    通路因 404 从未跑过流量，所以缺陷一直没暴露。
  * 3. **凭据**：全部经 `astudio-auth.ts` 注入（磁盘快路径 + 401 触发的权威重取）。
  *    本文件**不读磁盘、不拼 Cookie、不自己发凭据请求**。
  *
@@ -60,7 +68,12 @@ export interface AstudioAdapterOptions {
      */
     auth?: AstudioAuth;
     /** 取当前凭据；缺省 `auth.currentCredential()`。 */
-    resolveCredential?: () => Promise<AstudioCredential | undefined>;
+    /**
+     * ⚠️ **第二参 `sessionId` 是「轮换起点」的作用域键**（PR #59 正向审计 P1-b）：
+     * 适配器必须把 `GenerateOptions.sessionId` 透传进来，否则选号层永远拿到
+     * `undefined` ⇒ 面板选的起点**静默失效**（tsc 因函数参数逆变不报）。
+     */
+    resolveCredential?: (modelId?: string, sessionId?: string) => Promise<AstudioCredential | undefined>;
     /** 401 后的**一次**权威重取；缺省 `auth.refreshOnce()`。 */
     refresh?: () => Promise<AstudioRefreshOutcome | undefined>;
     /** 读远端模型目录；缺省 `auth.fetchCatalogModels()`（GET model-manager/models）。 */
@@ -92,7 +105,7 @@ export interface AstudioAdapterOptions {
      */
     accountPool?: import('./account-pool.js').AccountPool;
 }
-/** AStudio 适配器：Chat Completions 通道（实测上游原生兼容 OpenAI）。 */
+/** AStudio 适配器：**Responses** 协议通道（2026-11-16 真机实测；同基址的 `/chat/completions` 恒 404）。 */
 export declare class AstudioAdapter extends LlmAdapter {
     private readonly options;
     private readonly product;
@@ -198,9 +211,16 @@ export declare class AstudioAdapter extends LlmAdapter {
      */
     refresh(): Promise<void>;
     /**
-     * 一次推理（**只发 `stream:true`**：harness 要的是 `StreamChunk`，而本家流式是标准
-     * OpenAI 增量 + `[DONE]`，末 chunk 带 usage —— 实测 `stream_options.include_usage`
-     * 不带时流里没有 usage 帧，计费与统计双缺，故该键由 `buildAstudioChatRequest` 恒补）。
+     * 一次推理（**只发 `stream:true`**：harness 要的是 `StreamChunk`）。
+     *
+     * 本家是 **Responses** 协议（`POST {base}/responses`），不是 Chat Completions：
+     * 上游吐的是 `response.output_text.delta` 这类事件，由 {@link astudioResponsesToChatSse}
+     * 翻译成 chat 帧后再交给共享消费器。
+     *
+     * ⚠️ 这里**没有** `stream_options.include_usage`（Responses 协议没这个字段）：
+     * usage 由翻译器从 `response.completed` / `response.incomplete` 的
+     * `response.usage` 转成 chat 口径的 `usage` 帧（`input_tokens_details.cached_tokens`
+     * 要从 `prompt_tokens` 里扣出来单列），见 `astudio-responses.spec.ts`。
      */
     stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
     /**

@@ -134,6 +134,39 @@ export interface BaizhiUsage {
  * 裸值时补前者。
  */
 export declare function normalizeBaizhiCookie(raw: string | undefined): string | undefined;
+/**
+ * **脱敏**一段上游报文，绝不回显凭据（本仓红线）。
+ *
+ * 判词来源：`src/qoder-web-usage.ts` 的「Cookie 是能登录官网的会话凭据：
+ * 绝不下发客户端、绝不写日志或错误消息」。这里把同一纪律用在**领取失败的回执**上：
+ * 报文来自上游，理论上不该含我们的凭据，但**「理论上」不能当作判据** ——
+ * 上游若把请求头回显进错误体（真实发生过的形态），我们就会把它带到用户界面上。
+ *
+ * 只做「模式脱敏」，不猜字段语义：宁可多打几个 `***`，也不让凭据漏出去。
+ */
+export declare function redactBaizhiText(text: string): string;
+/**
+ * 从领取响应里取**允许公开**的失败原因（issue #123 第 3 项）。
+ *
+ * ## 为什么要做
+ *
+ * `claimed:false` 原先只判布尔、**上游整个响应体被丢掉** ⇒ 报障时没人知道
+ * 服务端到底说了什么（「需要图形验证」？账号级风控？IP 限流？），
+ * issue 里「服务端具体拒发条件尚未确认」就是这么来的。
+ *
+ * ## 什么算「允许公开」
+ *
+ * 只认**保守白名单键**：`code` / `error_code` / `reason` / `message` / `msg` / `detail`。
+ * 既不猜别的字段，也不把整个响应体 toString 出去（那会把 `data` 里可能存在的
+ * 账号信息一并带走）。取不到任何一项就返回 `undefined`，由调用方写「原因未知」。
+ *
+ * ⚠️ 结果**先脱敏再截断**（顺序不能反：先截断可能把 `token=abc…` 切成
+ * `token=ab`，脱敏正则就匹配不上了）。
+ *
+ * @param raw - `claimResult.data`（上游原始响应，可能带 `{data: …}` 信封）。
+ * @returns 形如 `code=40012；message=需要完成人机验证` 的单行文本；无可用字段时 `undefined`。
+ */
+export declare function publicClaimReason(raw: unknown): string | undefined;
 /** 读积分余额。 */
 export declare function fetchBaizhiWallet(credential: BaizhiCredential, product?: BaizhiProduct, deps?: BaizhiCreditsDeps): Promise<{
     readonly ok: true;

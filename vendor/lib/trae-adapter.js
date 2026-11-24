@@ -24,6 +24,15 @@ import { RemoteCatalogGate } from './remote-catalog-gate.js';
 import { broadcastCatalogChanged } from './catalog-broadcast.js';
 import { TRAE_MAX_CONTEXT_TOKENS, clampTraeMaxTokens, isTraeExpired, parseTraeSSELine, isTraeModelCallable, traeMaxModeFields, traeSOLOHeaders, traeUsageFromTokenUsage, transformToSOLOBody, } from './trae.js';
 import { TRAE } from './trae-product.js';
+import { nextPromotionEdgeMs, promotionBadgeFor, traePromotionCandidate, } from './model-promotions.js';
+/**
+ * 上游**不给**时区时的兜底（真机 32 条带 off_peak 的行里 26 条无 `time_zone`）。
+ *
+ * ⚠️ 取 Asia/Shanghai 不是猜的：下发了该字段的 6 条**逐字**就是它
+ * （`off_peak_member_discount_18_9` 那批），且本仓所有墙钟判据（签到日界、
+ * 腾讯/Qoder 的活动窗口）同值。两处不一致会让「价格」与「徽标」差 8 小时说话。
+ */
+const TRAE_PROMOTION_TIME_ZONE = 'Asia/Shanghai';
 import { classifyTraeError, classifyTraeStreamCode, isRotatableTraeStreamCode, recordsTraeRateLimit, shouldRotateTraeAccount } from './trae-errors.js';
 import { traeCooldownFor } from './trae-cooldown-table.js';
 import { normalizeHarnessMessages } from './message-shape.js';
@@ -661,6 +670,18 @@ export class TraeAdapter extends LlmAdapter {
     catalog;
     /** 远端模型元数据索引。 */
     remoteMeta = new Map();
+    /**
+     * 闲时折扣的**未决候选表**（模型 id → 规则），远端目录落地时重建一次。
+     *
+     * ⚠️ 存的是**规则**不是**结论**：「此刻画不画」由 `toCatalogEntry` 用当时的
+     * 时钟现算（issue #101 的核心取舍 1）。这里如果存成 badge，22:59 读到的
+     * 闲时折扣会一路挂到第二天早上 —— 而那正是本 issue 点名的事故。
+     *
+     * ⚠️ 也**不能**在 `toCatalogEntry` 里现解析：解析一次就要 warn 一次「窗口
+     * 读不懂」，而那是一条**文档形状**的事实、与时刻无关 —— 放在渲染路径上
+     * 会变成每次 listModels 刷屏（模块头「判定路径不打日志」那条纪律）。
+     */
+    promotionIndex = new Map();
     /** 产品级兜底模型索引。 */
     fallbackIndex;
     /**
@@ -728,6 +749,18 @@ export class TraeAdapter extends LlmAdapter {
                 return false;
             this.remoteModels = models;
             this.remoteMeta = new Map(models.map((model) => [model.id, model]));
+            this.rebuildPromotionIndex(models);
+            /**
+       * ★ **落盘（SWR 写盘那一半）** —— 2026-11-20，与 `buddy-adapter` 同款。
+       *
+       * ⚠️ 本家**只有一个目录来源** ⇒ 「拿到非空目录」即 `complete`
+       *（与 `RemoteCatalogGate` 对裸布尔的归一化口径一致：`complete = got`）。
+       * 故不需要额外的完整性判据。
+       *
+       * ⚠️ 只写**非空**目录：空目录若覆盖磁盘上更好的旧缓存，下次启动会更差。
+       * 那一层由 `writeCatalogCache` 自己挡（`entries.length === 0` 直接返回 false）。
+       */
+            this.catalog.rememberForDisk?.(this.syncCatalogEntries());
             // ⚠️ **只在成功赋值后**记时刻：失败/空结果不写，否则一次抖动会把上界
             //    刷新掉、下轮还要等满 20 分钟才发现上游没恢复。
             this.catalogAt = this.options.now?.() ?? Date.now();
@@ -755,6 +788,42 @@ export class TraeAdapter extends LlmAdapter {
      */
     inputModalitiesFor(model) {
         return this.remoteMeta.get(model)?.multimodal === true ? ['text', 'image'] : ['text'];
+    }
+    /**
+     * 远端目录落地时重建候选表（**每次读取一遍**，渲染路径零解析、零日志）。
+     *
+     * 兜底表没有 `offPeakDiscount` ⇒ 索引为空 ⇒ 离线路径不画徽标（与「上游没有
+     * 活动」同形，如实；不编）。
+     */
+    rebuildPromotionIndex(models) {
+        const next = new Map();
+        let warned = false;
+        for (const model of models) {
+            if (model.offPeakDiscount === undefined)
+                continue;
+            const promotion = traePromotionCandidate(model.offPeakDiscount, model.id, TRAE_PROMOTION_TIME_ZONE, warned ? undefined : (message) => { warned = true; console.warn('[jet-hub] ' + message); });
+            if (promotion !== undefined)
+                next.set(model.id, promotion);
+        }
+        this.promotionIndex = next;
+    }
+    /**
+     * 候选表里下一个会改变徽标的时刻（epoch 毫秒），没有则 undefined。
+     *
+     * 供全局活动边界播报器排程（src/index.ts 的 edgeSources）。闲时窗口是**墙钟**
+     * 窗口（真机 V4-Flash：`[1..7] 00:00–08:00` 与 `[1..7] 22:00–24:00` 两段，
+     * 见 docs §18 的留档。「工作日/周末分开下发」在仓内**没有依据**，别照抄），
+     * 而宿主缓存一次目录读取的结果 —— 没有这条，窗口关了徽标最长再挂一个后台
+     * 刷新周期（20 分钟），正是 issue #101 点名的形态。
+     *
+     * ⚠️ 时钟与 `toCatalogEntry` **同源**（同一个 `options.now`）：两处各读一次
+     * 真实时钟，单测里会给出两个「现在」。
+     * ⚠️ **零网络**：只读内存里的候选表。
+     */
+    nextPromotionEdgeAt(nowMs = this.options.now?.() ?? Date.now()) {
+        if (this.promotionIndex.size === 0)
+            return undefined;
+        return nextPromotionEdgeMs([...this.promotionIndex.values()], nowMs);
     }
     /**
      * 该模型所属的聊天通道（`function`）。
@@ -932,6 +1001,12 @@ export class TraeAdapter extends LlmAdapter {
         const contextWindow = this.contextWindowFor(model.id);
         const maxTokens = this.maxOutputTokensFor(model.id);
         const reasoning = this.reasoningFor(model.id);
+        // ★ 徽标在**装配时刻**求值（issue #101 取舍 1）。⚠️ 时钟只读**一次**存进局部量：
+        // 「有没有」与「是哪一枚」各读一次，跨过窗口边界那一分钟会得到前 undefined、
+        // 后一枚徽标 ⇒ 写进字面量就成了 badge: undefined 键（三态被破坏）。
+        const nowMs = this.options.now?.() ?? Date.now();
+        const promotion = this.promotionIndex.get(model.id);
+        const badge = promotion === undefined ? undefined : promotionBadgeFor([promotion], nowMs);
         return {
             id: model.id,
             name: traeDisplayName(model),
@@ -944,6 +1019,8 @@ export class TraeAdapter extends LlmAdapter {
             ...contextWindow !== undefined ? { contextWindow } : {},
             ...maxTokens !== undefined ? { maxTokens } : {},
             ...reasoning !== undefined ? { reasoning } : {},
+            // ⚠️ 缺席即**整个键不写**（宿主 listModels 判的是 badge === void 0）。
+            ...badge === undefined ? {} : { badge },
         };
     }
     /**
@@ -1048,12 +1125,12 @@ export class TraeAdapter extends LlmAdapter {
         // ⚠️ **必须传 `options.model`**：这是选号主路径，`resolveCredential` 会把
         // 它透传给 `getAvailableAccount` 的 `modelId` 过滤限流账号。传空串等于
         // 不按模型过滤，限流标记被忽略（用户报障「没有切换」的根因之一）。
-        let credential = await this.options.resolveCredential(options.model);
+        let credential = await this.options.resolveCredential(options.model, options.sessionId);
         if (credential === undefined || isTraeExpired(credential)) {
             await this.options.refresh();
             // ⚠️ 传 `options.model`：选号必须按**本轮的模型**过滤限流账号，
             // 否则刚标记的限流账号会被再次选中（见 options 类型处的说明）。
-            credential = await this.options.resolveCredential(options.model);
+            credential = await this.options.resolveCredential(options.model, options.sessionId);
         }
         if (credential === undefined || credential.access_token.length === 0) {
             throw new LlmError('trae: no usable credential; log in first', 'MISSING_CREDENTIAL');
@@ -1246,7 +1323,7 @@ export class TraeAdapter extends LlmAdapter {
         if (!response.ok && (response.status === 401 || response.status === 403)) {
             await this.options.refresh();
             // 与主路径一致：按本模型选号（跳过正在限流的账号）。
-            const refreshed = await this.options.resolveCredential(options.model);
+            const refreshed = await this.options.resolveCredential(options.model, options.sessionId);
             if (refreshed === undefined || refreshed.access_token.length === 0) {
                 throw new LlmError('trae: credential expired and refresh failed', 'AUTH', { status: response.status });
             }

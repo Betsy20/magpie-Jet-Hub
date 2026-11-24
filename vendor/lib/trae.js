@@ -34,6 +34,7 @@
  *   大小写不敏感匹配等逻辑。
  */
 import { createHash } from 'node:crypto';
+import { readCacheTokenCount } from './cache-token-count.js';
 import { jwtExpiresAtMs } from './buddy.js';
 import { TRAE_CHANNELS } from './trae-product.js';
 // ── 端点路径 ──
@@ -731,6 +732,114 @@ export function readActivityDiscount(entry, nowSec = Math.floor(Date.now() / 100
         return undefined;
     return endsAtSec === undefined ? { originalRate: before } : { originalRate: before, endsAtSec };
 }
+/**
+ * 解析 `activity_discount.data.off_peak` —— 闲时折扣的**规则**，不是「此刻的结论」。
+ *
+ * ## 为什么不能并入 `readActivityDiscount`
+ *
+ * 那三条判据（`discount_type !== 'none'`、`before > after`）是**价格腿**对
+ * `current` 的读法，而 `current` 在闲时条目上恒为 `none` + `before === rate`。
+ * 把两支混进一个函数会让「现在多少钱」与「闲时多少钱」共用一个布尔 ——
+ * 正是本仓「一文件两套同义判据」要修的形状。
+ *
+ * ## 判据
+ *
+ * 1. `display_contact_config` 是**一个 JSON 字符串**（与倍率、折扣同一份文档，
+ *    直接读字段永远得到 undefined）；
+ * 2. `activity_discount.enable !== false`（**缺省即启用**）；
+ * 3. 只认 `data.off_peak` 这一支。`member` / `subsidy` **不产出候选**：它们是
+ *    「另一条付费路径的价格对比」，没有「此刻生效」的判据 —— 参考实现同判据，
+ *    且真机上把 member 当折扣画会**凭空多打一折**（`off_peak_member_discount_18_9`
+ *    的两条路是**不叠加**的：会员全天 0.06、免费用户闲时 0.06，写成 0.03 就是说谎）。
+ * 4. `time_windows` 原样带出（含非法项），**换算与丢弃在展示层**
+ *    （`traePromotionCandidate`）—— 两层各判一次会漂移。
+ *
+ * ⚠️ **不读 `features`**：那是参考实现走 SOLO Remote 目录时的第二个载体；
+ * 本家只拉 `batch_get_detail_param`，真机 51 条全部落在
+ * `display_contact_config` 上。为没测到的形态开一条路 = 写死代码。
+ */
+export function readTraeOffPeakDiscount(entry) {
+    const raw = entry.display_contact_config ?? entry.DisplayContactConfig;
+    if (typeof raw !== 'string' || raw.length === 0)
+        return undefined;
+    const config = parseJsonObject(raw);
+    if (config === undefined)
+        return undefined;
+    const discount = config.activity_discount ?? config.ActivityDiscount;
+    const discountRecord = asRecordObject(discount);
+    if (discountRecord === undefined)
+        return undefined;
+    if (readBooleanField(discountRecord, 'enable') === false)
+        return undefined;
+    // ⚠️ 不能写 `readStringField(...) ?? readStringField(...)`：`readStringField` 读不到时
+    // 返回的是**空串**而不是 undefined，`??` 只对 null/undefined 生效 ⇒ 第二个键
+    // **永远走不到**（本 PR 返工时被 `sub_key` 那条用例咬出来，两种写法都实测见过）。
+    const subKeyCamel = readStringField(discountRecord, 'subKey');
+    const subKey = subKeyCamel.length > 0 ? subKeyCamel : readStringField(discountRecord, 'sub_key');
+    // ⚠️ 会员 / 补贴子键是**另一条付费路径**，不是闲时折扣：真机
+    // `off_peak_member_discount_18_9` 的两条路**不叠加**（会员全天 0.06、免费闲时 0.06），
+    // 当折扣并排画会凭空多打一折。文档与模块注释一直这么写，而实现原先**只看
+    // `data.off_peak` 这一支存在与否**、从不看子键 ⇒ 真机 6/32 条会员行照样产候选
+    // （PR #106 对抗审计 P1）。未知子键放行：上游新增形态时宁可多画也不要静默丢。
+    if (subKey !== undefined && /member|subsidy/i.test(subKey))
+        return undefined;
+    const data = asRecordObject(discountRecord.data ?? discountRecord.Data);
+    const offPeak = data === undefined ? undefined : asRecordObject(data.off_peak ?? data.OffPeak);
+    if (offPeak === undefined)
+        return undefined;
+    const before = readNumberField(offPeak, 'before_consumption_rate');
+    const rate = readNumberField(offPeak, 'after_consumption_rate');
+    // 数字闸门：取不到就是**没有这条规则**（不是「0 折」）。
+    if (before === undefined || rate === undefined)
+        return undefined;
+    const windows = [];
+    const rawWindows = offPeak.time_windows;
+    // 「声明过」的判据 = 该键存在**且不是空数组**：
+    //   - 缺键 / `null`    ⇒ 没声明时段（= 全天活动，不警告）；
+    //   - `[]`             ⇒ 上游主动表达「没有时段」，同样算没声明；
+    //   - 非空数组（含元素全读不懂）⇒ 声明了，但可能一条都活不下来；
+    //   - 非数组（字符串 / 对象 / 数字）⇒ 声明了，但编码完全看不懂。
+    // 后两种必须能让展示层判成「不可用」：`windows` 都是 `[]`，光看结果分不出来。
+    const windowsDeclared = Array.isArray(rawWindows)
+        ? rawWindows.length > 0
+        : rawWindows !== undefined && rawWindows !== null;
+    if (Array.isArray(rawWindows)) {
+        for (const item of rawWindows) {
+            const record = asRecordObject(item);
+            if (record === undefined)
+                continue;
+            const startMinute = readNumberField(record, 'start_minute');
+            const endMinute = readNumberField(record, 'end_minute');
+            if (startMinute === undefined || endMinute === undefined)
+                continue;
+            const weekdays = Array.isArray(record.weekdays)
+                ? record.weekdays.filter((day) => typeof day === 'number' && Number.isInteger(day))
+                : undefined;
+            windows.push({
+                startMinute,
+                endMinute,
+                ...weekdays === undefined ? {} : { weekdays },
+            });
+        }
+    }
+    const timeZone = readStringField(offPeak, 'time_zone');
+    const discountPercent = readNumberField(offPeak, 'discount');
+    return {
+        beforeRate: before,
+        rate,
+        ...discountPercent === undefined ? {} : { discountPercent },
+        ...timeZone.length > 0 ? { timeZone } : {},
+        ...subKey === undefined || subKey.length === 0 ? {} : { subKey },
+        windows,
+        windowsDeclared,
+    };
+}
+/** 记录型值的窄化：非对象（含 null 与数组）返回 undefined。 */
+function asRecordObject(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+        ? value
+        : undefined;
+}
 /** 宽松解析 JSON 对象字符串；非对象（数组/标量/非法 JSON）返回 undefined。 */
 function parseJsonObject(raw) {
     try {
@@ -788,6 +897,8 @@ function parseTraeConfigEntry(entry, channel) {
     // 计费：`display_contact_config` 里的倍率与活动折扣（两次 JSON.parse）。
     const creditsRate = readConsumptionRate(entry);
     const discount = readActivityDiscount(entry);
+    // 闲时折扣：与上一条**互不重叠**的两支（见 readTraeOffPeakDiscount 的说明）。
+    const offPeakDiscount = readTraeOffPeakDiscount(entry);
     return {
         id,
         name,
@@ -807,6 +918,7 @@ function parseTraeConfigEntry(entry, channel) {
         ...creditsRate === undefined ? {} : { creditsRate },
         ...discount === undefined ? {} : { originalCreditsRate: discount.originalRate },
         ...discount?.endsAtSec === undefined ? {} : { discountEndsAtSec: discount.endsAtSec },
+        ...offPeakDiscount === undefined ? {} : { offPeakDiscount },
     };
 }
 /**
@@ -1538,7 +1650,7 @@ export const OPENAI_DONE = 'data: [DONE]\n\n';
 export function traeUsageFromTokenUsage(raw) {
     const num = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined;
     const promptTokens = num(raw.prompt_tokens);
-    const cacheRead = num(raw.cache_read_input_tokens);
+    const cacheRead = readCacheTokenCount(raw.cache_read_input_tokens);
     const cacheWrite = num(raw.cache_creation_input_tokens);
     const completionTokens = num(raw.completion_tokens);
     const reasoningTokens = num(raw.reasoning_tokens);
@@ -1548,7 +1660,7 @@ export function traeUsageFromTokenUsage(raw) {
     return {
         inputTokens,
         outputTokens: completionTokens ?? 0,
-        ...cacheRead !== undefined && cacheRead > 0 ? { cacheReadTokens: cacheRead } : {},
+        ...cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {},
         ...cacheWrite !== undefined && cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {},
         ...reasoningTokens !== undefined && reasoningTokens > 0 ? { reasoningTokens } : {},
     };

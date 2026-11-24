@@ -51,9 +51,9 @@ export class AutoclawAdapter extends LlmAdapter {
             unknownModelInputModalities: () => ['text'],
         });
     }
-    async resolveCredential(modelId) {
+    async resolveCredential(modelId, sessionId) {
         if (this.options.resolveCredential) {
-            return this.options.resolveCredential(modelId);
+            return this.options.resolveCredential(modelId, sessionId);
         }
         if (this.options.credentialProvider) {
             return this.options.credentialProvider();
@@ -377,7 +377,7 @@ export class AutoclawAdapter extends LlmAdapter {
     }
     async *stream(options) {
         const model = options.model;
-        let credential = await this.resolveCredential(model);
+        let credential = await this.resolveCredential(model, options.sessionId);
         if (!credential) {
             // ⚠️ **必须带错误码**（2026-10-17 审计 P0 修复）：原写法是裸 `Error`
             // ⇒ 宿主 `harnessErrorCode`（`dsh-llm/lib/adapter-failure.js:105-107`）
@@ -508,7 +508,7 @@ export class AutoclawAdapter extends LlmAdapter {
                 const refreshed = renewed !== undefined && typeof renewed.access_token === 'string'
                     && renewed.access_token.length > 0
                     ? renewed
-                    : await this.resolveCredential(model);
+                    : await this.resolveCredential(model, options.sessionId);
                 if (refreshed && refreshed.access_token.length > 0) {
                     credential = refreshed;
                     const retryHeaders = buildAutoclawHeaders({

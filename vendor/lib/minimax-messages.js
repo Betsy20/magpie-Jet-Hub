@@ -54,6 +54,7 @@
  * ⚠️ 内联由调用方完成（适配器读附件服务），本文件保持**纯函数**。
  */
 import { ToolCallId } from '@deepseek-ai/dsh-llm';
+import { readCacheTokenCount } from './cache-token-count.js';
 import { normalizeHarnessMessages } from './message-shape.js';
 import { createDsmlMarkerNormalizer, fixDsmlMarkers, hasUsableToolName, resolveToolPairing } from './sse.js';
 /**
@@ -395,7 +396,7 @@ export function readMinimaxUsage(raw) {
     const output = nonNegativeInt(u.output_tokens);
     if (output !== undefined)
         out.outputTokens = output;
-    const cacheRead = nonNegativeInt(u.cache_read_input_tokens);
+    const cacheRead = readCacheTokenCount(u.cache_read_input_tokens);
     if (cacheRead !== undefined)
         out.cacheReadTokens = cacheRead;
     const cacheWrite = nonNegativeInt(u.cache_creation_input_tokens);

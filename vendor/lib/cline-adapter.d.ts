@@ -73,7 +73,7 @@ export interface ClineAdapterOptions {
     /** 默认凭据 ref（仅用于类型/日志，实际解析走 `resolveCredential`）。 */
     credentialRef: CredentialRef;
     /** 从凭据存储解析凭据。 */
-    resolveCredential: (modelId?: string) => Promise<ClineCredential | undefined>;
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<ClineCredential | undefined>;
     /** 静默续期凭据。 */
     refresh: () => Promise<void>;
     /** 多账号池（用于限流时切换账号与模型黑名单）。 */

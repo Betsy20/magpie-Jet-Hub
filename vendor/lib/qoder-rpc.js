@@ -44,6 +44,8 @@ import { describeFetchError } from './opencode-rpc.js';
 import { targetsProxyEntry } from './network-hint.js';
 import { QODER_USAGE_PATH } from './qoder-credits.js';
 import { QODER, QODER_CN } from './qoder-product.js';
+import { qoderFetchForAccount } from './qoder-proxy.js';
+import { fetchQoderWebPackages, loadQoderWebStore, normalizeCookieInput, redactQoderCookie, saveQoderWebStore, } from './qoder-web-usage.js';
 /** 探测连接用的超时（测试按钮不能无限等）。 */
 const TEST_TIMEOUT_MS = 15_000;
 /**
@@ -72,7 +74,7 @@ function productOf(provider) {
  *          `gemini-rpc.ts` 的契约：对未知方法回信封会把别的 provider 的
  *          方法名误判成「格式错误」）。
  */
-export async function handleQoderRpc(_ctx, pool, method, payload) {
+export async function handleQoderRpc(ctx, pool, method, payload) {
     const fail = (message) => ({ ok: false, error: { code: 'bad-request', message } });
     const done = (value) => ({ ok: true, value });
     try {
@@ -93,6 +95,59 @@ export async function handleQoderRpc(_ctx, pool, method, payload) {
                     return fail(normalized.reason);
                 await pool.setQoderProxy(req.accountId, normalized.proxy.url);
                 return done({ proxy: normalized.proxy.url, label: normalized.proxy.label });
+            }
+            case 'qoder.setWebSession': {
+                const req = payload;
+                if (typeof req?.accountId !== 'string' || req.accountId.length === 0) {
+                    return fail('缺少 accountId');
+                }
+                let found;
+                for (const product of [QODER, QODER_CN]) {
+                    const entry = pool.listAccountsByProvider(product.id).find((a) => a.id === req.accountId);
+                    if (entry !== undefined) {
+                        found = { entry, product };
+                        break;
+                    }
+                }
+                if (found === undefined)
+                    return fail('账号不存在或不是 Qoder 账号');
+                const credentials = ctx.credentials;
+                const store = await loadQoderWebStore(credentials, found.entry.credentialRef);
+                const rawCookie = typeof req.cookie === 'string' ? req.cookie : '';
+                const cookie = normalizeCookieInput(rawCookie);
+                if (cookie === '') {
+                    /**
+                     * ⚠️⚠️ **「解析不出 Cookie」≠「用户要清除」**（2026-11-14 双审计 P2-1 / P2-④）。
+                     * 旧实现把两者合并 ⇒ 用户粘错（粘了 `https://qoder.com/account/usage`、
+                     * 粘了未加引号的 `curl … -H Cookie: …`、粘了整页 HTML）时：
+                     * 已存会话被**静默删除**、返回 `{ saved: false }` 而 `ok: true`、客户端
+                     * 无条件 `close(true)` ⇒ 用户以为「换好了」，实际**把能用的会话删了**。
+                     *
+                     * 判据：只有**真的空输入**才算清除意图；非空但解析不出键值对 ⇒ 报错，
+                     * 一个字都不落盘。回显**只给长度与一句形态提示，不回显内容**（那是凭据）。
+                     */
+                    if (rawCookie.trim() !== '') {
+                        return fail(`粘贴的内容里没有可用的 Cookie 键值对（收到 ${rawCookie.length} 个字符）。`
+                            + '请从开发者工具复制请求头里的 `Cookie` 值，或整条「复制为 cURL」；'
+                            + '若想清除已保存的会话，请点「清除会话」。');
+                    }
+                    const { cookie: _drop, ...rest } = store;
+                    await saveQoderWebStore(credentials, found.entry.credentialRef, rest);
+                    return done({ saved: false, packages: 0 });
+                }
+                // 先用它真查一次再保存：粘错 / 已过期的 Cookie 当场报错，而不是存进去后静默无效。
+                const web = await fetchQoderWebPackages(cookie, found.product, qoderFetchForAccount(found.entry.id));
+                // ⚠️⚠️ 这条文案会**直接显示给用户**（弹窗里的 error），而 `fetch` 的异常
+                // 消息可能原样引用头值 ⇒ 再用**用户原始粘贴内容**脱一次敏
+                // （`fetchQoderWebPackages` 里只按归一化后的 Cookie 抹，而原始输入里
+                // 那些被 `cleanCookie` 丢掉的片段不在其中）。见 `redactQoderCookie`。
+                if (!web.ok)
+                    return fail(redactQoderCookie(web.reason, rawCookie));
+                await saveQoderWebStore(credentials, found.entry.credentialRef, { ...store, cookie });
+                return done({
+                    saved: true,
+                    packages: web.packages.filter((p) => p.expiresAtMs > 0).length,
+                });
             }
             case 'qoder.testProxy': {
                 const req = payload;

@@ -16,7 +16,7 @@
  * - 手机号加密密钥：渲染层模块 68284 的 `yv(e, t = "senseraccoon2023")`
  * - 阿里云验证码：渲染层模块 37907 的 `q3`（SceneId）/ `$j`（prefix）
  * - 兜底模型表：2026-09-26 用本机登录态实测
- *   `GET /api/web/llm/v2/model_catalog` 取 `visible:true` 的 6 条
+ *   `GET /api/web/llm/v2/model_catalog` 取 `visible:true` 的 7 条
  */
 import { RACCOON_API_BASE, RACCOON_PHONE_CIPHER_SECRET } from './raccoon.js';
 import { RACCOON_REQUEST_IMAGE_MAX_BYTES } from './image-budget.js';
@@ -98,7 +98,7 @@ export const RACCOON_EFFORT_NAMES = Object.freeze({
 /**
  * 该模型可选的思考档位（**顺序 = 强度序：弱 → 强**，Issue IKLIDV）。
  *
- * ⚠️ **所有 6 个可见模型都返回这两档** —— 实测 `extra_body.thinking` 是
+ * ⚠️ **所有可见模型都返回这两档** —— 实测 `extra_body.thinking` 是
  * **provider 级方言**，与模型无关（`thinking.type` 的枚举在服务端全局一致）。
  * 故不做 per-model 分派（那会是凭空猜测）。
  *
@@ -127,9 +127,10 @@ export const RACCOON_REASONING_EFFORTS = Object.freeze([
  */
 export const RACCOON_DEFAULT_EFFORT = RACCOON_EFFORT_ON;
 /**
- * 兜底模型目录（6 个 `visible:true` 模型）。
+ * 兜底模型目录（7 个 `visible:true` 模型）。
  *
- * 来源：2026-09-26 实测 `GET /api/web/llm/v2/model_catalog`。
+ * 来源：2026-11-17 实测 `GET /api/web/llm/v2/model_catalog`（10 个 chat 条目，
+ * 其中 3 个 `visible:false` 内部模型被过滤）。
  * 顺序**照抄远端返回顺序**，不重排 —— 重排会让「与远端对比」这类排查失去可比性。
  *
  * ⚠️ 展示名由 `raccoonDisplayName` 的输出形态固化（` · x倍率` / ` · 免费` /
@@ -139,10 +140,15 @@ export const RACCOON_DEFAULT_EFFORT = RACCOON_EFFORT_ON;
  * |---|---|---|---|
  * | `sn-sensenova-6-8-flash` | 0.5 | 0 | 免费 |
  * | `sn-sensenova-6-8-flash-lite` | 0.5 | 0 | 免费 |
+ * | `sn-qwen4-max` | 0.75 | 0.5 | x0.75（活动价由远端现算，见条目注释） |
  * | `sn-glm-5-3` | 0.75 | 0.75 | x0.75 |
- * | `sn-kimi-k3` | 1 | 1 | x1 |
- * | `sn-glm-5-3-flash` | 0.2 | 0.1 | x0.2→x0.1 |
- * | `sn-deepseek-v4-1-flash` | 0.25 | 0.25 | x0.25 |
+ * | `sn-kimi-k3-1-pro` | 1 | 1 | x1 |
+ * | `sn-glm-5-3-flash` | 0.2 | 0.2 | x0.2 |
+ * | `sn-deepseek-v4-1-flash-1017` | 0.25 | 0.25 | x0.25 |
+ *
+ * ⚠️ 2026-11-17 上游把 `sn-deepseek-v4-1-flash` 换成了同族版本
+ * `sn-deepseek-v4-1-flash-1017`（旧 id **已不在**目录里）。请求必须用远端下发的
+ * 完整 id（剥版本号会 404，见 `RACCOON_MODEL_VERSION_SUFFIX` 的注释）。
  *
  * ⚠️ **不含** `Raccoon-Auto`：它是客户端 i18n 条目（`modelPicker.auto`）渲染的
  * 「自动选模」入口，不是远端模型 —— 直接发给 `chat/completions` 会 404。
@@ -170,6 +176,19 @@ const RACCOON_FALLBACK_MODELS = [
         supportsImage: true,
     },
     {
+        id: 'sn-qwen4-max',
+        // ⚠️ **只写基线倍率，不写折后价**：该模型当前带**限时活动**（2026-11-17 实测
+        // `billing_status=discount`、`billing_effective_multiplier=0.5`、活动至 2026-11-22），
+        // 而活动价是**时间窗口内**的事实 —— 固化进编译期兜底表，会在活动结束后继续
+        // 显示一个不存在的折扣（正是 docs 里「静态兜底表必然腐坏」那条的形状）。
+        // 活动价由远端目录在 `toCatalogEntry` 现算；离线时如实显示基线。
+        name: 'Qwen4-Max · x0.75',
+        contextWindow: 1_000_000,
+        maxTokens: 65_536,
+        // 远端 tags 含 `vision`，且默认策略本就是「默认 image」（见 RACCOON_TEXT_ONLY_MODELS）。
+        supportsImage: true,
+    },
+    {
         id: 'sn-glm-5-3',
         name: 'GLM-5-3 · x0.75',
         contextWindow: 1_000_000,
@@ -177,17 +196,24 @@ const RACCOON_FALLBACK_MODELS = [
         supportsImage: true,
     },
     {
-        id: 'sn-kimi-k3',
+        id: 'sn-kimi-k3-1-pro',
         // ⚠️ 1 倍也要显示（用户报障「为什么 Kimi-K3 没有倍率，ide 是 1 倍，
         // 1 倍也要显示倍率」）—— 见 `raccoonDisplayName` 的注释。
-        name: 'Kimi-K3 · x1',
+        // ⚠️ 2026-11-17 上游把 `sn-kimi-k3` 换成了 `sn-kimi-k3-1-pro`（Kimi-K3.1-Pro，仍 1 倍），
+        // 旧 id 已不在目录里 ⇒ 与 deepseek 那次同型，按远端 id/描述改写。
+        name: 'Kimi-K3.1-Pro · x1',
         contextWindow: 1_000_000,
         maxTokens: 65_536,
         supportsImage: true,
     },
     {
         id: 'sn-glm-5-3-flash',
-        name: 'GLM-5-3-Flash · x0.2→x0.1',
+        // ⚠️ 2026-11-17 远端已回 `billing_multiplier = billing_effective_multiplier = 0.2`
+        // （此前那条 `x0.2→x0.1` 的活动**已结束**）。表里继续写箭头不只是「显示过期」：
+        // `priceFactorFromName` 取箭头右侧，聚合路由会把一个实际 0.2 倍的模型当 0.1 倍
+        // 来挑（`aggregate-core.ts` 的「同档倍率升序」），挑便宜就挑错了。
+        // ⇒ 兜底表一律写**基线**，折扣/限免只由远端现算。
+        name: 'GLM-5-3-Flash · x0.2',
         contextWindow: 1_000_000,
         maxTokens: 65_536,
         // ⚠️ 远端 tags 不含 `vision`，但**实测能看图**（tags 不是能力契约，见
@@ -195,11 +221,33 @@ const RACCOON_FALLBACK_MODELS = [
         supportsImage: true,
     },
     {
+        id: 'sn-deepseek-v4-1-flash-1017',
+        name: 'DeepSeek-V4.1-Flash-1017 · x0.25',
+        contextWindow: 1_000_000,
+        maxTokens: 65_536,
+        // ⚠️ 同上：远端 tags 不含 `vision`，实测 5/5 读对随机数字。
+        supportsImage: true,
+    },
+    {
+        // ⚠⚠ **旧版 id 的别名条目，刻意保留**（2026-11-17 对抗审计抓到的升级回归）。
+        //
+        // 上游已把 `sn-deepseek-v4-1-flash` 换成同族 `-1017`，旧 id **不在远端目录里**。
+        // 但**旧会话里存的是旧 id**：`resolveModel('sn-deepseek-v4-1-flash')` 在远端目录
+        // 命中不到时回落到**本兜底表**，表里没有旧 id ⇒ 落成 unknown ⇒
+        // `inputModalitiesFor()`（`src/raccoon-adapter.ts`）只认 `supportsImage === true`
+        // ⇒ **`['text']`**，用户发图会被静默替换成文本占位符。
+        //
+        // master 上旧 id 是 `['text','image']`（本表 `supportsImage: true`，且真机 5/5
+        // 读对随机数字、4 色实测）⇒ 删掉它就是**没有取舍说明的能力回退**。
+        //
+        // 所以：新 id 走 `-1017`，旧 id 留在这里只作**离线回落的别名**。远端目录一旦
+        // 命中旧 id（理论上不会），目录优先于兜底表，行为不变。
+        // ⚠️ 不要把这条当成「上游还有这个模型」—— `e2e` 的可见集判据只看远端，
+        // 本条不会被算进 `EXPECTED_VISIBLE_IDS`。
         id: 'sn-deepseek-v4-1-flash',
         name: 'DeepSeek-V4.1-Flash · x0.25',
         contextWindow: 1_000_000,
         maxTokens: 65_536,
-        // ⚠️ 同上：远端 tags 不含 `vision`，实测 5/5 读对随机数字。
         supportsImage: true,
     },
 ];

@@ -51,7 +51,7 @@ process.env.JET_HUB_NO_AUTH_SYNC = '1'
 // 所以自己设一遍。
 process.env.JET_HUB_NO_ADDR_FILE = '1'
 
-// 第 7 节会 `import('index.mjs')` 并逐个调 29 个工厂 —— 工厂里 `containerFor()`
+// 第 7 节会 `import('index.mjs')` 并逐个调 32 个工厂 —— 工厂里 `containerFor()`
 // 拿不到 `options.home` 时**回退 `homedir()`**（`src/plugin.mjs` 的 `resolveHome`），
 // 然后 `warmUp()` 在后台真把容器起起来，`_start()` 会写
 // `~/.dsh/cache/models-dev.json` 之类。实测落盘时刻在第 2548ms，而本文件 985ms
@@ -1111,11 +1111,11 @@ console.log('\noauth 方法形状：')
     //    那种只会在运行时 404。
     const extra = DP.filter((k) => !vendorSet.has(k))
     ok(extra.length === 0, `插件里这些 provider 在 vendor 里不存在：${extra.join(', ') || '无'}`)
-    // ③ `NAMES` 必须覆盖全部 29 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
+    // ③ `NAMES` 必须覆盖全部 32 家 —— 漏一家会在 magpie 的方法选择器里显示成内部 id
     //    （当年 `DSH_PROVIDERS` 还含路由组时漏过一次：25 项对 24 键 `NAMES`）。
     //    这里对账的是「键齐全且有非空文案」，不校验文案内容。
     //    `NAMES` 和 `NO_NEW_ACCOUNT` 一样没从 `src/plugin.mjs` 导出（`index.mjs` 的
-    //    导出契约只允许 29 个工厂），所以同样从源码文本里解析。
+    //    导出契约只允许 32 个工厂），所以同样从源码文本里解析。
     const pluginSrc = fs.readFileSync(path.join(ROOT, 'src', 'plugin.mjs'), 'utf8')
       .split(String.fromCharCode(13, 10)).join(String.fromCharCode(10))
     const namesStart = pluginSrc.indexOf('const NAMES = {')
@@ -1131,9 +1131,16 @@ console.log('\noauth 方法形状：')
       const noName = DP.filter((p) => !named.has(p))
       ok(noName.length === 0, `NAMES 缺这些 provider 的显示名：${noName.join(', ') || '无'}`)
     }
-    // ④ `FALLBACK_MODELS` 必须 29 家各至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
+    // ④ `FALLBACK_MODELS` 必须 32 家各至少一条 —— 它是「内存缓存与磁盘缓存都没有时」
     //    的唯一兜底（`currentModels()` 的第 3 档）。漏一家 = 那家第一次启动在 magpie
     //    里一个模型都看不到，且没有任何报错。此前这张表长期只有 16 条、且缺 magicrew。
+    //
+    //    ⚠ 例外（`NO_FALLBACK_PROVIDERS`）：上游自己就不给静态兜底的家。2026-11-24
+    //    上游同步进来的 AgnesCode 两站就是 —— `AGNESCODE_FALLBACK_MODELS` 是**空数组**
+    //    （`agnescode-product.ts:163`），目录完全靠远端 `/v2/models` 拉。硬塞一条静态 id
+    //    会让「未登录时看到的目录」和「登录后拉到的目录」对不上，比空着更误导。
+    //    ⚠ 这张白名单只能收「上游明确没有兜底」的家，不能用来掩盖我们漏写。
+    const NO_FALLBACK = new Set(['agnescode', 'agnescodeintl'])
     const fbStart = pluginSrc.indexOf('const FALLBACK_MODELS = {')
     const fbEnd = fbStart > 0 ? pluginSrc.indexOf(String.fromCharCode(10) + '}', fbStart) : -1
     ok(fbStart > 0 && fbEnd > fbStart, '能从 src/plugin.mjs 里切出 FALLBACK_MODELS 表')
@@ -1142,7 +1149,9 @@ console.log('\noauth 方法形状：')
       const fbProviders = new Set(
         [...fbBody.matchAll(/^\s+'?([a-zA-Z0-9_-]+)\//gm)].map((m) => m[1]),
       )
-      const noFallback = DP.filter((p) => !fbProviders.has(p))
+      const noFallback = DP.filter(
+        (p) => !fbProviders.has(p) && !NO_FALLBACK.has(p),
+      )
       ok(noFallback.length === 0, `FALLBACK_MODELS 缺这些 provider 的兜底模型：${noFallback.join(', ') || '无'}`)
       // ⑤ 兜底表的 model id 必须真在**最近一次快照**里 —— 只查 provider 前缀抓不到
       //    「那一条点不通」（2026-10-30 四审实测：25 条里有 3 条 id 上游早已删掉，
@@ -1170,7 +1179,15 @@ console.log('\noauth 方法形状：')
       // 2026-11-10：同步上游 `1d12f80`（接腾讯 Marvis）后重跑快照，29 家全部拿到
       // 目录 —— `magicrew` / `magicrewintl` 的凭据已恢复（上一版白名单里那两条就是
       // 等这一天，反向锚点如约变红），`marvis` 的 `main-auto` 也在。再次清空。
-      const SNAPSHOT_MISSING = new Map()
+      //
+      // 2026-11-24：同步上游 `3c99183`（接豆包 / AgnesCode 两站）后**没有**重跑快照 ——
+      // 本轮只更新了 `vendor/`，`page/models.js` 仍是 1d12f80 那次的产物。三家新进的
+      // 家里 `doubao` 有兜底条目、但没有快照；`agnescode` / `agnescodeintl` 连兜底都
+      // 没有（上游 `AGNESCODE_FALLBACK_MODELS` 是空数组，见 plugin.mjs 的注释）
+      // ⇒ 它们根本不在 `expectProvs` 里，无需白名单。
+      const SNAPSHOT_MISSING = new Map([
+        ['jet-hub-doubao', '本轮没跑快照（只换 vendor），等下次拿豆包凭据重跑'],
+      ])
       const expectProvs = [...new Set(fbIds.map((id) => `jet-hub-${id.split('/')[0]}`))]
       ok(expectProvs.length >= 20, `FALLBACK 应覆盖 20+ 家，实际 ${expectProvs.length}`)
       for (const [p, why] of SNAPSHOT_MISSING) {
@@ -1215,14 +1232,14 @@ console.log('\noauth 方法形状：')
         const body = snapNamesSrc.slice(from, to)
         for (const m of body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)) snapNames.set(m[1], m[2])
         // ⚠ **必须单独数原始行数**（2026-11-11 三审 P1）：`Map.set()` 对重复键是**静默覆盖**，
-        //    `size === 29` 在「30 行 1 重复」时照样成立 ⇒ 光看 size 抓不到 merge 残留的重复键。
+        //    `size === 32` 在「33 行 1 重复」时照样成立 ⇒ 光看 size 抓不到 merge 残留的重复键。
         //    实测：注入一条同名重复键后，`size` 仍 29、`nameDrift` 仍空，整套 254 项全绿。
         const rawRows = [...body.matchAll(/^\s+'([^']+)':\s*\['([^']*)'/gm)].length
         ok(rawRows === snapNames.size,
           `scripts/snapshot-models.mjs 的 NAMES 有重复键（原始 ${rawRows} 行 / 去重后 ${snapNames.size} 个）`)
       }
-      ok(pluginNames.size === 29, `src/plugin.mjs 的 NAMES 应正好 29 家，实际 ${pluginNames.size}`)
-      ok(snapNames.size === 29, `scripts/snapshot-models.mjs 的 NAMES 应正好 29 家，实际 ${snapNames.size}`)
+      ok(pluginNames.size === 32, `src/plugin.mjs 的 NAMES 应正好 32 家，实际 ${pluginNames.size}`)
+      ok(snapNames.size === 32, `scripts/snapshot-models.mjs 的 NAMES 应正好 32 家，实际 ${snapNames.size}`)
       const nameDrift = []
       for (const [dsh, want] of pluginNames) {
         const magpieId = dsh === 'jet-hub-auto' ? 'jet-hub' : `jet-hub-${dsh}`

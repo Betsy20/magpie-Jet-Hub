@@ -19,6 +19,7 @@ import { nextUtc8DayStartMs } from './model-queue.js';
 import { createModelCatalog, isCatalogFresh, isCatalogFreshFor } from './model-catalog.js';
 import { RemoteCatalogGate } from './remote-catalog-gate.js';
 import { broadcastCatalogChanged } from './catalog-broadcast.js';
+import { looksLikeUpstreamProviderError } from './upstream-error.js';
 import { LOOMY_AUTH_ERROR_CODE, isLoomyChatModel, isLoomyExpired, loomyChatHeaders, loomyDisplayName, parseLoomyEnvelope, splitLoomyRate, } from './loomy.js';
 import { LOOMY, LOOMY_EFFORTS, loomyContextWindow, loomySupportsImage, } from './loomy-product.js';
 import { registerAdapterIdempotent, } from './llm-register-compat.js';
@@ -320,6 +321,38 @@ export function classifyLoomyFailure(errorText, status) {
         return 'quota';
     if (status === 429)
         return 'rate';
+    /**
+     * ★ **上游网关 5xx**（2026-11-21，GitHub issue #130）。
+     *
+     * ## 缺陷本体（报障者实测：单会话 51 次调用里 `llm/retry` 触发 23 次）
+     *
+     * | 上游报文 | 次数 | HTTP |
+     * |---|---|---|
+     * | `<html>…<title>504 Gateway Time-out</title>…openresty/1.15.8.2</html>` | 5 | 504 |
+     * | `该模型服务暂时不可用，请切换其他模型试试` | 18 | 503 |
+     *
+     * 这些原先全落 `other` ⇒ {@link shouldRotateLoomyAccount} 返 false ⇒
+     * **不换号**、直接抛 `SERVER` ⇒ 宿主 `llm-retry` 用**同一个号**退避重试 5 次
+     * （实测 `0.5s → 1.0s → 2.1s → 4.1s → 8.6s`），而该会话 prompt 已达
+     * **24.5 万 tokens** ⇒ 每次全量重发都是这个量级的 input 计费。
+     *
+     * ## 判据与 qoder 共用**同一份实现**
+     *
+     * `looksLikeUpstreamProviderError` 在 `src/upstream-error.ts`（唯一实现）。
+     * qoder 那次的实测规模：1374 会话 / 163 条失败里 504 HTML **74 次** +
+     * First Token Timeout **6 次**。此处**只多一道 `status >= 500` 闸门** ——
+     * 泛化会连 400 参数错一起收进来，白烧整池（报障者亦明确不建议）。
+     *
+     * ⚠️ `upstream` **不写冷却**（见 {@link recordsLoomyRateLimit}：只认
+     * `quota`/`rate`）。网关故障不是「这个号坏了」，写标记会把一次网关抖动
+     * 放大成「整池被封 24h」—— 与 2026-10-06 那次事故同型。
+     * ⚠️ 换号**是否真能绕开 504 未验证**（报障者如实登记了同一保留意见）：
+     * 若多个号共用同一台 openresty，换号只是把同一次失败重打 N 次。但对比现状
+     * （**同一个号**白重试 5 次、每次 24.5 万 tokens）仍是净收益，且至少有可能
+     * 命中不同的上游节点。
+     */
+    if (status >= 500 && looksLikeUpstreamProviderError(errorText))
+        return 'upstream';
     return 'other';
 }
 /**
@@ -330,6 +363,34 @@ export function classifyLoomyFailure(errorText, status) {
  */
 export function shouldRotateLoomyAccount(errorText, status) {
     return classifyLoomyFailure(errorText, status) !== 'other';
+}
+/**
+ * ★★ **是否值得「换下一个账号」** —— 与 {@link shouldRotateLoomyAccount} **不同**：
+ * `upstream`（上游网关 5xx）**不换号**。
+ *
+ * ## 为什么 upstream 不参与换号（2026-11-21 正向审计用数据推翻了我的第一版）
+ *
+ * 我第一版让 `upstream` 参与换号（对齐 qoder）。审计指出主形态是**模型级**故障：
+ *
+ * | 报文 | 次数 | 语义 |
+ * |---|---|---|
+ * | `该模型服务暂时不可用，请切换其他模型试试` | 18 / 23 | **模型级** —— 换账号大概率无效（同一模型在别的号上同样不可用）|
+ * | `<html>504 Gateway Time-out</html>` | 5/23 | 网关级，换号**可能**有效 |
+ *
+ * 而 swap 的代价：`LOOMY_MAX_ROTATE = 8` ⇒ 最坏 **8 发全量 prompt**，
+ * 比修前的「同一个号 1 次 + 宿主重试 5 次 = 6 发」更贵（池 ≥7 时 **+33% 成本**）。
+ * 而该会话 prompt 已达 **24.5 万 tokens** ⇒ 这是实打实的钱。
+ *
+ * ⇒ **只补归因，不动换号行为**（即报障者建议的「修法 1：零风险」）。
+ *   `upstream` 类的价值是：① 不再显示成「模型不可用」误导用户去手动切模型；
+ *   ② 不写冷却（网关抖动不是账号坏了）。
+ *
+ * ⚠️ **代价如实登记**：这只改归因，**不解决**「宿主 `llm-retry` 白重试 5 次」
+ *   （错误码仍是 `SERVER`，在宿主 `DEFAULT_RETRYABLE_CODES` 里）。要解决它得改
+ *   错误码或填准确 `providerRetryAfterMs`，属宿主策略面，本轮未动。
+ */
+export function rotatesLoomyAccount(cls) {
+    return cls !== 'other' && cls !== 'upstream';
 }
 /**
  * **Loomy 专属**：`HTTP 200 + 业务码 100002` 是否该按「认证失败、值得换号」处理。
@@ -580,6 +641,16 @@ export class LoomyAdapter extends LlmAdapter {
                 // ⚠️ **只在成功时**记时刻：失败不写，否则一次抖动会把上界刷新掉、
                 //    下轮还要等满 20 分钟才发现上游没恢复。
                 this.catalogAt = this.options.now?.() ?? Date.now();
+                /**
+                 * ★ **落盘（SWR 写盘那一半）** —— 2026-11-21。
+                 *
+                 * ⚠️ 本家**只有一个目录来源**（`fetchRemoteModels` 注入）⇒「拿到非空目录」
+                 * 即 `complete`（与 `RemoteCatalogGate` 对裸布尔的归一化口径一致）。
+                 *
+                 * ⚠️ 用 `syncCatalogEntries()` 而不是 `catalogEntries()`：后者是 async
+                 * 且内部会 `await ensureRemoteModels()` ⇒ 在此处调用会重入闸门。
+                 */
+                this.catalog.rememberForDisk?.(this.syncCatalogEntries());
                 return true;
             });
             if (this.remoteModels !== undefined
@@ -820,7 +891,7 @@ export class LoomyAdapter extends LlmAdapter {
         //
         // ⚠️ **必须把模型 id 传给选号器**：Loomy 的选号要先按「该模型是否受限」
         // 过滤账号（限流按模型记），再按余额分档。传空串会让模型级限流失效。
-        let credential = await this.options.resolveCredential(options.model);
+        let credential = await this.options.resolveCredential(options.model, options.sessionId);
         if (credential === undefined || isLoomyExpired(credential)) {
             // ⚠️⚠️ 探测失败**只有一种**是终态：凭据确实失效（`RefreshTokenExpiredError`）。
             // 其余（网络超时、上游 5xx、`系统内部错误` 这类业务错误、非 JSON 响应）
@@ -875,7 +946,7 @@ export class LoomyAdapter extends LlmAdapter {
                     this.options.warn?.(`[loomy] 凭据探测失败（非终态，继续使用现有凭据，${LOOMY_PROBE_BACKOFF_MS / 1000} 秒内不再探测）：${error instanceof Error ? error.message : String(error)}`);
                 }
             }
-            credential = await this.options.resolveCredential(options.model);
+            credential = await this.options.resolveCredential(options.model, options.sessionId);
         }
         if (credential === undefined || credential.access_token.length === 0) {
             throw new LlmError('loomy: no usable credential; log in first', 'MISSING_CREDENTIAL');
@@ -1060,7 +1131,7 @@ export class LoomyAdapter extends LlmAdapter {
                 this.options.warn?.(`[loomy] 401/403 后凭据探测失败（非终态，改走换号）：${error instanceof Error ? error.message : String(error)}`);
             }
             if (!probeFailed) {
-                const refreshed = await this.options.resolveCredential(options.model);
+                const refreshed = await this.options.resolveCredential(options.model, options.sessionId);
                 if (refreshed === undefined || refreshed.access_token.length === 0) {
                     throw new LlmError('loomy: credential expired and refresh failed', 'AUTH', { status: response.status });
                 }
@@ -1145,7 +1216,7 @@ export class LoomyAdapter extends LlmAdapter {
              */
             let failureClass = classifyLoomyFailure(errorText, status);
             const accountPool = this.options.accountPool;
-            if (accountPool && failureClass !== 'other') {
+            if (accountPool && rotatesLoomyAccount(failureClass)) {
                 const tried = new Set();
                 if (activeAccountId)
                     tried.add(activeAccountId);
@@ -1204,7 +1275,24 @@ export class LoomyAdapter extends LlmAdapter {
                 }
                 throw new LlmError(`loomy: 模型 ${options.model} 所有账号均不可用（${errorDetail(errorText)}）`, failureClass === 'rate' ? 'RATE_LIMIT'
                     : failureClass === 'auth' ? 'AUTH'
-                        : 'QUOTA_EXCEEDED', { status });
+                        /**
+                         * ⚠️ **上游故障用 `UPSTREAM` 而不是 `SERVER`**（2026-11-21 真机取证）。
+                         *
+                         * 宿主的 `DEFAULT_RETRYABLE_CODES` 实测为
+                         * `[EMPTY_RESPONSE, 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT']`
+                         * —— **`SERVER` 在里面**，所以抛 `SERVER` 会被 `llm-retry`
+                         * 用同一个号退避重试 5 次（报障者实测 `0.5s → 1.0s → 2.1s → 4.1s → 8.6s`，
+                         * 单会话 51 次调用里触发 23 次、prompt 24.5 万 tokens）。
+                         *
+                         * `UPSTREAM` **不在**该集合里 ⇒ 抛它则宿主**不重试**。
+                         * 这一格同时解决三件事：
+                         * ① 不再白重试 5 次（每轮从 6 发降到 **1 发**）；
+                         * ② 归因属实（不是 `QUOTA_EXCEEDED` 那个「额度已用尽」的假原因）；
+                         * ③ **不会**被 `classifyRateLimitFailure` 判成 quota ⇒ 不会在 1 小时
+                         *    后被 rate-limit-resume 自动续跑（反向审计指出的连带缺陷）。
+                         */
+                        : failureClass === 'upstream' ? 'UPSTREAM'
+                            : 'QUOTA_EXCEEDED', { status });
             }
             throw new LlmError(`loomy: ${errorDetail(errorText)}`, httpErrorCode(status), { status });
         }

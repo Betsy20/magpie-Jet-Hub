@@ -50,9 +50,9 @@ npm run test:all                 # 等价于第二条
 | `t-baseline-store.mjs` | 积分分母的**持久化**契约（真读写临时磁盘）：水位跨天存活、每日基线按天失效、老文件缺 `kind` 兼容、白名单判定、同 key 取大值防倒挂。改坏 `saveDailyBaseline` 的 `kind === 'peak'` 或 `loadDailyBaseline` 的默认 kind ⇒ 必红 |
 | `t-usage.mjs` | 用量换算、积分包合并与到期日排序；钱包 / 每日基线 / 历史水位三种分母口径（含白名单边界与合计行的 `/` 总和）；第 7 节是「凭据不在了」的文案 + 一段直接 import `vendor/lib/jet-hub-rpc.js` 的行为锁（删 `product` 判空守卫会红） |
 | `t-checkin.mjs` | 一键领积分 |
-| `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 29 家图标（`data:image`、≤1MB、互不相同） |
+| `t-options.mjs` | `prefer_full` / `dead_account_skip` 真的改行为；另测 `auth.options` 契约（≤16 项、key 正则、label ≤60、无重复）与 32 家图标（`data:image`、≤1MB、互不相同） |
 | `t-attachments.mjs` | 附件服务（内容寻址、去重、上限） |
-| `t-plugin.mjs` | 29 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
+| `t-plugin.mjs` | 32 个工厂契约一致（auth 字段、模型条数、`limit.context` 存在） |
 | `t-models-nowait.mjs` | `models()` 不阻塞（计时判 > 5 秒即失败，进程额外撑 45 秒） |
 | `t-seed-auth.mjs` | 账号摊平进 `plugin-auth.json`（占位键、不碰别人的键、回读校验） |
 | `t-auth-sync.mjs` | 启动时自动对齐 `plugin-auth.json`：摊平规则、只清本插件旧记录、别人的 oauth 登录态一条不删、幂等不重写、文件不存在能创建 |

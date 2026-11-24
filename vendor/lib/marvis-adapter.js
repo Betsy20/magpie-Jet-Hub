@@ -29,6 +29,7 @@
 import { LlmAdapter, LlmError, } from '@deepseek-ai/dsh-llm';
 import { createModelCatalog } from './model-catalog.js';
 import { collectImages, consumeOpenAiSse, serializeMessages } from './openai-compat.js';
+import { rewriteTencentContentFingerprints } from './openai-gateway/tencent-fingerprint.js';
 import { isAbortLike } from './aggregate-adapter.js';
 import { registerAdapterIdempotent } from './llm-register-compat.js';
 import { nextUtc8DayStartMs } from './model-queue.js';
@@ -36,7 +37,8 @@ import { retryAfterMsFromResponse } from './retry-after.js';
 import { reportLedgerAccount } from './token-ledger.js';
 import { llmHeaders, marvisAccountOf, marvisChatUrl } from './marvis.js';
 import { buildMarvisPayload } from './marvis-messages.js';
-import { MARVIS, MARVIS_FALLBACK_MODELS, classifyMarvisError, marvisErrorKindCode, normalizeMarvisModelId, } from './marvis-product.js';
+import { rewriteMarvisBlockedIdentities } from './marvis-identity.js';
+import { MARVIS, MARVIS_FALLBACK_MODELS, classifyMarvisError, isTransientMarvisInvalidParameter, marvisErrorKindCode, normalizeMarvisModelId, } from './marvis-product.js';
 /**
  * 限流/额度的冷却时长。
  *
@@ -53,6 +55,58 @@ export function marvisRetryAfterMs(kind, retryAfterMs, attempt, nowMs = Date.now
     }
     const backoff = 60_000 * 2 ** Math.max(0, attempt - 1);
     return Math.min(backoff, 30 * 60_000);
+}
+/**
+ * `messages[]` 里那条 `role:'system'` 的腾讯系内容级风控指纹改写。
+ *
+ * ⚠️ **位置判据**（2026-11-15 真机实测，同型报障见 Gitee issue IKVF8Z）：
+ * 同一份身份句
+ * - 只出现在**顶层 `system`** ⇒ 200（那份此前已由本文件的
+ *   `rewriteTencentContentFingerprints` 改写）；
+ * - 出现在 **`messages[]` 的 system 消息**里 ⇒ 403
+ *   `{"code":4100406,"msg":"非法请求"}`，把该句清洗掉即恢复 200
+ *   ⇒ 判定发生在 messages 这条，**不在**顶层。
+ *
+ * ⇒ 与 `buddy-adapter.ts` 的 `wire.push({ role:'system', content: rewrite(…) })`
+ * 同口径：两个位置都要改，只改一处等于没改。
+ *
+ * ⚠️ 兜底替换只作用于 **system 消息**，但**理由不是「assistant 正文实测不拦」**——
+ * 那句话在这里站不住：
+ * - `openai-gateway/tencent-fingerprint.ts` 的实测表逐字记着
+ *   **★ assistant 正文同样被拦（2026-10-12 补测）**，那是 `copilot.tencent.com`；
+ * - marvis 站（`yybadaccess.3g.qq.com`）我只在 **system** 与 **user** 位置实测过
+ *   （`msg-user/en-replace-product` ⇒ 200，2026-11-16），**assistant 位置未实测**。
+ * ⇒ 两站**证据冲突且 marvis 侧缺格**，故本腿维持「只改 system」这个**保守**选择
+ *   （改动面最小、可证伪），并在 `tests/unit/marvis-identity.spec.ts` 里加用例
+ *   **钉住「assistant 不动」**——将来任何一方放宽都会被这条用例拦下，而不是靠注释。
+ */
+function rewriteMarvisSystemText(text, provider) {
+    // 三段，顺序不能换（每一段的输出都是下一段的输入）：
+    //   ① 共用登记表：按 `CONTENT_FINGERPRINTS` 把已登记的风控指纹换掉；
+    //   ② marvis 专有的「被拉黑身份句」表（Gitee IKVRNK）—— **必须在 ① 之后**：
+    //      ① 把 DSH 身份句换成「官方同形措辞」，而那句在 marvis 网关**也被拉黑了**
+    //      ⇒ ① 的产物正是 ② 的输入。② 挪到 ① 前面就恒不命中，等于没修。
+    //   ③ 兜底清掉表未覆盖的形态（中文句式、上游措辞漂移）。
+    // ⚠️ **两处 system 位置必须走同一个函数**：登记表只覆盖英文句式，中文身份句
+    //    （`你是一个由 DeepSeek Harness 驱动的 AI 智能体。`）过登记表**原样返回**，
+    //    完全靠下面这条兜底正则 —— 一份实现两处共用，才不会出现「messages 清了、顶层没清」。
+    // `DSH` 是 2026-11-15 对 marvis 网关实测放行的替换值（清洗后中英文均 200）。
+    //
+    // ⚠️ 为什么**不能**改成「把 system 折进顶层 `system` 字段」：上游的准入扫描只看
+    //    `messages[]` 内的 system 块，折进顶层确实能拿到 200 —— 但 2026-11-16 的对照
+    //    实验证明顶层 `system` 是**收下但不看**（要求输出标记的 system 放顶层后标记
+    //    不出现；要求只用英文的 system 放顶层后回答仍 58 个汉字，与「完全没有 system」
+    //    同形）⇒ 折顶层会把整段系统提示词**静默丢弃**，比 403 更坏。证据见
+    //    `marvis-identity.ts` 模块头。
+    return rewriteMarvisBlockedIdentities(rewriteTencentContentFingerprints(text, provider))
+        .replace(/DeepSeek\s+Harness/gi, 'DSH');
+}
+function rewriteMarvisSystemMessage(message, provider) {
+    const { role, content } = message;
+    if (role !== 'system' || typeof content !== 'string')
+        return message;
+    const rewritten = rewriteMarvisSystemText(content, provider);
+    return rewritten === content ? message : { ...message, content: rewritten };
 }
 /** Marvis 适配器。 */
 export class MarvisAdapter extends LlmAdapter {
@@ -150,7 +204,7 @@ export class MarvisAdapter extends LlmAdapter {
         const id = normalizeMarvisModelId(model);
         const entry = MARVIS_FALLBACK_MODELS.find((m) => m.id === id);
         if (entry?.supportsImage !== true) {
-            throw new LlmError(`marvis: 模型 "${model}" 不支持图片输入（本家只有 main-auto 收图）`, 'UNSUPPORTED_CONTENT');
+            throw new LlmError(`marvis: 模型 "${model}" 不支持图片输入`, 'UNSUPPORTED_CONTENT');
         }
         if (this.options.readImage === undefined) {
             throw new LlmError('marvis: 图片输入需要附件服务', 'UNSUPPORTED_CONTENT');
@@ -175,15 +229,21 @@ export class MarvisAdapter extends LlmAdapter {
      * 3. **认证类不写限流标记**（写它会放大成「全池被封」）。
      */
     async *stream(options) {
-        const slots = await this.options.slots(options.model);
+        const slots = await this.options.slots(options.model, options.sessionId);
         if (slots.length === 0) {
             throw new LlmError('marvis: 没有可用账号。请在 Jet Hub 的腾讯 Marvis 面板点击「新建账号」登录 QQ 或微信。', 'MISSING_CREDENTIAL');
         }
         const tried = new Set();
         const limited = [];
+        // 瞬时参数抖动（`3000101`）把全池都试过之后，要抛**原文 BAD_REQUEST**，
+        // 不能落进下面的「所有账号均受限 / QUOTA_EXCEEDED」—— 那会让用户
+        // 以为额度没了（2026-11-17 的真实误报就是这么来的）。
+        let transientRejection;
         for (;;) {
             const slot = slots.find((s) => !tried.has(s.id));
             if (slot === undefined) {
+                if (transientRejection !== undefined)
+                    throw transientRejection;
                 throw new LlmError(`marvis: 所有账号对该模型均受限${limited.length > 0 ? `（${limited.join('、')}）` : ''}`, 'QUOTA_EXCEEDED');
             }
             tried.add(slot.id);
@@ -218,8 +278,23 @@ export class MarvisAdapter extends LlmAdapter {
                 const info = classifyMarvisFailure(error);
                 // 400/422：**换号无益**（每个槽发的是同一个体），直接上抛原文。
                 // 4130001「无效模型id」同组：同一 model id 换号一样 400。
+                //
+                // ⚠️ 例外：`3000101 invalid parameter` **不是**报文问题，是上游随机抖动
+                //    （2026-11-17 实证：同一 body 重放 11 个账号 11/11 全 200，同号连发
+                //    30 条 30/30 全 200）。此前一刀切「换号无益」⇒ 同一会话连续三次
+                //    被这一颗 400 打断，用户看到的是「额度是不是没了 / 十个号为什么不切」。
+                //    处理：换下一个号重发（不写限流标记，它不是账号态），全池试完再抛原文。
                 if (info.kind === 'invalid_request' || info.kind === 'model_unavailable') {
-                    throw new LlmError(`marvis: 请求被上游拒绝（${info.detail}）`, 'BAD_REQUEST');
+                    const rejection = new LlmError(`marvis: 请求被上游拒绝（${info.detail}）`, 'BAD_REQUEST');
+                    const message = error instanceof Error ? error.message : String(error);
+                    if (info.kind === 'invalid_request'
+                        && isTransientMarvisInvalidParameter(message)
+                        && tried.size < slots.length) {
+                        this.options.warn?.(`marvis: 账号 ${slot.id} 返回上游瞬时参数错误（${info.detail}），换下一个号重发`);
+                        transientRejection = rejection;
+                        continue;
+                    }
+                    throw rejection;
                 }
                 if (info.kind === 'auth') {
                     // 认证失败：**换下一个账号，但不写限流标记**。
@@ -251,12 +326,35 @@ export class MarvisAdapter extends LlmAdapter {
     /** 指定槽发一次请求（轮换循环的复用单元）。 */
     async *streamVia(slot, options) {
         const imageUrls = await this.resolveImageUrls(options.model, options.messages);
-        const messages = serializeMessages(options.messages, imageUrls);
+        // ⚠️ `messages[]` 里的 system 那条**也要**过腾讯系内容级风控指纹改写
+        //    （位置判据见 `rewriteMarvisSystemMessage`）：此前只改顶层 `system`，
+        //    身份句仍随 messages 出站 ⇒ 403 `4100406 非法请求`（2026-11-15 实测）。
+        const messages = serializeMessages(options.messages, imageUrls).map((message) => rewriteMarvisSystemMessage(message, this.product.id));
         const payload = buildMarvisPayload({
             model: normalizeMarvisModelId(options.model),
             messages,
-            ...options.system !== undefined && options.system.length > 0 ? { system: options.system } : {},
-            ...options.tools !== undefined ? { tools: options.tools } : {},
+            // ⚠️ `system` 要过腾讯系内容级风控指纹改写（IKJNA1 同一份表、同一判据）。
+            //    ⚠️⚠️ **「marvis 当前不拦这些指纹」这条旧结论已作废（2026-11-16）**：
+            //    当时只见「原文 200」，没测「登记表**产物**」——而产物正是
+            //    `You are an AI coding assistant, powered by a large language model.`，
+            //    它在 `messages[]`-system 位置**被判 403/4100406**（实发）⇒ 登记表这条腿
+            //    在 marvis 上不但不是「预防性」，反而是**制造 403 的那一环**
+            //    （见 `src/marvis-identity.ts` 的退役链说明）。所以下面这条腿**必须留着**，
+            //    而且必须排在 `marvis-identity` 之后。
+            //    只改 system 是因为：assistant 位置 marvis 侧**未实测**、而姊妹站实测会拦 ⇒
+            //    证据冲突，取改动面最小的保守解（见 `rewriteMarvisSystemMessage` 上方）。
+            // ⚠️ 顶层 `system` 与 `messages[]` 的 system **走同一个函数**
+            //    （正向审计 P2-1：此前这里只过登记表、没有兜底正则 ⇒ 中文身份句在顶层
+            //    不会被清洗，与「两个位置都要改」自相矛盾）。
+            ...options.system !== undefined && options.system.length > 0
+                ? { system: rewriteMarvisSystemText(options.system, this.product.id) }
+                : {},
+            // ⚠️ `tools` 的空值门控**只在** `buildMarvisPayload` 一处（PR #186 正向审计 P1-3：
+            //    这里原先的 `!== undefined` 是**零行为的装饰性条件** —— 变异成 `!== null` 或
+            //    恒传 `?? []` 全绿，只有整行在不在才影响 wire ⇒ 两层都"看起来"在判会让
+            //    后来者以为有兜底，而真会漏的是 `buildMarvisPayload` 那条「有工具必须带」的腿。
+            //    故此处**原样透传**（含 `undefined` 与 `[]`），由 payload 层统一归一。
+            tools: options.tools,
             ...options.temperature !== undefined ? { temperature: options.temperature } : {},
             ...options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {},
             ...options.reasoningEffort !== undefined
