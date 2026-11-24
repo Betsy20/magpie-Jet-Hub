@@ -38,6 +38,12 @@ export interface TraeLoginFlowResult {
     /** 凭据是否携带 refresh_token。 */
     refreshable: boolean;
 }
+/** `startTraeLoginFlow().submitManualCallback` 的结果。 */
+export interface ManualTraeCallbackSubmitResult {
+    ok: boolean;
+    /** 失败时可直接展示给用户的原因。 */
+    message?: string;
+}
 /**
  * 由 machineId + deviceId 派生稳定的 `login_trace_id`（hex16）。
  *
@@ -184,6 +190,25 @@ export declare function exchangeTraeCallback(callback: TraeCallbackInfo, session
     deviceId: string;
 }, product: TraeProduct, fetcher?: typeof fetch, nowMs?: number): Promise<TraeCredential>;
 /**
+ * 把用户粘的文本归一成 `parseTraeCallbackDetailed` 能吃的形态。
+ *
+ * 四类输入（2026-11-13 PR #58 审计实测）：
+ * 1. 完整 URL（`http://127.0.0.1:50000/authorize?…`）⇒ 原样；
+ * 2. 相对路径（`/authorize?…`）⇒ 原样（解析器会补 `http://127.0.0.1`）；
+ * 3. 裸 query（`?refreshToken=…` / `refreshToken=…`）⇒ 补成 `/authorize?…`；
+ * 4. **无 scheme 的完整 URL（`127.0.0.1:50000/authorize?…`）⇒ 补 `http://`**。
+ *
+ * ⚠️ 第 4 类曾落进第 3 类 ⇒ 整条串被当成**参数名**
+ * （`/authorize?127.0.0.1:50000/authorize?refreshToken=…`）⇒ 解析器报
+ * 「回调未携带 refreshToken / userJwt.Token / code」。用户粘的明明是一条
+ * 合法链接，却被告知缺参数，且无法自行诊断 —— 本轮审计实测复现。
+ *
+ * ⚠️ 判据只看「`host:port` 形态的 authority + 可选路径/查询」，**不**用
+ * `^[^/?#]+:\d+` 那种宽口径：后者会把裸 query 里的 `code=123:456` 也当成
+ * authority（`code=123` + 端口 `456`），反而给出「你粘的是 code=123 的地址」。
+ */
+export declare function normalizeTraeManualCallbackText(text: string): string;
+/**
  * 阻塞式完整登录流程。
  *
  * 起本地回调服务器 → 打开登录 URL → 等待回调 → ExchangeToken + GetUserInfo → 返回凭据。
@@ -206,6 +231,8 @@ export declare function startTraeLoginFlow(options: TraeLoginFlowOptions & {
     loginUrl: string;
     result: Promise<TraeLoginFlowResult>;
     close: () => Promise<void>;
+    /** 手动提交回调链接（手机/另一台电脑完成授权后，把地址栏链接粘回来）。 */
+    submitManualCallback: (raw: unknown) => ManualTraeCallbackSubmitResult;
 }>;
 /**
  * 启本地回调服务器，等待 TRAE 的回调，返回**解析出的凭证**与实际监听端口。

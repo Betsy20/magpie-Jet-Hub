@@ -45,6 +45,8 @@ import type { TraeProduct } from './trae-product.js';
 import type { TraeCredential } from './trae.js';
 import { MODELSCOPE } from './modelscope-product.js';
 import type { ModelscopeCredential } from './modelscope.js';
+import { type AgnescodeProduct } from './agnescode-product.js';
+import type { AgnescodeCredential } from './agnescode.js';
 import { MARVIS } from './marvis-product.js';
 import type { MarvisCredential } from './marvis.js';
 import { AUTOCLAW } from './autoclaw-product.js';
@@ -473,6 +475,25 @@ cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
  *    ⇒ 不能用「剩余 / 每日额度」反推日期（本仓红线：绝不编造日期）。
  */
 export declare function marvisExpiry(credential: MarvisCredential, product: typeof MARVIS, 
+/** 共享读数入口（见 {@link buddyExpiry} 的同名参数）。 */
+cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
+/**
+ * AgnesCode（`agnescode` / `agnescodeintl`，2026-11-19）：**本 fork 独有**。
+ *
+ * ## 判据
+ * 订阅积分池只给两个标量桶（`permanent_balance` / `time_sensitive_balance`），
+ * **没有任何逐笔日期** ⇒ 与 modelscope / marvis **同格**：
+ * · 有 `active && remaining > 0` 的包 ⇒ `NEVER`（可路由）；
+ * · 否则 `UNUSABLE`。
+ *
+ * ⚠️ **不许**用「限时桶大概 30 天后作废」去编一个日期 —— 本仓红线
+ *    （「没有日期」不得被读成「永久」，也**不得**反推一个日期）。
+ *    展示层已经用 `expiryUnknown` 表达「会过期但不知道何时」。
+ *
+ * ⚠️ 已知代价（与 modelscope / autoclaw 同型且**已被用户接受过**）：限时桶烧光时
+ *    不会被提前剔出轮换，会失败一次再换号。
+ */
+export declare function agnescodeExpiry(credential: AgnescodeCredential, product: AgnescodeProduct, 
 /** 共享读数入口（见 {@link buddyExpiry} 的同名参数）。 */
 cached?: () => Promise<CreditBalance | null | undefined>): Promise<number>;
 /**

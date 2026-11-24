@@ -116,26 +116,12 @@
  *    给它接判定反而会改变既有行为（`ratelimit-misreport-behavior.spec.ts`
  *    有专门一条锁死这个现状）。
  */
+import type { RotationStartTier } from './jet-hub-store.js';
 import type { BuddyNoAccountReason, BuddySelectorLike } from './buddy-balance-selector.js';
+import type { SubagentAssignment } from './subagent-rotation.js';
+import type { SubagentRotationSetting } from './jet-hub-store.js';
 import type { LoomyCandidateAccount, LoomyNoAccountReason, LoomySelectionResult } from './loomy-balance-selector.js';
 import type { LoomyTierOptions } from './loomy-balance-rank.js';
-/**
- * 编排用到的那部分账号池（**结构化**，便于单测注入替身）。
- *
- * ⚠️ 只声明真正读到的三个方法：`AccountPool` 天然满足本接口（既有调用点
- * 一行不用改），而单测不必构造整个池。
- *
- * ⚠️ `TCredential` **默认 `unknown`**：本模块不关心具体形状（形状校验是各家
- * `parseCredential` 的职责），各个调用点各自传自己的类型即可。默认值让既有测试桩
- * （它们只关心 `entry`）一行不用改。
- *
- * ⚠️ **刻意不写「几家」**：本句原写「**13 家**各自传自己的类型」，实测走本模块的
- * 只有 **12** 个调用点（`codearts` 的 `resolveCredential` 无 fallback 且不收
- * `modelId`，**刻意不纳入**本模块 —— 见 `AGENTS.md` 的抽象边界一节）。
- * 这类「家数」是**必然腐坏**的快照，同一 PR 里已在别处写错过多次
- * （`model-catalog.ts` 的未知模态名单 5 → 10 → 12）。
- * ⇒ 名单的权威是调用点本身，不是本注释。
- */
 export interface ResolverPool<TCredential = unknown> {
     /** 列出该 provider 的**全部**账号（含已停用）。 */
     listAccountsByProvider(provider: string): ReadonlyArray<{
@@ -156,7 +142,14 @@ export interface ResolverPool<TCredential = unknown> {
     /** 该 provider 是否处于「锁定永久积分」状态。 */
     permanentLocked(provider: string): boolean;
     /** 取「当前最该用的一个账号」；`null` = 没有可用账号。 */
-    getAvailableAccount(provider: string, modelId: string, excludeAccountIds?: ReadonlySet<string>): Promise<{
+    getAvailableAccount(provider: string, modelId: string, excludeAccountIds?: ReadonlySet<string>, 
+    /**
+     * 「轮换起点」：本会话指定的起始账号 id（可选）。
+     *
+     * ⚠️ 池实现**只做旋转**（从它起绕一圈），不增删候选 ⇒ 它不可用时仍会选中别的号。
+     * ⚠️ 未传 / 未实现时行为与改动前**逐字节相同**。
+     */
+    rotationStartId?: string): Promise<{
         entry: {
             id: string;
             credentialRef: string;
@@ -193,6 +186,84 @@ export interface ResolverPool<TCredential = unknown> {
      * 与单测 stub 不该因为「这个可选方法不存在」而被动获得新行为。
      */
     strictManualOrder?(provider: string): boolean;
+    /**
+     * 「轮换起点」（可选能力；真实 `AccountPool` 已实现）。
+     *
+     * 返回**本会话**指定的起始账号 id；`undefined` = 默认起点。
+     *
+     * ⚠️ **未实现时行为必须与改动前逐字节一致**（本功能的唯一回归面：
+     * 大量单测用结构化替身池，它们不认识本方法）。
+     */
+    preferredRotationFor?(provider: string, sessionId: string | undefined): string | undefined;
+    /**
+     * ★★★ **子代理专属设置**（2026-11-23，可选能力）。
+     *
+     * @returns `undefined` = 该 provider 没配子代理设置 ⇒ 走主代理逻辑
+     *   （与加本功能之前**逐字节相同**，这是唯一的回归面）。
+     */
+    subagentRotationFor?(provider: string): SubagentRotationSetting | undefined;
+    /**
+     * ★★★ **取某子代理的分配记录**（2026-11-23，可选能力）。
+     *
+     * ⚠️ 返回 `undefined` 有三种含义，调用方**一视同仁**地回落主代理：
+     * 1. 该 sessionId 不是子代理（主代理会话）；
+     * 2. 子代理的 `subagent/start` 没收到（插件晚于它启动）；
+     * 3. 记录已被淘汰（超过 128 条）。
+     */
+    subagentAssignmentOf?(provider: string, sessionId: string | undefined): SubagentAssignment | undefined;
+    /**
+     * **登记**一个子代理分配（2026-11-23，可选能力）。
+     *
+     * ⚠️ 调用点必须 **fire-and-forget**（`void ... .catch(() => {})`）：
+     * 它是 async（要落盘），而选号路径不能等磁盘写。
+     *
+     * ⚠️ 幂等：resume 时重复调用**保留原 slot**（见 `recordSubagentAssignment`）。
+     *
+     * @returns 实际分配的 slot（`-1` = 参数非法，未记录）
+     */
+    recordSubagentStart?(provider: string, sessionId: string, parentSessionId: string, now: number): Promise<number>;
+    /**
+     * ★★★ **钉住某子代理的账号**（2026-11-24，可选能力）。
+     *
+     * ## 为什么需要（用户原话）
+     *
+     * > 「我是希望『拉起时定死，只有该号不可用才换』，
+     * >   这样可以保证子代理的缓存命中率高，如果频繁换帐号，缓存命中率就低了。」
+     *
+     * ⇒ prompt cache 按（账号 + 模型 + 前缀）命中；每发请求重算起点会让
+     *   池子一波动就换号，缓存全失效、同一段长上下文被重复计费。
+     *
+     * ⚠️ 只在**真的选中了某账号**之后调用（读到坏凭据的号不该被钉）。
+     *
+     * ⚠️ 调用点必须 fire-and-forget：实现内部**先同步更新缓存**、再异步落盘。
+     */
+    pinSubagentAccount?(provider: string, sessionId: string, accountId: string): Promise<boolean>;
+    /**
+     * ★★★ **记录用户手动选的账号**（2026-11-24，可选能力）。
+     *
+     * ## 用户原话
+     *
+     * > 「用户手动重选的话是按照用户的意愿来，
+     * >   其他情况就是使用拉起时固定的那个，
+     * >   可以避免系统乱换号，避免缓存命中低」
+     *
+     * ⇒ 优先级：`userPickedAccountId` > `pinnedAccountId` > `slot` 现算。
+     *
+     * ⚠️ 传 `undefined` = 清除手动选择（回落到 pin）。
+     */
+    setUserPickedAccount?(provider: string, sessionId: string, accountId: string | undefined): Promise<boolean>;
+    /**
+     * ★ **起点选定那一刻的档位**（S6 可选能力；真实 `AccountPool` 已实现）。
+     *
+     * 用于判断「起点那一档是否已烧完」：不同则交出首位（见 `rotateFromPreferred`）。
+     *
+     * ⚠️ **未实现 / 返回 `undefined` ⇒ 回落 S5**（起点绝对第一）。
+     * 这正是老数据与单测替身的行为，与改动前逐字节一致。
+     *
+     * ⚠️ 必须与 {@link preferredRotationFor} **成对**实现：只实现前者会让
+     * S6 对老数据「静默不生效」且零报错（用户只会觉得「重选了起点还是先烧自己的」）。
+     */
+    rotationStartTierFor?(provider: string, sessionId: string | undefined): RotationStartTier | undefined;
 }
 /** 注入的共享设施。 */
 export interface CredentialResolverDeps<TCredential = unknown> {
@@ -211,6 +282,34 @@ export interface CredentialResolverDeps<TCredential = unknown> {
      *   它要**清空**「本次实际使用的账号」标记（留着旧 id 会误伤无辜账号）。
      */
     readonly reportAccount?: (accountId: string | undefined) => void;
+    /**
+     * ★★★ **查「某会话的父会话 id」**（2026-11-24 上游第 3 轮审计建议的路 1）。
+     *
+     * ## 为什么需要（上游原话）
+     *
+     * > 「这个功能现在卡在一个根本障碍上：**插件拿不到「谁是子代理、父是谁」**。
+     * >   三条可能的路，按可行性排：
+     * >   **1. 从宿主会话头读**：`header.parentSession`（`dsh-session` types:76）
+     * >      是**真的有**的 —— 如果能在 `agent/created` 或 pre-step 时读到
+     * >      **当前会话的 header**，父 id 就有来源了。
+     * >      这比 `subagent/start` payload 靠谱得多。」
+     *
+     * ## 为什么它比事件更可靠
+     *
+     * | 来源 | 性质 |
+     * |---|---|
+     * | `subagent/start` 事件 | **瞬时**：插件晚挂载 / 重启期间的事件永远收不到 |
+     * | **`session.header.parentSession`** | **持久**：落在会话头里，任何时候读都有 |
+     *
+     * ⚠️ 实测（我的 P0 探针）：两者**当前都有值**且一致。但事件那条腿有
+     *    「错过就永久丢」的窗口，而会话头没有。⇒ **优先用本依赖**，事件表只作兜底。
+     *
+     * ⚠️ **可选**：单测替身不实现 ⇒ 退回既有的事件表（`subagentParentOf`），
+     *    行为不变。
+     *
+     * @returns 父会话 id；`undefined` = 本会话**不是子代理**（或查不到）
+     */
+    readonly subagentParentForSession?: (sessionId: string) => string | undefined;
 }
 /**
  * 单次解析的「实际选中账号」出口。

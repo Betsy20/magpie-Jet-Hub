@@ -162,7 +162,7 @@ export interface AccioAdapterOptions {
      * ⚠️ 入参是**本轮要用的模型 id**：多账号池的选号会按它过滤限流账号，
      * 传空串会让限流过滤整体短路（与 `TraeAdapterOptions.resolveCredential` 同因）。
      */
-    resolveCredential: (modelId?: string) => Promise<AccioCredential | undefined>;
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<AccioCredential | undefined>;
     /** 静默续期凭据（过期 / 401 时调用）。 */
     refresh: () => Promise<void>;
     /** 动态拉取远端模型目录；失败或未登录时回退 `product.fallbackModels`。 */
@@ -293,6 +293,35 @@ export declare function shouldRotateAccioAccount(code: string): boolean;
  * 与「坏账号永远轮不到」之间的取舍点，两家都选前者。
  */
 export declare function recordsAccioRateLimit(code: string): boolean;
+/**
+ * 判「这个 `content-type` 是不是网关的 HTML 拒绝页」。
+ *
+ * ⚠⚠ **判据必须同时做三件事**，少一件就让拒绝页逃进「凭据失效」那一格（实测证实）：
+ * 1. `split(';', 1)[0]` —— 上游实际下发的是 `text/html; charset=UTF-8`；
+ * 2. `.trim()` —— 分号前有空格的写法也存在（`text/html ; charset=x`）；
+ * 3. `.toLowerCase()` —— 上游也会发 `TEXT/HTML` 大写形态。
+ *
+ * ⚠ 这一格与 `assertEventStream()` 里那一格是**同一张拒绝页的两种形态**
+ * （前者 HTTP 403，后者网关包成 200）。两处对「什么算 HTML 页」
+ * 必须定义一致，否则会出现「200 被认出、同一张页 403 却认不出」的荒唐分裂
+ * （本仓库首条红线：同一语义两套判据）。
+ */
+export declare function mediaTypeOf(contentType: string | null | undefined): string;
+/**
+ * 判「这个 `content-type` 是不是网关的 HTML 拒绝页」。
+ *
+ * ⚠️ 判据必须走 `mediaTypeOf()`（不得在这里另写一份 `split/trim/lower`）。
+ * 实测逐格（`reports/pr76-independent-check.md` 的 12 格矩阵）：
+ * `TEXT/HTML`、`text/html ; charset=x`、`text/html;charset=UTF-8` 三种写法
+ * **少任一步归一就逃逸**到「凭据失效」那一格，并白烧一次一次性
+ * `refresh_token`。
+ *
+ * ⚠ 这一格与 `assertEventStream()` 里那一格是**同一张拒绝页的两种形态**
+ * （前者 HTTP 403，后者网关包成 200），两处**必须共用 `mediaTypeOf()`**
+ * —— 同一语义两套判据是本仓库首条红线
+ * （`assertEventStream()` 自己的 JSDoc 就写着「判据必须只有一份」）。
+ */
+export declare function isHtmlDenialMediaType(contentType: string | null | undefined): boolean;
 /**
  * 合并一次工具调用的多个参数分片。
  *

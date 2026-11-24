@@ -787,7 +787,9 @@ function applyItemChunk(item, chunk) {
             return;
         case 'tool-call-delta':
             // `id` / `name` 只允许**非空**覆盖：分片里偶发空值，覆盖会把已识别的调用打坏。
-            if (String(chunk.id).length > 0)
+            // ⚠️ `trim()` 后非空（`'   '` 的 length 是 3，`length > 0` 会放它过去）；
+            //    与 Chat 侧（`stream.ts`）**逐格一致**，否则同一份流两端给不同 id。
+            if (String(chunk.id).trim().length > 0)
                 item.callId = String(chunk.id);
             // ⚠️ 名字的覆盖判据是 `hasUsableToolName`（trim 后非空），**不是**
             // `!== undefined`：后续分片常带 `name: ""`（它不是 undefined），
@@ -805,7 +807,7 @@ function applyItemChunk(item, chunk) {
                 return;
             }
             if (block.type === 'tool-call') {
-                if (String(block.id).length > 0)
+                if (String(block.id).trim().length > 0)
                     item.callId = String(block.id);
                 // ⚠️ 同款非空守卫：`block-end` 是**权威覆盖**（连参数一起），但它的
                 // `name` 同样可能是空串，而这一格一旦覆盖就再也回不来了 ——
@@ -852,7 +854,8 @@ function usageJson(usage) {
     const normalized = toOpenAiUsage(usage);
     return {
         input_tokens: normalized.inputTokens,
-        input_tokens_details: { cached_tokens: normalized.cachedTokens },
+        input_tokens_details: { cached_tokens: normalized.cachedTokens ?? 0 },
+        ...normalized.cachedTokens === undefined ? { cache_read_reported: false } : {},
         output_tokens: normalized.outputTokens,
         output_tokens_details: { reasoning_tokens: normalized.reasoningTokens ?? 0 },
         total_tokens: normalized.totalTokens,

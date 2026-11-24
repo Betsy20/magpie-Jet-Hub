@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { OpenAiGatewayError } from './messages.js';
 import { normalizeUpstreamFailure, upstreamStatusOrFallback } from './model-errors.js';
 import { toOpenAiUsage } from './usage.js';
+// ⚠️ 判据**必须复用** `../sse.js` 的唯一来源：名字可用性、参数归一化、截断判定。
+//    就地写 `name.trim().length > 0` / `JSON.parse` 尝试是本仓库反复记过的漂移源
+//    （`messages.ts` 的 `resolveToolPairing` 那次）。
+import { hasUsableToolName, isTruncatedArguments, normalizeToolArguments } from '../sse.js';
 /**
  * 把「你可能是想用 X」拼到错误消息后面。
  *
@@ -39,9 +43,6 @@ function finishReason(reason) {
  * - `prompt_cache_hit_tokens` 是 DeepSeek 系的私有名，本仓库多个适配器
  *   （`buddy-adapter.ts` / `openai-compat.ts` / `llm-adapter.ts` 等）在**读**它；
  * - 顶层 `reasoning_tokens` 同理由旧版网关发出，删掉会让既有消费者读不到。
- * 官方字段（`prompt_tokens_details.cached_tokens` /
- * `completion_tokens_details.reasoning_tokens`）**必须同时给**：
- * Codex 等标准客户端只认官方形态。
  */
 function usageJson(usage) {
     const normalized = toOpenAiUsage(usage);
@@ -50,7 +51,18 @@ function usageJson(usage) {
         completion_tokens: normalized.outputTokens,
         total_tokens: normalized.totalTokens,
         // 官方明细：`cached_tokens` 是 `prompt_tokens` 的**子集**（见 `usage.ts`）。
-        prompt_tokens_details: { cached_tokens: normalized.cachedTokens },
+        //
+        // ⚠️ 「未上报」时**整段省略**（不是补 0）：官方 Chat schema 里
+        // `prompt_tokens_details` 是 `Optional[...] = None`，省略完全合法；而 codex
+        // 根本没有 Chat Completions 客户端路径（`codex-api/src/sse/` 只有 responses）。
+        // 2026-11-18 按 openai-python 的 `completion_usage.py`、codex-rs 的
+        // `sse/responses.rs` 与 `core/src/lib.rs` 源码核实后，删掉了原先那句
+        // 「官方字段必须同时给、Codex 等标准客户端只认官方形态」—— 它不成立。
+        // Responses 侧**相反**：`input_tokens_details.cached_tokens` 是必填 int，
+        // 只能补 0，再用 `cache_read_reported: false` 标出「这个 0 是补的」。
+        ...normalized.cachedTokens !== undefined
+            ? { prompt_tokens_details: { cached_tokens: normalized.cachedTokens } }
+            : {},
         ...normalized.reasoningTokens === undefined
             ? {}
             : {
@@ -58,7 +70,9 @@ function usageJson(usage) {
                 completion_tokens_details: { reasoning_tokens: normalized.reasoningTokens },
             },
         // 私有兼容字段（见上方注释）：只在真有缓存命中时才发，避免凭空多出 0。
-        ...normalized.cachedTokens > 0 ? { prompt_cache_hit_tokens: normalized.cachedTokens } : {},
+        ...normalized.cachedTokens !== undefined && normalized.cachedTokens > 0
+            ? { prompt_cache_hit_tokens: normalized.cachedTokens }
+            : {},
     };
 }
 function line(value) {
@@ -78,32 +92,94 @@ function failureMessage(reason) {
 }
 function consumeChunk(state, chunk) {
     switch (chunk.type) {
-        case 'text-delta':
+        case 'text-delta': {
+            /**
+             * 排队提示帧（provider 专有，目前只有 qoder 的 `visible` 档会发）。
+             *
+             * ⚠️⚠️ 它是**合法的 `text-delta`**（`text` 为空串），只是多带一个私有字段
+             * `qoderQueue`。**不能**给 `StreamChunk` 联合加新成员：宿主的两条组装器
+             * （`dsh-llm` 的 `BlockAssembler.push` 与 `AssistantStreamAccumulator.push`）
+             * 的 `default` 分支是 `assertNever`，任何联合外类型都会**硬抛**
+             * （2026-11-13 实测：`unreachable variant in BlockAssembler.push`）。
+             * 多带的字段会被它们忽略，所以「合法成员 + 私有字段」是唯一不扩宿主契约的形状。
+             *
+             * ⚠️ 提示帧**不能**贡献正文：`delta` 必须是空对象（`content` 留空），
+             * 否则每轮排队都会往回复里注入一个字符（2026-11-13 对抗审计实测）。
+             */
+            const queue = chunk.qoderQueue;
+            if (queue !== undefined)
+                return { delta: {}, notice: queue };
             state.content += chunk.text;
+            state.textSentBlocks.add(chunk.index);
             return { delta: { content: chunk.text } };
+        }
         case 'reasoning-delta':
             state.reasoning += chunk.text;
+            state.reasoningSentBlocks.add(chunk.index);
             return { delta: { reasoning_content: chunk.text } };
         case 'tool-call-delta': {
             let tool = state.tools.get(chunk.index);
             if (!tool) {
-                tool = { id: String(chunk.id), arguments: '' };
+                tool = {
+                    id: String(chunk.id),
+                    arguments: '',
+                    sentArguments: '',
+                    closed: false,
+                };
                 state.tools.set(chunk.index, tool);
             }
-            tool.id = String(chunk.id || tool.id);
-            if (chunk.name !== undefined)
+            // ★ 已收尾的块，后续同 index 的 delta 一律忽略（否则参数拼两遍）。
+            if (tool.closed)
+                return undefined;
+            /**
+             * ★ 判据与 `responses.ts` **逐字对齐**：
+             * - `id`：只允许**非空**覆盖（`String(x || y)` 挡不住 `'   '`）；
+             * - `name`：用 `hasUsableToolName`（trim 后非空），**不是** `!== undefined`
+             *   —— 后续分片常带 `name: ''`（它不是 undefined），无条件覆盖会把首片
+             *   解析出的真名抹成空 ⇒ 客户端报 `unknown tool ""`，坏块入会话、每轮重放。
+             */
+            /**
+             * ⚠️ 判据是 **`trim()` 后非空**，不是 `length > 0`：
+             * `'   '` 的 length 是 3，`length > 0` 与 `||` 都挡不住它（issue #134 根因 B
+             * 原话：「`id` 用 `||` 只挡 `''`，挡不住 `'   '`」）。
+             * 与 Responses 侧**同改**（两边判据必须逐格一致，否则同一份流在两个
+             * 端点上会给出不同 id）。
+             */
+            if (String(chunk.id).trim().length > 0)
+                tool.id = String(chunk.id);
+            if (hasUsableToolName(chunk.name))
                 tool.name = chunk.name;
             tool.arguments += chunk.argumentsDelta;
+            /**
+             * ★★★ **名字不可用时不得发帧**（2026-11-21 正向审计 P1-2，issue 的 F 未闭合）。
+             *
+             * 「名字只在 `block-end` 到达」是**正常形态**（`docs/agent-notes/protocol-wire.md`
+             * 有实测记录：`responses` 的 `call_late` 用例就是它）。旧实现照发，于是
+             * 客户端攒出 `name: ''` —— 那是 **IKLRIK 记录的会话级损坏形态**
+             * （harness 报 `unknown tool ""`、坏块入会话、每轮重放 ⇒ 会话报废）。
+             *
+             * 非流式出口已经用 `filter(hasUsableToolName)` 剔除，但**流式没法撤回已发帧**
+             * ⇒ 唯一协议安全的做法是**首帧推迟到名字可用**。
+             *
+             * 代价（如实登记）：名字晚到的调用会**丧失参数增量流式** —— 首帧一次性
+             * 带出已累积的参数。这与 Responses 侧的 `toolAddedEvent` 同口径
+             * （它也是在名字可用时才发 `added`）。
+             */
+            if (!hasUsableToolName(tool.name))
+                return undefined;
+            // ★ 首次真正发帧时才占号（P2-2：被抑制的调用不得留下 index 空洞）。
+            tool.openAiIndex ??= state.nextToolIndex++;
+            // 首帧把**已累积**的参数一次带出（此前一帧都没发过）；之后发增量。
+            const payload = tool.sentArguments.length === 0 ? tool.arguments : chunk.argumentsDelta;
+            tool.sentArguments += payload;
             return {
                 delta: {
                     tool_calls: [{
-                            index: chunk.index,
+                            // ★ 出站用**稠密**索引，不是 DSH 块索引。
+                            index: tool.openAiIndex,
                             id: tool.id,
                             type: 'function',
-                            function: {
-                                ...tool.name === undefined ? {} : { name: tool.name },
-                                arguments: chunk.argumentsDelta,
-                            },
+                            function: { name: tool.name, arguments: payload },
                         }],
                 },
             };
@@ -127,12 +203,185 @@ function consumeChunk(state, chunk) {
             state.finishReason = finishReason(chunk.reason);
             return { delta: {}, finish_reason: state.finishReason };
         case 'block-start':
-        case 'block-end':
             return undefined;
+        case 'block-end': {
+            /**
+             * ★★★ **权威覆盖**（GitHub issue #134 的主修）。
+             *
+             * 本仓库把「`block-end` 是权威覆盖」写成了纪律（`sse.ts` 的
+             * `BlockAssembler` 实测、`docs/agent-notes/dev-tasks.md:167`），九个适配器
+             * **全部**在收尾循环里用 `block-end` 补发最终块、且**在那一刻才做归一化**
+             * （空参数补 `{}`、DSML 清洗、正文去重/切分归位）。
+             * 原先这里直接 `return undefined` ⇒ 那层保证在 Chat 路由上整层丢失。
+             *
+             * ⚠️ **流式不回补**：delta 逐帧已经发给客户端了，再补一帧会让客户端
+             *    重复拼接。这里只把权威值记进状态，供**非流式出口**和
+             *    「无 delta 只有 block-end」两种场景使用。
+             */
+            const block = chunk.block;
+            if (block.type === 'text') {
+                /**
+                 * ★★★ **first-close-wins 同样适用于正文/思考**（2026-11-21 对抗审计 P2-1）。
+                 *
+                 * 我只把 first-close-wins 加给了 `tool-call`，正文这格漏了 ⇒ 畸形流里
+                 * 第二个 `block-end` 会**无条件覆盖**权威正文：实测
+                 * `text-delta "AAA"` + `block-end "AAA"` + 重复 `block-end "ZZZ"`
+                 * ⇒ 非流式 **`"ZZZ"`**（改前与 `BlockAssembler` / `responses.ts` 都是 `"AAA"`）
+                 * ⇒ **改前对、改后错**。
+                 */
+                if (state.contentOverrides.has(chunk.index))
+                    return undefined;
+                // 按块号记录（多正文块的形态见 `Accumulated.contentOverrides` 的说明）。
+                state.contentOverrides.set(chunk.index, block.text);
+                /**
+                 * ★ **该块一帧 delta 都没发过 ⇒ 补发正文**（正向审计 P2-2）。
+                 * 「只发 `block-end` 不发 delta」在 codearts 链路可达
+                 *（`llm-adapter` 的 `visible` 回退）；不补就是**空回答**。
+                 */
+                if (!state.textSentBlocks.has(chunk.index) && block.text.length > 0) {
+                    state.textSentBlocks.add(chunk.index);
+                    return { delta: { content: block.text } };
+                }
+                return undefined;
+            }
+            if (block.type === 'reasoning') {
+                // 同上的 first-close-wins（思考块与正文同型）。
+                if (state.reasoningOverrides.has(chunk.index))
+                    return undefined;
+                state.reasoningOverrides.set(chunk.index, block.text);
+                if (!state.reasoningSentBlocks.has(chunk.index) && block.text.length > 0) {
+                    state.reasoningSentBlocks.add(chunk.index);
+                    return { delta: { reasoning_content: block.text } };
+                }
+                return undefined;
+            }
+            if (block.type !== 'tool-call')
+                return undefined;
+            let tool = state.tools.get(chunk.index);
+            if (tool === undefined) {
+                /**
+                 * **只有 `block-end` 没有 delta 的块也不能丢**（与 `responses.ts` 的
+                 * 「只发 block-end 没有 delta 的块也不能丢」互为对偶 —— 有些适配器
+                 * 在收尾循环里首次成块）。补发一帧完整调用，否则该调用对客户端
+                 * 完全不存在。
+                 */
+                /**
+                 * ★ **流式补发帧必须归一化**（正向审计 P2′）。
+                 *
+                 * 这一帧是客户端看到的**全部**参数（此前一帧都没发过）⇒ 空参数必须给
+                 * `'{}'`，否则 `JSON.parse('')` 抛错；而非流式出口会调
+                 * `normalizeToolArguments` ⇒ 不归一化就两出口分叉。
+                 * 判据与非流式**同一份**：截断保持原样、其余归一化。
+                 */
+                const authoritative = isTruncatedArguments(block.arguments)
+                    ? block.arguments
+                    : normalizeToolArguments(block.arguments);
+                tool = {
+                    id: String(block.id),
+                    arguments: block.arguments,
+                    sentArguments: authoritative,
+                    argumentsOverride: block.arguments,
+                    closed: true,
+                };
+                if (hasUsableToolName(block.name))
+                    tool.name = block.name;
+                state.tools.set(chunk.index, tool);
+                // 名字不可用 ⇒ 一帧都不发（与 delta / 补发分支同口径，见 P1′）。
+                if (!hasUsableToolName(tool.name))
+                    return undefined;
+                // ★ 首次真正发帧时才占号（P2-2）。
+                tool.openAiIndex ??= state.nextToolIndex++;
+                return {
+                    delta: {
+                        tool_calls: [{
+                                index: tool.openAiIndex,
+                                id: tool.id,
+                                type: 'function',
+                                function: { name: tool.name, arguments: authoritative },
+                            }],
+                    },
+                };
+            }
+            /**
+             * ⚠️ **first-close-wins**：一个块只允许收尾一次。
+             *
+             * 与 `BlockAssembler` 的 `if (partial.block) return`、`responses.ts` 的
+             * `closed.has(chunk.index)` **同语义**（2026-11-21 正向审计 P2-1）：
+             * 少了这一格，畸形流里第二个 `block-end` 会**再覆盖**权威参数
+             * （实测非流式从 `{"a":1}` 变成 `{"a":999}`，而客户端手里还是 `{"a":1}`
+             * ⇒ 两个出口分叉）；带新 id/name 时整条调用会被替换。
+             */
+            if (tool.closed)
+                return undefined;
+            if (String(block.id).trim().length > 0)
+                tool.id = String(block.id);
+            // ⚠️ 这一格比 delta 那格更危险：`block-end` 一覆盖就再没有帧来修它。
+            if (hasUsableToolName(block.name))
+                tool.name = block.name;
+            tool.argumentsOverride = block.arguments;
+            tool.closed = true;
+            /**
+             * ★★ **流式补发权威参数**（2026-11-21 自查发现：非流式修好了、流式没有）。
+             *
+             * 「无参数工具」的上游形态是 `argumentsDelta: ''` ⇒ 客户端累积成 `''`
+             * ⇒ `JSON.parse('')` 抛 `Unexpected end of JSON input`（issue #134 现象 1）。
+             * 只要客户端**一个参数字符都没收到过**（`sentArguments === ''`），
+             * 就补一帧权威值；补完两者等价。
+             *
+             * ⚠️ 反过来**绝不**在已发过参数时补：客户端按增量拼接，补完整值会错乱。
+             */
+            /**
+             * ★★★ **补发分支同样必须过名字闸门**（2026-11-21 正向审计 P1′，一行但真泄漏）。
+             *
+             * 我上一轮只在 `tool-call-delta` 分支加了「名字不可用就不发帧」，
+             * **补发分支漏了** —— 于是「名字永不可用 + `block-end` 带参数」这条路径
+             * 仍会发出一帧 `{ id, function: { arguments } }`（**没有 name**），
+             * 客户端攒出来正是 `name: ''`，也就是 IKLRIK 的会话级损坏形态。
+             * 审计用 `delta{name:''}` + `block-end{args:'{"a":1}'}` 当场复现。
+             *
+             * ⇒ 名字不可用时**一帧都不发**（与非流式出口 `filter(hasUsableToolName)`
+             *   的剔除口径一致：这条调用对两个出口都不存在）。
+             */
+            /**
+             * ⚠️ **不能加 `block.arguments.length > 0` 的前置条件**（变异 M12 暴露的）。
+             *
+             * 「无参数工具」的权威值就是空串，归一化后是 `{}`。我原先多写了
+             * `block.arguments.length > 0` ⇒ 空参数场景**整条补发被跳过** ⇒ 客户端
+             * 仍然攒出 `arguments: ''` ⇒ `JSON.parse('')` 抛错，issue #134 现象 1
+             * 在「有 delta 但参数为空」这条路径上**没修好**。
+             */
+            if (hasUsableToolName(tool.name) && tool.sentArguments.length === 0) {
+                tool.openAiIndex ??= state.nextToolIndex++;
+                /**
+                 * ★ **出站值必须归一化**（审计 P2′）。
+                 *
+                 * 这是「客户端此前一帧都没收到过」的补发 ⇒ 它就是客户端看到的**全部**
+                 * 参数。若原样吐出 `block.arguments`，而适配器那一刻给的是空串
+                 * （无参数工具），客户端就拿到 `arguments: ""` ⇒ `JSON.parse("")` 抛错
+                 * （非流式出口会归一化成 `{}`，两个出口又会分叉）。
+                 * 用与非流式**同一份**判据：截断保持原样、其余归一化。
+                 */
+                const authoritative = isTruncatedArguments(block.arguments)
+                    ? block.arguments
+                    : normalizeToolArguments(block.arguments);
+                tool.sentArguments = authoritative;
+                return {
+                    delta: {
+                        tool_calls: [{
+                                index: tool.openAiIndex,
+                                id: tool.id,
+                                type: 'function',
+                                function: { name: tool.name, arguments: authoritative },
+                            }],
+                    },
+                };
+            }
+            return undefined;
+        }
     }
 }
 export async function* toOpenAiSse(chunks, requestId = `chatcmpl-${randomUUID()}`, model, suggest) {
-    const state = { content: '', reasoning: '', tools: new Map() };
+    const state = { content: '', reasoning: '', tools: new Map(), contentOverrides: new Map(), reasoningOverrides: new Map(), textSentBlocks: new Set(), reasoningSentBlocks: new Set(), nextToolIndex: 0 };
     try {
         for await (const chunk of chunks) {
             const event = consumeChunk(state, chunk);
@@ -172,7 +421,12 @@ export async function* toOpenAiSse(chunks, requestId = `chatcmpl-${randomUUID()}
                 yield line({ ...baseChunk(requestId, model, event.delta, event.finish_reason) });
             }
             else {
-                yield line(baseChunk(requestId, model, event.delta));
+                const base = baseChunk(requestId, model, event.delta);
+                // 排队提示帧：`qoder_queue` 是**非标准字段**，标准 OpenAI SDK 按协议会忽略它，
+                // 愿意读的客户端（面板 / 自研）据此显示「排队中（第 N 轮，预计 M 秒）」，
+                // 而不是只能看到一个没有 explain 的空心跳。
+                const notice = 'notice' in event ? event.notice : undefined;
+                yield line(notice === undefined ? base : { ...base, qoder_queue: notice });
             }
         }
         if (state.finishReason === undefined) {
@@ -192,7 +446,7 @@ export async function* toOpenAiSse(chunks, requestId = `chatcmpl-${randomUUID()}
     }
 }
 export async function collectOpenAiCompletion(chunks, requestId = `chatcmpl-${randomUUID()}`, model, suggest) {
-    const state = { content: '', reasoning: '', tools: new Map() };
+    const state = { content: '', reasoning: '', tools: new Map(), contentOverrides: new Map(), reasoningOverrides: new Map(), textSentBlocks: new Set(), reasoningSentBlocks: new Set(), nextToolIndex: 0 };
     try {
         for await (const chunk of chunks) {
             const event = consumeChunk(state, chunk);
@@ -219,15 +473,46 @@ export async function collectOpenAiCompletion(chunks, requestId = `chatcmpl-${ra
         });
         throw new OpenAiGatewayError(await withSuggestion(message, suggest), normalized.status, normalized.type, normalized.code);
     }
-    const toolCalls = [...state.tools.entries()].sort(([a], [b]) => a - b).map(([, tool]) => ({
-        id: tool.id,
-        type: 'function',
-        function: { name: tool.name ?? '', arguments: tool.arguments },
-    }));
+    /**
+     * 非流式出口（issue #134 的 C / D / F 三条一起收在这里）。
+     *
+     * - **排序**按出站稠密索引（`openAiIndex`），不是 DSH 块索引；
+     * - **参数**优先取 `block-end` 的权威值，再按「截断保持原样、否则归一化」；
+     *   残缺参数**不得**伪造成 `{}`（那会掩盖分片丢失，见 `sse.ts` 的理由）；
+     * - **空名调用剔除** —— 与 Responses 的 `hasContent` 同判据（名字可用性），
+     *   否则客户端会收到 `"name": ""` 并报 `unknown tool ""`。
+     */
+    const toolCalls = [...state.tools.values()]
+        // 非流式出口的 `openAiIndex` 可能从未分配（流式才需要它）⇒ 用哨兵值排到最后，
+        // 其余按分配顺序；无号者彼此的相对顺序由 Map 插入顺序决定（稳定排序）。
+        .sort((left, right) => (left.openAiIndex ?? Number.MAX_SAFE_INTEGER) - (right.openAiIndex ?? Number.MAX_SAFE_INTEGER))
+        .filter((tool) => hasUsableToolName(tool.name))
+        .map((tool) => {
+        const raw = tool.argumentsOverride ?? tool.arguments;
+        return {
+            id: tool.id,
+            type: 'function',
+            function: {
+                name: tool.name,
+                arguments: isTruncatedArguments(raw) ? raw : normalizeToolArguments(raw),
+            },
+        };
+    });
+    /**
+     * 按块号升序拼接权威值（**不是**取最后一个 —— 多正文块会整段丢内容）。
+     * 没有任何 override 时才回退到 delta 累积（保持「无 `block-end` 的合成流」可用）。
+     */
+    const joinOverrides = (map, fallback) => {
+        if (map.size === 0)
+            return fallback;
+        return [...map.entries()].sort(([a], [b]) => a - b).map(([, text]) => text).join('');
+    };
+    const finalContent = joinOverrides(state.contentOverrides, state.content);
+    const finalReasoning = joinOverrides(state.reasoningOverrides, state.reasoning);
     const message = {
         role: 'assistant',
-        content: state.content || null,
-        ...state.reasoning.length === 0 ? {} : { reasoning_content: state.reasoning },
+        content: finalContent || null,
+        ...finalReasoning.length === 0 ? {} : { reasoning_content: finalReasoning },
         ...toolCalls.length === 0 ? {} : { tool_calls: toolCalls },
     };
     return {

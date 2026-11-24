@@ -35,6 +35,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import Schema from '@deepseek-ai/schemastery';
 import type { ProviderAccountEntry } from './types.js';
+import type { QoderTrafficProvider } from './qoder-traffic-guard.js';
 /** Jet Hub schema namespace（老契约的 settings 命名空间名）。 */
 export declare const JET_HUB_NS = "jet-hub";
 /**
@@ -108,6 +109,217 @@ export type PermanentLockMap = Record<string, boolean>;
  * 天然就是「一个都没开」。
  */
 export type StrictManualOrderMap = Record<string, boolean>;
+/**
+ * 单个 provider 的**积分分档窗口**覆盖值（天）。
+ *
+ * 两个字段**都可选**：只覆盖其中一个时，另一个仍回落环境变量/默认。
+ * 这与「清空某一项」在语义上一致 —— 读侧对 `undefined` 走下一级。
+ *
+ * ⚠️ `0` 是合法值（表示「关掉该档」），**不能**与 `undefined`（未覆盖）混淆：
+ * 前者是「用户明确要 0 天」，后者是「用户没设，用默认」。
+ */
+export interface CreditWindowSetting {
+    /** 「短期窗口」（≥ 此值算永久）。`undefined` = 回落下一级。 */
+    windowDays?: number;
+    /** 「临期窗口」（< 此值算临期）。`undefined` = 回落下一级。 */
+    imminentDays?: number;
+    /** 子代理专属设置。`undefined` = 全部跟随主代理（与加这个功能之前**逐字节相同**）。 */
+    subagent?: SubagentRotationSetting;
+}
+/**
+ * ★★★ **子代理起点策略**（2026-11-23）。
+ *
+ * | 值 | 语义 |
+ * |---|---|
+ * | `'follow'` | 与主代理用同一账号（**默认**，= 加本功能之前的行为）|
+ * | `'sequence'` | 在主代理起点**所在档位内**往后错开 |
+ * | `'reverse'` | 在同一档位内往前错开 |
+ * | `'hash'` | 按子代理 sessionId 稳定哈希到同档位内某账号（排除主代理）|
+ * | `'fixed'` | 恒定用 `fixedPosition` 那个账号（**绝对第一**，无视档位）|
+ *
+ * ⚠️⚠️ **前四种都只在「同一档位内」错开**：用户明确要求子代理也必须
+ * 遵守「临期 → 短期 → 永久」这条核心策略（2026-11-23 纠正过我第一版
+ * 把「倒序」理解成跨档位反转的错误）。
+ */
+export declare const SUBAGENT_START_MODES: readonly ["follow", "sequence", "reverse", "hash", "fixed"];
+/** 子代理起点策略（见 {@link SUBAGENT_START_MODES}）。 */
+export type SubagentStartMode = typeof SUBAGENT_START_MODES[number];
+/** 判据 {@link SubagentStartMode}（唯一真源，UI 与端点共用）。 */
+export declare function isSubagentStartMode(value: unknown): value is SubagentStartMode;
+/**
+ * ★★★ **子代理专属设置**（2026-11-23）。
+ *
+ * ## 为什么挂在 {@link CreditWindowSetting} 里
+ *
+ * 用户的原话是「在档次窗口中增加设置」。它俩都回答同一个问题 ——
+ * 「这一档积分该给谁用」，只是主代理与子代理分开回答。
+ *
+ * ⚠️ **刻意不另开一张顶层表**：那会让 `sanitizeCreditWindows` 的「整条丢弃」
+ * 规则（两字段都空则删键）与子代理设置打架 —— 一个 provider 只配了子代理、
+ * 没配窗口天数时，条目会被整条丢掉。
+ */
+export interface SubagentRotationSetting {
+    /** 起点策略。 */
+    startMode?: SubagentStartMode;
+    /**
+     * `startMode === 'fixed'` 时使用的账号位次（1-based，与
+     * `PreferredRotationEntry.position` 同口径）。
+     *
+     * ⚠️ 语义是**绝对第一**（无视档位）：该号还有任何可用积分就一直用它。
+     * 「不可用」的判据与主代理一致 ——
+     * `buddyTierUsable(buddyBalanceTier(a, { allowPermanent }))`：即
+     * 「锁定永久时只剩永久积分」算不可用，**未锁定时只剩永久积分仍可用**。
+     */
+    fixedPosition?: number;
+    /**
+     * 子代理使用的模型 id（**本 provider 内**）。
+     *
+     * ⚠️ 只接受该渠道**已启用**的模型（用户 2026-11-23 要求）。
+     * 为什么必须同 provider：`agent.model.select()` 换 provider 会让
+     * `resolveCredential` 的 provider 假设失效（选号 / 计费 / 目录全部错位）。
+     */
+    model?: string;
+    /** 子代理的思考强度 id（模型声明的 `efforts` 之一）。`undefined` = 渠道默认最高档。 */
+    reasoningEffort?: string;
+}
+/**
+ * per-provider 的分档窗口覆盖表：provider id → {@link CreditWindowSetting}。
+ *
+ * ⚠️ **稀疏表**：未设置的 provider 不出现（不是写空对象）。
+ * ⚠️ 条目本身若两个字段都 `undefined`，`sanitizeCreditWindows` 会**丢掉整个条目**
+ *    （否则会留下永不消费的噪音键）。
+ */
+export type CreditWindowMap = Record<string, CreditWindowSetting>;
+/**
+ * 「轮换起点」的会话级偏好：provider → (sessionId → 账号 id)。
+ *
+ * ## ⚠️ 为什么是两层稀疏表（provider 再 session）
+ *
+ * - **按 provider**：各家账号池互不相通，同一会话在 workbuddy 与 codearts 下各选一个；
+ * - **按 session**：这正是「当前会话」语义 —— 换会话回到默认，否则「起点」会变成事实上的全局固定。
+ *
+ * ## ⚠️ 为什么存 `accountId` 而不是「第 N 个」
+ *
+ * 用户视觉上是「账号 N」，但**位次会随拖拽/增删变化**。存位次会让用户
+ * 拖一下顺序就静默改掉起点。位次只在渲染时现算（见 RPC `account.getPreferred`）。
+ *
+ * ## ⚠️ 为什么**必须**记 `at`
+ *
+ * 最初设计刻意不记时间戳，理由是「本表只由用户显式写入，不会快速增长」。
+ * **那个判断是错的**：键是 `sessionId`，而用户**每开一个新会话**就可能选一次起点
+ * ⇒ 表随会话数**单调增长且永不回收**（`state.json` 会被无限撑大，
+ * 而它是**整体读入内存**的）。
+ *
+ * ⇒ 现在记 `at`（写入时刻 ms）并**按 provider 淘汰最旧的会话**
+ *（上限 {@link PREFERRED_ROTATION_MAX_SESSIONS}）。
+ *
+ * ⚠️ 淘汰是**有损**的（最旧的会话会丢失起点，回落「默认」）。这是刻意的取舍：
+ * 宁可让早已删掉的旧会话丢失设置，也不能让 `state.json` 无限增长。
+ */
+/**
+ * 「轮换起点」条目。
+ *
+ * ## ⚠️ 两种形态并存（新格式 + 旧格式兼容）
+ *
+ * | 形态 | 何时写的 | 语义 |
+ * |---|---|---|
+ * | `{ position, at }` | **本版起** | 「用**默认顺序**的第 N 位」—— 拖拽后跟着位次走 |
+ * | `{ accountId, at }` | 早期版本 | 「用**这个账号**」—— 拖拽后仍指向原号 |
+ *
+ * ## 为什么改成存位次（用户 2026-11-10 明确要求）
+ *
+ * 用户的原话：「当前会话选择帐号1，如果我去帐号管理界面手动排序了，
+ * 回来当前会话应该**仍选帐号1**（即新的第 1 位），而不是跟随原来那个号」。
+ *
+ * ⚠️ 副作用（已确认接受）：在首位之前插入/删除账号会让位次指向别的号。
+ *
+ * ## ⚠️ 为什么保留 `accountId` 形态
+ *
+ * 升级用户的 `state.json` 里是旧格式。若直接丢弃 ⇒ **静默丢用户数据**
+ *（本仓反复记录过）。⇒ 旧格式继续可读，只是不再写入。
+ * 换算成位次需要账号池，而 `sanitizePreferredRotation` 是**纯函数**看不到池
+ * ⇒ 换算在 `AccountPool.preferredRotationFor` 里做（见那里的注释）。
+ */
+/**
+ * 「轮换起点」选定那一刻，该账号**所在的积分档位**（S6，2026-11-20 新增）。
+ *
+ * ## 为什么必须存快照而不是实时算
+ *
+ * 用户需求：「起点临期已耗尽、但还有短期/永久时，不再排第一，回归默认策略顺序」
+ *
+ * 判据是「**起点当前档位 == 用户选定它时的档位** ⇒ 才占首位」。
+ * 若实时算（拿当前档位和当前档位比）**恒成立** ⇒ 那个 bug 依旧存在。
+ * ⇒ 必须把「选它那一刻的档位」落盘。
+ *
+ * ⚠️ 档位只会**下降**（临期 → 短期 → 永久 → none），不会上升
+ * （除非用户又充了积分），故「当前 < 选定时」就等于「那一档已烧完」。
+ */
+export type RotationStartTier = 'imminent' | 'expiring' | 'permanent';
+/** {@link RotationStartTier} 的全部合法取值（校验用，避免手写枚举漂移）。 */
+export declare const ROTATION_START_TIERS: readonly RotationStartTier[];
+/** 判定任意值是否是合法档位（`sanitize` 与 RPC 校验共用同一份）。 */
+export declare function isRotationStartTier(value: unknown): value is RotationStartTier;
+/**
+ * 「轮换起点」的设置条目。
+ *
+ * ## ⚠️⚠️ 2026-11-20：**只剩一种形态**（旧格式一律丢弃）
+ *
+ * 用户决定：「做成最彻底的方法，清除已选的起点，回归默认，等用户重新选
+ * 就可以生效新的」。
+ *
+ * ## 历史（已删除的两种格式）
+ *
+ * | 旧形态 | 来源 | 现在 |
+ * |---|---|---|
+ * | 裸字符串 `"accountId"` | 本功能最早那一版 | **丢弃** |
+ * | `{ accountId, at }` | 早期版本 | **丢弃** |
+ * | `{ position, at }`（无档位）| S5 版 | **丢弃** |
+ *
+ * ⇒ 只剩 `{ position, at, tierAtSelection }`，且 **`tierAtSelection` 必填**。
+ *
+ * ## 为什么必须删干净（而不是「保留但回落」）
+ *
+ * 无档位快照的起点无法判断「用户当初想烧哪一档」，任何回落都只能是猜测：
+ * - 回落 S5（起点绝对第一）⇒ **bug 依旧**（临期烧完继续烧自己的短期）；
+ * - 回落「已降档」⇒ 起点失去优先权但界面还显示它被选中（显示与行为分叉）。
+ *
+ * ⇒ 两者都不可接受，故**清除**：用户重新选一次即写入带快照的条目。
+ *
+ * ⚠️ 降级安全：旧版本代码读新条目时认 `position` 字段即可正常工作
+ * （它不认第三个字段，会忽略）⇒ 降级不会崩，只是 S6 语义失效。
+ */
+export interface PreferredRotationEntry {
+    /** 账号在**启用账号池序**中的位次（1-based）。 */
+    position: number;
+    /** 写入时刻（淘汰按它排序）。 */
+    at: number;
+    /**
+     * **选定那一刻该账号的积分档位**（S6 核心）。
+     *
+     * ⚠️ **必填**：没有它的条目会被 `sanitizePreferredRotation` 丢弃。
+     * 为什么必须存快照而不是实时算 —— 见 {@link RotationStartTier}。
+     */
+    tierAtSelection: RotationStartTier;
+}
+export type PreferredRotationMap = Record<string, Record<string, PreferredRotationEntry>>;
+/**
+ * 每个 provider 最多保留多少个**会话**的轮换起点（超出时淘汰 `at` 最小的）。
+ *
+ * 取 64：正常用户同时活跃的会话是个位数；64 足以覆盖「忘了关的旧会话」，
+ * 而单条 ≈ 100 字节 ⇒ 单 provider 至多 ≈ 6 KB。
+ */
+export declare const PREFERRED_ROTATION_MAX_SESSIONS = 64;
+/**
+ * 归一化「轮换起点」表（{@link JetHubState.preferredRotation}）。
+ *
+ * 判据：非对象/数组 ⇒ 空表；provider 或 sessionId 为空串 ⇒ 丢弃；
+ * 值必须是非空字符串；**清完后为空的层一并丢弃**（不留空对象）。
+ *
+ * ⚠️ **读写两侧都要调用**（与本仓 `sanitizeStrictManualOrder` 同款）：
+ * 老契约后端不经过 schema，只靠这个函数。
+ */
+export declare function sanitizePreferredRotation(raw: unknown): PreferredRotationMap;
+export declare function prunePreferredRotation(sessions: Record<string, PreferredRotationEntry>, limit?: number): Record<string, PreferredRotationEntry>;
 /**
  * Jet Hub 的**唯一**入口位置。
  *
@@ -184,6 +396,7 @@ export interface JetHubState {
      * 缺键语义为**启用**：老用户升级后行为与升级前完全一致。
      */
     gatewayEnabled?: boolean;
+    qoderTrafficGuard?: Partial<Record<QoderTrafficProvider, boolean>>;
     /**
      * 「允许局域网访问」开关（2026-10-20）：`true` = 网关绑 `0.0.0.0`（全部网卡，
      * 局域网可达）；`false`/缺键 = 只绑回环或 env 配置的本机地址。
@@ -225,6 +438,22 @@ export interface JetHubState {
      */
     sessionBalanceEnabled?: boolean;
     /**
+     * 「轮换起点」：某 provider 在某**会话**下指定的起始账号。
+     *
+     * 语义：**只把选号轮换的起点挪到该账号**，不改任何选号策略 ——
+     * 档位判据、可用性过滤、失败换号全部照旧。
+     *
+     * ```
+     * 策略顺序：A → B → C → D → A（循环）
+     * 选 C 后： C → D → A → B → C
+     * ```
+     *
+     * ⚠️ 与「优先级」的区别：不是「先烧这个号」，而是「从它开始数」。
+     * ⚠️ 缺键 = 默认起点（与升级前**逐字节一致**）。
+     * ⚠️ 存 `accountId` 而非位次：位次会随拖拽/增删变化。
+     */
+    preferredRotation?: PreferredRotationMap;
+    /**
      * 「严格手动顺序」开关表（{@link StrictManualOrderMap}）：
      * provider id → 是否**完全**按用户拖拽的顺序取号。
      *
@@ -248,6 +477,38 @@ export interface JetHubState {
      * 缺键语义为**关闭**：老用户升级后行为与升级前**逐字节一致**。
      */
     strictManualOrder?: StrictManualOrderMap;
+    /**
+     * **per-provider 的积分分档窗口**（{@link CreditWindowMap}）：
+     * provider id → `{ windowDays, imminentDays }`。
+     *
+     * 语义：覆盖该渠道的「短期窗口」（≥ 此值算永久）与「临期窗口」（< 此值算临期）。
+     * **只对当前 provider 生效**，与全局环境变量互不干扰。
+     *
+     * ## 优先级（三级，高 → 低）
+     *
+     * ```
+     * 本表的值  >  环境变量（DSH_BUDDY_EXPIRING_WINDOW_DAYS / DSH_BUDDY_IMMINENT_WINDOW_DAYS）  >  内置默认（15 / 5）
+     * ```
+     *
+     * ⚠️ **缺键 = 回落环境变量/默认**（老用户升级后行为**逐字节一致**）。
+     * ⚠️ 两个字段**都可选**：只设一个也合法（另一个回落下一级）。
+     * ⚠️ `0` 是**合法值**（关掉该档），所以「清空」必须**删键**而不是写 `0`/`null`。
+     * ⚠️ 之所以住在这里而不是独立文件：与 `strictManualOrder` 同级、同样是
+     *    「可逆且方向保守」的设置 —— 老版本整体重写 `state.json` 时丢键会回到
+     *    默认窗口，用户再设一次即可，不会静默改变选号结果。
+     */
+    creditWindows?: CreditWindowMap;
+    /**
+     * ★ 子代理分配表：provider → sessionId → 分配记录（2026-11-23）。
+     *
+     * ⚠️ **必须持久化**：插件重启后收不到已发过的 `subagent/start` 事件，
+     * 若不落盘，正在跑的子代理会退化成「用主代理起点」——
+     * 用户会看到「子代理突然开始烧主代理的号」。
+     *
+     * ⚠️ 与 `preferredRotation` 分开存：那张表是**用户显式选择**
+     *（会话级、可长期保留），这张是**运行时分配**（子代理级、高频、有淘汰上限）。
+     */
+    subagentAssignments?: Record<string, Record<string, unknown>>;
     /**
      * 「面板入口」：Jet Hub 的**唯一**入口位置（{@link PanelEntry}）。
      *
@@ -409,10 +670,14 @@ export declare const jetHubSchema: Schema<Schemastery.ObjectS<NoInfer<{
     disabledModels: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
     loomyPermanentLocked: Schema<boolean, boolean, "defined">;
     gatewayEnabled: Schema<boolean, boolean, "defined">;
+    qoderTrafficGuard: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
     gatewayAllowLan: Schema<boolean, boolean, "defined">;
     nativeWebSearchEnabled: Schema<boolean, boolean, "defined">;
     sessionBalanceEnabled: Schema<boolean, boolean, "defined">;
     strictManualOrder: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
+    creditWindows: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
+    preferredRotation: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
+    subagentAssignments: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
     panelEntry: Schema<string, string, "plain">;
     providerOrder: Schema<string[], string[], "defined">;
     minimaxXff: Schema<string, string, "defined">;
@@ -422,10 +687,14 @@ export declare const jetHubSchema: Schema<Schemastery.ObjectS<NoInfer<{
     disabledModels: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
     loomyPermanentLocked: Schema<boolean, boolean, "defined">;
     gatewayEnabled: Schema<boolean, boolean, "defined">;
+    qoderTrafficGuard: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
     gatewayAllowLan: Schema<boolean, boolean, "defined">;
     nativeWebSearchEnabled: Schema<boolean, boolean, "defined">;
     sessionBalanceEnabled: Schema<boolean, boolean, "defined">;
     strictManualOrder: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
+    creditWindows: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
+    preferredRotation: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
+    subagentAssignments: Schema<import("@deepseek-ai/cosmokit").Dict<any, string>, import("@deepseek-ai/cosmokit").Dict<any, string>, "defined">;
     panelEntry: Schema<string, string, "plain">;
     providerOrder: Schema<string[], string[], "defined">;
     minimaxXff: Schema<string, string, "defined">;
@@ -442,6 +711,7 @@ export declare const jetHubSchema: Schema<Schemastery.ObjectS<NoInfer<{
  * 任何一次读取失败都变成「网关被静默关闭」，而用户根本不知道自己关过它。
  */
 export declare function sanitizeGatewayEnabled(raw: unknown): boolean;
+export declare function sanitizeQoderTrafficGuard(raw: unknown): NonNullable<JetHubState['qoderTrafficGuard']>;
 /**
  * 归一化「允许局域网访问」开关。
  *
@@ -491,6 +761,19 @@ export declare function sanitizeSessionBalanceEnabled(raw: unknown): boolean;
  *（含数组 —— `typeof [] === 'object'`）一律退化为空表 = 升级前行为。
  */
 export declare function sanitizeStrictManualOrder(raw: unknown): StrictManualOrderMap;
+export declare function sanitizeCreditWindows(raw: unknown): CreditWindowMap;
+/**
+ * 归一化 {@link SubagentRotationSetting}。
+ *
+ * ## 纪律：宁丢弃，不猜
+ *
+ * 与 {@link sanitizePreferredRotation} 同一取向 —— 脏数据一律**丢字段**而不是
+ * 回落到某个看起来合理的猜测。理由：这些值直接决定「烧哪个号的积分」，
+ * 猜错会**静默消耗用户没打算用的账号**。
+ *
+ * @returns `undefined` = 没有任何有效字段（调用方据此决定是否保留整条）
+ */
+export declare function sanitizeSubagentRotation(raw: unknown): SubagentRotationSetting | undefined;
 /**
  * 归一化「面板入口」（{@link JetHubState.panelEntry}）。
  *

@@ -129,9 +129,9 @@ var STYLES = `
    省下的每一像素都直接变成标签可用宽度，比加宽 rail 划算 —— 正是靠这 4px
    才把「不截断」所需的 rail 宽度从 232px 压到 228px。 */
 .dim-jh-provider { width: 100%; min-height: 48px; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--dsw-alias-border-l2, #eef0f3); border-radius: 14px; color: inherit; background: var(--dsw-alias-bg-layer-3, #fff); box-shadow: 0 2px 8px rgb(31 35 41 / 3%); font: inherit; text-align: left; cursor: pointer; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
-.dim-jh-provider:hover { border-color: color-mix(in srgb, #1677ff 25%, var(--dsw-alias-border-l2, #eef0f3)); background: color-mix(in srgb, #1677ff 2%, var(--dsw-alias-bg-layer-3, #fff)); box-shadow: 0 5px 16px rgb(31 35 41 / 5%); }
-.dim-jh-provider[aria-selected="true"] { border-color: color-mix(in srgb, #1677ff 43%, var(--dsw-alias-border-l2, #dfe1e5)); color: #1677ff; background: color-mix(in srgb, #1677ff 12%, var(--dsw-alias-bg-layer-3, #fff)); box-shadow: 0 3px 12px rgb(51 112 255 / 7%); }
-.dim-jh-provider:focus-visible { outline: none; border-color: color-mix(in srgb, #1677ff 72%, var(--dsw-alias-border-l2, #dfe1e5)); box-shadow: 0 0 0 1px color-mix(in srgb, #1677ff 24%, transparent) inset, 0 3px 12px rgb(51 112 255 / 7%); }
+.dim-jh-provider:hover { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 25%, var(--dsw-alias-border-l2, #eef0f3)); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 2%, var(--dsw-alias-bg-layer-3, #fff)); box-shadow: 0 5px 16px rgb(31 35 41 / 5%); }
+.dim-jh-provider[aria-selected="true"] { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 43%, var(--dsw-alias-border-l2, #dfe1e5)); color: var(--dsw-alias-brand-primary, #1677ff); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 12%, var(--dsw-alias-bg-layer-3, #fff)); box-shadow: 0 3px 12px rgb(51 112 255 / 7%); }
+.dim-jh-provider:focus-visible { outline: none; border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 72%, var(--dsw-alias-border-l2, #dfe1e5)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 24%, transparent) inset, 0 3px 12px rgb(51 112 255 / 7%); }
 
 /* 图标容器：align dsh-im .dim-logo */
 .dim-jh-providerIcon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; box-shadow: 0 1px 3px rgb(31 35 41 / 7%); overflow: hidden; }
@@ -185,6 +185,7 @@ var STYLES = `
    故容器保持透明（与 zcode / officeace / codely 同因：图标自己不透明，再叠白底多余）。
    ⚠️ 本文件的样式整体是一个模板字符串 —— 注释里不能出现反引号（会提前终止）。 */
 .dim-jh-providerIcon.magicrew { background: transparent; }
+.dim-jh-providerIcon.doubao { background: transparent; }
 /* 聚合 provider：内联 SVG（三渠道汇聚），白底容器中显示清晰。
    ⚠️ 加这一条是必要的 —— 上面每家的 logoClass 都各自声明了背景，
       没有兜底规则，缺了会让聚合的图标容器**没有背景**（与其它行不一致）。 */
@@ -211,6 +212,9 @@ var STYLES = `
    留下一条看着像「rail 没铺满」的空白。用户报障原话：
    「去掉开关后右边有片空白，要省略让右边的账号池区域显示更宽」。 */
 .dim-jh-providerRow { display: grid; grid-template-columns: minmax(0, 1fr); }
+.dim-jh-railPinned { display: grid; gap: 8px; padding-bottom: 10px; margin-bottom: 2px; border-bottom: 1px dashed var(--dsw-alias-border-l2, #e5e6eb); }
+.dim-jh-provider--pinned { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 40%, var(--dsw-alias-border-l2, #eef0f3)); background: linear-gradient(135deg, color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 16%, var(--dsw-alias-bg-layer-3, #fff)), var(--dsw-alias-bg-layer-3, #fff) 75%); }
+.dim-jh-providerSub { overflow: hidden; font-size: 11px; line-height: 15px; font-weight: 400; color: var(--dsw-alias-label-tertiary, #8f959e); text-overflow: ellipsis; white-space: nowrap; }
 .dim-jh-providerRow .dim-jh-provider { min-width: 0; }
 /* 已关闭的供应商整行置灰（2026-11-06 用户要求「已关闭的供应商置灰」）。
    ⚠️ 只降不透明度、**不改布局** —— 行高/宽度必须与打开态逐像素一致，否则
@@ -234,7 +238,7 @@ var STYLES = `
 
 /* 账号卡片 */
 .dim-jh-accountCard { position: relative; border: 1px solid var(--dsw-alias-border-l2, #eef0f3); border-radius: 14px; padding: 14px 16px; margin-bottom: 10px; background: var(--dsw-alias-bg-layer-3, #fff); box-shadow: 0 2px 8px rgb(31 35 41 / 3%); transition: border-color .16s ease, box-shadow .16s ease, opacity .16s ease; }
-.dim-jh-accountCard:hover { border-color: color-mix(in srgb, #1677ff 22%, var(--dsw-alias-border-l2, #eef0f3)); box-shadow: 0 5px 16px rgb(31 35 41 / 5%); }
+.dim-jh-accountCard:hover { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 22%, var(--dsw-alias-border-l2, #eef0f3)); box-shadow: 0 5px 16px rgb(31 35 41 / 5%); }
 .dim-jh-accountCard[data-enabled="false"] { opacity: 0.62; }
 
 /* 拖拽排序 */
@@ -245,8 +249,8 @@ var STYLES = `
 /* 正在被拖动的卡片：淡出以表明它已"拿起" */
 .dim-jh-accountCard[data-dragging="true"] { opacity: 0.4; border-style: dashed; }
 /* 拖拽悬停的目标位置：插入线。上方=插到该卡片之前，下方=之后。 */
-.dim-jh-accountCard[data-dropBefore="true"]::before { content: ''; position: absolute; left: 0; right: 0; top: -6px; height: 3px; border-radius: 2px; background: #1677ff; }
-.dim-jh-accountCard[data-dropAfter="true"]::after { content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 3px; border-radius: 2px; background: #1677ff; }
+.dim-jh-accountCard[data-dropBefore="true"]::before { content: ''; position: absolute; left: 0; right: 0; top: -6px; height: 3px; border-radius: 2px; background: var(--dsw-alias-brand-primary, #1677ff); }
+.dim-jh-accountCard[data-dropAfter="true"]::after { content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 3px; border-radius: 2px; background: var(--dsw-alias-brand-primary, #1677ff); }
 /* 序号徽标：让当前优先级一目了然（顺序即自动选号优先级） */
 .dim-jh-accountOrder { flex: none; min-width: 18px; padding: 0 5px; border-radius: 6px; font-size: 11px; line-height: 17px; font-weight: 600; text-align: center; color: var(--dsw-alias-label-secondary, #5f6672); background: rgb(31 35 41 / 6%); }
 /* 排序提示：与按钮组同处 .dim-jh-panelHead 第二行（用户 2026-10-26
@@ -273,7 +277,7 @@ var STYLES = `
 /* 顶部一行：状态点 + 名称 + 状态标签 */
 .dim-jh-accountTop { display: flex; align-items: center; gap: 8px; }
 .dim-jh-accountStatus { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--dsw-alias-label-tertiary, #9aa0a6); }
-.dim-jh-accountStatus[data-on="true"] { background: #22c55e; box-shadow: 0 0 0 3px rgb(34 197 94 / 14%); }
+.dim-jh-accountStatus[data-on="true"] { background: var(--dsw-alias-state-success-primary, #22c55e); box-shadow: 0 0 0 3px rgb(34 197 94 / 14%); }
 .dim-jh-accountName { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--dsw-alias-label-primary, #1f2329); text-overflow: ellipsis; white-space: nowrap; }
 .dim-jh-accountTag { flex: none; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 17px; font-weight: 500; }
 .dim-jh-accountTag[data-tone="on"] { color: #15803d; background: rgb(34 197 94 / 12%); }
@@ -294,11 +298,11 @@ var STYLES = `
 .dim-jh-accountTag[data-clickable="true"][data-tone="off"] { border-color: rgb(143 149 158 / 40%); }
 .dim-jh-accountTag[data-clickable="true"]:hover { filter: brightness(0.94); }
 /* hover 时把边框也压深：只靠背景亮度变化，在浅色主题下几乎看不出。 */
-.dim-jh-accountTag[data-clickable="true"][data-tone="on"]:hover { border-color: #15803d; }
+.dim-jh-accountTag[data-clickable="true"][data-tone="on"]:hover { border-color: var(--dsw-alias-state-success-primary, #15803d); }
 .dim-jh-accountTag[data-clickable="true"][data-tone="off"]:hover { border-color: var(--dsw-alias-label-tertiary, #8f959e); }
 .dim-jh-accountTag[data-clickable="true"]:active { transform: translateY(1px); }
 /* 焦点圈：去掉它等于把「键盘可达」退化回只能用鼠标。 */
-.dim-jh-accountTag[data-clickable="true"]:focus-visible { outline: 2px solid #1677ff; outline-offset: 1px; }
+.dim-jh-accountTag[data-clickable="true"]:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #1677ff); outline-offset: 1px; }
 
 /* 元信息：键值对齐的网格 */
 /* ⚠️ 2026-10-27 用户报障「面板在仅设置页时按钮与信息重叠，其次将积分和详细积分
@@ -313,7 +317,7 @@ var STYLES = `
 .dim-jh-metaRow { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: baseline; gap: 8px; }
 .dim-jh-metaRow dt { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary, #8f959e); }
 .dim-jh-metaRow dd { min-width: 0; margin: 0; overflow: hidden; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary, #646a73); text-overflow: ellipsis; white-space: nowrap; }
-.dim-jh-metaRow dd[data-tone="warn"] { color: #e37400; }
+.dim-jh-metaRow dd[data-tone="warn"] { color: var(--dsw-alias-state-warn-primary, #e37400); }
 /* 积分未取到时的弱化提示。与 warn 区分：这不是异常，只是还没有数据 */
 .dim-jh-metaRow dd[data-tone="muted"] { color: var(--dsw-alias-label-tertiary, #8f959e); }
 .dim-jh-metaRow code { padding: 1px 5px; border-radius: 5px; background: var(--dsw-alias-bg-layer-2, #f4f5f7); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
@@ -346,7 +350,7 @@ var STYLES = `
 .dim-jh-metaRow dd.dim-jh-creditValue > * { display: inline; }
 /* 段间间距（替代原 flex gap: 6px）。用相邻兄弟选择器，首段不带左边距。 */
 .dim-jh-metaRow dd.dim-jh-creditValue > * + * { margin-left: 6px; }
-.dim-jh-creditTotal { font-size: 13px; font-weight: 600; color: #1677ff; font-variant-numeric: tabular-nums; }
+.dim-jh-creditTotal { font-size: 13px; font-weight: 600; color: var(--dsw-alias-brand-primary, #1677ff); font-variant-numeric: tabular-nums; }
 .dim-jh-creditPackages { font-size: 11px; color: var(--dsw-alias-label-tertiary, #8f959e); }
 /* 分桶说明（三档带色）：永久绿 / 长期黄 / 临期红 + 倒计时（用户 2026-10-12）。
    ⚠️ 颜色语义与 credit-expiry.js 的 expirySplitParts 一一对应：
@@ -356,6 +360,26 @@ var STYLES = `
    ⚠️ 与 .dim-jh-badgeNotePart 同一套 tone 变量（深浅主题各自有定义）。 */
 .dim-jh-creditPoolPart { font-size: 11px; font-variant-numeric: tabular-nums; }
 .dim-jh-creditPoolPart[data-tone="ok"] { color: var(--dsw-alias-state-success-primary, #15803d); }
+/* ↑ 深绿 = 「永久」（服务端未给到期时间，永不按时间作废）。
+   ↓ 浅绿 = 「长期」（有到期日但 ≥15 天，还早）。两者**刻意不同深浅**：
+     本仓库 2026-10-12 的硬要求是「永久与长期必须能分辨」，否则用户分不出
+     哪些积分是永远不会作废的。⚠️ 与 .dim-jh-badgeNotePart 那份必须同改。
+   ⚠️ 混色比例 78% 是**对比度算出来的**（2026-11-18 用真实主题值实测，WCAG）：
+
+      | 主题 | 永久(ok) | 长期(okSoft@78%) | 短期(warn) | 临期(error) |
+      |---|---|---|---|---|
+      | 深色（实测 token） | **4.14** | 4.38 | 5.61 | 3.56 |
+      | 浅色（白底） | 5.02 | 4.56 | 5.02 | 4.77 |
+
+   ⚠️ **深色下「永久」4.14 与「临期」3.56 不达正文级，但那是既有值、不是本次引入**
+      （ok / error 这两行从 origin/master 起就一模一样，实测主题
+      --dsw-alias-state-success-primary = #2e8e52 是**填充亮色**而这里当 10px
+      文字色用）。本次只保证**新加的「长期」不比既有的「永久」更差**（4.38 > 4.14），
+      不顺手改既有配色 —— 那会让本 PR 混入无关的视觉变更。
+      如需彻底解决，应统一给四档换成「深色主题专用的文字色变量」（另开 issue）。
+   ⚠️ 78% 的选择：低于它则浅色跌破 4.5（55% 时仅 4.13）；高于它则与「永久」色距
+      缩到 25 以下、两档分不清。78% 是两侧都满足的唯一窗口。 */
+.dim-jh-creditPoolPart[data-tone="okSoft"] { color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #15803d) 78%, var(--dsw-alias-label-tertiary, #8f959e)); }
 .dim-jh-creditPoolPart[data-tone="warn"] { color: var(--dsw-alias-state-warn-primary, #b45309); }
 .dim-jh-creditPoolPart[data-tone="error"] { color: var(--dsw-alias-state-error-primary, #d93025); }
 .dim-jh-creditPoolPart[data-tone="muted"] { color: var(--dsw-alias-label-tertiary, #8f959e); }
@@ -363,7 +387,7 @@ var STYLES = `
 /* 已失效额度：弱化的橙色提示，与主数值的蓝色明确区分 */
 .dim-jh-creditExpired { font-size: 11px; color: #b45309; }
 /* 用量（本月消耗）—— 三审 F🟡-8：与「已失效额度」同级但中性色，不得混成橙色警告 */
-.dim-jh-creditUsage { font-size: 11px; color: #6b7280; }
+.dim-jh-creditUsage { font-size: 11px; color: var(--dsw-alias-label-tertiary, #6b7280); }
 /* 独立池（AStudio 星火积分等）：与上方三档分桶并列的事实标注。
    用中性灰而**不是** warn 橙 —— 它不是「快过期」的告警，而是「这笔钱不能混用」
    的说明；用橙色会与临期档抢注意力。 */
@@ -396,6 +420,8 @@ var STYLES = `
    别单独占一行」）。⚠️ 只有传了 actions 的调用方才带这个类名 —— 其余
    provider 的 .dim-jh-metaRow 仍是两列，逐字不变。 */
 .dim-jh-metaRow--actions { grid-template-columns: 52px minmax(0, 1fr) auto; }
+.dim-jh-accountMeta--modelscope > .dim-jh-metaRow { grid-template-columns: 64px minmax(0, 1fr); }
+.dim-jh-accountMeta--modelscope > .dim-jh-metaRow--actions { grid-template-columns: 64px minmax(0, 1fr) auto; }
 /* 挂进积分行后就不再需要「独立成行」的那些装饰（上边距 / 分隔线），
    否则会在按钮上方多出一条线并撑高行距。
    align-self: center 覆盖 metaRow 的 baseline —— 按钮是 flex 容器，
@@ -427,6 +453,7 @@ var STYLES = `
      ⚠️ grid-template-areas 比数格子稳：三列变两行时不用重算列宽。
      ⚠️ align-items: start 覆盖基础规则的 baseline —— 窄容器下 dt / dd /
      按钮组各自独占一格，baseline 会让空标签把行高撑歪。 */
+  .dim-jh-accountMeta--modelscope > .dim-jh-metaRow--actions,
   .dim-jh-metaRow--actions {
     grid-template-columns: 52px minmax(0, 1fr);
     grid-template-areas:
@@ -460,11 +487,11 @@ var STYLES = `
 
 /* 按钮：align dsh-im .dim-deliveryButton */
 .dim-jh-btn { font-size: 12px; line-height: 18px; padding: 4px 12px; border: 1px solid var(--dsw-alias-border-l2, #dfe1e5); border-radius: 8px; background: var(--dsw-alias-bg-layer-3, #fff); cursor: pointer; color: var(--dsw-alias-label-primary, #1f2329); white-space: nowrap; transition: border-color .15s ease, background .15s ease, color .15s ease; }
-.dim-jh-btn:hover:not(:disabled):not([aria-disabled='true']) { border-color: color-mix(in srgb, #1677ff 40%, var(--dsw-alias-border-l2, #dfe1e5)); color: #1677ff; background: color-mix(in srgb, #1677ff 6%, var(--dsw-alias-bg-layer-3, #fff)); }
-.dim-jh-btn[data-kind="primary"] { background: #1677ff; color: #fff; border-color: #1677ff; }
-.dim-jh-btn[data-kind="primary"]:hover:not(:disabled):not([aria-disabled='true']) { background: #0f5fce; border-color: #0f5fce; color: #fff; }
-.dim-jh-btn[data-kind="danger"] { color: #d93025; border-color: color-mix(in srgb, #d93025 35%, var(--dsw-alias-border-l2, #dfe1e5)); }
-.dim-jh-btn[data-kind="danger"]:hover:not(:disabled) { color: #b3261e; border-color: #d93025; background: rgb(217 48 37 / 6%); }
+.dim-jh-btn:hover:not(:disabled):not([aria-disabled='true']) { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 40%, var(--dsw-alias-border-l2, #dfe1e5)); color: var(--dsw-alias-brand-primary, #1677ff); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 6%, var(--dsw-alias-bg-layer-3, #fff)); }
+.dim-jh-btn[data-kind="primary"] { background: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #1677ff)); color: var(--dsw-alias-label-primary-foreground, #fff); border-color: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #1677ff)); }
+.dim-jh-btn[data-kind="primary"]:hover:not(:disabled):not([aria-disabled='true']) { background: var(--dsw-alias-button-primary-hover, #0f5fce); border-color: var(--dsw-alias-button-primary-hover, #0f5fce); color: var(--dsw-alias-label-primary-foreground, #fff); }
+.dim-jh-btn[data-kind="danger"] { color: var(--dsw-alias-state-error-primary, #d93025); border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93025) 35%, var(--dsw-alias-border-l2, #dfe1e5)); }
+.dim-jh-btn[data-kind="danger"]:hover:not(:disabled) { color: var(--dsw-alias-label-danger, #b3261e); border-color: var(--dsw-alias-state-error-primary, #d93025); background: rgb(217 48 37 / 6%); }
 .dim-jh-btn:disabled { opacity: 0.5; cursor: default; }
 
 /* 设置弹窗里的一个分区（供应商 / 定时签到 / 备份与恢复 / 渠道原生搜索）。
@@ -473,6 +500,26 @@ var STYLES = `
    底部之后，那五条规则全部失去 DOM 对应，已删除。 */
 .dim-jh-settingsSection { display: flex; flex-direction: column; gap: 8px; }
 .dim-jh-settingsSectionTitle { font-size: 13px; line-height: 20px; font-weight: 600; color: var(--dsw-alias-label-primary, #1f2329); }
+/* 分区之间的分隔线：设置弹窗现在有 5 个分区（供应商 / 定时签到 / 备份恢复 /
+   渠道原生搜索 / 思考强度），只靠 gap 已经分不清边界（用户 2026-11-11 报障
+   「设置界面怎么出现下拉条了」时，视觉上也正是一整片挤在一起）。
+   ⚠️ 用 border-top 而不是加 margin：margin 会让「内容超限」更早发生，
+   而这里要的恰恰是把同样的内容**排得更紧、更清晰**。
+   首个分区不画线（:first-child），否则顶部多一条悬空横线。 */
+.dim-jh-settingsSection + .dim-jh-settingsSection { padding-top: 10px; border-top: 1px solid var(--dsw-alias-border-l1, #eef0f3); }
+/* 开关 + 文字的一行（可点区只包开关与文字，不包整行 —— 同 .dim-jh-checkinToggle
+   的既有口径：包整行会让行尾空白也变成命中区）。 */
+/* ⚠️ 允许换行：文案较长，窄弹窗下必须能折到第二行，否则会把弹窗撑出横向滚动条
+   （横向滚动条会把右侧内容推出可视区，是本仓库踩过的形态）。 */
+.dim-jh-settingsToggleLine { display: inline-flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary, #4e5969); cursor: pointer; user-select: none; }
+.dim-jh-settingsToggleLine > input { flex: none; margin-top: 3px; }
+.dim-jh-settingsToggleLineFailed { color: var(--dsw-alias-label-tertiary, #8f959e); }
+.dim-jh-settingsToggleText { min-width: 0; }
+/* 分区内的说明文字：比 .dim-jh-modalHint 更紧（后者带 10px 顶边距，在分区里
+   会把每个分区都撑高，5 个分区累计就是用户看到的那条滚动条）。 */
+.dim-jh-settingsNote { margin: 0; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #8f959e); }
+/* 分区内的行内失败提示（读取不到宿主状态等）：必须显眼但不喧宾夺主。 */
+.dim-jh-settingsInlineFail { padding: 6px 8px; border-radius: 6px; background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93025) 8%, transparent); font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-danger, #b3261e); }
 .dim-jh-settingsSectionActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .dim-jh-checkinRow { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary, #4e5969); }
 .dim-jh-checkinRow > label { flex: none; }
@@ -481,7 +528,7 @@ var STYLES = `
    包整行会让行尾空白也变成命中区。inline-flex 让可点区贴合内容。 */
 .dim-jh-checkinToggle { flex: none; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .dim-jh-checkinTime { width: 92px; padding: 4px 8px; border: 1px solid var(--dsw-alias-border-l2, #dfe1e5); border-radius: 6px; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #1f2329); font: inherit; font-size: 12px; }
-.dim-jh-checkinTime:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px color-mix(in srgb, #1677ff 20%, transparent); }
+.dim-jh-checkinTime:focus { outline: none; border-color: var(--dsw-alias-brand-primary, #1677ff); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 20%, transparent); }
 .dim-jh-checkinHint { font-size: 11px; line-height: 1.6; color: var(--dsw-alias-label-tertiary, #8f959e); }
 .dim-jh-checkinStatus { margin-top: 2px; padding: 6px 8px; border-radius: 6px; background: var(--dsw-alias-bg-layer-2, #f7f8fa); font-size: 11px; line-height: 1.6; color: var(--dsw-alias-label-secondary, #4e5969); }
 /* 「还没读回来」的骨架：**固定高度、无文字**（2026-11-01 审计 P3-1）。
@@ -590,9 +637,10 @@ var STYLES = `
    （Chromium 不为 disabled 的控件显示原生 tooltip ⇒ 原因读不到）。
    改回 :disabled 会让「点不动」变成「看不出点不动也看不出为什么」。 */
 .dim-jh-providerSwitch { flex: none; position: relative; width: 36px; height: 20px; padding: 0; border: 0; border-radius: 999px; background: #c9cdd4; cursor: pointer; transition: background-color .15s ease; }
-.dim-jh-providerSwitch[aria-checked='true'] { background: #1677ff; }
+.dim-jh-providerSwitch[aria-checked='true'] { background: var(--dsw-alias-brand-primary, #1677ff); }
 .dim-jh-providerSwitch[aria-disabled='true'] { opacity: .5; cursor: default; }
 .dim-jh-providerSwitchThumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .15); transition: transform .15s ease; }
+.dim-jh-providerSwitch[aria-checked='true'] .dim-jh-providerSwitchThumb { background: var(--dsw-alias-label-primary-foreground, #fff); }
 .dim-jh-providerSwitch[aria-checked='true'] .dim-jh-providerSwitchThumb { transform: translateX(16px); }
 /* 面板级状态提示（探测结果 / 锁定状态 / 领取结果 / 新手任务 / 登录链接 / 补偿卡）。
    ⚠️ 2026-10-26 用户要求「信息应该在按钮行上方行，而不是下方行」：这些提示
@@ -670,11 +718,45 @@ var STYLES = `
 
 /* 上一次「重测 / 重置」的结果提示 */
 .dim-jh-probeNotice { margin-bottom: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--dsw-alias-border-l2, #eef0f3); background: var(--dsw-alias-bg-layer-2, #f7f8fa); font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary, #646a73); }
-.dim-jh-probeNotice[data-tone="ok"] { border-color: color-mix(in srgb, #22c55e 35%, var(--dsw-alias-border-l2, #eef0f3)); background: rgb(34 197 94 / 8%); color: #15803d; }
-.dim-jh-probeNotice[data-tone="warn"] { border-color: color-mix(in srgb, #e37400 35%, var(--dsw-alias-border-l2, #eef0f3)); background: rgb(227 116 0 / 8%); color: #b45309; }
-.dim-jh-probeNotice[data-tone="error"] { border-color: color-mix(in srgb, #d93025 35%, var(--dsw-alias-border-l2, #eef0f3)); background: rgb(217 48 37 / 8%); color: #b3261e; }
+.dim-jh-probeNotice[data-tone="ok"] { border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 35%, var(--dsw-alias-border-l2, #eef0f3)); background: rgb(34 197 94 / 8%); color: #15803d; }
+.dim-jh-probeNotice[data-tone="warn"] { border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #e37400) 35%, var(--dsw-alias-border-l2, #eef0f3)); background: rgb(227 116 0 / 8%); color: #b45309; }
+.dim-jh-probeNotice[data-tone="error"] { border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93025) 35%, var(--dsw-alias-border-l2, #eef0f3)); background: rgb(217 48 37 / 8%); color: var(--dsw-alias-label-danger, #b3261e); }
 .dim-jh-probeDetails { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; }
 .dim-jh-probeDetails li { font-size: 12px; line-height: 18px; }
+
+/* 全局统计带（Jet Hub 页头下方：tab 按钮组与「已打开 / 已关闭」列表之间）。
+   三格：总积分 / 剩余积分 / 账号数量（用户 2026-10-22 指定，其余已移除）。
+   ⚠️ 跨 provider 求和是用户明确要求的聚合口径，数值仅作总量参考；
+      「按单位分列」那条红线只约束一键签到的提示文案，不约束这里。 */
+.dim-jh-globalStats { flex: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 24px 0; }
+/* min-width 给到 120px：积分动辄 5~7 位（如 1,234,567.89），96px 会把数字挤出卡片。 */
+.dim-jh-globalStat { flex: 1 1 120px; min-width: 120px; display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--dsw-alias-border-l2, #eef0f3); border-left-width: 3px; background: var(--dsw-alias-bg-layer-2, #f7f8fa); }
+.dim-jh-globalStat[data-tone="info"] { border-left-color: #3370ff; }
+/* ⚠️⚠️ 这三条**必须**走 var(--dsw-alias-…, 回退值)，不能裸写语义色。
+   PR #29 首版就是裸写的（#22c55e / #e37400 / #d93025），被
+   tests/unit/jet-hub-styles-theme-tokens.spec.ts 当场抓住（3 条 offender）——
+   那是 PR #54 建立的红线：裸写会让「宿主换主题时统计带的色条不跟」，
+   而回退值写错又会「悄悄换掉主题色」。回退值逐字取自该 spec 的
+   FALLBACK_SNAPSHOT 白名单（新增组合必须先证明是原值再登记，不许顺手加）。
+   ℹ️ info / muted 两格的 #3370ff / #8f959e **刻意保留裸字面量**：
+   它们不在该 spec 的 SEMANTIC 表里（表只覆盖 error/danger/success/warn 四类），
+   强行包 var 反而要新增一条未登记的回退组合。 */
+.dim-jh-globalStat[data-tone="ok"] { border-left-color: var(--dsw-alias-state-success-primary, #22c55e); }
+.dim-jh-globalStat[data-tone="warn"] { border-left-color: var(--dsw-alias-state-warn-primary, #e37400); }
+.dim-jh-globalStat[data-tone="danger"] { border-left-color: var(--dsw-alias-state-error-primary, #d93025); }
+.dim-jh-globalStat[data-tone="muted"] { border-left-color: #8f959e; }
+/* 字号取法：标签比正文小一档（12px vs 13px）、数值大两档（20px）。
+   目的是让统计带读起来是「同一层级的摘要」而不是新的一层，避免与下方账号卡片标题（16px）打架。 */
+.dim-jh-globalStatLabel { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary, #8f959e); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dim-jh-globalStatValue { font-size: 20px; line-height: 26px; font-weight: 600; color: var(--dsw-alias-label-primary, #1f2329); font-variant-numeric: tabular-nums; }
+.dim-jh-globalStatUnit { margin-left: 2px; font-size: 11px; font-weight: 400; color: var(--dsw-alias-label-tertiary, #8f959e); }
+/* 窄屏（手机 / 侧栏收窄）：数值降一档；格子最小 104px 靠 wrap 自动折行，不出现横向溢出。 */
+@media (max-width: 720px) {
+  .dim-jh-globalStats { gap: 6px; margin: 8px 12px 0; }
+  .dim-jh-globalStat { flex: 1 1 104px; min-width: 104px; padding: 6px 10px; }
+  .dim-jh-globalStatLabel { font-size: 11px; line-height: 16px; }
+  .dim-jh-globalStatValue { font-size: 16px; line-height: 22px; }
+}
 /* 授权链接 + 复制按钮同行。链接不设 min-width: 0 时，300+ 字符的 URL 会把按钮顶出可视区。 */
 .dim-jh-loginLinkRow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
 .dim-jh-loginLink { flex: 1 1 240px; min-width: 0; color: var(--dsw-alias-link); word-break: break-all; }
@@ -724,7 +806,7 @@ var STYLES = `
 .dim-jh-modelPanelCount { font-size: 12px; line-height: 18px; font-weight: 400; color: var(--dsw-alias-label-tertiary, #8f959e); }
 .dim-jh-modalHint { flex: none; margin: 10px 0 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary, #8f959e); }
 /* 弹窗提示里的强调词：danger=危险操作（覆盖/不可撤销），warn=警示（妥善保管） */
-.dim-jh-emph-danger { color: #b3261e; font-weight: 600; }
+.dim-jh-emph-danger { color: var(--dsw-alias-label-danger, #b3261e); font-weight: 600; }
 .dim-jh-emph-warn { color: #b45309; font-weight: 600; }
 .dim-jh-modal .dim-jh-probeNotice { flex: none; margin: 10px 0 0; }
 /* .dim-jh-modelBulkBar（模型列表顶部「打开全部 / 关闭全部」工具条）已于
@@ -737,7 +819,31 @@ var STYLES = `
 .dim-jh-modelSearch { flex: 1 1 140px; min-width: 140px; width: auto; }
 .dim-jh-modelStatusFilter { flex: none; display: flex; align-items: center; gap: 6px; }
 /* 选中的筛选按钮高亮：三个按钮外观一致时用户看不出当前筛的是什么。 */
-.dim-jh-modelStatusFilter .dim-jh-btn[data-active="true"] { border-color: #1677ff; color: #1677ff; background: color-mix(in srgb, #1677ff 10%, var(--dsw-alias-bg-layer-3, #fff)); font-weight: 600; }
+.dim-jh-modelStatusFilter .dim-jh-btn[data-active="true"] { border-color: var(--dsw-alias-brand-primary, #1677ff); color: var(--dsw-alias-brand-primary, #1677ff); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 10%, var(--dsw-alias-bg-layer-3, #fff)); font-weight: 600; }
+/* 设置弹窗容器：**单独抬高上限**（用户 2026-11-11 报障「设置界面出现下拉条」）。
+   ⚠️ 根因不是「少写了一条 CSS」，而是**内容变多了**：设置弹窗从 4 个分区变成 5 个
+   （新增「思考强度」），而 .dim-jh-modal 的 max-height 是 640px ⇒ 刚好越界，
+   于是列表区开始滚动。这里只改设置弹窗这一处，**不动 .dim-jh-modal 的通用上限**
+   —— 其它弹窗（模型中心等）内容本来就少，抬高它们会让空弹窗显得突兀。
+   ⚠️ 仍保留滚动能力（overflow 在 .dim-jh-modalBody 上不变）：窗口很矮时
+   （笔记本 768p）必须还能滚，否则底部按钮会被裁掉、用户点不到「完成」。
+   2026-11-23 第一次：新增「登录授权」分区后又出现下拉条 ⇒ 高度上限 760 → 940。
+   2026-11-23 第二次（用户要求）：宽度 780 → **840**；并给弹窗加一个**明显的边界**，
+   直接参考「档次窗口」（.dim-jh-windowModal）那两条 ——
+   ① 实边框 1px border-l2（暗色主题下最可靠的「窗口边界」）；
+   ② 内描边 inset 半透明白（浅色主题下 border-l2 太淡，第二道保险）。
+   ⚠️ 只加在设置弹窗上，**不动通用 .dim-jh-modal** —— 其它弹窗没报障，
+      统一改会扩大回归面（与 .dim-jh-windowModal 的注释同一取向）。
+   ⚠️ 分区间距**保持 8/10**（用户明确要求，不做紧凑化）。
+   ⚠️ 840 是宽度上限，不是固定宽：窄窗口仍按 min(840px, 100%) 收缩。 */
+.dim-jh-settingsModal {
+  width: min(840px, 100%);
+  max-height: min(940px, calc(100vh - 48px));
+  border: 1px solid var(--dsw-alias-border-l2);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary, #fff) 8%, transparent),
+    0 16px 48px rgba(0, 0, 0, 0.38);
+}
 /* 列表区独立滚动：头部与说明固定，模型多时只滚中间 */
 /* ⚠️ overflow-x: hidden 是**兜底**，不是主修复（主修复见下方 grid 的 minmax）。
    没有它时，任何一行的偶然溢出都会让整个弹窗出现横向滚动条，而横向滚动条会把
@@ -785,12 +891,26 @@ var STYLES = `
    否则会提前终止字符串、把后面的 CSS 当成代码解析（实测报 TS2304）。 */
 .dim-jh-modal .dim-jh-modelRow { position: relative; }
 .dim-jh-modal .dim-jh-modelRow[data-dragging="true"] { opacity: 0.4; border-style: dashed; }
-.dim-jh-modal .dim-jh-modelRow[data-dropBefore="true"]::before { content: ''; position: absolute; left: 0; right: 0; top: -5px; height: 3px; border-radius: 2px; background: #1677ff; }
-.dim-jh-modal .dim-jh-modelRow[data-dropAfter="true"]::after { content: ''; position: absolute; left: 0; right: 0; bottom: -5px; height: 3px; border-radius: 2px; background: #1677ff; }
+.dim-jh-modal .dim-jh-modelRow[data-dropBefore="true"]::before { content: ''; position: absolute; left: 0; right: 0; top: -5px; height: 3px; border-radius: 2px; background: var(--dsw-alias-brand-primary, #1677ff); }
+.dim-jh-modal .dim-jh-modelRow[data-dropAfter="true"]::after { content: ''; position: absolute; left: 0; right: 0; bottom: -5px; height: 3px; border-radius: 2px; background: var(--dsw-alias-brand-primary, #1677ff); }
 /* 拖拽柄在弹窗行里略收窄：行高比账号卡片矮（padding 7px vs 14px），
    16px 宽的柄会顶着模型名，缩到 14px 并把 gap 让出来。 */
 .dim-jh-modal .dim-jh-modelRow .dim-jh-dragHandle { width: 14px; }
 .dim-jh-modelInfo { flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+/* 模型介绍（2026-11-17）：独占第二行。
+   ⚠️ flex-wrap **只在有介绍的行上开**（.dim-jh-modelInfo[data-desc="true"]）：
+   这个类是共享的，网关弹窗与供应商开关弹窗的每一行也用，它们没有第二行子元素，
+   不该被本家需求顺带改变换行行为（远场风险为零才是零）。
+   ⚠️ flex: 0 0 100% 是**承重**的 —— 父容器允许换行 + 本元素占满一行 ⇒ 自然换行。
+   这样不需要给 .dim-jh-modelInfo 改成列方向、也不需要包一层容器（包裹会把
+   name/id 从**直接子元素**变成孙元素，而 model-benefit-hint.spec.ts 的
+   「角标在 id 之前」读的正是直接子元素顺序）。
+   ⚠️ 没有介绍的模型这一格根本不存在（客户端判 undefined 不渲染）⇒ 行高与旧版一致。
+   颜色/字号用行尾灰字口径，与 .dim-jh-modelId 拉开层级。
+   ⚠️ 注释里**不许**出现反引号：本文件是内联在 JS 模板字符串里的，一个反引号
+   就会终止字符串，esbuild 会报 "Expected ";" but found ..."（已踩过一次）。 */
+.dim-jh-modelInfo[data-desc="true"] { flex-wrap: wrap; }
+.dim-jh-modelDesc { flex: 0 0 100%; min-width: 0; overflow: hidden; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #8f959e); text-overflow: ellipsis; white-space: nowrap; }
 /* 名称与 id 都必须能收缩（min-width: 0 + 可收缩的 flex-basis），否则长内容会
    顶宽整行。展示名优先保留，故 id 另加 max-width 上限。
    ⚠️ id 早期是 flex: none（拒绝收缩）—— 那正是「开关被挤出可视区」最直接的成因。 */
@@ -825,6 +945,24 @@ var STYLES = `
   color: var(--dsw-alias-warning, #d48806);
   background: color-mix(in srgb, var(--dsw-alias-warning, #d48806) 12%, transparent);
 }
+/* ── 「需福利包」角标（Gitee issue IKJOF7）──
+   标在「只由 benefit（免费额度）通道提供」的模型上：这类模型不带 maas_type 头
+   会回 002002009.404，纯积分制账号则先被 4004.200 拒、降级重试后仍是 404 ——
+   用户看到的最终错误与「模型名写错」同形，看不出真正原因。
+   ⚠️ 与「已下架」**必须视觉可区分**：已下架是琥珀色 + 整行左侧竖条 + 名字变琥珀
+   （那是「上游拿掉了」）；本角标是**信息性**的，只染这一枚标签、不动整行、不动
+   名字与开关 —— 用户仍可正常开关它（换账号后就能用）。
+   ⚠️ 本块内禁止出现反引号（样式是模板字符串，注释里的反引号会提前闭合模板）。 */
+.dim-jh-modelBenefitOnly {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary, #8f959e);
+  background: color-mix(in srgb, var(--dsw-alias-label-tertiary, #8f959e) 14%, transparent);
+}
 .dim-jh-modelRestore {
   flex: none;
   padding: 2px 10px;
@@ -836,8 +974,8 @@ var STYLES = `
   cursor: pointer;
 }
 .dim-jh-modelRestore:hover:not(:disabled) {
-  color: #1677ff;
-  border-color: color-mix(in srgb, #1677ff 40%, var(--dsw-alias-border-l2, #dfe1e5));
+  color: var(--dsw-alias-brand-primary, #1677ff);
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 40%, var(--dsw-alias-border-l2, #dfe1e5));
 }
 .dim-jh-modelRestore:disabled { opacity: 0.5; cursor: default; }
 /* 顶部批量恢复条 */
@@ -1052,22 +1190,196 @@ var STYLES = `
 .dim-jh-ledgerCardSum { margin-left: auto; font-size: 11.5px; line-height: 17px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-secondary, #4e5969); white-space: nowrap; }
 .dim-jh-ledgerProvider { padding: 4px 10px 6px; }
 .dim-jh-ledgerProvider + .dim-jh-ledgerProvider { border-top: .5px solid var(--dsw-alias-border-l3, #eef0f3); }
-/* 账号层（第 2 期）：只在多账号（或含「未归属」）时渲染，缩进一层；
-   单账号 provider 不展开 —— 一比一的中间层是纯噪音。 */
-.dim-jh-ledgerAccount { min-width: 0; }
-.dim-jh-ledgerAccount + .dim-jh-ledgerAccount { border-top: .5px dashed var(--dsw-alias-border-l3, #eef0f3); }
-.dim-jh-ledgerAccountHead { display: flex; align-items: baseline; gap: 8px; padding: 3px 0 1px 8px; }
-.dim-jh-ledgerAccountName { min-width: 0; font-size: 11.5px; line-height: 17px; font-weight: 600; color: var(--dsw-alias-label-secondary, #4e5969); overflow-wrap: anywhere; }
-.dim-jh-ledgerAccountSum { margin-left: auto; flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary, #8f959e); white-space: nowrap; }
-.dim-jh-ledgerProviderHead { display: flex; align-items: baseline; gap: 8px; padding: 4px 0 2px; }
-.dim-jh-ledgerProviderName { min-width: 0; font-size: 12px; line-height: 18px; font-weight: 600; color: var(--dsw-alias-label-primary, #1f2329); overflow-wrap: anywhere; }
+/* ══════════════════════════════════════════════════════════════════════════
+   用量树的三层视觉语言（2026-11-11 定稿，用户从 4 个方案里选的「方案 3 + 档位 D」）
+
+   provider（容器级）→ 账号（分组头）→ 模型（内容），三层同时靠三种手段拉开：
+   ① 底色：淡色块 → 浓色块 → 无底色
+   ② 缩进：0 → 30px → 54px
+   ③ 字号/颜色：11.5px 粗体 → 12px 主文字 → 11px 最暗
+
+   ⚠️⚠️ 两个真实报障（2026-11-11）必须记住：
+
+   1. 色条曾经是白的 —— 我原先用 --dsw-alias-brand-primary，但它在 DSH 的深色主题下
+      等于 --dsw-static-neutral-bluish-50 = #f9fafb（近白）。它是反色/对比色（给
+      「深色按钮上的白字」用），不是蓝色。真正的蓝色品牌色是
+      --dsw-static-deepseek-450 = #5686fe。CSS 里写了 #1677ff 回退值也没用 ——
+      变量存在时回退值永远不生效，所以肉眼看到的是白条。
+      ⚠️ 别再改成 brand-primary；要用蓝就写 --dsw-static-deepseek-450。
+
+   2. provider 曾被画成账号 —— 历史日树的 provider 行写的是
+      className: 'dim-jh-ledgerAccount'（实时卡那边一直是对的）。两个类名撞车后，
+      账号的色块样式直接把 buddy / qodercn 染成了账号。现已改为
+      dim-jh-ledgerProvider，两处类名必须各自独立。
+
+   ⚠️ 本文件用模板字符串承载 CSS：注释里写反引号会提前闭合、esbuild 直接报错
+      （本次已踩过三次，由 token-ledger-panel.spec.ts 的闸门兜住）。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 第一层：provider（容器级）—— 缩进 0 ──
+   淡色块 + 左侧 3px 灰色竖线 + 11.5px 粗体。
+
+   ⚠️⚠️ 底色**不能**用 --dsw-alias-bg-layer-2 / -3（2026-11-13 审计 P1 实测）：
+   宿主那三层在**浅色主题下全是同一个值** ——
+     body                     { --dsw-alias-bg-layer-1: #fff; -2: #fff; -3: #fff }
+     body[data-ds-dark-theme] { -1: #232324; -2: #2c2c2e; -3: #353638 }
+   （取自 dsh-client-ui-theme/lib/client.js 的 design_platform_css_default）
+   而弹窗自身的底色就是 -layer-1 = #fff ⇒ 浅色主题下「色块」与背景**逐字节相同**，
+   三层视觉语言的「底色」维度整条失效（只剩缩进与左边 3px 竖线）。
+   ⚠️ 写回退值也救不了：变量存在时回退值永不生效 —— 与下面第 1 条是同一条教训。
+
+   ⇒ 改用**跟随主题的混色**：把前景色 --dsw-alias-label-primary 按小比例掺进透明，
+   两种主题下都可见、都自动跟随明暗，且不引入新颜色：
+     浅色：4% x #0f1115 叠 #fff    = #f5f5f6（provider）
+     深色：4% x #f9fafb 叠 #232324 = #2c2c2d（provider）
+   账号层用 7% ⇒ 浅 #eeeeef / 深 #323233 ⇒ 仍然「账号比 provider 更浓」，
+   与设计意图（淡色块 → 浓色块）方向一致。
+   ⚠️ 不要退回任何 --dsw-alias-bg-layer-* 常量：那是本缺陷的成因。 */
+.dim-jh-ledgerProviderHead {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 2px 0 3px; padding: 5px 8px; border-radius: 6px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 4%, transparent);
+  border-left: 3px solid var(--dsw-alias-border-l2, #d0d3d9);
+}
+.dim-jh-ledgerProviderName { min-width: 0; font-size: 11.5px; line-height: 17px; font-weight: 700; color: var(--dsw-alias-label-primary, #1f2329); overflow-wrap: anywhere; }
 .dim-jh-ledgerProviderSum { margin-left: auto; flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary, #8f959e); white-space: nowrap; }
-.dim-jh-ledgerModel { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 2px 0 2px 10px; }
-.dim-jh-ledgerModelName { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; line-height: 17px; color: var(--dsw-alias-label-secondary, #4e5969); overflow-wrap: anywhere; }
+
+/* ── 第二层：账号（分组头）—— 缩进 30px ──
+   ⚠️ 单账号与多账号样式完全一致（用户 2026-11-11 决策）：层级由色块与缩进表达，
+   不由账号数表达。原先的 data-single 分支已删除，不要再加回来。
+   ⚠️ 底色用 7% 混色（比 provider 的 4% 更浓），原因见上面 providerHead 的注释 ——
+      --dsw-alias-bg-layer-3 在浅色主题下是 #fff，与背景同色。 */
+.dim-jh-ledgerAccount { min-width: 0; margin-left: 30px; }
+.dim-jh-ledgerAccount + .dim-jh-ledgerAccount { border-top: .5px dashed var(--dsw-alias-border-l3, #eef0f3); }
+.dim-jh-ledgerAccountHead {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 3px 0 2px; padding: 5px 8px; border-radius: 6px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary, #1f2329) 7%, transparent);
+  /* ⚠️ 必须是 deepseek-450（真蓝），不是 brand-primary（深色主题下是近白）。 */
+  border-left: 3px solid var(--dsw-static-deepseek-450, #5686fe);
+}
+.dim-jh-ledgerAccountName {
+  min-width: 0; font-size: 12px; line-height: 18px; font-weight: 600;
+  color: var(--dsw-alias-label-primary, #1f2329); overflow-wrap: anywhere;
+}
+.dim-jh-ledgerAccountSum { margin-left: auto; flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary, #8f959e); white-space: nowrap; }
+
+/* ── 单模型账号的合并行（用户 2026-11-11 需求）──
+   「账号 → 模型」拼在账号行里，**右侧统计与多模型时同款布局**：
+   次数 + 首字/速率 + 总处理全部右对齐（margin-left: auto 由第一个右侧元素吃掉）。
+   ⚠️ 顺序必须是 [账号] [→] [模型] ...... [次数] [首字…] [总处理]，
+      中间那一段靠 margin-left: auto 顶到右边 —— 与 .dim-jh-ledgerModel
+      的多模型行完全同构（那边是 [↳] [模型] ...... [次数] [首字…] [总处理]）。
+   ⚠️ 结果：单模型行与多模型行的**数字右缘对齐**，一眼能纵向比对。 */
+.dim-jh-ledgerAccountArrow {
+  flex: none; font-size: 11px; line-height: 16px;
+  color: var(--dsw-alias-label-tertiary, #8f959e); opacity: .85;
+}
+/* 模型名：等宽体 + label-secondary（比账号名淡一档，但比 tertiary 亮 ——
+   用户从 3 个方案里选的「对比度更强」那一版）。 */
+.dim-jh-ledgerAccountModel {
+  min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 16px; font-weight: 400;
+  color: var(--dsw-alias-label-secondary, #4e5969); overflow-wrap: anywhere;
+}
+/* 次数：统计组的**第一格**。
+   ⚠️ 它不再吃 margin-left: auto —— 推右的职责已交给父级
+   .dim-jh-ledgerStatGroup（用户 2026-11-11：「统计信息要放在行中间」，
+   靠单格各自 auto 会把「次数」推到参差不齐的位置）。 */
+.dim-jh-ledgerAccountReq {
+  flex: none; font-size: 10.5px; line-height: 15px;
+  font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary, #8f959e); white-space: nowrap;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   统计组（2026-11-11 用户第三次修正：「统计信息放在行中间」；
+            2026-11-16 第四次修正：「统计信息往右移，给左边腾空间」）
+
+   账号行与模型行**共用同一个组**，保证「次数 / 首字 / 总处理」三列在整棵树里
+   纵向对齐。
+
+   ## 2026-11-11 那版的取舍（已废）
+
+   改前：每个统计格各自 margin-left: auto ⇒ 被推成「各自最右」，
+        而每组内容宽度不同 ⇒ 「次数」起始位置参差不齐（实测 4 种位置：
+        714 / 720 / 726 / 732），账号名后面留一大片空白。
+    ⇒ 改成「整组固定 460px + margin-left: auto 推右 + 组内左对齐」。
+
+   ## ⚠️⚠️ 为什么现在去掉固定 460px（用户 2026-11-16 报障）
+
+   460px 是**写死**的，而实测三格内容只需约 336px
+   （最长的「首字 10.76s · P50 233.2 tok/s」约 175px + 「338 次」约 45px
+    + 「总处理 106.35M」约 100px + 两个 8px 间隙）⇒ **白占 124px**。
+   这 124px 本可以给左边的「账号 → 模型」信息区。
+   面板越窄，这 124px 的浪费越致命（右侧栏 400px 时占了 31% 宽度）。
+
+   ## 现在怎么做
+
+   - flex: 0 1 auto：宽度由**内容**决定，且**允许收缩**（原来 flex: none 不让步）；
+   - margin-left: auto：整组仍然推到右侧（保持原设计的「组整体靠右」）；
+   - **三格的完整性分优先级**（用户 2026-11-16 明确要求）：
+     「次数」与「总处理」**永远完整**，「首字·速率」在空间不足时才省略
+     —— 前两个是扫一眼要的，第三个是细节。
+
+   ⚠️ 窄屏（<700px）与右侧栏（@container）另有收窄规则，见下方媒体查询。
+   ══════════════════════════════════════════════════════════════════════════ */
+.dim-jh-ledgerStatGroup {
+  display: flex; align-items: baseline; gap: 8px;
+  /* ⚠️ 从 flex: none + width: 460px 改成内容自适应 + 可收缩。 */
+  flex: 0 1 auto; margin-left: auto; min-width: 0;
+}
+/* ⚠️⚠️ 「总处理」与它左边那格之间**必须留出视觉间距**（用户 2026-11-16 两次报障：
+   「统计信息太靠近总处理」「再左移一点，让它跟总处理间隔多一些」）。
+   根因：margin-left: auto 会把剩余空间全吸到左侧，于是 gap: 8px 在视觉上等于
+   「贴着」—— auto margin 吸走了本该是 gap 的空间。
+   ⇒ 给一个**最小**左间距，同时保留 auto（组够宽时仍顶到组尾、右缘对齐）。
+   ⚠️ 用户第二次要求「再左移一点」⇒ 由 20px 加到 32px。 */
+.dim-jh-ledgerStatGroup > .dim-jh-ledgerModelTokens,
+.dim-jh-ledgerStatGroup > .dim-jh-ledgerAccountSum {
+  margin-left: auto;
+  /* 左侧至少留 32px：视觉上「首字·速率」与「总处理」明确分开。 */
+  padding-left: 32px;
+}
+
+/* ── 第三层：模型（内容）—— 缩进 54px，最暗最小，带 ↳ 前导 ──
+   ⚠️ ↳ 用 ::before 而不是塞进文本节点：它是纯装饰，不该被复制/导出/读屏念出来
+      （CSV 导出与 accountLabel 都不该看到它）。 */
+/* ⚠️ 模型行（多模型账号下）:
+   左缩进 54px + **右内边距 8px**。
+   右内边距不是随便加的：账号色块（.dim-jh-ledgerAccountHead）有 padding: 5px 8px
+   ⇒ 色块内统计的右缘比色块外缘内收 8px。模型行若右侧不留 8px，它的「总处理」
+   就会比账号行的「总处理」往右多出 8px —— 实测（2026-11-11）合并行 sumRight=1132
+   而模型行 tokensRight=1144，两条右缘**对不齐**，纵向比数字时会觉得错位。
+   ⇒ 两边都收到同一个内缘，数字列才真正对齐。 */
+.dim-jh-ledgerModel { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 2px 8px 2px 54px; }
+.dim-jh-ledgerModel::before {
+  content: "↳"; flex: none; font-size: 10.5px; line-height: 15px;
+  color: var(--dsw-alias-label-tertiary, #8f959e); opacity: .7;
+}
+.dim-jh-ledgerModelName { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-tertiary, #8f959e); overflow-wrap: anywhere; }
 .dim-jh-ledgerModelReq { flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary, #8f959e); white-space: nowrap; }
 .dim-jh-ledgerModelTokens { flex: none; font-size: 11.5px; line-height: 17px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-primary, #1f2329); white-space: nowrap; }
-/* 均值格（首字 · 速率）：三级汇总行（渠道/账号/模型）共用，等宽数字对齐。 */
-.dim-jh-ledgerPerf { flex: none; font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-tertiary, #8f959e); white-space: nowrap; }
+/* 均值格（首字 · 速率）：三级汇总行（渠道/账号/模型）共用，等宽数字对齐。
+   ⚠️⚠️ **它是统计组里唯一可收缩的一格**（用户 2026-11-16 定案）。
+   优先级从高到低：**总处理 > 次数 > 首字·速率**。
+   - 空间够时：按内容自然宽度完整显示（上限 200px，实测最长 175px ⇒ 放得下）；
+   - 空间不够时：**只有它收缩**（flex-shrink: 1 + min-width: 0），
+     「总处理」与「次数」都是 flex: none ⇒ **永远不会被挤出容器**。
+
+   ⚠️⚠️ 这里踩过两次**方向相反**的坑，都记下来：
+   ① 最初 flex: none + max-width: 132px：132px 小于内容所需（175px）
+      ⇒ 明明有空间也被省略（用户报障「怎么就省略不显示完整了」）。
+   ② 我一度改成 flex: none + max-width: 200px：perf 不再省略了，
+      但**统计组整体无法收缩** ⇒ 整组溢出容器 ⇒ **最右边的「总处理」被裁掉**
+      （用户报障「总处理怎么会被顶走了」）。
+   ⇒ 正确组合是「perf 可收缩（0 1 auto）+ 200px 上限」：
+      空间够就完整、不够就它让位，总处理始终保住。 */
+.dim-jh-ledgerPerf {
+  flex: 0 1 auto; min-width: 0; max-width: 200px;
+  font-size: 11px; line-height: 16px; font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary, #8f959e);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 /* ── 历史视图（第 4 期）：GitHub 风格每日用量格 + 展开的日聚合树 ── */
 .dim-jh-ledgerSection { margin-bottom: 14px; }
 .dim-jh-ledgerSectionTitle { font-size: 13px; line-height: 19px; font-weight: 600; color: var(--dsw-alias-label-primary, #1f2329); margin-bottom: 6px; }
@@ -1091,12 +1403,38 @@ var STYLES = `
 .dim-jh-ledgerDateRange label { display: flex; align-items: center; gap: 5px; color: var(--dsw-alias-label-tertiary, #8f959e); font-size: 11px; }
 .dim-jh-ledgerDateRange input { width: 136px; padding: 3px 6px; font-size: 11px; }
 .dim-jh-ledgerExport { flex: none; }
-/* 明细表：紧凑小字；模型列允许换行（长 wire 名不能截断 —— 网关弹窗同一条教训）。 */
+/* 明细表：紧凑小字；模型列允许换行（长 wire 名不能截断 —— 网关弹窗同一条教训）。
+   账号列（9 列版新增）**截断而不是换行**：账号名是给人认人的标签，
+   换行会把整张表的行高撑乱；完整值靠 title 悬停（用户决策 Q2-A）。
+   ⚠️ max-width 与列宽（LEDGER_ENTRY_COLUMNS 里 account 的 12.68% + @container 上下限
+   88px / 172px）是两回事：
+   列宽由 colgroup 决定，这里只是**兜底不让它撑破**（colgroup 缺失或旧产物时）。 */
+.dim-jh-ledgerTable .dim-jh-ledgerEntryAccount { max-width: 172px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ⚠️⚠️ 账号列的**基础宽度**必须在本文件里，不能挂在 col 元素的内联 style 上
+   （PR #94 正向审计 P1-1）：内联 style 的层叠权重恒压过下面的 @container /
+   @media 覆盖（它们没有 !important）⇒ 88px / 172px 的上下限会**全部失效**。
+   col 只负责挂类名；宽度这里给基础值、下面按容器分段覆盖。
+   ⚠️ 选择器**不要**加 .dim-jh-ledgerTable 前缀 —— 那会把特异性抬到 (0,2,1)，
+   反过来压过下面 (0,1,1) 的分段覆盖，上下限照样失效。
+   ⚠️ 本文件是 JS 模板字符串：注释里**禁止反引号**（会提前闭合模板）。 */
+col.dim-jh-ledgerColAccount { width: 12.68%; }
+/* ⚠️⚠️ **模型格必须单行 + 省略号**（用户 2026-11-16 报障：窄面板下模型名断成 4 行）。
+   原先这一格**没有 white-space: nowrap** ⇒ 宽度不够时浏览器自由换行，
+   trae/deepseek-v4.1-flash 被折成 trae/deep / seek-v4. / 1-flash 三行。
+   配合 LEDGER_ENTRY_COLUMNS 里账号列的**纯百分比 12.68%** + @container 上下限
+   （88px / 172px；⚠️ clamp/calc 在 col 上会被静默忽略，别改回去），
+   到下限后不再缩、改由省略号截尾部 —— 悬停 title 看完整值。
+   ⚠️ 本文件是 JS 模板字符串：注释里**禁止反引号**（会提前闭合模板，
+   esbuild 报 Expected ";" but found ... 并把指针指到注释那一行）。本轮又踩了一次。 */
+.dim-jh-ledgerTable .dim-jh-ledgerEntryModel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dim-jh-ledgerEntryTools { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 12px 0 5px; }
 .dim-jh-ledgerEntryTools strong { margin-right: 2px; font-size: 13px; color: var(--dsw-alias-label-primary, #1f2329); }
 .dim-jh-ledgerEntryCount { margin-right: auto; color: var(--dsw-alias-label-tertiary, #8f959e); font-size: 11px; font-variant-numeric: tabular-nums; }
 .dim-jh-ledgerSearch { flex: 1 1 130px; width: auto; min-width: 120px; padding: 4px 7px; font-size: 11px; }
 .dim-jh-ledgerSelect { min-width: 82px; max-width: 130px; padding: 4px 6px; border: 1px solid var(--dsw-alias-border-l2, #d0d3d9); border-radius: 6px; background: var(--dsw-alias-bg-layer-1, #fff); color: var(--dsw-alias-label-primary, #1f2329); font-size: 11px; }
+/* ⚠️ table-layout 必须是 **fixed**：列宽由 colgroup 的像素值决定，
+   最后一列（模型）给 auto 吃掉剩余宽度。改成 auto 会让浏览器按内容
+   重新分配，把右侧数字列挤成不等宽（数字对不齐，比列宽不准更难看）。 */
 .dim-jh-ledgerTable { width: 100%; margin-top: 4px; border-collapse: collapse; table-layout: fixed; font-size: 11.5px; line-height: 17px; }
 .dim-jh-ledgerTable th { position: sticky; top: 0; z-index: 1; padding: 4px 6px; text-align: left; font-weight: 600; color: var(--dsw-alias-label-tertiary, #8f959e); background: var(--dsw-alias-bg-layer-1, #fff); border-bottom: .5px solid var(--dsw-alias-border-l3, #e5e5e5); }
 .dim-jh-ledgerTable td { padding: 3px 6px; border-bottom: .5px solid var(--dsw-alias-border-l3, #f0f1f3); font-variant-numeric: tabular-nums; color: var(--dsw-alias-label-secondary, #4e5969); vertical-align: baseline; }
@@ -1105,6 +1443,97 @@ var STYLES = `
 .dim-jh-ledgerTable .dim-jh-ledgerError { cursor: help; font-weight: 600; }
 .dim-jh-ledgerTable .dim-jh-ledgerSuccess { color: var(--dsw-alias-state-success-primary, #25803c); }
 .dim-jh-ledgerPagination { display: flex; align-items: center; justify-content: flex-end; gap: 7px; padding: 7px 0; color: var(--dsw-alias-label-tertiary, #8f959e); font-size: 11px; }
+/* ══════════════════════════════════════════════════════════════════════════
+   「Token 用量」的**内嵌外壳**（pane 形态）—— 右侧栏标签页用。
+
+   ⚠️⚠️ 这一块**只加** .dim-jh-ledgerPane 自己的规则，不改上面任何一条：
+   modal 外壳的每一行都被 tests/unit/token-ledger-panel.spec.ts 按源码文本断言着，
+   动它等于让上游自己的用例变红。
+
+   ⚠️⚠️ **为什么用 @container 而不是 @media**：右侧栏宽度是**视口**的
+   45%（dsh-client-ui-layout 的 RIGHTBAR_DEFAULT_RATIO = .45；1440 视口约
+   648px、最低可拖到 300px），而上面那条窄屏降级写的是 media max-width 700px
+   —— 媒体查询看的是**视口**宽，1440 视口下面板只有 648px 却**永远不会**触发它。
+   故内嵌形态下明细表（8 列定宽 + 模型列 auto）会横向溢出、汇总树会被挤变形。
+   本文件已在 .dim-jh-accountMeta 处采用同一手法（见该处注释），这里沿用。
+
+   ⚠️ 本文件整体是 JS 模板字符串：注释里**禁止反引号**（会提前闭合模板，
+   esbuild 报 Expected ";" but found ... 并把指针指到注释那一行）。本轮就踩了一次。
+   ══════════════════════════════════════════════════════════════════════════ */
+.dim-jh-ledgerPane {
+  box-sizing: border-box; display: flex; flex-direction: column;
+  width: 100%; height: 100%; min-width: 0; min-height: 0;
+  padding: 10px 12px 12px; overflow: hidden;
+  /* 容器查询锚点：让下面的 @container 按**面板**宽而不是视口宽生效。 */
+  container-type: inline-size;
+}
+/* 内容区：模态那支用 .dim-jh-modalBody（flex:1 / min-height:0 / overflow-y:auto），
+   pane 这支刻意不复用 —— 模态的 .dim-jh-modalBody 没有横向约束，而面板需要
+   「纵向滚、横向交给表格自己滚」。 */
+.dim-jh-ledgerPaneBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* 面板里的标题行不必再跟自己抢高度：宿主标签页已经给了外框。 */
+.dim-jh-ledgerPane > .dim-jh-modalHead { flex: none; }
+/* 说明行在面板里可以换行（弹窗里靠 nowrap + ellipsis 省高度，面板不缺这一行）。 */
+.dim-jh-ledgerPane > .dim-jh-modalHint { flex: none; white-space: normal; overflow-wrap: anywhere; }
+/* ⚠️ 8 列定宽（62+46+... + 模型列 auto）在 300~800px 的面板里必然超宽：
+   给**横向滚动**容器，而不是压缩各列 —— 压缩会让数字列对不齐、模型名断成三行，
+   比横向滚动更糟（这条判据与上方 700px 媒体查询里的那格同源）。 */
+@container (max-width: 720px) {
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerTable { font-size: 10px; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerTable th,
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerTable td { padding: 3px 2px; overflow-wrap: anywhere; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerEntryTools { align-items: stretch; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerEntryCount { flex: 1 1 50%; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerSearch { flex-basis: 100%; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerSelect { flex: 1 1 30%; max-width: none; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerHeatmapWrap { overflow-x: auto; }
+  /* ⚠️⚠️ 账号列的**下限**（用户 2026-11-16 明确要求：
+     「要给帐号增加最大宽度限制呀，模型列就不需要了」）。
+     colgroup 里写的是纯百分比 12.68%（clamp/calc 在 col 上会被静默忽略，
+     详见 jet-hub.js 的 LEDGER_ENTRY_COLUMNS 注释），百分比本身没有上下限，
+     故在这里按容器宽度分段锁死：
+       - 窄容器（<720px）：12.68% 会掉到 90px 以下，账号名开始不可读 ⇒ 锁 88px
+       - 宽容器：交给 12.68% 自然计算，上限 172px 由下面的 @container 覆盖
+     ⚠️ **只约束账号列**：模型列必须继续吃掉全部剩余宽度（不设 max-width），
+        否则长模型名会被无谓截断。 */
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerTable col.dim-jh-ledgerColAccount { width: 88px; }
+  /* ══════════════════════════════════════════════════════════════════════════
+     以下四条是给**本 PR 新增的「账号」列**配套的窄屏规则。
+
+     本 PR 把明细表从 8 列加到 **9 列**（新增「账号」172px），并把统计信息收进
+     固定宽 StatGroup。同一块面板塞进右侧栏（视口 45%，1440 视口约 648px）时，
+     这四处各自都会撑破，故必须收窄。
+
+     ⚠️ 它们只作用于 dim-jh-ledgerPaneBody 之内 —— **modal 弹窗不受影响**：
+     弹窗宽 960px，那套 9 列 + StatGroup 正是为它实测调出来的（改这里等于改弹窗观感）。
+     ⚠️ 本文件整体是 JS 模板字符串：注释里**禁止反引号**（会提前闭合模板，
+     esbuild 报 Expected ";"、tsc 报一串看不懂的 Cannot find name）。
+     ══════════════════════════════════════════════════════════════════════════ */
+  /* ⚠️⚠️ max-width 不是修饰（2026-11-13 PR #69 对抗审计 P2 / B-2）：
+     宿主右侧栏最低可拖到 300px，面板水平内边距 12+12=24px ⇒ 可用内容宽只有 276px，
+     而统计组写死 width: 300px ⇒ 右侧「总处理」多出的 24px 被父级的
+     overflow-x: hidden **静默裁掉**（用户看到数字被切一半，且没有滚动条提示右边还有内容）。
+     ⚠️ 修法只能是「组宽不得超过容器」：面板体的 overflow-x: hidden 是
+     tests/unit/ledger-pane-chrome.spec.ts:405 的既有契约（8 列定宽明细表靠它裁），
+     改成 auto 会让那条契约红 —— 而且明细表本来就有自己的
+     .dim-jh-ledgerTableScroll 横向滚动容器。 */
+  /* ⚠️ 2026-11-16：统计组已从「写死 460px」改成**内容自适应 + 可收缩**
+   * （见上方 .dim-jh-ledgerStatGroup 的注释），故这里**不再需要** width: 300px
+   * 的覆盖 —— 组宽天然跟着内容走、且不会再超出容器。
+   * 只保留 gap 收窄（窄面板里 8px 间隙相对更显眼）。
+   * ⚠️ 但要显式 max-width: 100% 兜底：三格内容在极窄时仍可能超宽。 */
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerStatGroup { max-width: 100%; gap: 6px; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerStatGroup .dim-jh-ledgerPerf { max-width: 200px; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerAccount { margin-left: 14px; }
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerModel { padding: 2px 0 2px 26px; }
+  /* ⚠️ 账号列宽度由 colgroup 的**纯百分比 12.68%** 决定（+ @container 上下限，
+     见下方 col.dim-jh-ledgerColAccount），这里**不再压到 72px**：
+     72px 低于 88px 下限 ⇒ 账号名会被截成 abc***…。
+     与列宽方案的「两列一起收缩、到下限就停」保持一致。 */
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerTable .dim-jh-ledgerEntryAccount { max-width: 172px; }
+  /* 9 列定宽必然超宽 ⇒ 横向滚动，而不是压缩各列（压缩会让数字列对不齐）。 */
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerTableScroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
 @media (max-width: 700px) {
   .dim-jh-modal--ledger { padding: 14px 12px; }
   .dim-jh-ledgerPerf { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
@@ -1114,7 +1543,57 @@ var STYLES = `
   .dim-jh-ledgerSelect { flex: 1 1 30%; max-width: none; }
   .dim-jh-ledgerTable { font-size: 10px; }
   .dim-jh-ledgerTable th, .dim-jh-ledgerTable td { padding: 3px 2px; overflow-wrap: anywhere; }
+  /* 窄屏 9 列：账号列宽度由 colgroup 的**纯百分比 12.68%** 决定
+     （clamp/calc 在 col 上会被浏览器静默忽略，详见 jet-hub.js 的列定义注释）。
+     ⚠️ 这里**不能**再写 max-width: 72px —— 72px 低于 88px 下限，
+     会把账号名截成 abc***…，与「到下限就停」的方案冲突。 */
+  .dim-jh-ledgerTable .dim-jh-ledgerEntryAccount { max-width: 172px; }
+  /* ⚠️ 窄屏必须收窄三层缩进：宽屏的 30/54px 在 <700px 时会把模型名
+     （deepseek-v4.1-flash 这类长名）挤成三行、把行高撑乱。
+     缩进减半后层级仍然看得出来（14/26px 相对 0 仍然错开），只是不再浪费宽度。 */
+  .dim-jh-ledgerAccount { margin-left: 14px; }
+  .dim-jh-ledgerModel { padding: 2px 0 2px 26px; }
+  /* ⚠️ 2026-11-16：统计组改成内容自适应后，这里**不再需要** width: 300px
+     （那会把组强行拉到 300px、与「按内容收缩」冲突）。只收窄 gap 并兜底 max-width。 */
+  .dim-jh-ledgerStatGroup { max-width: 100%; gap: 6px; }
+  /* 窄屏下「首字·速率」格最多 200px（用户 2026-11-16：「怎么就省略不显示完整了」
+     ⇒ 由 132px 放宽到 200px，实测最长的「首字 10.76s · P50 233.2 tok/s」约 175px，
+     200px 足够完整显示）。
+     ⚠️ 「次数」「总处理」两格**不加 max-width** —— 用户要求它们永远完整。 */
+  .dim-jh-ledgerStatGroup .dim-jh-ledgerPerf { max-width: 200px; }
+  /* ⚠️ 窄屏 9 列 + 固定像素列宽必然超宽：**横向滚动**而不是压缩各列。
+     压缩会把 9 列一起挤变形（数字列对不齐、模型名断成三行），比横向滚动更糟。
+     只给明细表加滚动容器，不影响上面的汇总卡。 */
+  .dim-jh-ledgerTableScroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
+
+/* ⚠️⚠️ 账号列的**上限 172px**（用户 2026-11-16 要求「给帐号增加最大宽度限制」）。
+   账号列宽度是纯百分比 12.68%（clamp/calc 在 col 上会被静默忽略，
+   详见 jet-hub.js 的 LEDGER_ENTRY_COLUMNS 注释），百分比会随容器无限增长：
+   820px 弹窗时 12.68% ≈ 104px（还算合理），但 1400px 宽屏时会到 177px、
+   1600px 时到 203px —— 账号名最多 25 字符，再宽就是浪费。
+   ⇒ 用 @container 在容器够宽时锁死 172px（与改前的固定值一致）。
+   ⚠️ 只锁账号列：模型列**刻意不设上限**（它要吃满剩余宽度）。 */
+@container (min-width: 1360px) {
+  .dim-jh-ledgerPaneBody .dim-jh-ledgerTable col.dim-jh-ledgerColAccount { width: 172px; }
+}
+/* ⚠️⚠️ 这里**刻意没有** 那条「@media (min-width: 1400px) 锁 172px」的规则
+   （PR #94 对抗审计 P2-2。旧版长成两行：媒体查询 + col 选择器。）两个问题都必须
+   记下来，否则将来有人会「顺手加回来」：
+
+   1. **弹窗根本用不到这个上限**：弹窗外壳是 .dim-jh-modal--ledger，
+      宽度是 min(960px, 100%) ⇒ 12.68% 最多 121.7px，**永远够不到 172px**。
+      那条媒体查询按**视口**宽（≥1400）触发，与弹窗宽度无关 ⇒
+      在 1600px 视口的机器上会把 960px 弹窗里的账号列从 122px 顶到 172px，
+      **比按比例还宽 41%**，白吃模型列的空间。
+   2. **视口宽不是面板宽的代理**：右侧栏是视口的 45%，1600px 视口下
+      栏宽约 720px ⇒ 12.68% ≈ 91px，而那条媒体查询会把它顶到 172px
+      （占栏宽 24%）。面板的真实宽度只有容器自己知道 ⇒
+      上限只能由 @container 表达。
+
+   ⇒ 结论：**pane 外壳靠上面那条 @container（min-width: 1360px），
+   弹窗靠 min(960px, 100%) 这个上限本身**，两条路径都不需要按视口的
+   媒体查询。⚠️ 本文件是 JS 模板字符串：注释里**禁止反引号**。 */
 
 /* ── 模型列表的「计费/来源」分组（订阅 / 免费 / Cline Cloud / 按量计费）──
    分组由 model-groups.js 的纯函数决定（判据见其模块注释）；这里只管观感。
@@ -1134,9 +1613,10 @@ var STYLES = `
 /* 开关：基于 checkbox 绘制，保持原生语义（可聚焦、可键盘操作、可读屏） */
 .dim-jh-switch { flex: none; appearance: none; -webkit-appearance: none; position: relative; width: 34px; height: 20px; margin: 0; border-radius: 999px; background: var(--dsw-alias-border-l2, #d0d3d9); cursor: pointer; transition: background .18s ease; }
 .dim-jh-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(31 35 41 / 20%); transition: transform .18s ease; }
-.dim-jh-switch:checked { background: #1677ff; }
+.dim-jh-switch:checked { background: var(--dsw-alias-brand-primary, #1677ff); }
+.dim-jh-switch:checked::after { background: var(--dsw-alias-label-primary-foreground, #fff); }
 .dim-jh-switch:checked::after { transform: translateX(14px); }
-.dim-jh-switch:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, #1677ff 30%, transparent); }
+.dim-jh-switch:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 30%, transparent); }
 .dim-jh-switch:disabled { opacity: 0.5; cursor: default; }
 
 /* 「渠道原生搜索」开关（页头，取代原「关闭」按钮）。
@@ -1153,12 +1633,12 @@ var STYLES = `
    文字完全看不见（用户报障）。这里对齐官方 Input 原语用的 bg-layer-1，
    并去掉 fallback 以免再次掩盖 token 拼错。 */
 .dim-jh-input { box-sizing: border-box; width: 100%; padding: 6px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-1); font-size: 13px; color: var(--dsw-alias-label-primary); }
-.dim-jh-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px color-mix(in srgb, #1677ff 20%, transparent); }
+.dim-jh-input:focus { outline: none; border-color: var(--dsw-alias-brand-primary, #1677ff); box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 20%, transparent); }
 /* placeholder 用官方 Input 的 dimmed 色：默认色在深色模式下对比度不足。 */
 .dim-jh-input::placeholder { color: var(--dsw-alias-label-dimmed); }
 /* 加密勾选行：勾选框 + 文案一行排开 */
 .dim-jh-checkRow { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 13px; color: var(--dsw-alias-label-primary, #1f2329); cursor: pointer; }
-.dim-jh-checkRow input[type="checkbox"] { margin: 0; accent-color: #1677ff; }
+.dim-jh-checkRow input[type="checkbox"] { margin: 0; accent-color: var(--dsw-alias-brand-primary, #1677ff); }
 /* 两次口令输入：纵向堆叠 */
 .dim-jh-formRows { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; }
 /* ── 账号勾选（导出选账号 / 导入选账号）── */
@@ -1173,8 +1653,263 @@ var STYLES = `
 .dim-jh-accountPickMeta { flex: none; font-size: 11px; color: var(--dsw-alias-label-tertiary, #8f959e); }
 /* ── 导入方式单选（整体还原 / 单独导入）── */
 .dim-jh-modePick { display: flex; flex-direction: column; margin: 4px 0 8px; }
-.dim-jh-modePick input[type="radio"] { margin: 0; accent-color: #1677ff; }
+.dim-jh-modePick input[type="radio"] { margin: 0; accent-color: var(--dsw-alias-brand-primary, #1677ff); }
 /* 弹窗底部动作区：右对齐（生成/确认按钮） */
+
+/* ===== 分档窗口弹窗（2026-11-19）===== */
+/**
+ * 弹窗宽度 560px（与通用弹窗一致）：两行输入 + 三行预览 + 徽标，
+ * 需要足够宽度让「输入框 + 天 + 覆盖 N 个账号」在一行里排开。
+ * ⚠️ min-height 压回 0：通用弹窗的 300px 是为「列表变短防跳动」设的，
+ *    本弹窗内容固定，压回 0 可让高度随内容自适应（不留大片空白）。
+ */
+/**
+ * ★ **弹窗与背景的视觉区分**（用户 2026-11-20 报障：
+ * 「档次窗口跟背景颜色没有什么区分，需要给窗口加一个边界边框，显眼区分一下」）。
+ *
+ * ## 为什么原来分不清
+ *
+ * .dim-jh-modal 的底色是 --dsw-alias-bg-layer-1，而宿主面板背景也接近这个色
+ * ⇒ 深色主题下两者**几乎同色**；它唯一的区分手段是 box-shadow: 0 16px 48px，
+ * 而阴影在暗背景上**几乎看不见**（黑色阴影叠在近黑底上）。
+ *
+ * ## 三条加固（缺任一条在暗色主题下都不够）
+ *
+ * 1. **实边框** 1px solid --dsw-alias-border-l2：最直接的「窗口边界」；
+ * 2. **更深的遮罩**（rgba(0,0,0,.32) → .5）：让弹窗外的区域明显压暗，
+ *    这是「弹窗浮起」最强的视觉信号；
+ * 3. **内描边** inset 0 0 0 1px 半透明白：让边框在**浅色主题**下也看得见
+ *    （浅色下 border-l2 本身已经很淡）。
+ *
+ * ⚠️ 只加在 .dim-jh-windowModal 上，**不动通用 .dim-jh-modal** ——
+ *    其它弹窗（模型列表 / 备份 / 额度）用户没报障，统一改会扩大回归面。
+ */
+.dim-jh-windowModal {
+  min-height: 0;
+  /* ① 实边框：暗色主题下最可靠的「窗口边界」 */
+  border: 1px solid var(--dsw-alias-border-l2);
+  /* ② 内描边：浅色主题下的第二道保险（border-l2 在浅色下太淡） */
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-label-primary, #fff) 8%, transparent),
+    0 16px 48px rgba(0, 0, 0, 0.38);
+}
+/* ③ 该弹窗的遮罩再压暗一档（与上面同一条需求） */
+.dim-jh-modalOverlay:has(> .dim-jh-windowModal) {
+  background: rgba(0, 0, 0, 0.5);
+}
+/**
+ * 单个输入行：色点 + 标签 + 输入框 + 单位 + 覆盖徽标，**全部同一行**。
+ * ⚠️ flex-wrap: nowrap：徽标掉到下一行会让两行的对齐关系变乱
+ *    （用户要求「在红色框里面分别用红色和黄色写明覆盖多少个帐号」= 紧贴输入）。
+ */
+.dim-jh-windowField { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+
+/* ===== 子代理设置（2026-11-23）===== */
+/*
+ * 与「分档窗口」同一视觉体系：金色分区标题 + 虚线分隔。
+ * ⚠️ 注释里不写反引号与尖括号：本文件整体是模板字符串，
+ *    反引号会提前闭合字符串（真实构建失败，本仓踩过）。
+ */
+.dim-jh-subagentSection {
+  border-top: 1px dashed var(--dsw-alias-border-l2);
+  margin: 12px 0 10px;
+  padding-top: 10px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.dim-jh-subagentTitle {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 700;
+  color: #b8860b;
+}
+.dim-jh-subagentNew {
+  padding: 0 5px; border-radius: 4px;
+  font-size: 9px; font-weight: 600;
+  color: var(--dsw-alias-brand-primary, #1677ff);
+  background: rgba(76, 141, 255, 0.16);
+}
+.dim-jh-subagentLabel { font-size: 11px; font-weight: 600; }
+/* 五按钮分段控件：等宽，紧贴一行 */
+.dim-jh-subagentSeg {
+  display: flex;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.dim-jh-subagentSegBtn {
+  flex: 1; min-width: 0;
+  padding: 5px 2px;
+  font: inherit; font-size: 10.5px;
+  border: 0;
+  border-right: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dim-jh-subagentSegBtn:last-child { border-right: 0; }
+.dim-jh-subagentSegBtn[data-on="true"] {
+  background: var(--dsw-alias-brand-primary, #1677ff);
+  color: var(--dsw-alias-label-primary-foreground, #fff);
+  font-weight: 600;
+}
+.dim-jh-subagentSegBtn:disabled { opacity: 0.45; cursor: default; }
+/* 提示：一行，超长省略（用户要求「不要超过一行」） */
+.dim-jh-subagentHint {
+  font-size: 10.5px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 「固定帐号」的账号选择行 */
+.dim-jh-subagentFixed {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 8px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+.dim-jh-subagentFixedLabel {
+  flex: none; font-size: 10.5px;
+  color: var(--dsw-alias-label-secondary);
+}
+.dim-jh-subagentSelect {
+  flex: 1; min-width: 0;
+  padding: 4px 6px;
+  font: inherit; font-size: 11px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+}
+/* 模型 + 思考强度 同一行 */
+.dim-jh-subagentModelRow { display: flex; gap: 7px; align-items: center; }
+.dim-jh-subagentSelectWide { flex: 1; }
+.dim-jh-subagentEffort { flex: 0 0 112px; }
+/*
+ * 「该模型无思考档位」的提示（2026-11-24）。
+ *
+ * ⚠️ 用 warn 色（不是 tertiary 灰）：这是**用户需要知道的信息**
+ *    （他选了模型却没有强度可选，会以为功能坏了）。
+ * ⚠️ 不写回退值：本仓纪律 —— 回退值只允许 baseline 表里那 6 个。
+ */
+.dim-jh-subagentNoEffort {
+  flex: none;
+  font-size: 10px;
+  color: var(--dsw-alias-state-warn-primary);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.dim-jh-windowLabel { display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; font-size: 11.5px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.dim-jh-windowDot { width: 8px; height: 8px; flex: none; border-radius: 999px; }
+.dim-jh-windowDot[data-tone="imminent"] { background: var(--dsw-alias-state-error-primary, #d93025); }
+.dim-jh-windowDot[data-tone="short"] { background: var(--dsw-alias-state-warn-primary, #b45309); }
+.dim-jh-windowDot[data-tone="permanent"] { background: var(--dsw-alias-state-success-primary, #15803d); }
+.dim-jh-windowInput { width: 92px; flex: none; box-sizing: border-box; padding: 4px 6px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.dim-jh-windowInput:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
+.dim-jh-windowInput[aria-invalid="true"] { border-color: var(--dsw-alias-state-error-primary, #d93025); }
+.dim-jh-windowUnit { flex: none; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+.dim-jh-windowCover { flex: none; display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 999px; font-size: 10.5px; line-height: 1.7; white-space: nowrap; }
+.dim-jh-windowCover b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.dim-jh-windowCover[data-tone="imminent"] { color: var(--dsw-alias-state-error-primary, #d93025); background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93025) 12%, transparent); border: .5px solid color-mix(in srgb, var(--dsw-alias-state-error-primary, #d93025) 25%, transparent); }
+.dim-jh-windowCover[data-tone="short"] { color: var(--dsw-alias-state-warn-primary, #b45309); background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #b45309) 12%, transparent); border: .5px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary, #b45309) 25%, transparent); }
+.dim-jh-windowHint { padding-left: 15px; font-size: 10px; line-height: 1.6; color: var(--dsw-alias-label-tertiary); }
+.dim-jh-windowWarn { padding-left: 15px; font-size: 10px; line-height: 1.6; color: var(--dsw-alias-state-warn-primary, #b45309); }
+.dim-jh-windowInvalid { color: var(--dsw-alias-state-error-primary, #d93025); }
+.dim-jh-windowPreview { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; padding: 9px 11px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); }
+.dim-jh-windowPreviewTitle { margin-bottom: 1px; font-size: 10px; font-weight: 600; color: var(--dsw-alias-label-tertiary); letter-spacing: .03em; }
+/**
+ * ★★ **预览行布局**（2026-11-20 二次修订）。
+ *
+ * ## 为什么改成两行
+ *
+ * 第一版是**一行四格**：色点 + 区间(128px) + 条 + 金额(76px)。
+ * 但弹窗内容区只有约 340px ⇒ 减去区间与金额后，**条只剩 38px**。
+ * 于是「临期占 1.4%」这种真实数据算出来的条宽只有 **0.5px**、加最小宽度后
+ * 也才 **0.8px** —— 用户依然看不见，会以为「进度条坏了」。
+ *
+ * ⇒ 改成**两行**：
+ * 
+ * ● 临期 < 1 天                    393.37
+ *   [██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   ← 条独占整行（约 300px）
+ * 
+ * 条宽从 38px → ~300px，**1.4% 也能有 4px+**，肉眼可见。
+ *
+ * ⚠️ 用 flex-wrap: wrap + 条 flex-basis: 100% 实现，不新增 DOM 层级。
+ */
+.dim-jh-windowPreviewRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  /* 档与档之间留呼吸（条属于上一行，组间距要明显大于行内间距） */
+  margin-bottom: 2px;
+}
+/* 第一行：色点 + 区间 + 金额（同一行，金额靠右） */
+.dim-jh-windowPreviewHead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.dim-jh-windowPreviewRange { flex: none; min-width: 128px; color: var(--dsw-alias-label-secondary); font-variant-numeric: tabular-nums; }
+/**
+ * ★★ **预览进度条 / 色柱条**（用户 2026-11-20 报障「不是应该有进度条吗？怎么没有」）。
+ *
+ * ## ⚠️ 这是我第一版的遗漏
+ *
+ * 方案图里画了色条，但代码只渲染了「色点 + 区间 + 金额」三格，**没有条**。
+ * 用户看到金额变了、却看不到柱状分布。
+ *
+ * ## 布局：条在中间，吃掉剩余宽度
+ *
+ * 
+ * ● 临期 < 1 天   [████████░░░░░░░░░░]   393.37
+ * ● 短期 1~2 天   [████████████░░░░░░]   607.10
+ * ● 永久 ≥ 2 天   [██████████████████]   27263.00
+ * 
+ *
+ * - 预览条 flex: 1：吃掉「区间」与「金额」之间的全部空间
+ * - 区间 min-width: 128px（已有）：三条的起点对齐，不会因文字长短参差
+ * - 金额 min-width: 76px：右对齐，数字位数变化时**不推挤进度条**
+ *   （⚠️ 原来是 flex: 1，会把条挤没 —— 这也是「看不到条」的一部分原因）
+ */
+.dim-jh-windowPreviewBar {
+  /* ★ 独占一行：父级是 column，故块级元素天然占满整行（~300px） */
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  /* ⚠️ 缩进对齐到文字，让条看起来属于这一档而不是独立一块 */
+  margin-left: 15px;
+  /* 7px 而不是 5px：小档位（3%）在 228px 上是 6.8px 宽，
+     5px 高时看起来只是个点，7px 才能读成一小段 */
+  height: 7px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-3);
+  overflow: hidden;
+}
+.dim-jh-windowPreviewFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  /* ⚠️ 宽度由内联 style 给（取决于实时金额），这里只给过渡动画 */
+  transition: width .18s ease;
+}
+.dim-jh-windowPreviewFill[data-tone="imminent"] { background: var(--dsw-alias-state-error-primary, #d93025); }
+.dim-jh-windowPreviewFill[data-tone="short"] { background: var(--dsw-alias-state-warn-primary, #b45309); }
+.dim-jh-windowPreviewFill[data-tone="permanent"] { background: var(--dsw-alias-state-success-primary, #15803d); }
+/* ⚠️ 金额改成固定宽度：原 flex: 1 会把进度条挤到 0 宽（真实原因之一） */
+/**
+ * ⚠️ 金额**留在第一行**（与区间同行）：margin-left: auto 会把它推到最右，
+ * 但若它排在条之后就会被 flex-wrap 换到第二行（实测截图里金额单独占一行，
+ * 与区间分离，很难读）。
+ * ⇒ 用 order 让金额**排在条之前**（视觉顺序仍是「区间 … 金额」，因为金额靠右）。
+ */
+.dim-jh-windowPreviewAmount { flex: none; margin-left: auto; min-width: 76px; text-align: right; font-weight: 600; color: var(--dsw-alias-label-primary); font-variant-numeric: tabular-nums; }
+.dim-jh-windowSpacer { flex: 1; }
+
 .dim-jh-modalActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 /* ── 备份 / 恢复弹窗的方向切换条（2026-10-27 合并两个入口后新增）──
    ⚠️ 这是「换一页」不是「选项」：两个按钮互斥、点即生效，故用按钮 + data-active
@@ -1183,8 +1918,8 @@ var STYLES = `
    本仓库反复记录过「两套样式看起来不像同一个 UI」。 */
 .dim-jh-backupTabs { display: flex; gap: 8px; margin: 2px 0 10px; }
 /* 选中态：与 .dim-jh-btn[data-kind="primary"] 逐字同形（背景/边框/文字三处）。 */
-.dim-jh-backupTabs .dim-jh-btn[data-active="true"] { background: #1677ff; color: #fff; border-color: #1677ff; font-weight: 600; }
-.dim-jh-backupTabs .dim-jh-btn[data-active="true"]:hover:not(:disabled) { background: #0f5fce; border-color: #0f5fce; color: #fff; }
+.dim-jh-backupTabs .dim-jh-btn[data-active="true"] { background: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #1677ff)); color: var(--dsw-alias-label-primary-foreground, #fff); border-color: var(--dsw-alias-button-primary-fill, var(--dsw-alias-brand-primary, #1677ff)); font-weight: 600; }
+.dim-jh-backupTabs .dim-jh-btn[data-active="true"]:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover, #0f5fce); border-color: var(--dsw-alias-button-primary-hover, #0f5fce); color: var(--dsw-alias-label-primary-foreground, #fff); }
 
 
 /* ── Cline「订阅额度」弹窗（官方额度窗口 + 请求记录）── */
@@ -1377,20 +2112,83 @@ var STYLES = `
    它会连同右侧模型选择器一起溢出。允许收缩后，空间不足时胶囊与选择器一起让位，
    且胶囊内部退化是有序的（先名字出省略号，数字最后才动）。 */
 .dim-jh-badge { position: relative; display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
+/*
+ * ★★★ 子代理页面的「模型 + 思考强度」pill（2026-11-24 用户需求）。
+ *
+ * ## 为什么需要（本插件自己画）
+ *
+ * 宿主**只在主对话页**渲染模型选择器；子代理对话页宿主不渲染
+ * ⇒ 用户看不出子代理在用哪个模型/哪档强度。
+ *
+ * ## ⚠️ 视觉必须模仿宿主（用户逐字要求）
+ *
+ * 「要注意到思考强度字体是比模型名要暗一点的，要模仿到位，然后是没有下拉的」
+ *
+ * | 元素 | 样式 | 理由 |
+ * |---|---|---|
+ * | 模型名 | label-primary + 11px | 宿主主色 |
+ * | 思考强度 | **label-tertiary（更暗）** | 用户明确要求 |
+ * | 下拉箭头 | **不画** | 用户明确要求；它不可点，画了会误导 |
+ *
+ * ⚠️ 与胶囊之间留 8px：宿主主代理页面就是这个间距感。
+ * ⚠️ 不写回退值：本仓纪律 —— 回退值只允许 baseline 表里那 6 个。
+ */
+.dim-jh-badgeModelPill {
+  display: flex; align-items: center; gap: 5px;
+  margin-left: 10px;
+  font-size: 14px; line-height: 1.5;
+  white-space: nowrap;
+  flex: none;
+}
+/* 模型名：亮色（与宿主的模型选择器同色阶） */
+.dim-jh-badgeModelName {
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * 思考强度：**更暗一档**（用户逐字要求）。
+ * 用 tertiary 而不是 secondary —— secondary 与胶囊内文字同色，
+ * 视觉上会和模型名拉不开差距（实测对比度差只有一档）。
+ */
+.dim-jh-badgeModelEffort {
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
 /* ⚠️ box-sizing 是**显式写出**的，不是修复：button 的 UA 默认样式表本就是
    border-box（实测 offsetWidth 与 max-width 相等）。写上它只为在元素类型被改
    （span/div 默认是 content-box）时语义不悄悄漂移 —— 那种情况下 max-width 会从
    「占位宽度」变成「内容宽度」，胶囊会突然变宽 19px 而这行代码看着毫无变化。 */
-.dim-jh-badgeBtn { box-sizing: border-box; display: flex; align-items: center; gap: 5px; max-width: 216px; min-width: 0; padding: 2px 9px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; line-height: 1.5; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; transition: background .15s ease, color .15s ease, border-color .15s ease; }
+/* ⚠️⚠️ **胶囊不限宽**（用户 2026-11-18 明确：「胶囊宽度不要限制长度，让它自适应，
+ * 不然会有截断」）。
+ *
+ * ## 与旧约束的冲突及取舍
+ *
+ * 2026-10-02 曾因「徽标把模型选择器挤到只剩几十 px、图标被挤没」而加了
+ * max-width: 240px 上限（实测 130 组渠道名×读数最宽 209.34px）。
+ * 用户现在要求**优先保证胶囊自身内容完整**（否则「位次 2 · 共 7 帐号」被截断）。
+ *
+ * ## 怎么同时不搞坏宿主布局
+ *
+ * 1. 去掉 max-width（自适应）—— 满足用户要求
+ * 2. 胶囊外层 .dim-jh-badge 仍是 flex: 0 1 auto + min-width: 0
+ *    ⇒ 它**可以收缩**，不会把 composer 撑爆
+ * 3. 内部各段保留自己的省略规则（渠道名先让位、读数最后）
+ *    ⇒ 极窄容器下退化成「名字… • 读数」，不溢出
+ * 4. 窄屏（< 720px）本来只显示状态点，不受影响
+ *
+ * ⚠️ 真机验证必须确认：400px 宽 composer 下模型选择器仍可见可点。
+ * ⚠️ 若将来又出现「模型选择器被挤没」，应改**断点**（窄屏更早降级为只显点），
+ *    而不是回到限制 max-width —— 那样会重新引入用户明确反对的截断。 */
+.dim-jh-badgeBtn { box-sizing: border-box; display: flex; align-items: center; gap: 5px; min-width: 0; padding: 2px 9px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; line-height: 1.5; cursor: pointer; white-space: nowrap; font-variant-numeric: tabular-nums; transition: background .15s ease, color .15s ease, border-color .15s ease; }
 .dim-jh-badgeBtn:hover { background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); }
-.dim-jh-badgeBtn[aria-expanded="true"] { background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); border-color: color-mix(in srgb, #1677ff 45%, var(--dsw-alias-border-l2)); }
+.dim-jh-badgeBtn[aria-expanded="true"] { background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 45%, var(--dsw-alias-border-l2)); }
 /* 聚合「待首次请求」占位胶囊（用户报障 2026-10-08：「也没胶囊了？」）。
    ⚠️ 刻意与 .dim-jh-badgeBtn **外观一致但不共用类名**：那个类名带 cursor:pointer
    与 :hover 反馈，而这里没有任何可点的东西（无历史 ⇒ 没有余额可展开）。
    给一个点了没反应的按钮比没有按钮更糟。
    ⚠️ 宽度口径与 .dim-jh-badgeBtn 同步（gap 5px / padding 2px 9px / 字号 11px）：
    两者会在同一位置交替出现（首次请求成功后换成真胶囊），尺寸不一致会看到跳动。 */
-.dim-jh-badgePending { display: inline-flex; align-items: center; gap: 5px; max-width: 216px; min-width: 0; padding: 2px 9px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1.5; white-space: nowrap; }
+.dim-jh-badgePending { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 2px 9px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 999px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-tertiary); font-size: 11px; line-height: 1.5; white-space: nowrap; }
 .dim-jh-badgePending > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 /* 三段式文本容器：渠道名 + 分隔符 + 读数。
    ⚠️ 必须是 flex 容器，两个文本子项才能各自独立收缩（这正是「数字不被截」的前提）。 */
@@ -1453,11 +2251,36 @@ var STYLES = `
 .dim-jh-badgeDot[data-tone="warn"] { background: var(--dsw-alias-state-warn-primary); }
 .dim-jh-badgeDot[data-tone="error"] { background: var(--dsw-alias-state-error-primary); }
 .dim-jh-badgeDot[data-tone="muted"] { background: var(--dsw-alias-label-tertiary); }
-.dim-jh-badgePop { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40; width: 280px; max-width: min(280px, 86vw); max-height: 58vh; overflow-y: auto; display: flex; flex-direction: column; padding: 9px 10px 10px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 11px; background: var(--dsw-alias-bg-layer-1); box-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .14); text-align: left; white-space: normal; }
+/**
+ * 弹窗宽度 280 → **400px**（2026-11-18 用户要求）。
+ *
+ * ## 为什么要加宽（用户原话：「积分界面可能两行显示不全，那就把积分界面
+ * 改宽度增加，反正就是不能再让积分界面高度增加了」）
+ *
+ * 分档从两段（永久/长期 + 临期）变成**四段**（永久/长期/短期/临期）后，
+ * 每条账号的积分行在 280px 里放不下 ⇒ 换行 ⇒ **每个账号多占一行**，
+ * 而弹窗里有 4~6 个账号 ⇒ 整体高度暴涨、max-height: 58vh 一截就要滚动。
+ *
+ * 用户的取舍很明确：**宁可加宽，不许加高**。故这里只放宽宽度，
+ * 并让积分行 nowrap 保持单行（见 .dim-jh-badgeRowNote 的说明）。
+ *
+ * ⚠️ 400px 是量出来的：四段最坏形态
+ * 永久 1234 · 长期 1234 · 短期 1234 · 临期 1234（2 天 0 小时）
+ * 在 10px 字号下约 340px，加左右 padding（10×2）与边框 ≈ 362px
+ * ⇒ 取 400 留约 10% 余量。
+ * ⚠️ 上限仍用 min() 收在 86vw 内：弹窗是 absolute，窗口本身可能很窄
+ * （窄屏还会被下面的媒体查询降到 300px）。
+ */
+/* ⚠️ 2026-11-18：right: 0（右对齐）→ left: 0（左对齐胶囊，用户要求）。
+ * 居中后右侧必然溢出（胶囊贴输入区最右）⇒ 由 useLayoutEffect 做视口收敛。
+ * ⚠️ 必须与内联的 POPOVER_ANCHOR_STYLE 逐字对拍：两处任一处写反都会错位。 */
+.dim-jh-badgePop { position: absolute; bottom: calc(100% + 8px); left: 50%; right: auto; transform: translateX(-50%); z-index: 40; width: 530px; max-width: min(530px, 92vw); max-height: 58vh; overflow-y: auto; display: flex; flex-direction: column; padding: 9px 10px 10px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 11px; background: var(--dsw-alias-bg-layer-1); box-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 8px 24px rgba(0, 0, 0, .14); text-align: left; white-space: normal; }
 /* 窄屏时徽标只留状态点，弹窗也随之收窄（否则它会盖住模型选择器）。
  * 宽度写 min() 而非媒体查询覆盖：弹窗是 absolute，媒体查询命中时按钮虽已
- * 收窄，但弹窗仍按 280px 渲染会显得与触发点不匹配。 */
-@media (max-width: 720px) { .dim-jh-badgePop { width: 220px; max-width: min(220px, 76vw); } }
+ * 收窄，但弹窗仍按 400px 渲染会显得与触发点不匹配。
+ * ⚠️ 窄屏降到 300px（原 220px）：四段分档在 220px 里必然换行 ⇒ 每个账号多一行
+ *    ⇒ 高度暴涨。宁可窄屏也保留 300px 的单行能力，超出部分由 86vw/76vw 兜底。 */
+@media (max-width: 720px) { .dim-jh-badgePop { width: 400px; max-width: min(400px, 88vw); } }
 .dim-jh-badgeHead { display: flex; align-items: center; gap: 5px; padding-bottom: 7px; }
 .dim-jh-badgeTitle { flex: none; max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .dim-jh-badgeAt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }
@@ -1465,14 +2288,14 @@ var STYLES = `
    ⚠️ 2026-10-02 用户反馈「浅色模式下按钮和线条不太明显」：这里从「完全透明」
    改回**主题描边 + layer-2 底**（浅色下 layer-2 与弹窗底色太接近，靠描边才立得住）。 */
 .dim-jh-badgeRefresh { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: .5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12px; line-height: 1; cursor: pointer; transition: color .15s ease, background .15s ease, border-color .15s ease; }
-.dim-jh-badgeRefresh:hover:not(:disabled) { border-color: color-mix(in srgb, #1677ff 45%, var(--dsw-alias-border-l2)); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-brand-primary); }
+.dim-jh-badgeRefresh:hover:not(:disabled) { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 45%, var(--dsw-alias-border-l2)); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-brand-primary); }
 .dim-jh-badgeRefresh:disabled { opacity: .5; cursor: default; }
 /* 自动签到状态灯：与刷新键**同尺寸同描边**（浅色下靠描边才立得住），紧挨它左侧。
    ⚠️ 状态**不只用颜色**表达：灯本身有形态差异（关=空心环 / 开=实心点 /
    今天已跑=实心点带外环 / 进行中=省略号），且 title 与 aria-label 都带完整文字说明，
    故色觉障碍与读屏都能分辨「开还是关、今天跑没跑」。 */
 .dim-jh-badgeAuto { flex: none; width: 20px; height: 20px; display: grid; place-items: center; border: .5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-tertiary); font: inherit; font-size: 12px; line-height: 1; cursor: pointer; transition: color .15s ease, background .15s ease, border-color .15s ease; }
-.dim-jh-badgeAuto:hover { border-color: color-mix(in srgb, #1677ff 45%, var(--dsw-alias-border-l2)); background: var(--dsw-alias-bg-layer-3); }
+.dim-jh-badgeAuto:hover { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 45%, var(--dsw-alias-border-l2)); background: var(--dsw-alias-bg-layer-3); }
 .dim-jh-badgeAutoDot { width: 7px; height: 7px; box-sizing: border-box; border-radius: 999px; background: transparent; border: 1.5px solid currentColor; }
 .dim-jh-badgeAuto[data-state="on"],
 .dim-jh-badgeAuto[data-state="done"] { color: var(--dsw-alias-state-success-primary); }
@@ -1491,20 +2314,82 @@ var STYLES = `
 .dim-jh-badgeAutoStatus { margin-top: 5px; padding: 5px 6px 6px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-layer-2); }
 .dim-jh-badgeAutoCloseRow { display: flex; justify-content: flex-end; margin-bottom: 2px; }
 .dim-jh-badgeAutoClose { width: 14px; height: 14px; display: grid; place-items: center; border: .5px solid var(--dsw-alias-border-l2); border-radius: 4px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-tertiary); font: inherit; font-size: 10px; line-height: 1; cursor: pointer; transition: color .15s ease, background .15s ease, border-color .15s ease; }
-.dim-jh-badgeAutoClose:hover { border-color: color-mix(in srgb, #1677ff 45%, var(--dsw-alias-border-l2)); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-brand-primary); }
+.dim-jh-badgeAutoClose:hover { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 45%, var(--dsw-alias-border-l2)); background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-brand-primary); }
 .dim-jh-badgeAutoStatusHead { font-size: 10.5px; line-height: 1.5; color: var(--dsw-alias-label-secondary); }
-.dim-jh-badgeAutoChannels { display: flex; flex-wrap: wrap; gap: 2px 5px; margin-top: 3px; font-size: 10px; line-height: 1.6; color: var(--dsw-alias-label-tertiary); }
-/* 分隔符跟在条目**后面**（不是用 ::before 加在下一个前面）：十余个渠道在 280px 里必然
-   换行，::before 的写法会让换行处那一行**以孤立的点开头**（预览里实测到了）；
-   ::after 则表现为行尾的「·」，与行内文本的分隔习惯一致。
-   ⚠️ 刻意不写死渠道数：原文写「9 个」，加 minimaxintl 后已是 10 个（2026-10-16 审计）。 */
-.dim-jh-badgeAutoChannel:not(:last-child)::after { content: " ·"; opacity: .6; }
+/**
+ * ★★ **签到日志：每个渠道独占一行**（用户 2026-11-18：「签到日志不同 providers
+ * 结果换行显示」）。
+ *
+ * ## 改动前后
+ *
+ * | 改前 | 改后 |
+ * |---|---|
+ * | flex-wrap: wrap + 行内 span ⇒ 十余个渠道挤成一两行，靠点号分隔 |
+ * | **每个渠道一行**，读起来像日志列表 |
+ *
+ * ⚠️ 改前那种「挤一行 + 省略号」的形态在窄弹窗里**读不全**：
+ *    实测十余个渠道会折成 2~3 行、且每项都可能被截断，
+ *    用户根本看不出「哪个渠道出错了」。
+ */
+.dim-jh-badgeAutoChannels {
+  display: flex;
+  /* ⚠️ 改成竖向单列：每个渠道一行 */
+  flex-direction: column;
+  /* ⚠️ 行间距 3px 而不是 2px：竖向排列时 2px 太挤，看着像一段糊住的文字 */
+  gap: 3px;
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-tertiary);
+}
+/* ⚠️ 每个渠道一行 ⇒ 允许自动换行（渠道名 + 结果可能超过一行宽），
+   且不再用 ellipsis（截断会让「出错原因」这半句消失，而那正是用户要看的）。 */
+.dim-jh-badgeAutoChannel {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* ⚠️ 2026-11-18：**已删除行尾分隔符**（原 :not(:last-child)::after { content: " ·" }）。
+   该分隔符是为「横向挤一行」设计的；用户要求「每个 provider 一行」后，
+   每行末尾再挂一个点号就是纯噪音。
+   —— 保留此注释是为了说明「消失的那条规则去哪了」，避免以后有人以为是误删。 */
 /* 偏好：分段控件（未选中透明、选中浮起），比三个独立胶囊更紧凑整齐 */
-.dim-jh-badgePref { display: flex; gap: 2px; padding: 2px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-layer-2); }
-.dim-jh-badgePrefBtn { flex: 1; min-width: 0; padding: 2px; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 10px; line-height: 1.5; white-space: nowrap; cursor: pointer; transition: background .15s ease, color .15s ease; }
+/* ⚠️ gap 2 → 3：选中态的背景块与相邻按钮之间需要能看出空隙（用户报障「看不出来是三个开关」）。 */
+.dim-jh-badgePref { display: flex; gap: 3px; padding: 2px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-layer-2); }
+/* ⚠️ 三个页签必须**看得出是三个独立的开关**（用户 2026-11-18 报障「太挤」）：
+   原值是 flex: 1; padding: 2px，在贴右且宽度被轮换起点吃掉后，每个按钮
+   压缩到 ~30px、彼此只隔 2px 的 gap ⇒ 视觉上糊成一整条。
+   ⇒ 改法：flex: none + 明确的左右内边距（6px）+ 容器 gap 保持 2px。
+     三个按钮因此保持各自的最小可识别宽度，选中态的背景块也看得清。 */
+/* ⚠️ 三个页签必须**看得出是三个独立开关**（用户 2026-11-18 报障「太挤」）：
+   - flex: none（不被压缩；空间不足时先让轮换起点那份收缩）
+   - padding 2px 8px（左右各 8px，按钮之间才有明确的视觉边界）
+   - font-size 11px（与胶囊读数同号，10px 时「自动」只有 34px 宽，像一小截）
+   - min-width 46px（保证最短的「自动」也不塌陷） */
+.dim-jh-badgePrefBtn { flex: none; min-width: 46px; padding: 2px 8px; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 11px; line-height: 1.5; white-space: nowrap; cursor: pointer; transition: background .15s ease, color .15s ease; }
 .dim-jh-badgePrefBtn:hover { color: var(--dsw-alias-label-primary); }
 /* 选中项自带描边：浅色下只靠白色底与底色区分太弱 */
 .dim-jh-badgePrefBtn[aria-pressed="true"] { border: .5px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, var(--dsw-alias-border-l2)); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-brand-primary); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+/* 「轮换起点」行：**要显眼**（用户 2026-11-10 要求「做得显眼一点」，后改为黄色字体）。
+   ⚠️ 它改的是「请求用哪个号发」，比上面的显示偏好更重要 ⇒ 用独立卡片 +
+   黄色调 + 左侧色条，而不是像显示偏好那样只做一条细分隔线。
+   ⚠️ 颜色刻意用黄色而不是品牌色：品牌色与上面的分段控件同色，
+   反而看不出这是**另一类**设置。 */
+.dim-jh-badgeRotation { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; padding: 6px 8px; border: .5px solid color-mix(in srgb, #d9a40b 45%, var(--dsw-alias-border-l2)); border-left: 2.5px solid #d9a40b; border-radius: 6px; background: color-mix(in srgb, #d9a40b 8%, transparent); }
+.dim-jh-badgeRotationLabel { flex: none; color: #b8860b; font-size: 10px; font-weight: 700; line-height: 1.6; white-space: nowrap; letter-spacing: .02em; }
+/* 「轮换起点」的说明图标（用户 2026-11-11 要求加 tooltip）。
+   ⚠️ 它是**独立可悬停目标**：select 的 title 在展开下拉时浏览器不显示，
+      而标签文字很短、不易精准悬停 ⇒ 图标补上这两个缺口。
+   ⚠️ 刻意不加 hover 变色 / 指针手型 —— 它**不可点**（本仓记过「点了没反应」的教训），
+      视觉上不该暗示可交互。
+   ⚠️ 注释里不写反引号与尖括号：本文件整体是模板字符串，
+      反引号会提前闭合字符串，尖括号会被当成 JSX（真实构建失败，2026-11-11 踩到）。 */
+.dim-jh-badgeRotationInfo { flex: none; color: color-mix(in srgb, #b8860b 70%, var(--dsw-alias-label-secondary)); font-size: 10px; line-height: 1.6; cursor: help; user-select: none; }
+/* 说明 / 诊断文字：同色但更淡，不抢标签的视觉重量。 */
+.dim-jh-badgeRotationHint { color: color-mix(in srgb, #b8860b 80%, var(--dsw-alias-label-secondary)); font-size: 10px; line-height: 1.6; }
+/* ⚠️ flex:1 + min-width:0：昵称可能很长，缺 min-width 会让本行撑破弹窗宽度。 */
+.dim-jh-badgeSelect { flex: 1; min-width: 0; padding: 3px 5px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 5px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 11px; line-height: 1.6; cursor: pointer; }
+.dim-jh-badgeSelect:disabled { opacity: .6; cursor: default; }
 /* 分区：细分隔线分组，间距 5px（比 4px 多 1px 呼吸：账号备注是 10px 灰字，
    紧贴下一个账号名会读成同一块；再大就不「小巧」了）
    ⚠️ 分隔线用**全不透明**的 border-l2：此前用 color-mix 降到 75%，浅色下几乎看不见。 */
@@ -1515,7 +2400,547 @@ var STYLES = `
 /* 一行放下「名字 …… 数值」（名字可省略号，数值不换行） */
 .dim-jh-badgeRowHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--dsw-alias-label-primary); }
 .dim-jh-badgeRowName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dim-jh-badgeRowNote { font-size: 10px; line-height: 14px; color: var(--dsw-alias-label-tertiary); }
+/**
+ * 该账号的**分档说明行**（永久 X · 长期 Y · 短期 Z · 临期 W + 倒计时）。
+ *
+ * ## ⚠️ 必须**单行不换行**（2026-11-18 用户要求）
+ *
+ * 用户原话：「反正就是不能再让积分界面高度增加了」。
+ * 四段分档在窄弹窗里会自动折成两行 ⇒ **每个账号多占一行** ⇒
+ * 4~6 个账号的弹窗高度直接翻倍、max-height: 58vh 立刻就要滚动。
+ *
+ * ⇒ 这里 nowrap，装不下就**由省略号收尾**（title 里是全文，hover 可读）。
+ * 与此同时弹窗本身放宽到 400px（见 .dim-jh-badgePop），
+ * 两者配合才能既单行又不被截太狠。
+ *
+ * ⚠️ text-overflow: ellipsis 要生效，必须同时有 overflow: hidden +
+ *    white-space: nowrap，三条缺一不可（本仓踩过只写后两条的坑）。
+ * ⚠️ 段间分隔符是独立的 span（.dim-jh-badgeNoteSep），它随父级一起
+ *    被省略号截断 —— 这是可接受的：被截掉的那几段本来也读不完整，
+ *    hover 有全文。
+ */
+.dim-jh-badgeRowNote { font-size: 10px; line-height: 14px; color: var(--dsw-alias-label-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/**
+ * ★★ **单行账号行**（2026-11-18 用户要求「两行合并成一行」）。
+ *
+ * ## 高度账（用户明确「不能再让积分界面高度增加」）
+ *
+ * | 形态 | 每号高度 |
+ * |---|---|
+ * | 原：'RowHead'（名字+读数）一行 + 'RowNote'（分档）一行 | **29px** |
+ * | 新：一行内 flex 排 '名字 读数 · 长… · 短… · 临…（…）' | **14px** |
+ *
+ * ⇒ 每号省 15px；15 个号省 225px。「默认显示 15 个」全靠这一条 + 工具行合并。
+ *
+ * ## 结构
+ *
+ * 'html
+ * <div class="dim-jh-badgeRow dim-jh-badgeRowInline">   ← flex 行
+ *   <span class="dim-jh-badgeRowName">…</span>
+ *   <span class="dim-jh-badgeValue">…</span>
+ *   <span class="dim-jh-badgeNoteInlineWrap">           ← display: contents！
+ *     <div class="dim-jh-badgeRowNote dim-jh-badgeRowNoteInline">…</div>
+ *   </span>
+ * </div>
+ * '
+ *
+ * ⚠️⚠️ **'.dim-jh-badgeNoteInlineWrap' 必须是 'display: contents'**：
+ *    分档说明在 DOM 里是 'renderSplitNote()' 返回的 '<div>'（块级），
+ *    若不用 'contents' 把它自身盒模型抹平，它会自成一块 ⇒ 行高立刻回到两行，
+ *    等于**白改了**（这个坑在实测里出现过：改完还是 29px）。
+ *    'display: contents' 让它的**子元素**（那些带色 span）直接参与父级 flex 流。
+ *    ⚠️ 副作用：该 wrapper 自身不能设背景/边框/内边距（它没有盒子）。
+ */
+/* ⚠️⚠️ 必须写成「双类」.dim-jh-badgeRow.dim-jh-badgeRowInline：
+   .dim-jh-badgeRow 的规则（display:flex; flex-direction:column; gap:1px）
+   特异性与本规则相同，而它写在**后面** ⇒ 后写的赢，单类写法会被它覆盖
+   （实测症状：账号行仍是 flex column、高度 50px，且每段各占一行）。
+   双类把特异性提到 0,2,0 才能稳定压过它。 */
+.dim-jh-badgeRow.dim-jh-badgeRowInline {
+  /* ⚠️ 不能用 flex（2026-11-18 三次实测后定论）：flex item 会被 blockify，
+     内部各段会各占一行（122px → 改 inline 后仍 50px）。纯行内流才保持单行。 */
+  display: block;
+  /* ⚠️ 单行不折：折行就是「高度增加」，用户明确不许。装不下由省略号收尾。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* ⚠️ 2026-11-18 用户要求「字号再大一号」：10 → 11px；
+     11px 下分档段宽 213 → 234px ⇒ 弹窗同步加宽到 500px（否则溢出 6px）。 */
+  font-size: 12px;
+  line-height: 20px;
+}
+/**
+ * ★★ **账号标识列（位次 + 账号名 + 原因）：固定 161px**
+ * （用户 2026-11-18：「位次列不需要跟帐号列分成两列，做成一列就行」）。
+ *
+ * ## 为什么要合并成一列
+
+ * 分成两列时，位次列固定宽+右对齐，账号名列再固定宽 —— 视觉上中间会有一道
+ * 明显的空隙（两个定宽盒之间无法消除）。合并成一列后「位次 N·名字」是一段
+ * 连续文本，读起来自然。
+ *
+ * ## 161px 是实测出来的上限
+ *
+ * | 项 | 11px 下宽度 |
+ * |---|---|
+ * | 尾段最大（总积分 + 长/短/临含括号） | 约 317px |
+ * | 弹窗内宽（500 − 21） | 479px |
+ * | **⇒ 本列最大可用** | **161px** |
+ *
+ * 161px 能放：「位次 10·clover e」(100px) /「位次 1·康娣 戚（无短临积分）」(154px)
+ * 放不下：「位次 11·某个很长的邮箱地址（约 20 字符）」(194px) ⇒ **截断 + tooltip 全文**。
+ *
+ * ⚠️ 必须 inline-block + 固定 width：行容器是 display:block 的行内流（不是 flex），
+ *    只有 inline-block 才能既定宽又参与单行排版。
+ * ⚠️ 必须 box-sizing: border-box（否则 padding 会加在 161px 之外）。
+ * ⚠️ 必须 vertical-align: bottom（与相邻的行内元素对齐基线）。
+ */
+.dim-jh-badgeColId {
+  display: inline-block;
+  box-sizing: border-box;
+  /* ★ 2026-11-18 用户定稿：本列 170px + 弹窗 530px。
+     
+     依据（12px 字号实测）：
+       「位次 1 · 」前缀              = 41.0px
+       「康娣 戚（无短临积分）」名字    = 123.6px
+       ⇒ 完整标签「位次 1 · 康娣 戚（无短临积分）」= 168.1px
+       ⇒ 170px 列宽可**完整显示**「（无短临积分）」这 5 个字（余量 1.9px）。
+     
+     尾段最大需求（总+长/短/临+点号）= 336.2px，
+     弹窗内宽 530 − 21 = 509px ⇒ 170 + 336.2 = 506.2px ≤ 509px ✅
+     （500px 时会差 25.3px、那 5 个字必被截断 —— 这就是加宽到 530 的原因）
+     
+     ⚠️ 宽度与字号强耦合：改字号必须重算本值（12px→336px 尾段，11px→318px）。 */
+  width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/**
+ * ★ **不可用账号：只有本列置灰**（用户 2026-11-18 明确：「不可用帐号只有位次列
+ * （含帐号名）置灰，其他不置灰」）。
+ *
+ * ⚠️ 与「全行置灰」相反 —— 总积分与分档段**保持原色**，让用户仍能看到这个号
+ *    有多少积分、哪一档，只是知道它当前不能被选。
+ * ⚠️ 用 color 而不是 opacity：opacity 会让文字与背景的对比度一起降，
+ *    在深色主题下可能淡到看不清（本仓有过对比度审计记录）。
+ */
+.dim-jh-badgeColId[data-disabled="true"] {
+  color: var(--dsw-alias-label-tertiary, #8f959e);
+}
+
+
+/**
+ * 总积分读数（总7564.5）。
+ *
+ * ⚠️ 不定宽 —— 用户明确「长积分不需要单独左对齐」，总积分后面紧跟长/短/临。
+ * ⚠️ 但因为前面的标识列是固定 161px，总积分的**起始位置**对所有账号天然一致。
+ */
+.dim-jh-badgeRow.dim-jh-badgeRowInline > .dim-jh-badgeValue {
+  display: inline;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/**
+ * ★★ **积分区的账号行间距收紧**（2026-11-18）。
+ *
+ * .dim-jh-badgeSection 原有 gap: 5px —— 15 个账号就是 **15 × 5 = 75px 纯间距**
+ * （实测：rows 合计 210px，但 section 高 334px，多出的 124px 里 75px 是 gap）。
+ * 用户要求「默认显示 15 个」，这 75px 是纯浪费 ⇒ 账号行之间改为接近 0。
+ *
+ * ⚠️ 只作用于**单行账号行**之间的间隔：节标题 / 展开按钮 / 签到区的间距
+ *    仍由 .dim-jh-badgeSection 的 gap 控制 —— flex 的 gap 没法「只针对某一类
+ *    子元素」，故改用「相邻单行行」选择器把账号行之间的视觉间隔压掉。
+ *
+ * 实测效果：15 个号的弹窗 504px → 约 430px。
+ */
+.dim-jh-badgeRow.dim-jh-badgeRowInline { margin-top: 0; }
+.dim-jh-badgeRow.dim-jh-badgeRowInline + .dim-jh-badgeRow.dim-jh-badgeRowInline { margin-top: -4px; }
+
+/**
+ * ⚠️⚠️ **'display: contents' 在这里是错的 —— 必须用 'display: inline'**
+ *（2026-11-18 实测踩到，行高从 14px 暴涨到 **122px**）。
+ *
+ * ## 为什么 contents 会失败
+ *
+ * 'display: contents' 把 wrapper 与 note 自身的盒子抹平后，它们的**子元素**
+ * 直接成为父级 '.dim-jh-badgeRowInline' 这个 **flex 容器**的 flex item。
+ * 而 flex item 会被 **blockify**（'<span>' 的 'inline' 强制变成 'block'）
+ * ⇒ **每个带色段各占一整行** ⇒ 一个账号 122px，15 个号 2124px。
+ *
+ * 实测证据（改造过程中）：
+ * '''
+ * row: 122px   ← 期望 14px
+ * notePart: display: block   ← inline 被 blockify 了
+ * '''
+ *
+ * ## 修法：不用 flex，用**行内流**
+ *
+ * - 父级 '.dim-jh-badgeRowInline' 保留 'flex'（名字/读数/说明三段横向排列）
+ * - 说明这一段整体作为一个 **inline 盒子**参与父级 flex
+ *   （'display: inline' → flex item 会被 blockify，但**它是单个盒子**，
+ *     内部再走普通行内流 ⇒ 内部的 span 保持 inline，不各占一行）
+ * - 内部段用 'inline' + 'white-space: nowrap'，靠父级的 'overflow: hidden'
+ *   统一截断
+ *
+ * ⚠️ 不要试图给内部段写 'display: inline' 去对抗 blockify ——
+ *    blockify 发生在**成为 flex item 那一刻**，子规则赢不了。
+ */
+.dim-jh-badgeNoteInlineWrap {
+  /* ⚠️ 不能是 contents（见上）；inline 让它成为单个 flex item，内部走行内流 */
+  display: inline;
+  /* 空间不足时先牺牲说明（名字/读数更重要） */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 行内的分档说明：整体作为一个行内盒子，内部段保持 inline 串联。 */
+.dim-jh-badgeRowNoteInline {
+  /* ⚠️ 不能是 contents；inline 让它内部恢复普通行内流 */
+  display: inline;
+  white-space: nowrap;
+}
+.dim-jh-badgeRowNoteInline > .dim-jh-badgeNotePart,
+.dim-jh-badgeRowNoteInline > .dim-jh-badgeNoteSep {
+  /* ⚠️ 这里必须 inline（不是 flex item，故不会被 blockify） */
+  display: inline;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+/* ⚠️⚠️ 中点分隔符**必须自带左右间距**（2026-11-18 真机报障）：
+   三档都是 inline，中点本身没有 margin ⇒ 渲染成「长1600短1400」黏成一串，
+   用户读不出是三个独立的档位。
+   ⇒ 给分隔符左右各 3px（比写空格可靠：行内流会折叠纯空白文本节点）。 */
+/* ⚠️ 分隔符字号要比正文**大一号**（10 → 11px）：10px 的正文字号下
+   中点只有 10px 宽、视觉上几乎看不见，三档会读成一串（2026-11-18 真机报障）。
+   放大一号后中点清晰可辨，且不影响行高（行高由父级 14px 锁死）。 */
+/* ⚠️ 字号 11px 但**行高锁 10px + vertical-align: middle**：
+   11px 字号的默认行盒会把整行从 14px 撑到 15px（实测），
+   而用户明确要求「高度不能增加」⇒ 用 line-height 压回并居中。 */
+.dim-jh-badgeRowNoteInline > .dim-jh-badgeNoteSep {
+  margin: 0 3px;
+  font-size: 12px;
+  line-height: 20px;
+  vertical-align: middle;
+  color: var(--dsw-alias-label-tertiary);
+}
+/* 名字与读数之间的中点（JSX 里 key=l-sep 的那个），间距略大以区分「账号 · 余额」 */
+.dim-jh-badgeRow.dim-jh-badgeRowInline > .dim-jh-badgeNoteSep {
+  display: inline;
+  margin: 0 4px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/**
+ * ★★ **合并后的工具行**（2026-11-18 用户要求）：轮换起点 + 三个页签在同一行。
+ *
+ * 原：页签一行（27px）+ 轮换一行（38px + 7px 边距）= **72px**
+ * 新：一行 **33px** ⇒ 省 39px
+ *
+ * ⚠️ **只合并布局，不合并样式**（用户原话「不要被包进去轮换起点的样式里面，分开」）：
+ * - '.dim-jh-badgeToolbarRot' 是布局容器，'flex: 1 1 auto' 吃满中间；
+ *   里面仍是原来的 '.dim-jh-badgeRotation' 黄框（左边框 + 淡黄底）
+ * - '.dim-jh-badgeToolbarPref' 是 'flex: 0 0 auto' 贴最右；
+ *   里面仍是原来的 '.dim-jh-badgePref' 灰框分段控件
+ * ⇒ 视觉上两个框各自独立，只有「同一行」这一点是新的。
+ *
+ * ⚠️ 轮换那份吃满中间 ⇒ 它内部的下拉框（'.dim-jh-badgeSelect { flex: 1 }'）
+ *    跟着变宽（实测 ~88px → ~165px），「位次 23」不再被截断。
+ *
+ * ⚠️ 窄屏（< 720px）必须能回退两行：两个子项加起来放不下时 'flex-wrap: wrap'
+ *    会让页签换到下一行 —— 不隐藏任何功能。
+ */
+/* ⚠️⚠️ **必须 nowrap**（2026-11-18 实测）：加 flex-wrap: wrap 后，页签因为
+   有了 min-width 46px 而放不下 ⇒ 整组换到第二行，与用户要的「同一行」相反。
+   ⇒ 不换行，空间不足时由轮换起点那份（flex: 1 1 auto + min-width: 0）先收缩。
+   实测：弹窗 400px 时，轮换黄框 ~120px + 页签 148px 仍放得下。 */
+.dim-jh-badgeToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  flex-wrap: nowrap;
+}
+/* ⚠️ min-width: 0 必须保留：flex 项默认 min-width:auto，不加则被内容撑住、
+   无法收缩 ⇒ 页签被挤出容器（或被迫换行）。
+   ⚠️ 同时给 flex-basis: 0：让「收缩」从 0 开始算，而不是从内容宽度算，
+      否则它只会在内容宽度基础上按比例缩，页签仍可能放不下。 */
+.dim-jh-badgeToolbarRot {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+}
+.dim-jh-badgeToolbarRot > .dim-jh-badgeRotation {
+  /* 内层黄框拉满外层 ⇒ 里面的 select 才有空间变宽 */
+  flex: 1 1 auto;
+  min-width: 0;
+  /* 合并进工具行后不再需要自己的上边距（由 .dim-jh-badgeToolbar 统一给） */
+  margin-top: 0;
+}
+.dim-jh-badgeToolbarPref {
+  flex: 0 0 auto;
+  display: flex;
+}
+/* ⚠️ 页签组**不接受压缩**：它是三个可点开关，压扁后既看不出边界也难点。
+   空间不足时应该让轮换起点那份（可收缩）先让位，而不是把开关挤成一团。 */
+.dim-jh-badgeToolbarPref > .dim-jh-badgePref { flex: none; }
+
+/* ⚠️ 极窄容器下（< 约 360px）工具行放不下两组 ⇒ 让页签换到第二行，
+   而不是继续压扁它们。这是「不隐藏任何功能」的兜底。 */
+.dim-jh-badgeToolbar { row-gap: 5px; }
+
+/**
+ * 胶囊上的**补语**（位次 / 账号数，2026-11-18 用户要求）。
+ *
+ * 形态：'TRAE (字节) • 39575.71积分 默认 · 共 7 帐号'
+ *
+ * ⚠️ 'flex: none'：补语被省略号吃掉就等于没显示；空间不足时应该先牺牲
+ *    渠道名/读数（既有 flex 权重已那样设计，见 .dim-jh-badgeName 的注释）。
+ * ⚠️ 小一号字 + 降透明：它是补语不是读数，不能与主数字抢注意力。
+ */
+/* 胶囊上的**补语**（位次 / 账号数，2026-11-18 用户要求）。
+   形态：TRAE (字节) • 39575.71积分 默认 · 共 7 帐号
+
+   ⚠️⚠️ **必须可牺牲（flex: 0 1 auto + ellipsis），不能 flex: none**：
+   胶囊有硬上限 240px（实测约束，见 .dim-jh-badgeBtn 的注释）。两段补语约 78px，
+   加上最长的「渠道名 • 读数」209px 就超了 ⇒ 若设 flex:none，胶囊会被撑出容器、
+   挤压右侧模型选择器（2026-10-02 真实报障的形态）。
+   ⇒ 让补语成为**第一个被省略号吃掉**的部分：空间够时完整显示，不够时退化成「…」。 */
+/* ⚠️ 补语**不自己省略**（否则「默认」会被截成「默…」，比不显示更糟）：
+   让它保持完整宽度，由胶囊的 max-width + overflow 统一裁；
+   实测胶囊 240px 时「TRAE (字节) • 39575.71积分 默认 · 共 7 帐号」正好放得下。 */
+/**
+ * ★★ **胶囊与弹窗右上角的「可用 / 总」双数值**（用户 2026-11-18 要求）。
+ *
+ * 形态：可用 1900积分/总 8500积分
+ *
+ * ⚠️ 仅在**锁定永久积分**时渲染（未锁定时可用 == 总，显示两组数字是噪音）。
+ * ⚠️ 「可用」那一半用 --dsw-alias-label-primary（强调），
+ *    斜杠与「总」用次要色 —— 因为「可用」才是锁定模式下用户真正能花的钱，
+ *    「总」是参照系。这与既有的「读数强调、补语弱化」口径一致。
+ * ⚠️ 斜杠两侧不加空格（/）：胶囊横向空间极紧，且 可用X/总Y 已足够清晰。
+ */
+.dim-jh-badgeAvail,
+.dim-jh-badgeSumAvail {
+  color: var(--dsw-alias-label-primary);
+}
+.dim-jh-badgeReadingSlash {
+  color: var(--dsw-alias-label-tertiary);
+  margin: 0 1px;
+}
+.dim-jh-badgeSumSlash {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/**
+ * ★★ **页签切换器「积分 / 签到」**（用户 2026-11-18）。
+ *
+ * ## 视觉 = C 分段式为主 + B 的下划线
+ *
+ * 用户原话：「C 为主，加上 B 的下划线」。故：
+ * - **C 的部分**：外层一个圆角边框包住两个页签，中间一道细分隔线
+ * - **B 的部分**：选中项底部加一条品牌色下划线
+ *
+ *     ┌────────┬────────┐
+ *     │  积分  │  签到  │
+ *     │ ────── │        │   ← 选中项下划线
+ *     └────────┴────────┘
+ *
+ * ## ⚠️ 实现要点
+ *
+ * 1. 外层 inline-flex + overflow: hidden：让内部分隔线与圆角自然裁切
+ * 2. 页签之间用 border-right 而不是 gap：这样分隔线**贯穿**整个高度
+ *    （用 gap 会断开，看起来像两个独立按钮而非一个分段控件）
+ * 3. 下划线用 box-shadow: inset 0 -2px 0（不是 border-bottom）：
+ *    border-bottom 会让**未选中项也占位**，加粗时内容跳动；
+ *    inset box-shadow 不参与布局 ⇒ 切换时零位移
+ * 4. 选中项 font-weight: 600 会让文字变宽、可能挤动相邻项
+ *    ⇒ 用 font-weight: 500 且**未选中项也预留**（见下方 letter-spacing 说明）
+ */
+/**
+ * ★ **「当前排序」说明标签**（2026-11-18，显示在「帐号总数：N 个」后面）。
+ *
+ * 用户要求「在帐号总数后面加一个当前排序的说明，同时使用 tooltip 展示更加详细的解释」。
+ *
+ * ## 视觉取舍
+ *
+ * - 小一号字 + 降透明：它是**补语**（说明列表怎么排的），不该与「帐号总数」抢注意力
+ * - 加淡边框做成小胶囊：与后面的「可用/总」数字视觉分层，不会连成一片
+ * - cursor: help：明确告诉用户「这里悬停有解释」
+ * - flex: none：绝不被压缩（被省略号吃掉就等于没标）
+ *
+ * ## 三种状态用不同色调区分（data-order）
+ *
+ * | 值 | 含义 | 色调 |
+ * |---|---|---|
+ * | tier | 默认档位序（临期优先）| 中性灰 |
+ * | start | 起点优先 | 品牌色（有主动设置）|
+ * | manual | 严格手动顺序 | 警示黄（会改变既有优先序，值得注意）|
+ */
+/**
+ * ⚠️ 外层包裹：帐号总数：N 个 + 排序标签 在同一个 span 里，
+ * 而 .dim-jh-badgeSectionTitle 的 gap: 8px 只作用于**它的直接子元素** ——
+ * 若这层不设 inline-flex，两段文字会**紧贴在一起**（实测截图报障）。
+ */
+.dim-jh-badgeCountLine {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+/**
+ * ★ **轮换起点的档位提示**（用户 2026-11-18 要求「不在同一个档次时需要有提示」）。
+ *
+ * S2 语义下起点会被提到最前、先烧它自己那一档 ⇒ 若它不是临期档，
+ * 「临期要排在它后面」这个后果必须让用户看见。
+ *
+ * ⚠️ 用**黄色**（state-warn）而不是错误红：这不是故障，是**信息性提醒** ——
+ *    用户的选择是合法的，只是后果与默认不同。
+ * ⚠️ 只在非临期档渲染 ⇒ 起点是临期档（最常见）时不占任何高度。
+ * ⚠️ 允许换行（white-space: normal）：文案约 30 字，窄弹窗里折成两行
+ *    也好过被省略号截断 —— 截断会让「其他账号的临期仍优先」这半句消失，
+ *    而那正是用户最需要知道的部分。
+ */
+.dim-jh-badgeRotationTierHint {
+  flex-basis: 100%;
+  margin-top: 3px;
+  font-size: 10px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #b45309) 88%, var(--dsw-alias-label-secondary));
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dim-jh-badgeSortHint {
+  flex: none;
+  padding: 0 5px;
+  border: .5px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  font-size: 9.5px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: help;
+  white-space: nowrap;
+}
+/* 起点优先：品牌色（用户主动设了起点） */
+.dim-jh-badgeSortHint[data-order="start"] {
+  color: var(--dsw-alias-brand-primary, #1677ff);
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 40%, var(--dsw-alias-border-l2));
+}
+/* 严格手动顺序：警示黄 —— 它会让「临期优先」失效，值得用户注意 */
+.dim-jh-badgeSortHint[data-order="manual"] {
+  color: var(--dsw-alias-state-warn-primary, #b45309);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #b45309) 40%, var(--dsw-alias-border-l2));
+}
+
+.dim-jh-badgeTabs {
+  display: inline-flex;
+  align-items: stretch;
+  /* ⚠️ 必须 overflow: hidden：否则第一/最后一个页签的直角会盖住圆角 */
+  overflow: hidden;
+  border: .5px solid var(--dsw-alias-border-l2);
+  border-radius: 7px;
+  background: var(--dsw-alias-bg-layer-2);
+  /* ⚠️ 紧跟标题，与时间戳之间留出空隙（时间戳自己 margin-left:auto 推到右侧） */
+  margin-left: 10px;
+  flex: none;
+}
+.dim-jh-badgeTab {
+  border: 0;
+  /* ⚠️ 分隔线用 border-right：gap 会让线断开 */
+  border-right: .5px solid var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 2px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  /* ⚠️ 下划线用 inset box-shadow：不参与布局 ⇒ 切换时零位移 */
+  box-shadow: inset 0 -2px 0 transparent;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+/* 最后一个页签不要右分隔线（否则与容器右边框叠成双线） */
+.dim-jh-badgeTab:last-child { border-right: 0; }
+.dim-jh-badgeTab:hover { background: var(--dsw-alias-bg-layer-3); color: var(--dsw-alias-label-primary); }
+/* 选中态：品牌色下划线 + 主文字色（对应 B 方案的视觉） */
+.dim-jh-badgeTab[aria-selected="true"] {
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: inset 0 -2px 0 var(--dsw-alias-brand-primary, #1677ff);
+}
+/* 键盘焦点环：跟随本文件既有约定（outline:none + box-shadow） */
+.dim-jh-badgeTab:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -2px 0 var(--dsw-alias-brand-primary, #1677ff),
+    0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 30%, transparent);
+}
+/**
+ * ★★ **页签内容面板**（2026-11-18）。
+ *
+ * ⚠️⚠️ **不能用 display: contents**（真实缺陷，我第一版就是这么写的）：
+ *    contents 会让元素**没有自己的盒子** ⇒ min-height / height 全部失效
+ *    ⇒ 用户要求的「切到签到页不要变矮」根本做不到（实测 minHeight 设了 259px
+ *    却仍是 212px）。
+ *
+ * 必需行为：
+ * - 有盒子（这样内联 minHeight 才生效，用来把签到页撑到积分页的高度）
+ * - 但**不引入额外间距**（原来的 contents 是为了这个）
+ *   ⇒ 用 display: block + 让内部第一个子元素的上边距不被折叠
+ *      （.dim-jh-badgeSection 自带 margin-top: 7px，块级容器不会吞它）
+ *
+ * ⚠️ flex: 1 1 auto + min-height: 0：面板在弹窗这个 flex 列里可以伸缩，
+ *    但**不主动撑高**（撑高由内联 minHeight 决定）。
+ */
+.dim-jh-badgeTabPanel {
+  display: block;
+  /* ⚠️ flex 子项默认 min-height: auto 会让内容把它撑到自然高度；
+     这里保持 auto 是刻意的 —— 内容高时面板就该高（签到日志长时不裁切）。 */
+}
+
+/**
+ * ★ **签到页的文本放开换行**（用户接受「按推荐方案来」，2026-11-18）。
+ *
+ * 拆分页签前，签到的汇总与逐渠道结果是 nowrap + 省略号（挤在积分页底部，
+ * 读不全）；拆成独立页签后空间充足 ⇒ 放开换行，让用户能读全每个渠道的结果。
+ * 这是拆分页签最主要的使用体验收益。
+ *
+ * ⚠️ 只作用于**签到页内部**（.dim-jh-badgeTabPanel 下），
+ *    不影响积分页那些必须单行的账号行。
+ */
+.dim-jh-badgeTabPanel .dim-jh-badgeNote,
+.dim-jh-badgeTabPanel .dim-jh-badgeFoot {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.7;
+}
+
+.dim-jh-badgeCount {
+  flex: none;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+  opacity: .85;
+  white-space: nowrap;
+  margin-left: 3px;
+}
 /* 分桶说明的**逐段带色**（用户 2026-10-12：永久绿 / 长期黄 / 临期红 + 倒计时）。
    ⚠️ 颜色语义与 credit-expiry.js 的 expirySplitParts 一一对应，改一处要改两处：
      permanent（服务端没给到期时间，真·永久）→ ok 绿
@@ -1524,6 +2949,10 @@ var STYLES = `
    ⚠️ 用 tone 变量而不是硬编码色值：深浅色主题各自有定义（与 .dim-jh-badgeDot 同源）。 */
 .dim-jh-badgeNotePart { font-variant-numeric: tabular-nums; }
 .dim-jh-badgeNotePart[data-tone="ok"] { color: var(--dsw-alias-state-success-primary, #15803d); }
+/* 浅绿 = 「长期」。与卡片那份（.dim-jh-creditPoolPart）**必须同值**：两处是同一套
+   五档配色，改一处不改另一处会出现「设置页浅绿、徽标黄」的自相矛盾。
+   ⚠️ 78% 的由来见 .dim-jh-creditPoolPart[data-tone="okSoft"] 上方的对比度表。 */
+.dim-jh-badgeNotePart[data-tone="okSoft"] { color: color-mix(in srgb, var(--dsw-alias-state-success-primary, #15803d) 78%, var(--dsw-alias-label-tertiary, #8f959e)); }
 .dim-jh-badgeNotePart[data-tone="warn"] { color: var(--dsw-alias-state-warn-primary, #b45309); }
 .dim-jh-badgeNotePart[data-tone="error"] { color: var(--dsw-alias-state-error-primary, #d93025); }
 .dim-jh-badgeNotePart[data-tone="muted"] { color: var(--dsw-alias-label-tertiary); }
@@ -1549,7 +2978,7 @@ var STYLES = `
 .dim-jh-badgeClaim { gap: 5px; }
 .dim-jh-badgeClaimRow { display: flex; gap: 5px; }
 .dim-jh-badgeAction { flex: 1; min-width: 0; padding: 3px 7px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; font-size: 10.5px; line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: background .15s ease, color .15s ease, border-color .15s ease; }
-.dim-jh-badgeAction:hover:not(:disabled) { border-color: color-mix(in srgb, #1677ff 45%, var(--dsw-alias-border-l2)); background: color-mix(in srgb, #1677ff 10%, var(--dsw-alias-bg-layer-2)); color: var(--dsw-alias-brand-primary); }
+.dim-jh-badgeAction:hover:not(:disabled) { border-color: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 45%, var(--dsw-alias-border-l2)); background: color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 10%, var(--dsw-alias-bg-layer-2)); color: var(--dsw-alias-brand-primary); }
 .dim-jh-badgeAction:disabled { opacity: .55; cursor: default; }
 .dim-jh-badgeNotice { font-size: 10px; line-height: 14px; color: var(--dsw-alias-label-secondary); }
 .dim-jh-badgeNotice[data-tone="warn"] { color: var(--dsw-alias-state-warn-primary); }
@@ -1817,6 +3246,9 @@ var STYLES = `
   .dim-jh-railGroup { display: contents; }
   .dim-jh-railGroupTitle { display: none; }
   .dim-jh-providerRow { flex: none; }
+  .dim-jh-railPinned { display: contents; }
+  .dim-jh-providerRow[data-pinned="true"] { padding-right: 8px; border-right: 1px solid var(--dsw-alias-border-default, #e5e5e5); }
+  .dim-jh-providerSub { display: none; }
   .dim-jh-provider { width: auto; min-height: 40px; padding: 6px 10px; }
   .dim-jh-panel { padding: 14px 12px; }
 }
@@ -1924,7 +3356,68 @@ var STYLES = `
 /* 焦点环：跟随本文件既有约定（outline:none + box-shadow），与 .dim-jh-switch /
    .dim-jh-zcSelect 一致。官方设置页的选择器**没有** outline 规则，故这里也不加，
    否则同一张插件页上本卡片会比其他控件多一圈描边。 */
-.dim-jh-cardSelector:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, #1677ff 30%, transparent); }
+.dim-jh-cardSelector:focus-visible { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary, #1677ff) 30%, transparent); }
+
+/* ── 模型选择器每行的名字与徽标（conversation.input.model.label，方案 A）──
+
+   ⚠️ 对齐模型必须与宿主自己的回落分支逐字同源：宿主把名字与徽标包在
+   .badgedName 里（display:inline-flex; align-items:center; gap:4px），而徽标
+   本身 flex:none。若这里写成「裸 span 加一个空格」，chip 会按**文本基线**
+   对齐 —— 而 chip 自己是 inline-flex，它的基线来自内部文字 ⇒ 同一份菜单里
+   我们的行比宿主的行**明显偏高**（参考实现踩过同一格，见其注释）。
+
+   ⚠️ 名字那格必须 min-width:0 + 省略号：本槽位接管了**所有** provider 的行,
+   宿主 CSS 里徽标是 flex:none（不收缩），名字没有这层保护就会被徽标挤没,
+   而不是自己截断。
+
+   ⚠️ 本文件是 JS 模板字符串，注释里不能出现反引号。 */
+.dim-jh-modelLabel { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; vertical-align: baseline; white-space: nowrap; }
+.dim-jh-modelLabelName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dim-jh-modelPromoChip { flex: none; display: inline-flex; align-items: center; padding: 0 6px; border: 1px solid transparent; border-radius: 999px; font-size: 11px; line-height: 16px; white-space: nowrap; }
+/* 宿主四档语义色：与宿主 Tag 的 tone 同名同数，取宿主自己的 alias token,
+   从而在每个主题下都可读。外来渠道的徽标走这一组（数据来自宿主目录,
+   我们只照画，不替上游发明含义）。 */
+.dim-jh-modelPromoChip[data-tone='neutral'] { color: var(--dsw-alias-label-secondary); background: color-mix(in srgb, var(--dsw-alias-label-secondary) 12%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-label-secondary) 24%, transparent); }
+.dim-jh-modelPromoChip[data-tone='info'] { color: var(--dsw-alias-status-info); background: color-mix(in srgb, var(--dsw-alias-status-info) 12%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-status-info) 24%, transparent); }
+.dim-jh-modelPromoChip[data-tone='success'] { color: var(--dsw-alias-status-success); background: color-mix(in srgb, var(--dsw-alias-status-success) 12%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-status-success) 24%, transparent); }
+.dim-jh-modelPromoChip[data-tone='warning'] { color: var(--dsw-alias-status-warning); background: color-mix(in srgb, var(--dsw-alias-status-warning) 12%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-status-warning) 24%, transparent); }
+/* 自家渠道：颜色是**上游 hex 原话**（内联 style 覆盖上面这组），缺色时
+   落 neutral。上游发什么色就画什么色，插件不做二次创作。 */
+.dim-jh-modelPromoChip[data-tone='upstream'] { color: var(--dsw-alias-status-success); background: color-mix(in srgb, var(--dsw-alias-status-success) 12%, transparent); border-color: color-mix(in srgb, var(--dsw-alias-status-success) 24%, transparent); }
+
+/* ── 限流中断后「解禁再继续」 ─────────────────────────────────────────────
+   ① 报错行行尾的切换按钮（原生 DOM 增强，见 rate-limit-resume.js）；
+   ② Jet Hub 设置页那一段的待续跑列表。
+   ⚠️ 本文件是 JS 模板字符串：注释里不能出现反引号，也不能写美元花括号插值。
+   颜色全部走宿主 token（跟随主题），不写死色值。 */
+
+/* 行尾格子：turnErrorRow 是 grid-template-columns: 10px minmax(0,1fr) auto,
+   新格子落进 auto 轨道 ⇒ 紧跟错误码。align-self:center 让它与单行文案对齐,
+   而不是被拉伸到两行高的文案块顶端。 */
+.dim-jh-resumeSlot { align-self: center; display: inline-flex; }
+
+.dim-jh-resumeToggle { display: inline-flex; align-items: center; gap: 5px; margin: 0; padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, #dfe1e5); border-radius: 8px; background: none;
+  font: inherit; font-size: 11px; line-height: 16px; cursor: pointer;
+  color: var(--dsw-alias-state-warn-primary, #d9822b); transition: border-color .15s ease, background .15s ease, color .15s ease; }
+
+.dim-jh-resumeToggle:hover:not(:disabled) { border-color: currentColor;
+  background: color-mix(in srgb, currentColor 8%, transparent); }
+.dim-jh-resumeToggle:disabled { opacity: 0.55; cursor: default; }
+.dim-jh-resumeToggle:focus-visible { outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 30%, transparent); }
+
+/* 「不自动继续」这一态：红色叉 + 红色描边（同一套 token，别换色系）。 */
+.dim-jh-resumeToggleOff { color: var(--dsw-alias-state-error-primary, #d93025); }
+
+.dim-jh-resumeIcon { flex: none; display: block; }
+.dim-jh-resumeText { white-space: nowrap; }
+
+/* 设置页的待续跑列表 */
+.dim-jh-resumeList { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.dim-jh-resumeRow { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 18px;
+  color: var(--dsw-alias-label-secondary, #4e5969); }
+.dim-jh-resumeRowText { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 `;
 var PLUGIN_ID = "dsh-providers-hub";
 var STYLE_TAG_ID = PLUGIN_ID + "/jet-hub.css";
@@ -1971,7 +3464,7 @@ function ensureJetHubStyles() {
 }
 
 // plugin-src/client/jet-hub.js
-var React7 = __toESM(require("react"), 1);
+var React10 = __toESM(require("react"), 1);
 
 // src/provider-registry.ts
 var PROVIDER_REGISTRY = Object.freeze([
@@ -2046,8 +3539,16 @@ var PROVIDER_REGISTRY = Object.freeze([
     label: "WorkBuddy (国际版)",
     displayName: "WorkBuddy (国际版)",
     logoClass: "workbuddy",
-    // ⚠️ 国际版后端**没有**签到接口（内核里只有 `get-dosage-notify` 用量通知）。
-    credits: { balance: true, dailyCheckin: false },
+    /**
+     * ⚠️ 2026-11-15 更正为 `dailyCheckin: true`。
+     *
+     * 原先写 `false` 的依据是「内核里没有 `checkin-*` 字面量」—— 但签到端点是
+     * **前端**直接调的，内核里从来不会有。国际版与国内版端点逐字同形，只是
+     * baseURL 不同（实证见 `docs/agent-notes/providers-workbuddy-intl-checkin.md`）。
+     * ⚠️ 这一格是**客户端「一键签到」按钮的开关**（客户端能力表从本表派生）：
+     * 置 `true` 才会渲染按钮，置 `false` 时后端能力再全也点不到。
+     */
+    credits: { balance: true, dailyCheckin: true },
     creditPackages: true,
     permanentLock: true,
     usesExpiryWindow: true,
@@ -2200,11 +3701,14 @@ var PROVIDER_REGISTRY = Object.freeze([
     label: "Raccoon (商汤)",
     displayName: "Raccoon (商汤)",
     logoClass: "raccoon",
-    // ⚠️ 不登记 `dailyCheckin`，且**这不是遗漏**：实测「每日 300 积分」是服务端
-    //    按日自动发放的（账单 `biz_type: 'daily_grant'`），**没有可调用的签到端点**。
-    //    登记它会让用户每次点击都必然失败。
+    // ⚠️ `dailyCheckin: true`（2026-11-15 真实账号复验后登记）。
+    //    旧注释「每日 300 由服务端自动发放、没有可调用的签到端点」是**误判** ——
+    //    那次只翻了 `/points/v1|v2`（`sign_in` / `check_in` / `daily` 确实全 404），
+    //    漏了**办公端**的 `GET /api/web/office/v3/setting_info`：带桌面端身份头
+    //    访问一次即按天幂等结算当日每日积分（3 个真实账号实测各 +300）。
+    //    实现在 `raccoon-credits.ts` 的 `claimRaccoonDailyCheckin`。
     //    `onboardingTasks` 是 3000 分的**幂等一次性**桌面端登录奖励。
-    credits: { balance: true, onboardingTasks: true },
+    credits: { balance: true, dailyCheckin: true, onboardingTasks: true },
     settingsNamespace: "llm-raccoon",
     channel: true
   },
@@ -2650,11 +4154,8 @@ var PROVIDER_REGISTRY = Object.freeze([
     // ⚠️ **与 opencode 的关键差异**（别把两者当同一格）：opencode 的「余额」是
     // 本地派生的**通道可用性**（零网络）；魔搭是**云侧真读数**，走 `credits` 域的
     // `fetchBalanceDetailed`（三种失败的用户动作不同，故不用笼统的 `fetchBalance`）。
-    credits: { balance: true, dailyCheckin: false },
-    // ⚠️ 无签到：额度是**每日自动刷新**（每账号 250 魔粒、UTC+8 零点重置，
-    //    旗舰档每次扣 2），**没有「领取」动作、也没有签到 API**。
-    //    宿主侧 credits.claimAll 仍要显式回一句可读错误（见 jet-hub-rpc.ts），
-    //    否则自动签到会把它记成 **failed** 而不是 **inactive**。
+    // 魔粒由网页登录触发发放，渠道可单独退出全局自动签到。
+    credits: { balance: true, dailyCheckin: true },
     //
     // ⚠️⚠️ **登记 `rateLimit: false`（用户要求，2026-10-17）** —— 这**不是**能力缺失，
     //    是**产品取舍**，两者的区别必须留在注释里：
@@ -2759,7 +4260,11 @@ var PROVIDER_REGISTRY = Object.freeze([
      *
      * 原注释写的是「推理已通但 `channel: true` 会点燃 9 个 spec / 11 条派生登记，先补齐再翻」。
      * ⚠️⚠️ 但那是**流程理由，不是产品理由** —— 2026-10-22 对抗审计指出：
-     * `channel` 在**生产代码里零个读取点**（全仓普查，唯一消费者是 tests/），
+     * `channel` 在**生产代码里零个读取点**（全仓普查，唯一消费者是 tests/）——
+     * ⚠️ **2026-11-15 起不再成立**：`src/jet-hub-rpc.ts` 的 `noModelLeg`
+     * （`provider.setEnabled` 关闭方向）读 `descriptorOf(provider)?.channel === false`，
+     * 这是**第一个生产读取点**。新增「自报非模型渠道」的 provider 时，那一腿会决定
+     * 它能否在目录为空时被关闭 ⇒ 别再按「没人读 channel」来推断影响面。
      * 而 `false` 造成两个**用户可见**缺口：
      * - 它的模型**永不进聚合目录与轮换候选**（`AGGREGATE_CHANNELS` 缺它）；
      * - `credits-balance-self-heal.spec.ts` 用 `d.channel && d.credits.balance` 派生期望集合
@@ -2926,14 +4431,125 @@ var PROVIDER_REGISTRY = Object.freeze([
     channel: true
   },
   {
+    // 豆包（Doubao，字节跳动，2026-10-29 接入签到结构）。
+    // ⚠️ 位置要求：排在 magicrew **之前** —— magicrew 有「倒数第二」的显式守卫
+    //   （用户明确指定它紧邻 aggregate），新渠道插在它前面才不破那条断言。
+    id: "doubao",
+    label: "豆包 (字节)",
+    displayName: "豆包 (字节)",
+    logoClass: "doubao",
+    // ⚠️ `dailyCheckin: true`（2026-11-03 **真机实测接通**）：`POST /alice/ug/campaign/landing/checkin`
+    //    返回 `checked_in:true, reward_amount:200, continuous_days:2, idempotent:true`。
+    //    签到带 `a_bogus` 签名（页面 `bdms.frontierSign` 生成）⇒ 走 CDP 页面会话，
+    //    实现在 `src/doubao-signin.ts` 的 `claimDoubaoDailyViaPage`。
+    // ⚠️⚠️ **`balance: true` 的语义是「本渠道进 credits 表」，不是「上游有余额」**
+    //   （2026-11-13 审计返工，PR #29 初版把两件事混成一件）：
+    //   这张表同时服务 `credits.claimAll`（签到）与 `credits.balances`（余额），
+    //   而 `credits-runtime-parity.spec.ts` 有两条硬不变式把「表里有哪些渠道」
+    //   绑在 `credits.balance === true` 上（`Object.keys(table) === 余额能力集`）。
+    //   豆包的**签到**必须走这张表（`claimDoubaoDailyCheckin`），故这里必须是 `true`。
+    //   ⚠️ 但上游**没有**积分余额概念（签到给的是「每日额度权益」，不是积分包；
+    //   `src/doubao-credits.ts:15-16` 逐字写明「无独立余额端点」）⇒ 余额那一腿
+    //   由 `credits.balances` 端点**短路成空列表**（见 `src/jet-hub-rpc.ts` 的
+    //   doubao 分支），绝不让一个注定为 `null` 的读数冒出去。
+    //   ⚠️ 为什么不能改 `false`：那会让 `createProviderCredits()` 少一条
+    //   ⇒ `credits.claimAll` 对豆包回 `unsupported provider: doubao` ⇒ 签到静默失效。
+    credits: { balance: true, dailyCheckin: true },
+    // ✅ **进每日自动链**（2026-11-22 变更，原为排除）：
+    //    签到的 `a_bogus` 签名确实要起一次 headless Chromium（`--headless=new`，
+    //    `src/doubao-signin.ts` 的 spawn 参数），但代价是**每账号每天一次、
+    //    单次几十秒**，与 zcode 那个「按设备烧阿里云 captcha 配额」不同源 ——
+    //    zcode 是拿第三方配额换积分，豆包只是本地起一个临时 profile 的浏览器。
+    //    默认开启的收益（每天自动 +200 额度）大于这点开销，故不再排除。
+    //    ⚠️ 想退出自动链的用户可把该渠道的账号**停用**（停用账号不参与选号与签到），
+    //    或把面板上的渠道开关关掉，无需改代码。
+    autoCheckinExcluded: false,
+    // ⚠️ `rateLimit: false` 必须显式写：本渠道当前没有适配器、不写
+    //    `modelRateLimits`、也不在 `probeById` 里 ⇒ 「重测 / 重置」点下去恒惰性
+    //   （与 magicrew / accio 旧格同因）。将来接推理链路时再翻正。
+    rateLimit: false,
+    // ⚠️ 不登记 accountTest / creditPackages / permanentLock / usesExpiryWindow
+    //    —— 全部省略 = false，与「上游未实测、不编造数据」的口径一致。
+    //
+    // ⚠️⚠️ **`channel: false`（与 codely 当年「UI 先行阶段」同型）**：签到已接通，
+    //    但本渠道**没有模型目录 / 适配器 / auth 服务**（纯签到渠道，无推理链路）。
+    //    `channel: true` 会点燃 `refresh-targets-derived.spec.ts` 的「channel ⇒ 必须有
+    //    modelAdapters 目录」守卫（报错「关闭 provider 后模型仍可选」），而 doubao 根本
+    //    没有目录可关。`credits` 的两个判据都独立于 `channel`：`dailyCheckin: true`
+    //    让签到入口照常出现（`checkinProviders()` 按 `supportsDailyCheckin` 过滤），
+    //    `balance: true` 让豆包进 credits 表（签到的 `claim` 走同一张表；余额那一腿
+    //    由端点短路成空列表，见上方 `credits` 那条）。
+    // ⚠️ 2026-11-22 更正：模型目录/适配器已接通（src/doubao-adapter.ts），
+    //    已进 modelAdapters 表 ⇒ 运行时 noModelLeg 门（channel===false AND
+    //    modelAdapters[provider]===undefined）不成立，模型腿照常读取、对话照常路由。
+    //    这里**刻意保持 false**：豆包凭据是 cookie（无 refresh 端点、无 auth 服务），
+    //    翻 true 会点燃「channel ⇒ 必须有 auth/聚合/续期」三张派生守卫（与 codely 当年
+    //    channel:false 但有目录的形态同型）。签到与余额两条腿独立于 channel。
+    channel: false
+  },
+  {
+    /**
+     * AgnesCode 国内站（`agnescode`，2026-11-19）。
+     *
+     * ⚠️ 这家**不是** `api.agnes-ai.cn` 那个 OpenAI 兼容的 API 产品：
+     * 凭据是桌面客户端 `AgnesCode` 的本机会话（`%APPDATA%\AgnesCode` 的
+     * `code-auth-session.cn.v1`，Chromium os_crypt + DPAPI），推理打的是
+     * 会话里下发的 `bffPublicBaseUrl`（`api-agnes-code.agnes-ai.cn/v1`）。
+     * 因此它没有 API Key 可粘贴 —— 账号入口是「导入本机登录态」。
+     *
+     * ⚠️ 与 `monkeycode` / `monkeycodeintl` 同纪律：两站是**独立账号体系**，
+     * 模型目录按 provider 缓存 ⇒ 必须两个 id。实现完全共用
+     * （`AgnescodeAuth` / `AgnescodeAdapter`），只在 `product` 上分叉。
+     *
+     * ⚠️ **声明位置**：必须插在 `marvis` **之前**。
+     *    末尾三家的相邻关系是硬断言（`provider-registry.spec.ts`）：
+     *    `marvis` 紧邻 `magicrew`（差 1）、`magicrew` 紧邻 `magicrewintl`（差 1）、
+     *    `magicrewintl` 紧邻 `aggregate`（差 1）—— 插在任何一家之间都会把它们
+     *    各自的相邻断言挤坏。**新增 provider 一律插在 `marvis` 之前。**
+     *
+     * ⚠️ `credits.dailyCheckin` **不登记**：AgnesCode 没有签到接口（未取证到，
+     * 与 WorkBuddy 国际版「后端无签到」那次同型判据：没探到就不假装有）。
+     * ⚠️ `creditPackages` **不登记**：余额端点只给「限时 / 永久」两个标量桶，
+     * 没有逐包的到期日期 —— 登记会让卡片 hover 出现我们编的明细
+     * （与 monkeycode 拒绝 `creditPackages` 的理由逐字相同）。
+     * ⚠️ `permanentLock` / `usesExpiryWindow` **不登记**：那两个能力断言的本家
+     * 语义（按包分桶 + `splitBuddyCreditsByExpiry`）在这家并不存在。
+     * ⚠️ `rateLimit` **省略（= true）**：适配器确实会写 `modelRateLimits`
+     * （429 冷却），且 `probeById` 里有本家探针（拉一次目录，不消耗额度）。
+     */
+    id: "agnescode",
+    label: "AgnesCode",
+    displayName: "AgnesCode",
+    logoClass: "agnescode",
+    credits: { balance: true, dailyCheckin: false },
+    channel: true
+  },
+  {
+    /**
+     * AgnesCode 国际版（`agnescodeintl`）。
+     *
+     * ⚠️ 与国内站**独立账号体系**（不同的 host 族与不同的桌面构建），
+     * 故必须是另一个 id。能力标记与国内站逐项一致 —— 两站共用一个
+     * `AgnescodeProduct` 形状与同一套实现，没有理由在能力上分叉。
+     */
+    id: "agnescodeintl",
+    label: "AgnesCode (国际版)",
+    displayName: "AgnesCode (国际版)",
+    // ⚠️ 与国内站共用同一份图标资产（同一个产品的两套部署）。
+    logoClass: "agnescode",
+    credits: { balance: true, dailyCheckin: false },
+    channel: true
+  },
+  {
     // 腾讯 Marvis（2026-11-09 接入）。
     //
     // ## 为什么只有一条模型
-    // 上游**没有模型目录端点**（累计试过 9 条候选路径，全 404 / 400），模型列表
-    // 只能静态兜底。槽位里只有 `main-auto` 是用户要的（服务端自动路由），实测
-    // 落到 `deepseek-v4-1-flash-261017`；`deepseek-v4-pro-external` / `hy3-*` /
-    // `claude-*` / `gpt-5.4` / `hunyuan-*` 本账号无授权（400 无效模型 id）或
-    // 不在用户选择范围内 ⇒ **目录只列一条**。
+    // 上游**没有模型目录端点**（累计试过 10 条候选路径，全 404 / 400），模型列表
+    // 只能静态兜底。2026-11-14 用户裁定：只显示一条，**上行槽位切到
+    // `deepseek-v4-pro-external`**（此前是 `main-auto`，展示名仍是 `DeepSeek V4.1 Flash`）。
+    // 两者真实下行**同一个**模型 `deepseek-v4-1-flash-261017`（响应体 `model` 可证，
+    // 2026-11-14 探针 2/2 稳定）；`hy3-*` / `claude-*` / `gpt-5.4` / `hunyuan-*`
+    // 本账号无授权（400 无效模型 id）或不在用户选择范围内 ⇒ **目录只列一条**。
     // ⚠️ 真实模型 id（`deepseek-v4-1-flash-261017`）**不能直传**：上游回
     //    `400 {"code":4130001,"msg":"客户端AI业务错误: 无效模型id"}`，
     //    只有槽位名可作 `model` 上行 —— 归一逻辑见 `normalizeMarvisModelId`。
@@ -3125,8 +4741,8 @@ function creditCapabilitiesOf() {
     out[d.id] = Object.freeze({
       balance: d.credits.balance,
       // ⚠️ `dailyCheckin` 也是**可省略**字段（见 `CreditsCapability` 的注释：
-      //    raccoon 刻意不登记它），故按本函数「缺失即缺失」的规则一并条件拷贝
-      //    —— 这样「raccoon 没有签到端点」这件事在派生表里也是**可见的缺失**，
+      //    cline / workbuddy 刻意不登记它），故按本函数「缺失即缺失」的规则一并
+      //    条件拷贝 —— 这样「该渠道没有签到端点」这件事在派生表里也是**可见的缺失**，
       //    而不是一个与 `false` 无法区分的 `undefined`。
       //    判据侧一律 `=== true`（`supportsDailyCheckin`），故行为不变。
       ...d.credits.dailyCheckin === void 0 ? {} : { dailyCheckin: d.credits.dailyCheckin },
@@ -3180,6 +4796,9 @@ function supportsAccountTest(provider) {
 var PERMANENT_LOCK_EXPIRING_WINDOW_DAYS = 15;
 function supportsPermanentLock(provider) {
   return descriptorOf(provider)?.permanentLock === true;
+}
+function usesExpiryWindow(provider) {
+  return descriptorOf(provider)?.usesExpiryWindow === true;
 }
 function supportsCreditPackageList(provider) {
   return descriptorOf(provider)?.creditPackages === true;
@@ -3305,6 +4924,26 @@ function policyBlockedHint(canTest) {
 }
 
 // plugin-src/client/provider-toggle.js
+var PINNED_PROVIDER_IDS = Object.freeze(["aggregate"]);
+function isPinnedProvider(id) {
+  return PINNED_PROVIDER_IDS.includes(id);
+}
+function splitPinnedProviders(providers) {
+  const list = Array.isArray(providers) ? providers : [];
+  const pinned = [];
+  const channels = [];
+  for (const provider of list) {
+    if (isPinnedProvider(provider?.id)) pinned.push(provider);
+    else channels.push(provider);
+  }
+  return { pinned, channels };
+}
+function buildRailSections(providers, statuses) {
+  const { pinned, channels } = splitPinnedProviders(providers);
+  if (statuses === null) return { pinned, channels, open: [], closed: [] };
+  const { open, closed } = groupProviders(channels, statuses);
+  return { pinned, channels, open, closed };
+}
 function groupProviders(providers, statuses) {
   const list = Array.isArray(providers) ? providers : [];
   const map = statuses && typeof statuses === "object" ? statuses : {};
@@ -3321,7 +4960,6 @@ function providerSwitchState(status) {
   if (status === void 0 || status === null || typeof status !== "object") {
     return { checked: true, disabled: true, reason: "状态尚未读取" };
   }
-  const total = typeof status.models?.total === "number" ? status.models.total : 0;
   if (status.closed === true) return { checked: false, disabled: false, reason: null };
   if (typeof status.verifyFailed === "string" && status.verifyFailed.length > 0) {
     return {
@@ -3330,19 +4968,12 @@ function providerSwitchState(status) {
       reason: `暂时无法核实：${status.verifyFailed}`
     };
   }
-  if (total <= 0) {
-    return {
-      checked: true,
-      disabled: true,
-      reason: "该供应商没有可关闭的模型"
-    };
-  }
   return { checked: true, disabled: false, reason: null };
 }
-function summarizeProviderToggle(enabled, res) {
+function summarizeProviderToggle(enabled2, res) {
   const models = typeof res?.models === "number" ? res.models : 0;
   const accounts = typeof res?.accounts === "number" ? res.accounts : 0;
-  if (enabled) {
+  if (enabled2) {
     const parts2 = [];
     parts2.push(models > 0 ? `已打开 ${models} 个模型` : "模型本就全部打开");
     parts2.push(accounts > 0 ? `已启用 ${accounts} 个账号` : "账号本就全部启用");
@@ -4274,24 +5905,35 @@ function OpencodeKeyModal({ error, busy, inputRef, onSubmit, onSubmitAnonymous, 
   );
 }
 
-// plugin-src/client/modelscope-key-modal.js
+// plugin-src/client/qoder-web-session-modal.js
 var React2 = __toESM(require("react"), 1);
-var TOKEN_URL = "https://modelscope.cn/my/myaccesstoken";
-function ModelscopeKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
-  const submit = () => {
-    const value = inputRef && inputRef.current ? inputRef.current.value : "";
-    if (String(value).trim() === "") {
-      if (onClose) onClose();
-      return;
+function QoderWebSessionModal({ ctx, accountId, provider, hasSession, onClose }) {
+  const isCn = provider === "qodercn";
+  const site = isCn ? "qoder.com.cn" : "qoder.com";
+  const [cookie, setCookie] = React2.useState("");
+  const [busy, setBusy] = React2.useState(false);
+  const [error, setError] = React2.useState("");
+  const close = (changed) => {
+    if (onClose) onClose(Boolean(changed));
+  };
+  const save = async (value) => {
+    setBusy(true);
+    setError("");
+    try {
+      await ctx.rpc({ method: "qoder.setWebSession", payload: { accountId, cookie: value } });
+      close(true);
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err));
+    } finally {
+      setBusy(false);
     }
-    onSubmit(value);
   };
   return React2.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
       onClick: (e) => {
-        if (e.target === e.currentTarget && !busy && onClose) onClose();
+        if (e.target === e.currentTarget) close(false);
       }
     },
     React2.createElement(
@@ -4300,167 +5942,82 @@ function ModelscopeKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
         className: "dim-jh-modal",
         role: "dialog",
         "aria-modal": "true",
-        style: { maxWidth: "520px" }
+        style: { maxWidth: "560px" }
       },
       React2.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React2.createElement("div", { className: "dim-jh-modalTitle" }, "添加 ModelScope 账号")
+        React2.createElement(
+          "div",
+          { className: "dim-jh-modalTitle" },
+          isCn ? "Qoder（中国版）网页会话" : "Qoder 网页会话"
+        ),
+        React2.createElement(
+          "span",
+          { className: "dim-jh-modalSubtitle" },
+          hasSession ? "当前：已保存" : "当前：未设置"
+        )
       ),
-      // ⚠️ 内容必须放进 modalBody（flex:1; min-height:0; overflow-y:auto），
-      // 否则弹窗较高时内容会被裁掉（见 jet-hub.js 既有 modal 的注释）。
+      React2.createElement(
+        "p",
+        { className: "dim-jh-modalHint" },
+        "用于读取「资源包」每一笔的到期日（官网「用量明细」页的数据）。登录接口拿到的令牌读不到这份明细，只能用网页登录 Cookie。不设置时按本面板的领取记录推算到期日。"
+      ),
+      React2.createElement(
+        "ol",
+        { className: "dim-jh-hint", style: { paddingLeft: "1.2em", margin: "0 0 8px" } },
+        React2.createElement("li", null, `用浏览器登录 https://${site}/account/usage（必须是这张卡片对应的账号）`),
+        React2.createElement("li", null, "按 F12 打开开发者工具 →「网络」，刷新页面，点开 big_model_credits 这条请求"),
+        React2.createElement("li", null, "在「请求标头」里复制 Cookie 的值（或右键该请求「复制为 cURL」），粘贴到下面")
+      ),
       React2.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React2.createElement(
-          "p",
-          { className: "dim-jh-modalHint" },
-          "在 " + TOKEN_URL + " 生成访问令牌（形如 ms-…）后粘贴到下方。"
-        ),
-        // ⚠️ 这一句是**用户会踩的坑**：魔搭控制台的令牌有「有效期」一栏，
-        // 选短期会让账号过一阵就失效，而本插件**无法续期**（没有 refresh 端点）。
+        React2.createElement("textarea", {
+          className: "dim-jh-input",
+          rows: 4,
+          placeholder: "粘贴 Cookie，或整段 cURL",
+          value: cookie,
+          spellCheck: false,
+          autoComplete: "off",
+          style: { width: "100%", fontFamily: "monospace", WebkitTextSecurity: "disc" },
+          onChange: (e) => {
+            setCookie(e.target.value);
+            setError("");
+          }
+        }),
         React2.createElement(
           "p",
           { className: "dim-jh-hint" },
-          "建议把令牌有效期设为「永久」—— 本插件无法自动续期，短期令牌过期后需要回到这里重新粘贴。"
+          "Cookie 只保存在本面板的凭据库里、不会显示出来；它等同于官网登录状态，失效后需要重新粘贴。"
         ),
-        React2.createElement(
-          "div",
-          { className: "dim-jh-formRows" },
-          React2.createElement("input", {
-            ref: inputRef,
-            className: "dim-jh-input",
-            // ⚠️ password 类型：API Key 是凭据，不该在屏幕上裸显。
-            type: "password",
-            placeholder: "ms-…",
-            autoFocus: true,
-            // Enter 直接提交：粘贴 Key 后最自然的动作就是回车。
-            onKeyDown: (e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              }
-            }
-          })
-        ),
-        // ⚠️ 错误留在弹窗内：把整个账号列表切成错误态会让用户刚填的 Key
-        // 与错误信息一起消失，只能刷新重试。
-        error ? React2.createElement("p", { className: "dim-jh-error", role: "alert" }, "添加失败：" + error) : null
+        error && React2.createElement("p", { className: "dim-jh-error" }, error)
       ),
       React2.createElement(
         "div",
         { className: "dim-jh-modalActions" },
-        React2.createElement("button", {
-          type: "button",
-          className: "dim-jh-btn dim-jh-btnPrimary",
-          disabled: busy,
-          onClick: submit
-        }, busy ? "添加中…" : "添加"),
-        React2.createElement("button", {
+        hasSession ? React2.createElement("button", {
           type: "button",
           className: "dim-jh-btn",
           disabled: busy,
-          onClick: () => {
-            if (onClose) onClose();
-          }
-        }, "取消")
-      )
-    )
-  );
-}
-function ModelscopeKeyEditModal({ error, busy, currentMasked, inputRef, onSubmit, onClose }) {
-  const submit = () => {
-    const value = inputRef && inputRef.current ? inputRef.current.value : "";
-    if (String(value).trim() === "") {
-      if (onClose) onClose();
-      return;
-    }
-    onSubmit(value);
-  };
-  return React2.createElement(
-    "div",
-    {
-      className: "dim-jh-modalOverlay",
-      onClick: (e) => {
-        if (e.target === e.currentTarget && !busy && onClose) onClose();
-      }
-    },
-    React2.createElement(
-      "div",
-      {
-        className: "dim-jh-modal",
-        role: "dialog",
-        "aria-modal": "true",
-        style: { maxWidth: "520px" }
-      },
-      React2.createElement(
-        "div",
-        { className: "dim-jh-modalHead" },
-        React2.createElement("div", { className: "dim-jh-modalTitle" }, "编辑 API Key")
-      ),
-      React2.createElement(
-        "div",
-        { className: "dim-jh-modalBody" },
-        React2.createElement(
-          "p",
-          { className: "dim-jh-modalHint" },
-          "在 " + TOKEN_URL + " 生成访问令牌（形如 ms-…）后粘贴到下方。" + (currentMasked ? "当前：" + currentMasked : "当前：尚未设置")
-        ),
-        React2.createElement(
-          "div",
-          { className: "dim-jh-formRows" },
-          React2.createElement("input", {
-            ref: inputRef,
-            className: "dim-jh-input",
-            // ⚠️ password 类型：API Key 是凭据，不该在屏幕上裸显。
-            type: "password",
-            placeholder: "ms-…",
-            autoFocus: true,
-            disabled: !!busy,
-            // Enter 直接提交：粘贴 Key 后最自然的动作就是回车。
-            onKeyDown: (e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                submit();
-              }
-            }
-          })
-        ),
-        React2.createElement(
-          "p",
-          { className: "dim-jh-modalHint" },
-          "注意：换一把 Key 会同时更换该账号的标识（它由 Key 尾段派生），昵称与停用状态会保留。同一把 Key 只对应一个账号。"
-        ),
-        // ⚠️ 错误留在弹窗内：把账号列表切成错误态会让用户刚填的 Key
-        // 与错误信息一起消失，只能刷新重试。
-        error ? React2.createElement("p", { className: "dim-jh-error", role: "alert" }, "保存失败：" + error) : null
-      ),
-      React2.createElement(
-        "div",
-        { className: "dim-jh-modalActions" },
+          onClick: () => save("")
+        }, "清除会话") : null,
         React2.createElement("button", {
           type: "button",
           className: "dim-jh-btn dim-jh-btnPrimary",
-          disabled: !!busy,
-          onClick: submit
-        }, busy ? "保存中…" : "保存"),
-        React2.createElement("button", {
-          type: "button",
-          className: "dim-jh-btn",
-          disabled: !!busy,
-          onClick: () => {
-            if (onClose) onClose();
-          }
-        }, "取消")
+          disabled: busy || cookie.trim().length === 0,
+          onClick: () => save(cookie)
+        }, busy ? "校验中…" : "校验并保存"),
+        React2.createElement("button", { type: "button", className: "dim-jh-btn", onClick: () => close(false) }, "取消")
       )
     )
   );
 }
 
-// plugin-src/client/qiniu-key-modal.js
+// plugin-src/client/modelscope-key-modal.js
 var React3 = __toESM(require("react"), 1);
-var TOKEN_URL2 = "https://portal.qiniu.com/ai-inference/api-key";
-function QiniuKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
+var TOKEN_URL = "https://modelscope.cn/my/myaccesstoken";
+function ModelscopeKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
   const submit = () => {
     const value = inputRef && inputRef.current ? inputRef.current.value : "";
     if (String(value).trim() === "") {
@@ -4488,7 +6045,7 @@ function QiniuKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
       React3.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React3.createElement("div", { className: "dim-jh-modalTitle" }, "添加 Qiniu (七牛云) 账号")
+        React3.createElement("div", { className: "dim-jh-modalTitle" }, "添加 ModelScope 账号")
       ),
       // ⚠️ 内容必须放进 modalBody（flex:1; min-height:0; overflow-y:auto），
       // 否则弹窗较高时内容会被裁掉（见 jet-hub.js 既有 modal 的注释）。
@@ -4498,13 +6055,14 @@ function QiniuKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
         React3.createElement(
           "p",
           { className: "dim-jh-modalHint" },
-          "在 " + TOKEN_URL2 + " 生成 API Key 后粘贴到下方。"
+          "在 " + TOKEN_URL + " 生成访问令牌（形如 ms-…）后粘贴到下方。"
         ),
-        // ⚠️ Key 形状宽松：至少 16 位，可含字母、数字与 _ . -（无固定前缀）。
+        // ⚠️ 这一句是**用户会踩的坑**：魔搭控制台的令牌有「有效期」一栏，
+        // 选短期会让账号过一阵就失效，而本插件**无法续期**（没有 refresh 端点）。
         React3.createElement(
           "p",
           { className: "dim-jh-hint" },
-          "Key 至少 16 位字符，可含字母、数字与 _ . -（无固定前缀）。"
+          "建议把令牌有效期设为「永久」—— 本插件无法自动续期，短期令牌过期后需要回到这里重新粘贴。"
         ),
         React3.createElement(
           "div",
@@ -4514,7 +6072,7 @@ function QiniuKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
             className: "dim-jh-input",
             // ⚠️ password 类型：API Key 是凭据，不该在屏幕上裸显。
             type: "password",
-            placeholder: "API Key（≥16 位）",
+            placeholder: "ms-…",
             autoFocus: true,
             // Enter 直接提交：粘贴 Key 后最自然的动作就是回车。
             onKeyDown: (e) => {
@@ -4550,7 +6108,7 @@ function QiniuKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
     )
   );
 }
-function QiniuKeyEditModal({ error, busy, currentMasked, inputRef, onSubmit, onClose }) {
+function ModelscopeKeyEditModal({ error, busy, currentMasked, inputRef, onSubmit, onClose }) {
   const submit = () => {
     const value = inputRef && inputRef.current ? inputRef.current.value : "";
     if (String(value).trim() === "") {
@@ -4586,7 +6144,7 @@ function QiniuKeyEditModal({ error, busy, currentMasked, inputRef, onSubmit, onC
         React3.createElement(
           "p",
           { className: "dim-jh-modalHint" },
-          "在 " + TOKEN_URL2 + " 生成 API Key 后粘贴到下方。" + (currentMasked ? "当前：" + currentMasked : "当前：尚未设置")
+          "在 " + TOKEN_URL + " 生成访问令牌（形如 ms-…）后粘贴到下方。" + (currentMasked ? "当前：" + currentMasked : "当前：尚未设置")
         ),
         React3.createElement(
           "div",
@@ -4596,7 +6154,7 @@ function QiniuKeyEditModal({ error, busy, currentMasked, inputRef, onSubmit, onC
             className: "dim-jh-input",
             // ⚠️ password 类型：API Key 是凭据，不该在屏幕上裸显。
             type: "password",
-            placeholder: "API Key（≥16 位）",
+            placeholder: "ms-…",
             autoFocus: true,
             disabled: !!busy,
             // Enter 直接提交：粘贴 Key 后最自然的动作就是回车。
@@ -4611,7 +6169,7 @@ function QiniuKeyEditModal({ error, busy, currentMasked, inputRef, onSubmit, onC
         React3.createElement(
           "p",
           { className: "dim-jh-modalHint" },
-          "注意：换一把 Key 会同时更换该账号的标识（它由 Key 派生），昵称与停用状态会保留。同一把 Key 只对应一个账号。"
+          "注意：换一把 Key 会同时更换该账号的标识（它由 Key 尾段派生），昵称与停用状态会保留。同一把 Key 只对应一个账号。"
         ),
         // ⚠️ 错误留在弹窗内：把账号列表切成错误态会让用户刚填的 Key
         // 与错误信息一起消失，只能刷新重试。
@@ -4639,20 +6197,10 @@ function QiniuKeyEditModal({ error, busy, currentMasked, inputRef, onSubmit, onC
   );
 }
 
-// plugin-src/client/baizhi-key-modal.js
+// plugin-src/client/qiniu-key-modal.js
 var React4 = __toESM(require("react"), 1);
-var TOKEN_URL3 = "https://ai-models.app.baizhi.cloud/console/keys";
-function BaizhiKeyModal({
-  error,
-  busy,
-  inputRef,
-  onSubmit,
-  onClose,
-  currentMasked,
-  editing: editingProp,
-  onDismissError
-}) {
-  const editing = typeof editingProp === "boolean" ? editingProp : typeof currentMasked === "string" && currentMasked !== "";
+var TOKEN_URL2 = "https://portal.qiniu.com/ai-inference/api-key";
+function QiniuKeyModal({ error, busy, inputRef, onSubmit, onClose }) {
   const submit = () => {
     const value = inputRef && inputRef.current ? inputRef.current.value : "";
     if (String(value).trim() === "") {
@@ -4675,19 +6223,12 @@ function BaizhiKeyModal({
         className: "dim-jh-modal",
         role: "dialog",
         "aria-modal": "true",
-        // 与 monkeycode 弹窗对齐（三审 E🟢-12）：`role="dialog"` 只有可访问名
-        // 被屏幕阅读器念出来才有意义，缺 aria-label 等于没标。
-        "aria-label": (editing ? "更新 " : "添加 ") + "百智云 账号",
         style: { maxWidth: "520px" }
       },
       React4.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React4.createElement(
-          "div",
-          { className: "dim-jh-modalTitle" },
-          editing ? "更新 百智云 账号的 API Key" : "添加 百智云 账号"
-        )
+        React4.createElement("div", { className: "dim-jh-modalTitle" }, "添加 Qiniu (七牛云) 账号")
       ),
       // ⚠️ 内容必须放进 modalBody（flex:1; min-height:0; overflow-y:auto），
       // 否则弹窗较高时内容会被裁掉（见 jet-hub.js 既有 modal 的注释）。
@@ -4697,17 +6238,216 @@ function BaizhiKeyModal({
         React4.createElement(
           "p",
           { className: "dim-jh-modalHint" },
-          editing ? "当前 Key：" + (currentMasked === "" ? "（未记录打码值）" : currentMasked) + "。粘贴新 Key 后点「更新」——控制台登录态（积分/用量）会保留，不需要重新登录。" : "在 " + TOKEN_URL3 + " 控制台的「API Key」页创建 Key 后粘贴到下方。"
+          "在 " + TOKEN_URL2 + " 生成 API Key 后粘贴到下方。"
         ),
+        // ⚠️ Key 形状宽松：至少 16 位，可含字母、数字与 _ . -（无固定前缀）。
         React4.createElement(
           "p",
           { className: "dim-jh-hint" },
-          "百智云按量计费：积分与用量在控制台可见（用「浏览器登录」接入后本卡片会显示），没有每日签到。调用直接结算到该 Key 所属账户。"
+          "Key 至少 16 位字符，可含字母、数字与 _ . -（无固定前缀）。"
         ),
         React4.createElement(
           "div",
           { className: "dim-jh-formRows" },
           React4.createElement("input", {
+            ref: inputRef,
+            className: "dim-jh-input",
+            // ⚠️ password 类型：API Key 是凭据，不该在屏幕上裸显。
+            type: "password",
+            placeholder: "API Key（≥16 位）",
+            autoFocus: true,
+            // Enter 直接提交：粘贴 Key 后最自然的动作就是回车。
+            onKeyDown: (e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }
+          })
+        ),
+        // ⚠️ 错误留在弹窗内：把整个账号列表切成错误态会让用户刚填的 Key
+        // 与错误信息一起消失，只能刷新重试。
+        error ? React4.createElement("p", { className: "dim-jh-error", role: "alert" }, "添加失败：" + error) : null
+      ),
+      React4.createElement(
+        "div",
+        { className: "dim-jh-modalActions" },
+        React4.createElement("button", {
+          type: "button",
+          className: "dim-jh-btn dim-jh-btnPrimary",
+          disabled: busy,
+          onClick: submit
+        }, busy ? "添加中…" : "添加"),
+        React4.createElement("button", {
+          type: "button",
+          className: "dim-jh-btn",
+          disabled: busy,
+          onClick: () => {
+            if (onClose) onClose();
+          }
+        }, "取消")
+      )
+    )
+  );
+}
+function QiniuKeyEditModal({ error, busy, currentMasked, inputRef, onSubmit, onClose }) {
+  const submit = () => {
+    const value = inputRef && inputRef.current ? inputRef.current.value : "";
+    if (String(value).trim() === "") {
+      if (onClose) onClose();
+      return;
+    }
+    onSubmit(value);
+  };
+  return React4.createElement(
+    "div",
+    {
+      className: "dim-jh-modalOverlay",
+      onClick: (e) => {
+        if (e.target === e.currentTarget && !busy && onClose) onClose();
+      }
+    },
+    React4.createElement(
+      "div",
+      {
+        className: "dim-jh-modal",
+        role: "dialog",
+        "aria-modal": "true",
+        style: { maxWidth: "520px" }
+      },
+      React4.createElement(
+        "div",
+        { className: "dim-jh-modalHead" },
+        React4.createElement("div", { className: "dim-jh-modalTitle" }, "编辑 API Key")
+      ),
+      React4.createElement(
+        "div",
+        { className: "dim-jh-modalBody" },
+        React4.createElement(
+          "p",
+          { className: "dim-jh-modalHint" },
+          "在 " + TOKEN_URL2 + " 生成 API Key 后粘贴到下方。" + (currentMasked ? "当前：" + currentMasked : "当前：尚未设置")
+        ),
+        React4.createElement(
+          "div",
+          { className: "dim-jh-formRows" },
+          React4.createElement("input", {
+            ref: inputRef,
+            className: "dim-jh-input",
+            // ⚠️ password 类型：API Key 是凭据，不该在屏幕上裸显。
+            type: "password",
+            placeholder: "API Key（≥16 位）",
+            autoFocus: true,
+            disabled: !!busy,
+            // Enter 直接提交：粘贴 Key 后最自然的动作就是回车。
+            onKeyDown: (e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }
+          })
+        ),
+        React4.createElement(
+          "p",
+          { className: "dim-jh-modalHint" },
+          "注意：换一把 Key 会同时更换该账号的标识（它由 Key 派生），昵称与停用状态会保留。同一把 Key 只对应一个账号。"
+        ),
+        // ⚠️ 错误留在弹窗内：把账号列表切成错误态会让用户刚填的 Key
+        // 与错误信息一起消失，只能刷新重试。
+        error ? React4.createElement("p", { className: "dim-jh-error", role: "alert" }, "保存失败：" + error) : null
+      ),
+      React4.createElement(
+        "div",
+        { className: "dim-jh-modalActions" },
+        React4.createElement("button", {
+          type: "button",
+          className: "dim-jh-btn dim-jh-btnPrimary",
+          disabled: !!busy,
+          onClick: submit
+        }, busy ? "保存中…" : "保存"),
+        React4.createElement("button", {
+          type: "button",
+          className: "dim-jh-btn",
+          disabled: !!busy,
+          onClick: () => {
+            if (onClose) onClose();
+          }
+        }, "取消")
+      )
+    )
+  );
+}
+
+// plugin-src/client/baizhi-key-modal.js
+var React5 = __toESM(require("react"), 1);
+var TOKEN_URL3 = "https://ai-models.app.baizhi.cloud/console/keys";
+function BaizhiKeyModal({
+  error,
+  busy,
+  inputRef,
+  onSubmit,
+  onClose,
+  currentMasked,
+  editing: editingProp,
+  onDismissError
+}) {
+  const editing = typeof editingProp === "boolean" ? editingProp : typeof currentMasked === "string" && currentMasked !== "";
+  const submit = () => {
+    const value = inputRef && inputRef.current ? inputRef.current.value : "";
+    if (String(value).trim() === "") {
+      if (onClose) onClose();
+      return;
+    }
+    onSubmit(value);
+  };
+  return React5.createElement(
+    "div",
+    {
+      className: "dim-jh-modalOverlay",
+      onClick: (e) => {
+        if (e.target === e.currentTarget && !busy && onClose) onClose();
+      }
+    },
+    React5.createElement(
+      "div",
+      {
+        className: "dim-jh-modal",
+        role: "dialog",
+        "aria-modal": "true",
+        // 与 monkeycode 弹窗对齐（三审 E🟢-12）：`role="dialog"` 只有可访问名
+        // 被屏幕阅读器念出来才有意义，缺 aria-label 等于没标。
+        "aria-label": (editing ? "更新 " : "添加 ") + "百智云 账号",
+        style: { maxWidth: "520px" }
+      },
+      React5.createElement(
+        "div",
+        { className: "dim-jh-modalHead" },
+        React5.createElement(
+          "div",
+          { className: "dim-jh-modalTitle" },
+          editing ? "更新 百智云 账号的 API Key" : "添加 百智云 账号"
+        )
+      ),
+      // ⚠️ 内容必须放进 modalBody（flex:1; min-height:0; overflow-y:auto），
+      // 否则弹窗较高时内容会被裁掉（见 jet-hub.js 既有 modal 的注释）。
+      React5.createElement(
+        "div",
+        { className: "dim-jh-modalBody" },
+        React5.createElement(
+          "p",
+          { className: "dim-jh-modalHint" },
+          editing ? "当前 Key：" + (currentMasked === "" ? "（未记录打码值）" : currentMasked) + "。粘贴新 Key 后点「更新」——控制台登录态（积分/用量）会保留，不需要重新登录。" : "在 " + TOKEN_URL3 + " 控制台的「API Key」页创建 Key 后粘贴到下方。"
+        ),
+        React5.createElement(
+          "p",
+          { className: "dim-jh-hint" },
+          "百智云按量计费：积分与用量在控制台可见（用「浏览器登录」接入后本卡片会显示），没有每日签到。调用直接结算到该 Key 所属账户。"
+        ),
+        React5.createElement(
+          "div",
+          { className: "dim-jh-formRows" },
+          React5.createElement("input", {
             ref: inputRef,
             className: "dim-jh-input",
             // ⚠️ password 类型：API Key 是凭据，不该在屏幕上裸显。
@@ -4732,22 +6472,22 @@ function BaizhiKeyModal({
         ),
         // ⚠️ 错误留在弹窗内：把整个账号列表切成错误态会让用户刚填的 Key
         // 与错误信息一起消失，只能刷新重试。
-        error ? React4.createElement(
+        error ? React5.createElement(
           "p",
           { className: "dim-jh-error", role: "alert" },
           (editing ? "更新失败：" : "添加失败：") + error
         ) : null
       ),
-      React4.createElement(
+      React5.createElement(
         "div",
         { className: "dim-jh-modalActions" },
-        React4.createElement("button", {
+        React5.createElement("button", {
           type: "button",
           className: "dim-jh-btn dim-jh-btnPrimary",
           disabled: busy,
           onClick: submit
         }, busy ? editing ? "更新中…" : "添加中…" : editing ? "更新" : "添加"),
-        React4.createElement("button", {
+        React5.createElement("button", {
           type: "button",
           className: "dim-jh-btn",
           disabled: busy,
@@ -4760,8 +6500,633 @@ function BaizhiKeyModal({
   );
 }
 
+// plugin-src/client/sync-models-section.js
+var React6 = __toESM(require("react"), 1);
+
+// plugin-src/client/sync-models-logic.js
+var TARGET_LABEL = { pi: "pi", zcode: "ZCode" };
+function isEmptySyncDiff(diff) {
+  if (!diff) return true;
+  return diff.added.length === 0 && diff.removed.length === 0 && diff.updated.length === 0;
+}
+function syncTargetSummary(target, selected = true) {
+  const label = TARGET_LABEL[target?.target] ?? String(target?.target ?? "");
+  if (!target?.ok) {
+    return { tone: "error", text: label + "：" + (target?.error || "不可用"), details: [] };
+  }
+  const diff = target.diff;
+  const details = [];
+  if (diff?.added?.length) details.push("新增：" + diff.added.join("、"));
+  if (diff?.removed?.length) details.push("移除：" + diff.removed.join("、"));
+  if (diff?.updated?.length) details.push("能力值变化：" + diff.updated.join("、"));
+  if (diff?.skipped?.length) details.push("跳过（网关未给能力值）：" + diff.skipped.join("、"));
+  const parts = [];
+  if (diff?.added?.length) parts.push("新增 " + diff.added.length);
+  if (diff?.removed?.length) parts.push("移除 " + diff.removed.length);
+  if (diff?.updated?.length) parts.push("更新 " + diff.updated.length);
+  const prefix = selected ? "" : "（未选中）";
+  if (parts.length === 0) {
+    return { tone: selected ? "ok" : "muted", text: prefix + label + "：已是目标状态", details };
+  }
+  const tone = !selected ? "muted" : diff?.skipped?.length ? "warn" : "ok";
+  return { tone, text: prefix + label + "：" + parts.join("、") + "（共 " + String(diff.added.length + diff.removed.length + diff.updated.length) + " 项）", details };
+}
+function defaultSelectedTargets(preview) {
+  const targets = Array.isArray(preview?.targets) ? preview.targets : [];
+  return targets.map((target) => target.target);
+}
+function canApplySync(preview, selectedTargets) {
+  if (!preview || !Array.isArray(preview.targets)) return false;
+  if (!(preview.modelCount > 0)) return false;
+  const selected = Array.isArray(selectedTargets) ? new Set(selectedTargets) : null;
+  if (selected && selected.size === 0) return false;
+  return preview.targets.some((target) => {
+    if (!target.ok) return false;
+    if (selected && !selected.has(target.target)) return false;
+    return !isEmptySyncDiff(target.diff);
+  });
+}
+function applyResultSummary(result) {
+  const applied = Array.isArray(result?.applied) ? result.applied : [];
+  const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+  const lines = applied.map((entry2) => {
+    const diff = entry2?.diff ?? {};
+    const parts = [
+      Array.isArray(diff.added) && diff.added.length > 0 ? `新增 ${diff.added.length}` : "",
+      Array.isArray(diff.removed) && diff.removed.length > 0 ? `移除 ${diff.removed.length}` : "",
+      Array.isArray(diff.updated) && diff.updated.length > 0 ? `更新 ${diff.updated.length}` : ""
+    ].filter(Boolean);
+    const detail = parts.length > 0 ? parts.join(" / ") + "；" : "";
+    return TARGET_LABEL[entry2.target] + " 已写入（" + detail + "备份：" + entry2.backupDir + "）";
+  });
+  for (const entry2 of skipped) lines.push(TARGET_LABEL[entry2.target] + " 未写入：" + entry2.reason);
+  if (lines.length === 0) return ["没有任何目标被写入"];
+  return lines;
+}
+function defaultSelectedProviders(preview) {
+  const providers = Array.isArray(preview?.providers) ? preview.providers : [];
+  return providers.map((provider) => provider.id);
+}
+function providerOptionLabel(provider) {
+  const where = [];
+  if (provider?.inTargets?.pi) where.push("pi");
+  if (provider?.inTargets?.zcode) where.push("ZCode");
+  const suffix = where.length ? "（已在 " + where.join("、") + " 中）" : "";
+  return String(provider?.id ?? "") + " · " + String(provider?.modelCount ?? 0) + " 个模型" + suffix;
+}
+function failedProvidersNotice(preview) {
+  const failed = Array.isArray(preview?.failedProviders) ? preview.failedProviders : [];
+  if (failed.length === 0) return null;
+  return "以下渠道本次读取失败，它们的模型已原样保留（未删除）：" + failed.join("、");
+}
+function toggleProvider(selected, providerId) {
+  const list = Array.isArray(selected) ? selected : [];
+  return list.includes(providerId) ? list.filter((id) => id !== providerId) : [...list, providerId];
+}
+
+// plugin-src/client/sync-models-section.js
+function SyncModelsSection({ rpcCall }) {
+  const [phase, setPhase] = React6.useState("loading");
+  const [preview, setPreview] = React6.useState(null);
+  const [selected, setSelected] = React6.useState(null);
+  const [selectedTargets, setSelectedTargets] = React6.useState(null);
+  const [error, setError] = React6.useState(null);
+  const [result, setResult] = React6.useState(null);
+  const mounted = React6.useRef(true);
+  const requestSeq = React6.useRef(0);
+  const fetchPreview = React6.useCallback(
+    async (providers, force) => rpcCall("sync.preview", {
+      ...providers === void 0 ? {} : { providers },
+      ...force === true ? { force: true } : {}
+    }),
+    [rpcCall]
+  );
+  const load = React6.useCallback(async (providers, options) => {
+    const keepResult = options?.keepResult === true;
+    const force = options?.force === true;
+    const seq = ++requestSeq.current;
+    setPhase("loading");
+    setError(null);
+    try {
+      let value = await fetchPreview(providers, force);
+      if (!mounted.current || seq !== requestSeq.current || !value) return;
+      if (providers === void 0) {
+        const defaults = defaultSelectedProviders(value);
+        setSelected(defaults);
+        if (defaults.length > 0) {
+          const narrowed = await fetchPreview(defaults, force);
+          if (!mounted.current || seq !== requestSeq.current || !narrowed) return;
+          value = narrowed;
+        }
+      }
+      setPreview(value);
+      setPhase("ready");
+      if (!keepResult) setResult(null);
+    } catch (caught) {
+      if (!mounted.current || seq !== requestSeq.current) return;
+      setError(caught?.message || "无法读取同步预览");
+      setPhase("error");
+      setResult(null);
+    }
+  }, [fetchPreview]);
+  React6.useEffect(() => {
+    mounted.current = true;
+    void load(void 0);
+    return () => {
+      mounted.current = false;
+    };
+  }, [load]);
+  const onToggle = React6.useCallback((providerId) => {
+    const next = toggleProvider(selected ?? [], providerId);
+    setSelected(next);
+    void load(next);
+  }, [selected, load]);
+  const run = React6.useCallback(async () => {
+    const targets = selectedTargets ?? defaultSelectedTargets(preview);
+    setPhase("applying");
+    setError(null);
+    setResult(null);
+    try {
+      const value = await rpcCall("sync.apply", { providers: selected ?? [], targets });
+      if (!mounted.current) return;
+      setResult(value);
+      setPhase("ready");
+      await load(selected ?? [], { keepResult: true });
+    } catch (caught) {
+      if (!mounted.current) return;
+      setResult(null);
+      setError(caught?.message || "同步失败");
+      setPhase("error");
+    }
+  }, [rpcCall, selected, selectedTargets, preview, load]);
+  const busy = phase === "loading" || phase === "applying";
+  const rows = preview?.targets ?? [];
+  const selectedList = selected ?? [];
+  const targetList = selectedTargets ?? defaultSelectedTargets(preview);
+  const notice = failedProvidersNotice(preview);
+  const onToggleTarget = (target) => {
+    setSelectedTargets(toggleProvider(targetList, target));
+  };
+  return React6.createElement(
+    "div",
+    { className: "dim-jh-gatewaySection" },
+    React6.createElement("p", { className: "dim-jh-gatewaySectionTitle" }, "自动配置 agent"),
+    // ⚠️ 标题与这条 hint 必须紧邻：`.dim-jh-gatewaySectionTitle + .dim-jh-modalHint`
+    //    靠相邻选择器给 3px 上边距（见 jet-hub-styles.js）。
+    React6.createElement(
+      "p",
+      { className: "dim-jh-modalHint" },
+      "把上面这份模型目录写进 pi 与 ZCode 的配置。只刷新模型列表与能力值，不改动两边的 API Key；写入前自动备份。"
+    ),
+    React6.createElement(
+      "div",
+      { className: "dim-jh-settingsSection" },
+      preview ? React6.createElement(
+        "p",
+        { className: "dim-jh-modalHint" },
+        "网关目录共 " + String(preview.totalModelCount) + " 个模型 / " + String((preview.providers ?? []).length) + " 个渠道；已勾选 " + String((preview.requestedProviders ?? preview.providers ?? []).length) + " 个渠道，本次参与 " + String(preview.modelCount) + " 个（可写 " + String(preview.usableModelCount ?? 0) + " 个）（" + String(preview.gatewayBaseUrl) + "）"
+      ) : null,
+      // 渠道勾选：默认**全选**（新增渠道必须默认包含，否则「网关新增渠道」这个
+      // 核心场景仍要用户手工）；想收窄就取消勾选。
+      (preview?.providers ?? []).length > 0 ? React6.createElement(
+        "details",
+        { style: { margin: "4px 0" } },
+        React6.createElement(
+          "summary",
+          { style: { cursor: "pointer", fontSize: "12px" } },
+          "选择要同步的渠道（已选 " + String(selectedList.length) + " / " + String(preview.providers.length) + "）"
+        ),
+        preview.providers.map((provider) => React6.createElement(
+          "label",
+          {
+            key: provider.id,
+            style: { display: "block", fontSize: "12px", lineHeight: "20px", cursor: "pointer" }
+          },
+          React6.createElement("input", {
+            type: "checkbox",
+            checked: selectedList.includes(provider.id),
+            disabled: busy,
+            onChange: () => onToggle(provider.id)
+          }),
+          " " + providerOptionLabel(provider)
+        ))
+      ) : null,
+      notice ? React6.createElement("p", { className: "dim-jh-modalHint", style: { color: "#d48806" } }, notice) : null,
+      rows.map((row) => {
+        const checked = targetList.includes(row.target);
+        const summary = syncTargetSummary(row, checked);
+        const borderColor = summary.tone === "error" ? "#d4380d" : summary.tone === "warn" ? "#d48806" : summary.tone === "muted" ? "#bfbfbf" : "#389e0d";
+        return React6.createElement(
+          "div",
+          {
+            key: row.target,
+            // 用现有区块内的普通段落 + 左侧色条表达 tone，不新增 CSS 类（零样式回归面）
+            style: {
+              fontSize: "12px",
+              lineHeight: "18px",
+              padding: "2px 0 2px 8px",
+              borderLeft: "2px solid " + borderColor,
+              opacity: checked ? 1 : 0.6
+            }
+          },
+          // 目标级开关：只同步勾选的 agent（未勾选的**不会写入**，但仍显示它的 diff）
+          React6.createElement(
+            "label",
+            { style: { display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" } },
+            React6.createElement("input", {
+              type: "checkbox",
+              checked,
+              disabled: busy,
+              onChange: () => onToggleTarget(row.target)
+            }),
+            React6.createElement("span", null, summary.text)
+          ),
+          // 显示**实际使用**的文件路径：路径可能来自 PI_CODING_AGENT_DIR /
+          // ZCODE_PERSONAL_PROVIDER_CONFIG_FILE 覆盖，不显示出来用户就没法核对写到了哪里
+          React6.createElement("div", { style: { fontSize: "11px", opacity: 0.65, wordBreak: "break-all", paddingLeft: "20px" } }, row.path),
+          summary.details.length ? React6.createElement(
+            "details",
+            { style: { marginTop: "2px", paddingLeft: "20px" } },
+            React6.createElement("summary", { style: { cursor: "pointer" } }, "明细"),
+            summary.details.map((line, index) => React6.createElement("div", { key: index, style: { opacity: 0.85 } }, line))
+          ) : null
+        );
+      }),
+      error ? React6.createElement("p", { className: "dim-jh-modalHint", style: { color: "#d4380d" } }, error) : null,
+      result ? React6.createElement(
+        "div",
+        { style: { fontSize: "12px", lineHeight: "18px" } },
+        applyResultSummary(result).map((line, index) => React6.createElement("div", { key: index }, line))
+      ) : null,
+      React6.createElement(
+        "div",
+        { className: "dim-jh-settingsSectionActions" },
+        React6.createElement("button", {
+          className: "dim-jh-btn",
+          title: "重新读取网关模型目录并计算差异（不会写文件）。",
+          disabled: busy,
+          // force：跳过服务端 30 秒缓存，否则点刷新会命中缓存、界面看起来「没反应」
+          onClick: () => void load(selectedList, { force: true })
+        }, "刷新"),
+        React6.createElement("button", {
+          className: "dim-jh-btn",
+          title: canApplySync(preview, targetList) ? "把上面列出的变更写入两个目标的配置文件（写入前自动备份）。" : "当前没有可写入的变更。",
+          disabled: busy || !canApplySync(preview, targetList),
+          onClick: () => void run()
+        }, phase === "applying" ? "同步中…" : "同步")
+      )
+    )
+  );
+}
+
+// plugin-src/client/rate-limit-resume.js
+var React7 = __toESM(require("react"), 1);
+var ROW_ATTR = "data-phc-rate-limit-resume";
+var SLOT_ATTR = "data-phc-resume-slot";
+var SLOT_CLASS = "dim-jh-resumeSlot";
+var SVG_NS = "http://www.w3.org/2000/svg";
+var ICON_DEFER = ["M8 3.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9Z", "M8 5.9v2.5l1.7 1", "M12.4 3.1h2.1v2.1", "M14.4 3.2 11.9 5.4"];
+var ICON_CANCEL = ["M4.4 4.4 11.6 11.6", "M11.6 4.4 4.4 11.6"];
+function icon(strokes, className) {
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", className);
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke-width", "1");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  for (const d of strokes) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", d);
+    path.setAttribute("stroke", "currentColor");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(path);
+  }
+  return svg;
+}
+function renderToggle(row, state, onToggle) {
+  const armed = state.armed === true;
+  const busy = state.busy === true;
+  let holder = row.querySelector(`[${SLOT_ATTR}]`);
+  if (holder === null) {
+    holder = document.createElement("span");
+    holder.setAttribute(SLOT_ATTR, "");
+    holder.className = SLOT_CLASS;
+    row.appendChild(holder);
+  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = armed ? "dim-jh-resumeToggle" : "dim-jh-resumeToggle dim-jh-resumeToggleOff";
+  button.setAttribute("data-armed", armed ? "1" : "0");
+  button.setAttribute("aria-pressed", armed ? "true" : "false");
+  button.setAttribute("aria-label", armed ? "解禁后自动继续" : "不自动继续");
+  const at = typeof state.resetAtMs === "number" ? new Date(state.resetAtMs) : void 0;
+  const when = at === void 0 ? "" : `（${at.toLocaleString()} 解禁）`;
+  button.title = armed ? `解禁后自动继续：当前为开${when}。限流解禁后会自动把这一轮续上。点击切换为「不自动继续」。` : `不自动继续：当前为关${when}。限流解禁后不会自动续跑，需要你手动重发。点击切换为「解禁后自动继续」。`;
+  button.disabled = busy;
+  button.appendChild(icon(armed ? ICON_DEFER : ICON_CANCEL, "dim-jh-resumeIcon"));
+  const text = document.createElement("span");
+  text.className = "dim-jh-resumeText";
+  text.textContent = armed ? "解禁后自动继续" : "不自动继续";
+  button.appendChild(text);
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onToggle(!armed);
+  });
+  holder.replaceChildren(button);
+}
+function currentSessionId() {
+  const holder = document.querySelector("[data-conversation-session]");
+  const value = holder === null ? "" : holder.getAttribute("data-conversation-session") ?? "";
+  return value === "" ? void 0 : value;
+}
+function isRateLimitRow(row) {
+  const copy = row.querySelector('[class*="_turnErrorMessage"]');
+  const code = row.querySelector('[class*="_turnErrorCode"]');
+  const text = `${copy === null ? "" : copy.textContent ?? ""} ${code === null ? "" : code.textContent ?? ""}`;
+  if (text.trim() === "") return false;
+  return /429|RATE_LIMIT|rate.?limit|限流|频率|额度|积分不足|余额不足|quota|too many requests|耗尽/i.test(text);
+}
+function installRateLimitResumeUi(options) {
+  const { rpcCall } = options;
+  const NO_HOOK = Symbol("no-hook");
+  const states = /* @__PURE__ */ new Map();
+  const renderers = /* @__PURE__ */ new Map();
+  let disposed = false;
+  let pollTimer;
+  function scheduleRender(sessionId) {
+    if (disposed) return;
+    const row = renderers.get(sessionId);
+    if (row === void 0 || row === null) return;
+    if (!row.isConnected) {
+      renderers.delete(sessionId);
+      return;
+    }
+    if (!states.has(sessionId)) return;
+    const state = states.get(sessionId);
+    if (state === NO_HOOK) {
+      row.removeAttribute(ROW_ATTR);
+      const slot = row.querySelector(`[${SLOT_ATTR}]`);
+      if (slot !== null) slot.remove();
+      renderers.delete(sessionId);
+      states.delete(sessionId);
+      return;
+    }
+    renderToggle(row, state, (next) => {
+      void toggle(sessionId, next);
+    });
+  }
+  async function readState(sessionId) {
+    if (sessionId === void 0) return void 0;
+    try {
+      const res = await rpcCall("resume.getState", { sessionId });
+      const hooks = res !== null && typeof res === "object" && Array.isArray(res.hooks) ? res.hooks : [];
+      const hook = hooks.find((candidate) => candidate !== null && typeof candidate === "object" && candidate.sessionId === sessionId);
+      if (hook === void 0) return NO_HOOK;
+      const shownAt = typeof hook.unlockAtMs === "number" ? hook.unlockAtMs : hook.resetAtMs;
+      return { armed: hook.armed !== false, busy: false, resetAtMs: shownAt };
+    } catch (caught) {
+      console.warn("[jet-hub] 读取限流续跑状态失败:", caught);
+      return void 0;
+    }
+  }
+  async function sync(sessionId, row) {
+    if (sessionId === void 0) return;
+    if (!row.isConnected) return;
+    renderers.set(sessionId, row);
+    const next = await readState(sessionId);
+    if (disposed) return;
+    if (next !== void 0) states.set(sessionId, next);
+    scheduleRender(sessionId);
+  }
+  async function toggle(sessionId, next) {
+    const current = states.get(sessionId);
+    if (current !== void 0 && current !== NO_HOOK) {
+      states.set(sessionId, { armed: next, busy: true, resetAtMs: current.resetAtMs });
+      scheduleRender(sessionId);
+    }
+    try {
+      const res = await rpcCall("resume.setArmed", { sessionId, armed: next });
+      if (disposed) return;
+      const hook = res !== null && typeof res === "object" ? res.hook : void 0;
+      if (hook === void 0 || hook === null) {
+        states.set(sessionId, NO_HOOK);
+      } else {
+        states.set(sessionId, { armed: hook.armed !== false, busy: false, resetAtMs: hook.resetAtMs });
+      }
+    } catch (caught) {
+      console.warn("[jet-hub] 切换限流续跑失败:", caught);
+      const before = states.get(sessionId);
+      if (before !== void 0 && before !== NO_HOOK) {
+        states.set(sessionId, { armed: !next, busy: false, resetAtMs: before.resetAtMs });
+      }
+    }
+    scheduleRender(sessionId);
+  }
+  function decorateRow(row) {
+    const sessionId = currentSessionId();
+    if (sessionId === void 0) return;
+    if (row.getAttribute(ROW_ATTR) === "1") {
+      if (renderers.get(sessionId) === row) scheduleRender(sessionId);
+      return;
+    }
+    if (!isRateLimitRow(row)) return;
+    row.setAttribute(ROW_ATTR, "1");
+    void sync(sessionId, row);
+  }
+  function decorateSubtree(node) {
+    if (!(node instanceof Element)) return;
+    if (node.matches('[class*="_turnErrorRow"]')) decorateRow(node);
+    for (const row of node.querySelectorAll('[class*="_turnErrorRow"]')) decorateRow(row);
+  }
+  let observer;
+  if (typeof MutationObserver === "function" && typeof document !== "undefined") {
+    observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type !== "childList") continue;
+        for (const node of record.addedNodes) decorateSubtree(node);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    decorateSubtree(document.body);
+    pollTimer = setInterval(() => {
+      if (disposed || renderers.size === 0) return;
+      for (const sessionId of Array.from(renderers.keys())) {
+        const row = renderers.get(sessionId);
+        if (row === void 0 || !row.isConnected) {
+          renderers.delete(sessionId);
+          continue;
+        }
+        void sync(sessionId, row);
+      }
+    }, 3e4);
+  }
+  return function dispose() {
+    if (disposed) return;
+    disposed = true;
+    if (observer !== void 0) observer.disconnect();
+    if (pollTimer !== void 0) clearInterval(pollTimer);
+    for (const slot of document.querySelectorAll(`[${SLOT_ATTR}]`)) slot.remove();
+    renderers.clear();
+    states.clear();
+  };
+}
+function RateLimitResumeSection({ rpcCall }) {
+  const [enabled2, setEnabled] = React7.useState(true);
+  const [busy, setBusy] = React7.useState(false);
+  const [failed, setFailed] = React7.useState(false);
+  const [hooks, setHooks] = React7.useState([]);
+  const [notice, setNotice] = React7.useState("");
+  const [available, setAvailable] = React7.useState(true);
+  const mounted = React7.useRef(true);
+  React7.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const load = React7.useCallback(async () => {
+    try {
+      const res = await rpcCall("resume.getState", {});
+      if (!mounted.current) return;
+      setEnabled(res !== null && typeof res === "object" ? res.enabled !== false : true);
+      setHooks(res !== null && typeof res === "object" && Array.isArray(res.hooks) ? res.hooks : []);
+      setAvailable(res === null || typeof res !== "object" || res.available !== false);
+      setFailed(false);
+    } catch (caught) {
+      console.warn("[jet-hub] 读取「解禁后自动继续」状态失败:", caught);
+      if (!mounted.current) return;
+      setFailed(true);
+    }
+  }, [rpcCall]);
+  React7.useEffect(() => {
+    void load();
+    const timer = setInterval(() => {
+      void load();
+    }, 3e4);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [load]);
+  const commit = React7.useCallback(async (next) => {
+    setBusy(true);
+    try {
+      const res = await rpcCall("resume.setEnabled", { enabled: next });
+      if (!mounted.current) return;
+      setEnabled(res !== null && typeof res === "object" ? res.enabled !== false : next);
+      setFailed(false);
+      setNotice("");
+      await load();
+    } catch (caught) {
+      console.warn("[jet-hub] 保存「解禁后自动继续」默认值失败:", caught);
+      if (!mounted.current) return;
+      setNotice("保存失败：宿主可能还在运行旧代码，完全退出并重新打开 DSH 后再试。");
+      await load();
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }, [rpcCall, load]);
+  const fireNow = React7.useCallback(async (sessionId) => {
+    setBusy(true);
+    try {
+      const res = await rpcCall("resume.fireNow", { sessionId });
+      if (!mounted.current) return;
+      const fired = res !== null && typeof res === "object" && res.fired === true;
+      setNotice(fired ? "已投递续跑消息。" : `还没能继续：${res !== null && typeof res === "object" ? String(res.reason ?? "未知原因") : "未知原因"}`);
+      await load();
+    } catch (caught) {
+      console.warn("[jet-hub] 立即继续失败:", caught);
+      if (mounted.current) setNotice("立即继续失败：宿主可能还在运行旧代码。");
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }, [rpcCall, load]);
+  const forget = React7.useCallback(async (sessionId) => {
+    setBusy(true);
+    try {
+      await rpcCall("resume.forget", { sessionId });
+      if (!mounted.current) return;
+      setNotice("");
+      await load();
+    } catch (caught) {
+      console.warn("[jet-hub] 移除待续跑失败:", caught);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }, [rpcCall, load]);
+  const rows = hooks.map((hook) => {
+    const shownAt = typeof hook.unlockAtMs === "number" ? hook.unlockAtMs : hook.resetAtMs;
+    const at = typeof shownAt === "number" ? new Date(shownAt) : void 0;
+    const due = at !== void 0 && at.getTime() <= Date.now();
+    return React7.createElement(
+      "div",
+      {
+        key: hook.sessionId,
+        className: "dim-jh-resumeRow",
+        title: `${hook.sessionId}（${hook.provider || "?"} / ${hook.model || "?"}）`
+      },
+      React7.createElement(
+        "span",
+        { className: "dim-jh-resumeRowText" },
+        `${hook.sessionId.slice(0, 16)}… ${hook.armed ? "自动继续" : "已暂停"} · ` + (at === void 0 ? "解禁时刻未知" : due ? "已到解禁时刻" : `${at.toLocaleString()} 解禁`)
+      ),
+      React7.createElement("button", {
+        className: "dim-jh-btn",
+        disabled: busy,
+        onClick: () => {
+          void fireNow(hook.sessionId);
+        }
+      }, "立即继续"),
+      React7.createElement("button", {
+        className: "dim-jh-btn",
+        disabled: busy,
+        onClick: () => {
+          void forget(hook.sessionId);
+        }
+      }, "移除")
+    );
+  });
+  return React7.createElement(
+    "div",
+    { className: "dim-jh-settingsSection" },
+    React7.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "限流续跑"),
+    React7.createElement(
+      "label",
+      {
+        className: failed ? "dim-jh-settingsToggleLine dim-jh-settingsToggleLineFailed" : "dim-jh-settingsToggleLine",
+        title: failed ? "⚠️ 开关状态读取失败，当前显示的是默认值（开启）。点击即可重新提交一次。" : "解禁后自动继续：会话因限流（429 / 号池全限流 / 额度耗尽）中断时，等到**解禁时刻**自动把这一轮续上。这里改的是**默认值** —— 只影响新的中断；报错行行尾那个按钮可以逐个覆盖。"
+      },
+      React7.createElement("input", {
+        type: "checkbox",
+        className: "dim-jh-switch",
+        checked: enabled2,
+        disabled: busy,
+        onChange: (event) => {
+          void commit(event.target.checked);
+        }
+      }),
+      React7.createElement(
+        "span",
+        { className: "dim-jh-settingsToggleText" },
+        "解禁后自动继续（限流 / 额度中断，等到解禁时刻自动续跑）"
+      )
+    ),
+    available ? null : React7.createElement(
+      "p",
+      { className: "dim-jh-modalHint" },
+      "⚠️ 宿主侧没有装上这个功能（插件版本旧？）。完全退出并重新打开 DSH 后再看。"
+    ),
+    notice === "" ? null : React7.createElement("p", { className: "dim-jh-modalHint" }, notice),
+    rows.length === 0 ? React7.createElement("p", { className: "dim-jh-modalHint" }, "当前没有待续跑的限流中断。") : React7.createElement("div", { className: "dim-jh-resumeList" }, rows)
+  );
+}
+
 // plugin-src/client/monkeycode-key-modal.js
-var React5 = __toESM(require("react"), 1);
+var React8 = __toESM(require("react"), 1);
 function siteOf(provider) {
   return provider === "monkeycodeintl" ? { name: "MonkeyCode 国际站", base: "https://monkeycode-ai.net" } : { name: "MonkeyCode", base: "https://monkeycode-ai.com" };
 }
@@ -4777,10 +7142,10 @@ function MonkeycodeKeyModal({
   onDismissError
 }) {
   const editing = typeof editingProp === "boolean" ? editingProp : typeof currentMasked === "string" && currentMasked !== "";
-  const secretRef = React5.useRef(null);
-  const cookieRef = React5.useRef(null);
+  const secretRef = React8.useRef(null);
+  const cookieRef = React8.useRef(null);
   const site = siteOf(provider);
-  const [inlineError, setInlineError] = React5.useState("");
+  const [inlineError, setInlineError] = React8.useState("");
   const clearInlineError = () => {
     if (inlineError !== "") setInlineError("");
     if (error && onDismissError) onDismissError();
@@ -4814,7 +7179,7 @@ function MonkeycodeKeyModal({
       submit();
     }
   };
-  return React5.createElement(
+  return React8.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
@@ -4822,7 +7187,7 @@ function MonkeycodeKeyModal({
         if (e.target === e.currentTarget && !busy && onClose) onClose();
       }
     },
-    React5.createElement(
+    React8.createElement(
       "div",
       {
         className: "dim-jh-modal",
@@ -4831,10 +7196,10 @@ function MonkeycodeKeyModal({
         "aria-label": (editing ? "更新 " : "添加 ") + site.name + " 账号",
         style: { maxWidth: "560px" }
       },
-      React5.createElement(
+      React8.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React5.createElement(
+        React8.createElement(
           "div",
           { className: "dim-jh-modalTitle" },
           (editing ? "更新 " : "添加 ") + site.name + " 账号"
@@ -4842,18 +7207,18 @@ function MonkeycodeKeyModal({
       ),
       // ⚠️ 内容必须放进 modalBody（flex:1; min-height:0; overflow-y:auto），
       // 否则弹窗较高时内容会被裁掉。
-      React5.createElement(
+      React8.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React5.createElement(
+        React8.createElement(
           "p",
           { className: "dim-jh-modalHint" },
           editing ? "当前 Key：" + (currentMasked === "" ? "（未记录打码值）" : currentMasked) + "。只需重填要换的字段，留空的字段保持原值（包括 signing_secret 与已攒下的会话 cookie）；只想补网页登录态时，可以把 API Key 留空、只填 session cookie。" : "API Key 与 signing_secret 在 " + site.base + " 站内「OhMyAgent」页面生成（Key 形如 oma_…）。推荐直接用「浏览器登录」自动获取；只有手里已经有 Key 时才需要填这里。"
         ),
-        React5.createElement(
+        React8.createElement(
           "div",
           { className: "dim-jh-formRows" },
-          React5.createElement("input", {
+          React8.createElement("input", {
             ref: inputRef,
             className: "dim-jh-input",
             type: "password",
@@ -4865,12 +7230,12 @@ function MonkeycodeKeyModal({
             disabled: busy || void 0,
             onKeyDown: onInputKeyDown
           }),
-          React5.createElement(
+          React8.createElement(
             "p",
             { className: "dim-jh-hint" },
             "signing_secret 与 API Key 同时生成（48 位随机串）。缺了它，网关会以 403 invalid ohmyagent request 拒绝每一次请求。"
           ),
-          React5.createElement("input", {
+          React8.createElement("input", {
             ref: secretRef,
             className: "dim-jh-input",
             type: "password",
@@ -4883,7 +7248,7 @@ function MonkeycodeKeyModal({
             disabled: busy || void 0,
             onKeyDown: onInputKeyDown
           }),
-          React5.createElement("input", {
+          React8.createElement("input", {
             ref: cookieRef,
             className: "dim-jh-input",
             type: "password",
@@ -4895,22 +7260,22 @@ function MonkeycodeKeyModal({
             onKeyDown: onInputKeyDown
           })
         ),
-        React5.createElement(
+        React8.createElement(
           "p",
           { className: "dim-jh-hint" },
           "session cookie 只影响积分 / 每日额度 / 签到，不影响推理。留空时余额面板显示「未配置会话」——事后可以点账号卡片上的「改 Key」补填这一栏，不必删除重建。"
         ),
         // ⚠️ `role="alert"`：屏幕阅读器要能读到这条（百智那个弹窗一直有，本弹窗漏了）。
-        error || inlineError ? React5.createElement(
+        error || inlineError ? React8.createElement(
           "div",
           { className: "dim-jh-error", role: "alert" },
           error || inlineError
         ) : null
       ),
-      React5.createElement(
+      React8.createElement(
         "div",
         { className: "dim-jh-modalFoot" },
-        React5.createElement("button", {
+        React8.createElement("button", {
           className: "dim-jh-btn",
           type: "button",
           disabled: busy ? "disabled" : void 0,
@@ -4918,7 +7283,7 @@ function MonkeycodeKeyModal({
             if (onClose) onClose();
           }
         }, "取消"),
-        React5.createElement("button", {
+        React8.createElement("button", {
           className: "dim-jh-btn dim-jh-btnPrimary",
           type: "button",
           disabled: busy ? "disabled" : void 0,
@@ -4960,17 +7325,32 @@ function normalizeWindowDays2(windowDays) {
   const parsed = Number(windowDays);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
+function normalizeImminentDays(imminentDays, windowDays) {
+  if (windowDays === null) return null;
+  if (imminentDays === void 0 || imminentDays === null || imminentDays === "") return windowDays;
+  const parsed = Number(imminentDays);
+  if (!Number.isFinite(parsed) || parsed < 0) return windowDays;
+  return Math.min(parsed, windowDays);
+}
 function daysUntilExpiry(pkg, now) {
   const end = packageExpiryMs(pkg);
   if (end === null) return null;
   const at = typeof now === "number" && Number.isFinite(now) ? now : Date.now();
   return (end - at) / DAY_MS;
 }
-function splitCreditsByExpiry(packages, windowDays, now) {
+var MAX_PLAUSIBLE_DAYS = 36500;
+function splitCreditsByExpiry(packages, windowDays, now, imminentDays) {
   const days = normalizeWindowDays2(windowDays);
   if (days === null || !Array.isArray(packages)) return null;
   const windowMs = days * DAY_MS;
+  const imminentDaysValue = normalizeImminentDays(imminentDays, days);
+  const imminentMs = imminentDaysValue * DAY_MS;
   const at = typeof now === "number" && Number.isFinite(now) ? now : Date.now();
+  let imminent = 0;
+  let shortTerm = 0;
+  let earliestImminentAt = null;
+  let earliestImminentAmount = 0;
+  let earliestShortTermAt = null;
   let expiring = 0;
   let expired = 0;
   let longTerm = 0;
@@ -4996,6 +7376,7 @@ function splitCreditsByExpiry(packages, windowDays, now) {
       if (hasExpiring) {
         const capped = Math.min(expiringPart, remaining);
         expiring += capped;
+        shortTerm += capped;
         toPermanent = remaining - capped;
       }
       permanent += toPermanent;
@@ -5008,6 +7389,20 @@ function splitCreditsByExpiry(packages, windowDays, now) {
     }
     if (end - at < windowMs) {
       expiring += remaining;
+      if (end - at < imminentMs) {
+        imminent += remaining;
+        if (end > at && (earliestImminentAt === null || end < earliestImminentAt)) {
+          earliestImminentAt = end;
+          earliestImminentAmount = remaining;
+        } else if (end > at && end === earliestImminentAt) {
+          earliestImminentAmount += remaining;
+        }
+      } else {
+        shortTerm += remaining;
+        if (end > at && (earliestShortTermAt === null || end < earliestShortTermAt)) {
+          earliestShortTermAt = end;
+        }
+      }
       if (end > at && (earliestExpiringAt === null || end < earliestExpiringAt)) {
         earliestExpiringAt = end;
         earliestExpiringAmount = remaining;
@@ -5018,22 +7413,43 @@ function splitCreditsByExpiry(packages, windowDays, now) {
       longTerm += remaining;
     }
   }
-  return { expiring, ...expired > 0 ? { expired } : {}, longTerm, permanent, ...unknownExpiry > 0 ? { unknownExpiry } : {}, earliestExpiringAt, earliestExpiringAmount, exclusivePoolRemaining };
+  return {
+    expiring,
+    imminent,
+    shortTerm,
+    ...expired > 0 ? { expired } : {},
+    longTerm,
+    permanent,
+    ...unknownExpiry > 0 ? { unknownExpiry } : {},
+    earliestImminentAt,
+    earliestImminentAmount,
+    earliestShortTermAt,
+    earliestExpiringAt,
+    earliestExpiringAmount,
+    exclusivePoolRemaining
+  };
 }
-function expiryBucketLabel(pkg, windowDays, now) {
+function expiryBucketLabel(pkg, windowDays, now, imminentDays) {
   const days = normalizeWindowDays2(windowDays);
   const left = daysUntilExpiry(pkg, now);
   if (left === null) return "到期时间未知";
   if (left <= 0) return "已过期";
   if (days === null) return null;
-  return left < days ? `${Math.ceil(left)} 天内到期` : `还有 ${Math.ceil(left)} 天`;
+  const imminentDaysValue = normalizeImminentDays(imminentDays, days);
+  const tiered = imminentDaysValue > 0 && imminentDaysValue < days;
+  if (left < days) {
+    if (tiered && left >= imminentDaysValue) return `${imminentDaysValue}~${days} 天内到期`;
+    return `${Math.ceil(left)} 天内到期`;
+  }
+  if (!Number.isFinite(left) || left > MAX_PLAUSIBLE_DAYS) return "到期时间异常";
+  return `还有 ${Math.ceil(left)} 天`;
 }
-function formatExpiryHint(pkg, windowDays, now) {
+function formatExpiryHint(pkg, windowDays, now, imminentDays) {
   const left = daysUntilExpiry(pkg, now);
   if (left === null) return "";
   if (left <= 0) return "已过期";
   const days = Math.ceil(left);
-  const label = expiryBucketLabel(pkg, windowDays, now);
+  const label = expiryBucketLabel(pkg, windowDays, now, imminentDays);
   return label ? `距到期 ${days} 天（${label}）` : `距到期 ${days} 天`;
 }
 function formatExpirySplitLine(split, format) {
@@ -5045,17 +7461,75 @@ function formatExpirySplitLine(split, format) {
   const permanent = knownPermanent > 0 ? format(knownPermanent) : null;
   const unknownExpiry = unknownAmount > 0 ? format(unknownAmount) : null;
   const longTerm = split.longTerm > 0 ? format(split.longTerm) : null;
+  const imminentAmount = Number.isFinite(split.imminent) && split.imminent > 0 ? split.imminent : 0;
+  const shortTermAmount = Number.isFinite(split.shortTerm) && split.shortTerm > 0 ? split.shortTerm : 0;
+  const hasTierSplit = imminentAmount > 0 || shortTermAmount > 0;
+  const imminent = imminentAmount > 0 ? format(imminentAmount) : null;
+  const shortTerm = shortTermAmount > 0 ? format(shortTermAmount) : null;
   const expiredAmount = Number.isFinite(split.expired) && split.expired > 0 ? split.expired : 0;
-  const expiring = split.expiring > 0 ? format(split.expiring) : null;
+  const expiring = !hasTierSplit && split.expiring > 0 ? format(split.expiring) : null;
   const expired = expiredAmount > 0 ? format(expiredAmount) : null;
   if (permanent !== null) parts.push(`永久 ${permanent}`);
   if (unknownExpiry !== null) parts.push(`到期未知 ${unknownExpiry}`);
   if (longTerm !== null) parts.push(`长期 ${longTerm}`);
+  if (shortTerm !== null) parts.push(`短期 ${shortTerm}`);
+  if (imminent !== null) parts.push(`临期 ${imminent}`);
   if (expiring !== null) parts.push(`临期 ${expiring}`);
   if (expired !== null) parts.push(`已过期 ${expired}`);
   return parts.length === 0 ? null : parts.join(" · ");
 }
-function expirySplitParts(split, format, now) {
+function expiryDateHints(packages, windowDays, now, imminentDays) {
+  const days = normalizeWindowDays2(windowDays);
+  if (days === null || !Array.isArray(packages)) return null;
+  const windowMs = days * DAY_MS;
+  const imminentDaysValue = normalizeImminentDays(imminentDays, days);
+  const imminentMs = imminentDaysValue * DAY_MS;
+  const tiered = imminentMs < windowMs;
+  const at = typeof now === "number" && Number.isFinite(now) ? now : Date.now();
+  let earliestLongTermAt = null;
+  let earliestImminentAt = null;
+  let earliestShortTermAt = null;
+  let earliestExpiringAt = null;
+  let earliestExpiringNames = /* @__PURE__ */ new Set();
+  for (const pkg of packages) {
+    if (!pkg || pkg.active !== true || isExclusivePool(pkg)) continue;
+    const remaining = Number(pkg.remaining);
+    if (!Number.isFinite(remaining) || remaining <= 0) continue;
+    const end = packageExpiryMs(pkg);
+    if (end === null || end <= at) continue;
+    const left = end - at;
+    if (left < windowMs) {
+      if (tiered && left < imminentMs) {
+        if (earliestImminentAt === null || end < earliestImminentAt) earliestImminentAt = end;
+      } else if (tiered && (earliestShortTermAt === null || end < earliestShortTermAt)) {
+        earliestShortTermAt = end;
+      }
+      if (earliestExpiringAt === null || end < earliestExpiringAt) {
+        earliestExpiringAt = end;
+        earliestExpiringNames = /* @__PURE__ */ new Set([pkg.name]);
+      } else if (end === earliestExpiringAt) {
+        earliestExpiringNames.add(pkg.name);
+      }
+    } else if (earliestLongTermAt === null || end < earliestLongTermAt) {
+      earliestLongTermAt = end;
+    }
+  }
+  return {
+    earliestLongTermAt,
+    earliestImminentAt,
+    earliestShortTermAt,
+    earliestExpiringAt,
+    expiringIsPlanRefresh: earliestExpiringNames.size === 1 && earliestExpiringNames.has(PLAN_PACKAGE_NAME)
+  };
+}
+var PLAN_PACKAGE_NAME = "套餐额度";
+function formatMonthDay(ms, now) {
+  const d = new Date(ms);
+  const ref = new Date(typeof now === "number" && Number.isFinite(now) ? now : Date.now());
+  const md = `${d.getMonth() + 1}月${d.getDate()}日`;
+  return d.getFullYear() === ref.getFullYear() ? md : `${d.getFullYear()}年${md}`;
+}
+function expirySplitParts(split, format, now, hints) {
   if (!split) return [];
   const parts = [];
   const unknownAmount = Number.isFinite(split.unknownExpiry) && split.unknownExpiry > 0 ? split.unknownExpiry : 0;
@@ -5064,28 +7538,81 @@ function expirySplitParts(split, format, now) {
   const permanent = knownPermanent > 0 ? format(knownPermanent) : null;
   const unknownExpiryText = unknownAmount > 0 ? format(unknownAmount) : null;
   const longTerm = split.longTerm > 0 ? format(split.longTerm) : null;
+  const imminentAmount = Number.isFinite(split.imminent) && split.imminent > 0 ? split.imminent : 0;
+  const shortTermAmount = Number.isFinite(split.shortTerm) && split.shortTerm > 0 ? split.shortTerm : 0;
+  const imminentText = imminentAmount > 0 ? format(imminentAmount) : null;
+  const shortTermText = shortTermAmount > 0 ? format(shortTermAmount) : null;
   const expiredAmount = Number.isFinite(split.expired) && split.expired > 0 ? split.expired : 0;
   const expiringAmount = split.expiring > 0 ? split.expiring : 0;
   const expiring = expiringAmount > 0 ? format(expiringAmount) : null;
   const expiredText = expiredAmount > 0 ? format(expiredAmount) : null;
-  if (permanent !== null) parts.push({ key: "permanent", text: `永久 ${permanent}`, tone: "ok" });
-  if (unknownExpiryText !== null) parts.push({ key: "unknownExpiry", text: `到期未知 ${unknownExpiryText}`, tone: "warn" });
-  if (longTerm !== null) parts.push({ key: "longTerm", text: `长期 ${longTerm}`, tone: "warn" });
-  if (expiring !== null) {
-    const at = split.earliestExpiringAt;
-    const countdown = typeof at === "number" && Number.isFinite(at) && at > 0 ? expiryCountdown(at, now) : "";
-    const earliestAmount = Number.isFinite(split.earliestExpiringAmount) && split.earliestExpiringAmount > 0 ? split.earliestExpiringAmount : 0;
-    const partial = earliestAmount > 0 && earliestAmount < expiringAmount;
-    const countdownText = countdown.length === 0 ? "" : partial ? `其中 ${format(earliestAmount)} 于 ${countdown}后到期` : countdown;
+  if (permanent !== null) parts.push({ key: "permanent", amount: knownPermanent, text: `永久 ${permanent}`, tone: "ok" });
+  if (unknownExpiryText !== null) parts.push({ key: "unknownExpiry", amount: unknownAmount, text: `到期未知 ${unknownExpiryText}`, tone: "warn" });
+  if (longTerm !== null) {
+    const earliestLong = hints && typeof hints.earliestLongTermAt === "number" ? hints.earliestLongTermAt : null;
     parts.push({
-      key: "expiring",
-      text: `临期 ${expiring}`,
-      tone: "error",
-      ...countdownText.length > 0 ? { countdown: countdownText } : {}
+      key: "longTerm",
+      /** 原始数值（弹窗要按「方案 B」重新格式化，不能复用 text 里的字符串）。 */
+      amount: split.longTerm,
+      text: `长期 ${longTerm}`,
+      // ★ 2026-11-17 改：长期从 warn（黄）改 okSoft（浅绿）。
+      //   理由：三档并存时「长期」与「短期」都用黄 ⇒ 用户分不出哪个更急。
+      //   语义上长期就是「不用管」，与深绿的「永久」同族但更浅 ——
+      //   两者必须能分辨（代码里 2026-10-12 的既有要求：永久与长期不得同色）。
+      tone: "okSoft",
+      ...earliestLong !== null ? { countdown: `最早 ${formatMonthDay(earliestLong, now)}到期` } : {},
+      /**
+       * ⚠️ 结构化字段（2026-11-18）：弹窗 tooltip 要写「最早 12月3日 到期（还有 15 天）」。
+       *    必须在**生产者**这里给出「还有多久」—— 消费方自己算会与分桶时刻漂移
+       *    （两边的 now 可能差几十秒，临界日会显示成两种说法）。
+       */
+      ...earliestLong !== null ? { earliestAt: earliestLong, earliestIn: earliestLong - now } : {}
     });
   }
+  if (shortTermText !== null) {
+    const earliestShort = typeof split.earliestShortTermAt === "number" && split.earliestShortTermAt > 0 ? split.earliestShortTermAt : null;
+    parts.push({
+      key: "shortTerm",
+      amount: shortTermAmount,
+      text: `短期 ${shortTermText}`,
+      tone: "warn",
+      ...earliestShort !== null ? { countdown: `最早 ${formatMonthDay(earliestShort, now)}到期` } : {},
+      // ⚠️ 同 longTerm：给消费方「还有多久」的结构化字段
+      ...earliestShort !== null ? { earliestAt: earliestShort, earliestIn: earliestShort - now } : {}
+    });
+  }
+  {
+    const hasTierSplit = imminentAmount > 0 || shortTermAmount > 0;
+    const tierAmount = hasTierSplit ? imminentAmount : expiringAmount;
+    const tierText = hasTierSplit ? imminentText : expiring;
+    const at = hasTierSplit ? split.earliestImminentAt : split.earliestExpiringAt;
+    const tierEarliestAmount = hasTierSplit ? Number.isFinite(split.earliestImminentAmount) ? split.earliestImminentAmount : 0 : Number.isFinite(split.earliestExpiringAmount) ? split.earliestExpiringAmount : 0;
+    if (tierText !== null) {
+      const countdown = typeof at === "number" && Number.isFinite(at) && at > 0 ? expiryCountdown(at, now) : "";
+      const partial = tierEarliestAmount > 0 && tierEarliestAmount < tierAmount;
+      let countdownText = countdown.length === 0 ? "" : partial ? `其中 ${format(tierEarliestAmount)} 于 ${countdown}后到期` : countdown;
+      if (!hasTierSplit && hints && hints.expiringIsPlanRefresh === true && typeof at === "number" && at > 0 && countdown.length > 0) {
+        const refresh = `套餐 ${formatMonthDay(at, now)}刷新`;
+        countdownText = partial ? `其中套餐 ${format(tierEarliestAmount)} 于 ${formatMonthDay(at, now)}刷新，${countdown}后` : `${refresh}，${countdown}后`;
+      }
+      const hasEarliest = typeof at === "number" && Number.isFinite(at) && at > 0 && tierEarliestAmount > 0;
+      parts.push({
+        key: "expiring",
+        /**
+         * ⚠️ 临期**总额**（= imminent，旧后端时 = expiring 母量）。
+         *    tooltip 第一行必须用它；第二行才写「其中 <最早批次>」。
+         *    旧实现第一行误用了 earliestAmount（用户报障的根因之一）。
+         */
+        amount: tierAmount,
+        text: `临期 ${tierText}`,
+        tone: "error",
+        ...countdownText.length > 0 ? { countdown: countdownText } : {},
+        ...hasEarliest ? { earliestAmount: tierEarliestAmount, earliestIn: at - now } : {}
+      });
+    }
+  }
   if (expiredText !== null) {
-    parts.push({ key: "expired", text: `已过期 ${expiredText}`, tone: "warn" });
+    parts.push({ key: "expired", amount: expiredAmount, text: `已过期 ${expiredText}`, tone: "warn" });
   }
   return parts;
 }
@@ -5101,6 +7628,34 @@ function expiryCountdown(expiresAtMs, now) {
   if (days > 0) return `${days} 天 ${hours} 小时`;
   if (hours > 0) return `${hours} 小时 ${mins} 分钟`;
   return `${mins} 分钟`;
+}
+function formatCompactLeft(ms) {
+  const left = Number(ms);
+  if (!Number.isFinite(left) || left <= 0) return "";
+  const minutes = Math.ceil(left / 6e4);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor(minutes % 1440 / 60);
+  const mins = minutes % 60;
+  if (days > 0) return hours > 0 ? `${days}天${hours}时` : `${days}天`;
+  if (hours > 0) return mins > 0 ? `${hours}时${mins}分` : `${hours}时`;
+  return `${mins}分`;
+}
+function formatLeftCn(ms) {
+  const left = Number(ms);
+  if (!Number.isFinite(left) || left <= 0) return "";
+  const minutes = Math.ceil(left / 6e4);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor(minutes % 1440 / 60);
+  const mins = minutes % 60;
+  if (days > 0) return hours > 0 ? `${days} 天 ${hours} 小时` : `${days} 天`;
+  if (hours > 0) return mins > 0 ? `${hours} 小时 ${mins} 分钟` : `${hours} 小时`;
+  return `${mins} 分钟`;
+}
+function formatAmountShort(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  const rounded = Number(n.toFixed(2));
+  return String(rounded);
 }
 var DAILY_POOL_NAMES = ["每日赠送", "每日积分"];
 function findDailyPool(packages) {
@@ -5163,6 +7718,7 @@ function packageExpiryMs(pkg) {
   return null;
 }
 function formatPackageExpiry(pkg, now) {
+  if (pkg && pkg.expiryUnknown === true) return "到期未知";
   const end = packageExpiryMs(pkg);
   if (end === null) {
     return pkg && typeof pkg.expiryNote === "string" && pkg.expiryNote !== "" ? pkg.expiryNote : "长期";
@@ -5246,6 +7802,102 @@ function buildCreateAccountPayload(provider, zcodeProvider, accioRegion, astudio
   if (provider === "accio") return { provider, accioRegion };
   if (provider === "astudio") return { provider, astudioLoginMethod: astudioLoginMethod ?? "local" };
   return { provider, autoclawMode: autoclawMode ?? "local" };
+}
+
+// plugin-src/client/login-preferences-store.js
+var READ_TIMEOUT_MS = 5e3;
+var READ_ATTEMPTS = 3;
+var RETRY_DELAY_MS = 200;
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+var enabled = true;
+var readFailed = false;
+var inflight = null;
+var writeSeq = 0;
+var listeners = /* @__PURE__ */ new Set();
+function loginAutoOpenEnabled() {
+  return enabled;
+}
+function loginAutoOpenReadFailed() {
+  return readFailed;
+}
+function subscribeLoginAutoOpen(listener) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+function publish(nextEnabled, nextFailed) {
+  if (enabled === nextEnabled && readFailed === nextFailed) return;
+  enabled = nextEnabled;
+  readFailed = nextFailed;
+  for (const listener of [...listeners]) {
+    try {
+      listener();
+    } catch (caught) {
+      console.error("[jet-hub] 自动打开浏览器开关的监听器抛错", caught);
+    }
+  }
+}
+function readSignal() {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(READ_TIMEOUT_MS);
+  }
+  if (typeof AbortController !== "function") return void 0;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), READ_TIMEOUT_MS);
+  if (typeof timer === "object" && timer !== null && typeof timer.unref === "function") {
+    timer.unref();
+  }
+  controller.signal?.addEventListener?.("abort", () => clearTimeout(timer), { once: true });
+  return controller.signal;
+}
+function loadLoginAutoOpen(rpcCall) {
+  if (inflight !== null) return inflight;
+  const seqAtStart = writeSeq;
+  const task = (async () => {
+    let lastError;
+    for (let attempt = 1; attempt <= READ_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await rpcCall("loginPreferences.getEnabled", {}, readSignal());
+        if (writeSeq !== seqAtStart) return enabled;
+        if (typeof result?.enabled === "boolean") {
+          publish(result.enabled, false);
+        } else {
+          publish(enabled, true);
+        }
+        return enabled;
+      } catch (caught) {
+        lastError = caught;
+        if (writeSeq !== seqAtStart) return enabled;
+        if (attempt >= READ_ATTEMPTS) break;
+        await delay(RETRY_DELAY_MS * attempt);
+        if (writeSeq !== seqAtStart) return enabled;
+      }
+    }
+    console.warn(
+      `[jet-hub] 读取「自动打开浏览器」开关失败，按开启处理（已重试 ${READ_ATTEMPTS - 1} 次）`,
+      lastError
+    );
+    if (writeSeq === seqAtStart) publish(enabled, true);
+    return enabled;
+  })();
+  inflight = task;
+  const clear = () => {
+    if (inflight === task) inflight = null;
+  };
+  void task.then(clear, clear);
+  return task;
+}
+async function setLoginAutoOpen(rpcCall, next) {
+  const result = await rpcCall("loginPreferences.setEnabled", { enabled: next });
+  if (typeof result?.enabled !== "boolean") {
+    throw new Error("「自动打开浏览器」开关没有返回合法 enabled");
+  }
+  writeSeq += 1;
+  publish(result.enabled, false);
+  return result.enabled;
 }
 
 // plugin-src/client/marvis-login-modal.js
@@ -5489,7 +8141,8 @@ function isLoopbackHost(host) {
 }
 
 // plugin-src/client/openai-gateway-panel.js
-async function copyToClipboard(value) {
+async function copyToClipboard(value, options) {
+  const silent = options?.silent === true;
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(value);
@@ -5498,6 +8151,7 @@ async function copyToClipboard(value) {
   } catch {
   }
   if (legacyCopy(value)) return true;
+  if (silent) return false;
   showManualCopy(value);
   return false;
 }
@@ -5784,9 +8438,9 @@ function gatewayEffortsHintLines(models) {
     return ["当前已开启的模型都没声明思考档位：网关不下发该参数，按模型默认走。"];
   }
   const lossy = rows.filter((row) => row.lossy).length;
-  const enabled = Array.isArray(models) ? models.length : rows.length;
+  const enabled2 = Array.isArray(models) ? models.length : rows.length;
   return [
-    `已开启的 ${enabled} 个模型里，有 ${rows.length} 个可选思考档位${lossy > 0 ? `（${lossy} 个不同名，标「需对照」）` : ""}。`,
+    `已开启的 ${enabled2} 个模型里，有 ${rows.length} 个可选思考档位${lossy > 0 ? `（${lossy} 个不同名，标「需对照」）` : ""}。`,
     "「客户端该填」为 CC Switch 需配置的映射档位，未登记的档位名称将被拒绝。"
   ];
 }
@@ -5823,7 +8477,13 @@ function gatewayButtonTitle(status) {
 function gatewayEndpoint(status) {
   const address = status?.address;
   if (!address) return "";
+  const publicEndpoint = gatewayPublicEndpoint(status);
+  if (publicEndpoint !== "") return publicEndpoint;
   return gatewayHttpUrl(address.host, address.port, "/v1");
+}
+function gatewayPublicEndpoint(status) {
+  const value = status?.publicUrl;
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : "";
 }
 function gatewayLoopbackOnly(status) {
   const host = status?.address?.host;
@@ -5873,7 +8533,7 @@ function gatewayStatusLines(status) {
       // ⚠️ 绑 0.0.0.0（局域网开关）时，抄走的字面量在任何设备上都连不上
       // （0.0.0.0 不是一台具体设备的地址）——必须当场说明要换成什么。
       // 判据复用宿主侧 isWildcardHost（与本文件其它 host 判据同源）。
-      isWildcardHost(status.address?.host) ? "其它设备请把地址里的 0.0.0.0 换成本机的局域网 IP（ipconfig 可查）。" : "",
+      isWildcardHost(status.address?.host) && gatewayPublicEndpoint(status) === "" ? "其它设备请把地址里的 0.0.0.0 换成本机的局域网 IP（ipconfig 可查）。" : "",
       // ⚠️ 暴露面变了必须**明说**（issue IKL7UN）。原先「只绑定 127.0.0.1」是
       // 常量文案，host 可配之后它就是错误陈述 —— 用户会以为「外面连不上是
       // 设计如此」而放弃排查。反之，回环部署下**不加这句**，避免把刚精简过的
@@ -6502,8 +9162,32 @@ function formatEntryTime(ts) {
 function ledgerSubtitle() {
   return "本机流水 · 明细重启清空 · 日累计已存盘";
 }
-function accountLabel(accountId) {
-  return typeof accountId === "string" && accountId.length > 0 ? accountId : "未归属";
+function accountLabel(accountId, nameMap) {
+  if (typeof accountId !== "string" || accountId.length === 0) return "未归属";
+  if (accountId === "-") return "（未知帐号）";
+  const mapped = nameMap instanceof Map ? nameMap.get(accountId) : nameMap?.[accountId];
+  if (typeof mapped === "string" && mapped.trim().length > 0) return mapped;
+  return accountId;
+}
+function buildAccountNameMap(accounts) {
+  const map = /* @__PURE__ */ new Map();
+  if (!Array.isArray(accounts)) return map;
+  for (const account of accounts) {
+    if (account === null || typeof account !== "object") continue;
+    if (typeof account.id !== "string" || account.id.length === 0) continue;
+    const nickname = typeof account.nickname === "string" ? account.nickname : "";
+    const accountName = typeof account.accountName === "string" ? account.accountName : "";
+    const label = nickname.trim().length > 0 ? nickname : accountName.trim().length > 0 ? accountName : "";
+    if (label.trim().length > 0) map.set(account.id, label);
+  }
+  return map;
+}
+function ledgerEntryModelText(entry2) {
+  const model = typeof entry2?.model === "string" ? entry2.model : "";
+  const provider = typeof entry2?.provider === "string" ? entry2.provider : "";
+  if (model.length === 0) return "";
+  if (provider.length === 0) return model;
+  return provider + "/" + model;
 }
 function channelCardTitle(channelRow) {
   const requests = channelRow?.totals?.requests ?? 0;
@@ -6950,6 +9634,7 @@ var BAIZHI_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5
 var OPENCODE_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNSIgZmlsbD0iIzEyMTYxZCIvPjxwYXRoIGQ9Ik02LjUgOC41IDEwLjUgMTJsLTQgMy41IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMS44IiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48cGF0aCBkPSJNMTIuNSAxNmg1IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMS44IiBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48L3N2Zz4=";
 var GEMINI_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGRlZnM+PGxpbmVhckdyYWRpZW50IGlkPSJnIiB4MT0iMCIgeTE9IjAiIHgyPSIxIiB5Mj0iMSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNDI4NUY0Ii8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjOUI3MkNCIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PHBhdGggZD0iTTEyIDJjLjQgMy45IDIuMSA2LjYgNiA4LTMuOSAxLjQtNS42IDQuMS02IDgtLjQtMy45LTIuMS02LjYtNi04IDMuOS0xLjQgNS42LTQuMSA2LThaIiBmaWxsPSJ1cmwoI2cpIi8+PHBhdGggZD0iTTE5LjUgMTRjLjIgMS43LjkgMi45IDIuNiAzLjUtMS43LjYtMi40IDEuOC0yLjYgMy41LS4yLTEuNy0uOS0yLjktMi42LTMuNSAxLjctLjYgMi40LTEuOCAyLjYtMy41WiIgZmlsbD0idXJsKCNnKSIvPjwvc3ZnPg==";
 var AGGREGATE_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PGNpcmNsZSBjeD0iNSIgY3k9IjUiIHI9IjIuNiIgZmlsbD0iIzRGOERGNyIvPjxjaXJjbGUgY3g9IjUiIGN5PSIxOSIgcj0iMi42IiBmaWxsPSIjOUI3MkNCIi8+PGNpcmNsZSBjeD0iMTkiIGN5PSIxMiIgcj0iMi42IiBmaWxsPSIjNEY4REY3Ii8+PHBhdGggZD0iTTcgNi4yIDE2LjQgMTFNNyAxNy44IDE2LjQgMTMiIHN0cm9rZT0iIzlCNzJDQiIgc3Ryb2tlLXdpZHRoPSIxLjciIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSIvPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjEuNSIgZmlsbD0iIzlCNzJDQiIvPjwvc3ZnPg==";
+var DOUBAO_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNSIgZmlsbD0iIzMzNzBGRiIvPjxjaXJjbGUgY3g9IjEyIiBjeT0iMTAiIHI9IjQiIGZpbGw9IiNmZmYiLz48Y2lyY2xlIGN4PSIxMC40IiBjeT0iOS42IiByPSIwLjkiIGZpbGw9IiMzMzcwRkYiLz48Y2lyY2xlIGN4PSIxMy42IiBjeT0iOS42IiByPSIwLjkiIGZpbGw9IiMzMzcwRkYiLz48cGF0aCBkPSJNNyAxNi41YzEuNiAyIDguNCAyIDEwIDAiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjYiIGZpbGw9Im5vbmUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==";
 var OFFICEACE_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHJlY3Qgd2lkdGg9IjIwIiBoZWlnaHQ9IjIwIiB4PSIyIiB5PSIyIiByeD0iNCIgZmlsbD0iI2M3MDAwMCIvPjx0ZXh0IHg9IjEyIiB5PSIxNS41IiBmb250LXNpemU9IjgiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC13ZWlnaHQ9ImJvbGQiIGZpbGw9IiNmZmYiIHRleHQtYW5jaG9yPSJtaWRkbGUiPk9BPC90ZXh0Pjwvc3ZnPg==";
 var ACCIO_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNSIgZmlsbD0iI0ZGNkEwMCIvPjxwYXRoIGQ9Ik03LjQgMTcuMiAxMSA2LjhoMmwzLjYgMTAuNGgtMi4xbC0uNzItMi4yNEgxMC4ybC0uNzIgMi4yNEg3LjRaIiBmaWxsPSIjZmZmIi8+PHBhdGggZD0iTTEwLjc0IDEzLjI2aDIuNTJMMTIgOS41bC0xLjI2IDMuNzZaIiBmaWxsPSIjRkY2QTAwIi8+PC9zdmc+";
 var ASTUDIO_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNSIgZmlsbD0iIzFGNkZFQiIvPjxwYXRoIGQ9Ik0xMiA2LjIgMTcuNiAxOC4yaC0yLjJsLTEuMi0yLjlIOS44bC0xLjIgMi45SDYuNHoiIGZpbGw9IiNGRkZGRkYiLz48cmVjdCB4PSI5LjIiIHk9IjEyLjYiIHdpZHRoPSI1LjYiIGhlaWdodD0iMS41IiBmaWxsPSIjRkZGRkZGIi8+PC9zdmc+";
@@ -6957,6 +9642,7 @@ var AUTOCLAW_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53M
 var CODELY_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNSIgZmlsbD0iIzI0MjQyNCIvPjxwYXRoIGQ9Ik03IDZ2OGE1IDUgMCAwIDAgMTAgMFY2aC0yLjV2Ny44YTIuNSAyLjUgMCAwIDEtNSAwVjZaIiBmaWxsPSIjZmZmIi8+PGNpcmNsZSBjeD0iMTYuNiIgY3k9IjcuMiIgcj0iMS4zIiBmaWxsPSIjOUFFMjJFIi8+PC9zdmc+";
 var MAGICREW_ICON = "data:image/png;base64,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";
 var MARVIS_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNSIgZmlsbD0iIzBCNUZGRiIvPjxwYXRoIGQ9Ik01IDE4VjZoMi42bDQuNCA3LjFMMTYuNCA2SDE5djEyaC0yLjVWOS45bC0zLjkgNi4yaC0xLjJMNy41IDkuOVYxOEg1eiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==";
+var AGNESCODE_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiByeD0iNSIgZmlsbD0iIzBGNzY2RSIvPjxwYXRoIGQ9Ik0xMS4xIDVoMS44TDE3IDE5aC0yLjZsLS45LTNIMTAuNWwtLjkgM0g3TDExLjEgNXoiIGZpbGw9IiNmZmYiLz48cGF0aCBkPSJNMTIgOS4ybC0xLjQgNC4zaDIuOEwxMiA5LjJ6IiBmaWxsPSIjMEY3NjZFIi8+PC9zdmc+";
 var PROVIDER_ICONS = {
   codearts: CODEARTS_ICON,
   buddy: CODEBUDDY_ICON,
@@ -6985,6 +9671,8 @@ var PROVIDER_ICONS = {
   //    （`provider-registry.spec.ts` 有行为断言）。
   autoclawintl: AUTOCLAW_ICON,
   modelscope: MODELSCOPE_ICON,
+  // ⚠️ 与 registry 的声明序一致：doubao 排在 magicrew 之前（magicrew 仍紧邻 aggregate）。
+  doubao: DOUBAO_ICON,
   // ⚠️ 与 registry 的声明序一致：magicrew 紧邻 aggregate 之前（倒数第二）。
   magicrew: MAGICREW_ICON,
   // ⚠️ **MagiCrew 国际版**（2026-11-01）：与国内版**共用同一个图标**
@@ -7008,6 +9696,13 @@ var PROVIDER_ICONS = {
   //    漏加这行 ⇒ `provider-registry.spec.ts` 的「键集合 == registry id 集合」
   //    断言变红（而不是渲染出空白图标）—— 这正是把图标表做成纯数据模块的理由。
   marvis: MARVIS_ICON,
+  // ⚠️ AgnesCode（2026-11-19，本 fork 独有）：**自制占位图标**（见 AGNESCODE_ICON
+  //    注释）。`PROVIDER_ICONS` 的键集合与 registry 的 id 集合必须完全相等
+  //    （`provider-icon-coverage.spec.ts` + `provider-registry.spec.ts` 都有
+  //    行为断言）⇒ 两站漏任一键都会红，而不是渲染出一张空白图标。
+  agnescode: AGNESCODE_ICON,
+  // ⚠️ 国际站与国内站共用同一个占位（同产品、两套部署），与 magicrewintl 同型。
+  agnescodeintl: AGNESCODE_ICON,
   aggregate: AGGREGATE_ICON,
   // ⚠️ Codely（Unity，本 fork 独有）：UI 先行阶段（registry 里 channel:false），
   //    但图标键集合守卫按**全量** registry 比对 —— 漏加这行会红（而非渲染空白图标）。
@@ -7114,6 +9809,166 @@ function compensationHint(state) {
   return "";
 }
 
+// plugin-src/client/credit-window-ui.js
+function parseWindowInput(raw) {
+  if (typeof raw !== "string") return null;
+  const text = raw.trim();
+  if (text.length === 0) return void 0;
+  if (!/^\d+$/.test(text)) return null;
+  const value = Number(text);
+  if (!Number.isFinite(value)) return null;
+  if (value > 36500) return null;
+  return value;
+}
+function clampImminent(imminent, windowDays) {
+  if (typeof imminent !== "number" || typeof windowDays !== "number") {
+    return { imminent, clamped: false };
+  }
+  if (imminent <= windowDays) return { imminent, clamped: false };
+  return { imminent: windowDays, clamped: true };
+}
+function computeCoverage(accounts, windowDays, imminentDays, now) {
+  const empty = {
+    imminentAccounts: 0,
+    shortTermAccounts: 0,
+    permanentAccounts: 0,
+    noCreditAccounts: 0,
+    totalAccounts: 0,
+    imminentAmount: 0,
+    shortTermAmount: 0,
+    permanentAmount: 0
+  };
+  if (!Array.isArray(accounts)) return empty;
+  const out = { ...empty, totalAccounts: accounts.length };
+  for (const account of accounts) {
+    const packages = account?.packages;
+    if (!Array.isArray(packages)) {
+      out.noCreditAccounts += 1;
+      continue;
+    }
+    const split = splitCreditsByExpiry(packages, windowDays, now, imminentDays);
+    if (split === null) {
+      out.noCreditAccounts += 1;
+      continue;
+    }
+    const imminent = Number(split.imminent) || 0;
+    const shortTerm = Number(split.shortTerm) || 0;
+    const permanent = (Number(split.permanent) || 0) + (Number(split.longTerm) || 0);
+    const expired = Number(split.expired) || 0;
+    out.imminentAmount += imminent;
+    out.shortTermAmount += shortTerm;
+    out.permanentAmount += permanent;
+    if (imminent > 0) out.imminentAccounts += 1;
+    if (shortTerm > 0) out.shortTermAccounts += 1;
+    if (permanent > 0) out.permanentAccounts += 1;
+    if (imminent <= 0 && shortTerm <= 0 && permanent <= 0 && expired <= 0) {
+      out.noCreditAccounts += 1;
+    }
+  }
+  return out;
+}
+var MIN_VISIBLE_PERCENT = 3;
+function barPercent(amount, total) {
+  const a = Number(amount);
+  const t = Number(total);
+  if (!Number.isFinite(a) || !Number.isFinite(t)) return 0;
+  if (!(a > 0) || !(t > 0)) return 0;
+  const pct = a / t * 100;
+  if (!Number.isFinite(pct)) return 0;
+  return Math.max(MIN_VISIBLE_PERCENT, Math.min(100, pct));
+}
+function coverageTotal(coverage) {
+  if (coverage === null || typeof coverage !== "object") return 0;
+  const sum = Number(coverage.imminentAmount || 0) + Number(coverage.shortTermAmount || 0) + Number(coverage.permanentAmount || 0);
+  return Number.isFinite(sum) && sum > 0 ? sum : 0;
+}
+function describeWindowSource(source, windowDays, imminentDays) {
+  if (source === "setting") return "本渠道设置";
+  if (source === "env") return "环境变量";
+  return "默认值";
+}
+function windowRangeLabels(windowDays, imminentDays) {
+  return {
+    imminent: `临期  < ${imminentDays} 天`,
+    shortTerm: `短期  ${imminentDays} ~ ${windowDays} 天`,
+    permanent: `永久  ≥ ${windowDays} 天`
+  };
+}
+var SUBAGENT_MODE_LABELS = [
+  ["follow", "跟随主代理"],
+  ["sequence", "顺序分布"],
+  ["reverse", "倒序分布"],
+  ["hash", "哈希分布"],
+  ["fixed", "固定帐号"]
+];
+var SUBAGENT_MODE_HINTS = {
+  follow: "与主代理同账号起步，档位规则不变（仍先烧临期）",
+  sequence: "子代理在主代理同档位内往后错开，仍先烧临期",
+  reverse: "子代理在主代理同档位内往前错开，仍先烧临期",
+  hash: "按会话 ID 稳定分配同档位账号，仍先烧临期",
+  fixed: "该号绝对优先（无视档位），积分为空或锁定不可用才切换"
+};
+function subagentHintOf(mode) {
+  const hit = SUBAGENT_MODE_HINTS[mode];
+  return hit === void 0 ? SUBAGENT_MODE_HINTS.follow : hit;
+}
+function defaultEffortOf(entry2) {
+  if (entry2 === null || typeof entry2 !== "object") return void 0;
+  const efforts = Array.isArray(entry2.efforts) ? entry2.efforts : [];
+  if (efforts.length === 0) return void 0;
+  const declared = typeof entry2.defaultEffort === "string" ? entry2.defaultEffort : "";
+  if (declared.length > 0 && efforts.some((e) => e !== null && typeof e === "object" && e.id === declared)) {
+    return declared;
+  }
+  const last = efforts[efforts.length - 1];
+  return last !== null && typeof last === "object" && typeof last.id === "string" ? last.id : void 0;
+}
+function validateSubagentDraft(draft) {
+  if (draft === null || typeof draft !== "object") {
+    return { ok: false, message: "设置为空" };
+  }
+  const mode = draft.startMode;
+  const known = SUBAGENT_MODE_LABELS.some(([id]) => id === mode);
+  if (!known) return { ok: false, message: "请选择一个起点策略" };
+  if (mode === "fixed") {
+    const pos = draft.fixedPosition;
+    if (typeof pos !== "number" || !Number.isInteger(pos) || pos < 1) {
+      return { ok: false, message: "「固定帐号」必须选一个账号" };
+    }
+  }
+  return { ok: true };
+}
+function subagentPayloadOf(draft) {
+  if (draft === null || typeof draft !== "object") return void 0;
+  const mode = draft.startMode;
+  if (mode === void 0) return void 0;
+  return {
+    startMode: mode,
+    ...mode === "fixed" && typeof draft.fixedPosition === "number" ? { fixedPosition: draft.fixedPosition } : {},
+    ...typeof draft.model === "string" && draft.model.length > 0 ? { model: draft.model } : {},
+    ...typeof draft.reasoningEffort === "string" && draft.reasoningEffort.length > 0 ? { reasoningEffort: draft.reasoningEffort } : {}
+  };
+}
+function isWindowDirty(input) {
+  const src = input === null || typeof input !== "object" ? {} : input;
+  const saved = src.saved;
+  if (saved === null || typeof saved !== "object") return false;
+  const draftWindow = typeof src.draftWindow === "string" ? src.draftWindow.trim() : "";
+  const draftImminent = typeof src.draftImminent === "string" ? src.draftImminent.trim() : "";
+  if (String(saved.windowDays) !== draftWindow) return true;
+  if (String(saved.imminentDays) !== draftImminent) return true;
+  const subDraft = src.subDraft;
+  if (subDraft === null || typeof subDraft !== "object") return false;
+  const savedSub = saved.subagent;
+  const savedObj = savedSub === null || typeof savedSub !== "object" ? {} : savedSub;
+  const normMode = (v) => typeof v === "string" && v.length > 0 ? v : "follow";
+  if (normMode(subDraft.startMode) !== normMode(savedObj.startMode)) return true;
+  if ((subDraft.fixedPosition ?? 0) !== (savedObj.fixedPosition ?? 0)) return true;
+  if ((subDraft.model ?? "") !== (savedObj.model ?? "")) return true;
+  if ((subDraft.reasoningEffort ?? "") !== (savedObj.reasoningEffort ?? "")) return true;
+  return false;
+}
+
 // plugin-src/client/jet-hub.js
 var JET_HUB_RPC_CHANNEL = "/jet-hub";
 var PROVIDERS = Object.freeze(
@@ -7124,20 +9979,457 @@ var PROVIDERS = Object.freeze(
     logoClass: d.logoClass
   }))
 );
+function CreditWindowModal(props) {
+  const { provider, providerLabel: providerLabel2, rpcCall, accounts, onClose } = props;
+  const [saved, setSaved] = React10.useState(null);
+  const [loadError, setLoadError] = React10.useState("");
+  const [busy, setBusy] = React10.useState(false);
+  const [saveError, setSaveError] = React10.useState("");
+  const [draftWindow, setDraftWindow] = React10.useState("");
+  const [draftImminent, setDraftImminent] = React10.useState("");
+  const [subDraft, setSubDraft] = React10.useState(null);
+  const [modelList, setModelList] = React10.useState(null);
+  const [rotationAccounts, setRotationAccounts] = React10.useState(null);
+  React10.useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await rpcCall("credits.window.get", { provider });
+        if (!alive) return;
+        if (typeof res?.windowDays !== "number" || typeof res?.imminentDays !== "number") {
+          setLoadError("返回结构异常（缺少 windowDays / imminentDays）");
+          return;
+        }
+        setSaved(res);
+        setDraftWindow(String(res.windowDays));
+        setDraftImminent(String(res.imminentDays));
+        if (alive) {
+          const sub = res?.subagent;
+          setSubDraft({
+            startMode: typeof sub?.startMode === "string" ? sub.startMode : "follow",
+            fixedPosition: typeof sub?.fixedPosition === "number" ? sub.fixedPosition : void 0,
+            model: typeof sub?.model === "string" ? sub.model : void 0,
+            reasoningEffort: typeof sub?.reasoningEffort === "string" ? sub.reasoningEffort : void 0
+          });
+        }
+      } catch (caught) {
+        if (alive) setLoadError(caught instanceof Error ? caught.message : String(caught));
+      }
+    })();
+    void (async () => {
+      try {
+        const models = await rpcCall("credits.window.models", { provider });
+        if (alive) setModelList(Array.isArray(models?.models) ? models.models : []);
+      } catch {
+        if (alive) setModelList([]);
+      }
+    })();
+    void (async () => {
+      try {
+        const rot = await rpcCall("credits.window.accounts", { provider });
+        if (alive) setRotationAccounts(Array.isArray(rot?.accounts) ? rot.accounts : []);
+      } catch {
+        if (alive) setRotationAccounts([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [provider]);
+  const parsedWindow = parseWindowInput(draftWindow);
+  const parsedImminent = parseWindowInput(draftImminent);
+  const effectiveWindow = typeof parsedWindow === "number" ? parsedWindow : saved?.windowDays ?? 15;
+  const rawImminent = typeof parsedImminent === "number" ? parsedImminent : saved?.imminentDays ?? 5;
+  const { imminent: effectiveImminent, clamped } = clampImminent(rawImminent, effectiveWindow);
+  const windowInvalid = parsedWindow === null;
+  const imminentInvalid = parsedImminent === null;
+  const coverage = computeCoverage(accounts(), effectiveWindow, effectiveImminent, Date.now());
+  const ranges = windowRangeLabels(effectiveWindow, effectiveImminent);
+  const previewTotal = coverageTotal(coverage);
+  const dirty = isWindowDirty({ saved, draftWindow, draftImminent, subDraft });
+  const onSave = async () => {
+    if (windowInvalid || imminentInvalid) return;
+    setBusy(true);
+    setSaveError("");
+    try {
+      const payload = { provider };
+      const windowChanged = typeof parsedWindow === "number" && parsedWindow !== saved?.windowDays;
+      const imminentChanged = typeof parsedImminent === "number" && parsedImminent !== saved?.imminentDays;
+      if (windowChanged) payload.windowDays = parsedWindow;
+      if (imminentChanged) payload.imminentDays = parsedImminent;
+      const subInvalid = validateSubagentDraft(subDraft);
+      const subPayload = subInvalid.ok ? subagentPayloadOf(subDraft) : void 0;
+      if (subPayload !== void 0) payload.subagent = subPayload;
+      if (payload.windowDays === void 0 && payload.imminentDays === void 0 && payload.subagent === void 0) {
+        onClose();
+        return;
+      }
+      const res = await rpcCall("credits.window.set", payload);
+      if (typeof res?.windowDays !== "number" || typeof res?.imminentDays !== "number") {
+        throw new Error("保存返回结构异常（缺少 windowDays / imminentDays）");
+      }
+      setSaved(res);
+      setDraftWindow(String(res.windowDays));
+      setDraftImminent(String(res.imminentDays));
+      onClose();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      setSaveError(message);
+      try {
+        window.alert(`保存分档窗口失败：
+${message}`);
+      } catch {
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const onReset = async () => {
+    setBusy(true);
+    setSaveError("");
+    try {
+      const res = await rpcCall("credits.window.set", { provider });
+      if (typeof res?.windowDays !== "number" || typeof res?.imminentDays !== "number") {
+        setSaveError("恢复返回结构异常");
+        return;
+      }
+      setSaved(res);
+      setDraftWindow(String(res.windowDays));
+      setDraftImminent(String(res.imminentDays));
+    } catch (caught) {
+      setSaveError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const field = (options) => React10.createElement(
+    "div",
+    { className: "dim-jh-windowField" },
+    React10.createElement(
+      "div",
+      { className: "dim-jh-windowLabel" },
+      React10.createElement("span", {
+        className: "dim-jh-windowDot",
+        "data-tone": options.tone
+      }),
+      React10.createElement("span", null, options.label),
+      React10.createElement("input", {
+        type: "number",
+        className: "dim-jh-windowInput",
+        min: 0,
+        step: 1,
+        value: options.value,
+        // ⚠️ 允许空串（= 用默认）；`type=number` 的原生上下箭头仍可用
+        onChange: (event) => options.onChange(event.target.value),
+        "aria-label": options.ariaLabel,
+        "aria-invalid": options.invalid ? "true" : void 0
+      }),
+      React10.createElement("span", { className: "dim-jh-windowUnit" }, "天"),
+      React10.createElement(
+        "span",
+        {
+          className: "dim-jh-windowCover",
+          "data-tone": options.tone,
+          title: `当前窗口下，本渠道有 ${options.count} 个账号的「${options.label.replace("窗口", "")}」积分`
+        },
+        "覆盖 ",
+        React10.createElement("b", null, options.count),
+        " 个账号"
+      )
+    ),
+    React10.createElement("div", { className: "dim-jh-windowHint" }, options.hint),
+    options.warn === void 0 ? null : React10.createElement("div", { className: "dim-jh-windowWarn" }, options.warn)
+  );
+  return React10.createElement(
+    "div",
+    {
+      className: "dim-jh-modalOverlay",
+      onClick: (event) => {
+        if (event.target === event.currentTarget) onClose();
+      }
+    },
+    React10.createElement(
+      "div",
+      {
+        className: "dim-jh-modal dim-jh-windowModal",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": `${providerLabel2} 分档窗口`
+      },
+      React10.createElement(
+        "div",
+        { className: "dim-jh-modalHead" },
+        React10.createElement(
+          "div",
+          { className: "dim-jh-modalTitle" },
+          React10.createElement("strong", null, "积分分档窗口"),
+          React10.createElement("span", { className: "dim-jh-modalSubtitle" }, providerLabel2)
+        ),
+        React10.createElement("button", {
+          className: "dim-jh-btn",
+          onClick: onClose,
+          title: "关闭"
+        }, "×")
+      ),
+      loadError !== "" ? React10.createElement(
+        "div",
+        { className: "dim-jh-modalBody" },
+        React10.createElement("p", { className: "dim-jh-modalHint" }, `读取当前设置失败：${loadError}`)
+      ) : React10.createElement(
+        "div",
+        { className: "dim-jh-modalBody" },
+        // ★ 临期在上、短期在下（与预览的三档顺序一致）
+        field({
+          tone: "imminent",
+          label: "临期窗口",
+          ariaLabel: "临期窗口天数",
+          value: draftImminent,
+          invalid: imminentInvalid,
+          onChange: setDraftImminent,
+          count: coverage.imminentAccounts,
+          hint: `距过期 < ${effectiveImminent} 天 → 算「临期」。来源：${describeWindowSource(saved?.source, saved?.windowDays, saved?.imminentDays)}`
+        }),
+        field({
+          tone: "short",
+          label: "短期窗口",
+          ariaLabel: "短期窗口天数",
+          value: draftWindow,
+          invalid: windowInvalid,
+          onChange: setDraftWindow,
+          count: coverage.shortTermAccounts,
+          hint: `距过期 ≤ ${effectiveWindow} 天 → 算「短期」（含上面的临期）。来源：${describeWindowSource(saved?.source, saved?.windowDays, saved?.imminentDays)}`,
+          warn: clamped ? `⚠️ 临期窗口不能大于短期窗口，已按 ${effectiveWindow} 天计算` : "⚠️ 临期窗口必须 ≤ 短期窗口"
+        }),
+        windowInvalid || imminentInvalid ? React10.createElement(
+          "p",
+          { className: "dim-jh-modalHint dim-jh-windowInvalid" },
+          windowInvalid ? "短期窗口" : "",
+          windowInvalid && imminentInvalid ? " 与 " : "",
+          imminentInvalid ? "临期窗口" : "",
+          " 必须是 0 ~ 36500 之间的整数"
+        ) : null,
+        // ---- 实时预览 ----
+        React10.createElement(
+          "div",
+          { className: "dim-jh-windowPreview" },
+          React10.createElement("div", { className: "dim-jh-windowPreviewTitle" }, "改动后预览（本渠道当前余额，按新窗口重新分档）"),
+          ...[
+            ["imminent", ranges.imminent, coverage.imminentAmount],
+            ["short", ranges.shortTerm, coverage.shortTermAmount],
+            ["permanent", ranges.permanent, coverage.permanentAmount]
+          ].map(([tone, text, amount]) => React10.createElement(
+            "div",
+            { key: tone, className: "dim-jh-windowPreviewRow" },
+            /**
+             * ★ 第一行：色点 + 区间 + 金额（同行）。
+             * ★ 第二行：进度条**独占整行**。
+             *
+             * ⚠️ 为什么必须分两行（实测决定）：一行四格时，弹窗内容区只有
+             *    约 340px，减去区间 128px + 金额 76px 后条只剩 **38px**
+             *    ⇒ 「临期占 1.4%」这种真实数据算出来的条宽只有 **0.5px**，
+             *    肉眼完全看不见（用户会以为「进度条又没渲染」）。
+             *    分两行后条宽 ≈ 245px，同一比例下是 **5px**，可见。
+             */
+            React10.createElement(
+              "div",
+              { className: "dim-jh-windowPreviewHead" },
+              React10.createElement("span", { className: "dim-jh-windowDot", "data-tone": tone }),
+              React10.createElement("span", { className: "dim-jh-windowPreviewRange" }, text),
+              React10.createElement("span", { className: "dim-jh-windowPreviewAmount" }, formatAmount(amount))
+            ),
+            /**
+             * 进度条（色柱条）：宽度 = 该档金额 / 三档总额。
+             * 见 `barPercent` 的注释（含「最小可见宽度 2%」的理由）。
+             */
+            React10.createElement(
+              "span",
+              { className: "dim-jh-windowPreviewBar" },
+              React10.createElement("span", {
+                className: "dim-jh-windowPreviewFill",
+                "data-tone": tone,
+                style: { width: `${barPercent(amount, previewTotal)}%` }
+              })
+            )
+          ))
+        ),
+        /*
+         * ★★★ **子代理专属设置**（2026-11-23）。
+         *
+         * ## 布局（用户 2026-11-23 选定的「方案 A」）
+         *
+         * ```
+         * ── 子代理设置 [新] ─────────────
+         * 轮换起点
+         * [跟随主代理][顺序分布][倒序分布][哈希分布][固定帐号]
+         * 提示一行（随选中项变化，≤ 30 字）
+         * 模型
+         * [跟随主代理 ▾]  [思考强度 ▾]      ← 选了具体模型才出现右侧
+         * ```
+         *
+         * ⚠️ 只在「选了固定帐号」时多一行账号下拉 —— 其余模式不需要额外输入。
+         */
+        React10.createElement(
+          "div",
+          { className: "dim-jh-subagentSection" },
+          React10.createElement(
+            "div",
+            { className: "dim-jh-subagentTitle" },
+            React10.createElement("span", null, "子代理设置"),
+            React10.createElement("span", { className: "dim-jh-subagentNew" }, "新")
+          ),
+          React10.createElement("div", { className: "dim-jh-subagentLabel" }, "轮换起点"),
+          React10.createElement(
+            "div",
+            { className: "dim-jh-subagentSeg" },
+            SUBAGENT_MODE_LABELS.map(([id, label]) => React10.createElement("button", {
+              key: id,
+              type: "button",
+              className: "dim-jh-subagentSegBtn",
+              "data-on": (subDraft?.startMode ?? "follow") === id ? "true" : "false",
+              disabled: busy,
+              onClick: () => setSubDraft((prev) => ({
+                startMode: id,
+                // ⚠️ 切到非 fixed 时**清掉位次**：留着会让用户困惑「怎么自己选了」
+                ...id === "fixed" ? { fixedPosition: prev?.fixedPosition ?? 1 } : {},
+                ...prev?.model === void 0 ? {} : { model: prev.model },
+                ...prev?.reasoningEffort === void 0 ? {} : { reasoningEffort: prev.reasoningEffort }
+              }))
+            }, label))
+          ),
+          React10.createElement(
+            "div",
+            { className: "dim-jh-subagentHint" },
+            subagentHintOf(subDraft?.startMode ?? "follow")
+          ),
+          /*
+           * 「固定帐号」时的账号下拉。
+           *
+           * ⚠️ 选项来自 `account.getRotation` 的 `accounts`（位次 + 昵称），
+           *   与「主代理起点」那个下拉**同一个数据源**（用户看到的位次一致）。
+           */
+          (subDraft?.startMode ?? "follow") === "fixed" ? React10.createElement(
+            "div",
+            { className: "dim-jh-subagentFixed" },
+            React10.createElement("span", { className: "dim-jh-subagentFixedLabel" }, "固定使用"),
+            React10.createElement("select", {
+              className: "dim-jh-subagentSelect",
+              disabled: busy,
+              value: String(subDraft?.fixedPosition ?? 1),
+              onChange: (event) => {
+                const pos = Number(event.target.value);
+                setSubDraft((prev) => ({ ...prev, fixedPosition: Number.isInteger(pos) ? pos : 1 }));
+              }
+            }, (Array.isArray(rotationAccounts) ? rotationAccounts : []).map((acct) => React10.createElement("option", {
+              key: acct.position,
+              value: String(acct.position)
+            }, `位次 ${acct.position} · ${acct.nickname ?? "（无名）"}`)))
+          ) : null,
+          /* ---- 模型 + 思考强度 ---- */
+          React10.createElement("div", { className: "dim-jh-subagentLabel" }, "模型"),
+          React10.createElement(
+            "div",
+            { className: "dim-jh-subagentModelRow" },
+            React10.createElement(
+              "select",
+              {
+                className: "dim-jh-subagentSelect dim-jh-subagentSelectWide",
+                disabled: busy,
+                value: subDraft?.model ?? "",
+                onChange: (event) => {
+                  const model = event.target.value;
+                  const entry2 = (Array.isArray(modelList) ? modelList : []).find((m) => m.id === model);
+                  setSubDraft((prev) => ({
+                    ...prev,
+                    model: model.length === 0 ? void 0 : model,
+                    reasoningEffort: model.length === 0 ? void 0 : defaultEffortOf(entry2)
+                  }));
+                }
+              },
+              React10.createElement("option", { value: "" }, "跟随主代理"),
+              (Array.isArray(modelList) ? modelList : []).map((m) => React10.createElement("option", {
+                key: m.id,
+                value: m.id
+              }, m.name))
+            ),
+            /* 思考强度：**只在选了具体模型、且该模型支持思考时**出现。 */
+            (() => {
+              const entry2 = (Array.isArray(modelList) ? modelList : []).find((m) => m.id === subDraft?.model);
+              const efforts = Array.isArray(entry2?.efforts) ? entry2.efforts : [];
+              if (efforts.length === 0) {
+                if (subDraft?.model === void 0 || subDraft.model.length === 0) return null;
+                return React10.createElement("span", {
+                  className: "dim-jh-subagentNoEffort",
+                  title: "该模型未提供思考档位（上游目录没有下发），选它时无法指定强度"
+                }, "该模型无思考档位");
+              }
+              return React10.createElement("select", {
+                className: "dim-jh-subagentSelect dim-jh-subagentEffort",
+                disabled: busy,
+                title: "思考强度（默认取最强档）",
+                value: subDraft?.reasoningEffort ?? defaultEffortOf(entry2) ?? "",
+                onChange: (event) => setSubDraft((prev) => ({
+                  ...prev,
+                  reasoningEffort: event.target.value.length === 0 ? void 0 : event.target.value
+                }))
+              }, efforts.map((e) => React10.createElement("option", { key: e.id, value: e.id }, e.name)));
+            })()
+          )
+        ),
+        saveError === "" ? null : React10.createElement("p", { className: "dim-jh-modalHint dim-jh-windowInvalid" }, saveError)
+      ),
+      React10.createElement(
+        "div",
+        { className: "dim-jh-modalActions" },
+        React10.createElement("button", {
+          className: "dim-jh-btn",
+          disabled: busy,
+          title: "清除本渠道设置，回落环境变量或内置默认",
+          onClick: () => void onReset()
+        }, "恢复默认"),
+        React10.createElement("span", { className: "dim-jh-windowSpacer" }),
+        React10.createElement("button", { className: "dim-jh-btn", disabled: busy, onClick: onClose }, "取消"),
+        React10.createElement("button", {
+          className: "dim-jh-btn",
+          "data-kind": "primary",
+          /**
+           * ⚠️ **`!dirty` 必须在**（2026-11-21 对抗审计 P2-1）。
+           * `dirty` 这个变量原先**全文件只有定义、没有消费方**（死变量），
+           * 于是「没改动也能点保存」⇒ 见 `onSave` 里那段缺陷说明。
+           */
+          disabled: busy || windowInvalid || imminentInvalid || !dirty,
+          onClick: () => void onSave()
+        }, busy ? "保存中…" : "保存")
+      )
+    )
+  );
+}
+function formatAmount(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  if (Math.abs(value - Math.round(value)) < 1e-9) return String(Math.round(value));
+  return value.toFixed(2);
+}
 function providerLabel(id) {
   return PROVIDERS.find((p) => p.id === id)?.label ?? id;
 }
 var GROWTH_TASK_PROVIDERS = /* @__PURE__ */ new Set(["buddy"]);
+var PROVIDERS_WITH_LOOPBACK_CALLBACK = /* @__PURE__ */ new Set([
+  "codearts",
+  "lobsterai",
+  "trae",
+  "gemini",
+  "accio",
+  "autoclawintl"
+]);
 var ACCIO_DAILY_BUCKET = "每日积分";
 var CHECKIN_SAVE_TIMEOUT_MS = 15e3;
 var ACCIO_DAILY_REWARD_NOTE = "Accio 的每日积分由服务端在登录时发放，有效期 24 小时，次日刷新、不累积。它没有可调用的领取接口 —— 要重新拿到这份每日额度，请删除该账号后重新登录一次。";
 function ProviderLogo({ provider }) {
   const p = PROVIDERS.find((p2) => p2.id === provider);
   if (!p) return null;
-  return React7.createElement(
+  return React10.createElement(
     "span",
     { className: `dim-jh-providerIcon ${p.logoClass}` },
-    React7.createElement("img", { src: p.icon, alt: "", width: 20, height: 20 })
+    React10.createElement("img", { src: p.icon, alt: "", width: 20, height: 20 })
   );
 }
 function formatTime(ts) {
@@ -7185,7 +10477,7 @@ function summarizeTest(res) {
   const reason = res?.message || "仍受限";
   return `测试未通过：${model} — ${reason}`;
 }
-function formatPackageLine(pkg, windowDays, now) {
+function formatPackageLine(pkg, windowDays, now, imminentDays) {
   const remaining = formatUnits(pkg.remaining, pkg.unit) ?? "?";
   const total = formatUnits(pkg.total, pkg.unit) ?? "?";
   const amount = pkg.totalKnown === false ? remaining : `${remaining} / ${total}`;
@@ -7193,32 +10485,32 @@ function formatPackageLine(pkg, windowDays, now) {
   const daysLeft = daysUntilExpiry(pkg, now);
   if (!pkg.active && pkg.expiredTime) parts.push(`失效于 ${pkg.expiredTime}`);
   else if (daysLeft !== null) {
-    parts.push(formatExpiryHint(pkg, windowDays, now));
+    parts.push(formatExpiryHint(pkg, windowDays, now, imminentDays));
   } else if (pkg.cycleEndTime) parts.push(`本周期至 ${pkg.cycleEndTime}`);
   else if (typeof pkg.expiryNote === "string" && pkg.expiryNote !== "") parts.push(pkg.expiryNote);
   return parts.join(" · ");
 }
-function CreditBalanceRow({ balance, error, loading, windowDays, provider, actions }) {
+function CreditBalanceRow({ balance, error, loading, windowDays, imminentDays, provider, actions }) {
   const rowProps = actions === void 0 ? { className: "dim-jh-metaRow" } : { className: "dim-jh-metaRow dim-jh-metaRow--actions" };
   const all = balance?.packages || [];
   const unit = all.find((p) => p && p.unit)?.unit;
-  const label = unitLabel(unit);
+  const label = provider === "modelscope" ? "魔粒" : unitLabel(unit);
   if (loading) {
-    return React7.createElement(
+    return React10.createElement(
       "div",
       rowProps,
-      React7.createElement("dt", null, label),
-      React7.createElement("dd", { "data-tone": "muted" }, "读取中…"),
+      React10.createElement("dt", null, label),
+      React10.createElement("dd", { "data-tone": "muted" }, "读取中…"),
       // 读取中也要挂按钮：否则按钮会在读数到达的那一瞬从右侧跳出来。
       actions === void 0 ? null : actions
     );
   }
   if (error || !balance) {
-    return React7.createElement(
+    return React10.createElement(
       "div",
       rowProps,
-      React7.createElement("dt", null, label),
-      React7.createElement(
+      React10.createElement("dt", null, label),
+      React10.createElement(
         "dd",
         { "data-tone": "warn", title: error || "查询失败" },
         error || "查询失败"
@@ -7245,15 +10537,16 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
     return parts.length === 0 ? null : parts.join(" · ");
   })();
   const now = Date.now();
-  const split = splitCreditsByExpiry(all, windowDays, now);
+  const split = splitCreditsByExpiry(all, windowDays, now, imminentDays);
+  const hasTierSplit = imminentDays !== null && imminentDays !== void 0 && windowDays !== null && windowDays !== void 0 && Number(imminentDays) < Number(windowDays);
   const formatForUnit = (value) => formatUnits(value, unit);
   const expiryText = formatExpirySplitLine(split, formatForUnit);
-  const expiryParts = expirySplitParts(split, formatForUnit, now);
+  const expiryParts = expirySplitParts(split, formatForUnit, now, expiryDateHints(all, windowDays, now, imminentDays));
   const exclusiveRemaining = exclusivePoolRemainingOf(all);
   const exclusiveNames = all.filter((pkg) => pkg && pkg.active === true && isExclusivePool(pkg) && Number.isFinite(Number(pkg.remaining)) && Number(pkg.remaining) > 0).map((pkg) => pkg.name).join("、");
   const detail = [
     all.length > 1 ? `共 ${all.length} 个资源包，${activeCount} 个有效` : null,
-    ...all.map((pkg) => formatPackageLine(pkg, windowDays, now))
+    ...all.map((pkg) => formatPackageLine(pkg, windowDays, now, imminentDays))
   ].filter(Boolean).join("\n");
   const quotaDetail = quotaText === null ? null : formatQuotaDetail(all);
   const poolSplitText = provider === "accio" ? null : formatPoolSplitLine(
@@ -7268,8 +10561,17 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
     const countdown = formatAccioResetCountdown(accioResetSeconds(all, now));
     return countdown === null ? null : `每日额度 ${countdown}后刷新`;
   })() : null;
+  const dailyGrantExpiry = provider === "modelscope" && balance.dailyGrantExpiresAt > Date.now() ? "日奖励批次 " + new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).format(balance.dailyGrantExpiresAt) + " 到期" : null;
   const lineText = [
     mainText,
+    dailyGrantExpiry,
     crossUnitText,
     poolSplitText,
     namedPoolText,
@@ -7283,20 +10585,24 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
     balance.usage ? `${balance.usage.label} ${formatUnits(balance.usage.amount, balance.usage.unit) ?? balance.usage.amount}` : null
   ].filter(Boolean).join(" · ");
   const hoverGlossary = [
-    // 三档分桶：**逐条一行**，一行只说一个词条的定义。
+    // 分桶：**逐条一行**，一行只说一个词条的定义。
+    // ⚠️ 2026-11-17 起是**四档**（永久 / 长期 / 短期 / 临期）。`imminentDays`
+    //    缺席（旧后端）时「短期」那行说成「N~N 天」没有意义，故整条不渲染
+    //    —— 与 `expiryParts` 退化成三段保持自洽。
     !poolSplitText && expiryParts.length > 0 ? "永久 = 服务端未给到期时间，不会作废" : null,
     !poolSplitText && expiryParts.length > 0 ? `长期 = 有到期时间，距扣费截止还有 ${windowDays} 天以上` : null,
-    !poolSplitText && expiryParts.length > 0 ? `临期 = 距扣费截止不足 ${windowDays} 天，优先消耗` : null,
+    !poolSplitText && expiryParts.length > 0 && hasTierSplit && imminentDays !== null ? `短期 = 距扣费截止 ${imminentDays}~${windowDays} 天` : null,
+    !poolSplitText && expiryParts.length > 0 ? `临期 = 距扣费截止不足 ${hasTierSplit && imminentDays !== null ? imminentDays : windowDays} 天，优先消耗` : null,
     exclusiveRemaining > 0 ? `${exclusiveNames}：与主池分开结算，不参与合计` : null,
     accioResetNote ? ACCIO_DAILY_REWARD_NOTE : null
   ].filter(Boolean).join("\n");
   const hoverTitle = [lineText, hoverGlossary, quotaDetail ?? detail].filter(Boolean).join("\n\n") || void 0;
-  return React7.createElement(
+  return React10.createElement(
     "div",
     rowProps,
     // ⚠ 标签按单位走：ZCode 是 token，显示「Token」而不是「积分」。
-    React7.createElement("dt", null, label),
-    React7.createElement(
+    React10.createElement("dt", null, label),
+    React10.createElement(
       "dd",
       {
         className: "dim-jh-creditValue",
@@ -7306,22 +10612,23 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
       },
       // ⚠️ 配额窗口显示**逐窗口百分比**而不是均值：均值（94.5）既不是上游给的数，
       // 在「额度」这个标签下更会被读成 94.5 个积分。见 quotaText 的注释。
-      React7.createElement("strong", { className: "dim-jh-creditTotal" }, mainText),
+      React10.createElement("strong", { className: "dim-jh-creditTotal" }, mainText),
+      dailyGrantExpiry ? React10.createElement("span", { className: "dim-jh-creditPools" }, dailyGrantExpiry) : null,
       // 跨量纲附注（MonkeyCode 的每日额度）：与 loomy 的 `每日 5000` 同位置、同样式，
       // 只是**不参与**上面的合计 —— 单位不同，不能相加（用户 2026-11-02 定调）。
-      crossUnitText === null ? null : React7.createElement("span", { className: "dim-jh-creditPools" }, crossUnitText),
+      crossUnitText === null ? null : React10.createElement("span", { className: "dim-jh-creditPools" }, crossUnitText),
       // 当日池分桶（loomy / raccoon）：`formatPoolSplitLine` 已覆盖原先硬编码的
       // loomy 两池判据，且对 Raccoon 的「每日积分」同样成立（用户 2026-09-29 要求）。
       // ⚠ 数字按**包自身的单位**格式化（remote 的单位支持）：池可能来自
       // 不同 provider，不能假定都是积分。
-      poolSplitText ? React7.createElement("span", { className: "dim-jh-creditPools" }, poolSplitText) : null,
+      poolSplitText ? React10.createElement("span", { className: "dim-jh-creditPools" }, poolSplitText) : null,
       // 两个 buddy + TRAE + LobsterAI + OfficeAce：按「会不会近期作废」分**三档**，
       // 与选号判据同一套规则（后端只分两档，前端把「真永久」与「到期还远」拆开着色）。
       // 这条也解释了「锁定永久积分后为什么没有可用账号」——临期桶是 0。
       // ⚠️ 用词「长期」不是「永久」：有到期日的积分即使很远也不叫永久（用户定）；
       //    只有**服务端没给到期时间**的才是真·永久（绿）。
       // ⚠️ Accio 的逐池列（与 loomy 的 `poolSplitText` 同位置、同样式，故视觉统一）。
-      namedPoolText ? React7.createElement("span", { className: "dim-jh-creditPools" }, namedPoolText) : null,
+      namedPoolText ? React10.createElement("span", { className: "dim-jh-creditPools" }, namedPoolText) : null,
       /**
        * ⚠️ Accio 的每日额度重置倒计时（**唯一**与 loomy 不同的附注）。
        *
@@ -7329,7 +10636,7 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
        * 「还有多久刷新」是用户唯一能据此决定「现在要不要用掉」的信息。
        * ⚠️ 它放在**积分行内**（而不是另起区块）—— 这正是 2026-10-13 的统一要求。
        */
-      accioResetNote ? React7.createElement("span", {
+      accioResetNote ? React10.createElement("span", {
         className: "dim-jh-creditPools"
         // ⚠️ **不能**在这里再挂 title（见 hoverTitle 上方「子元素 title 会抢走
         //    父级 title」的注释）。说明文字已并入 hoverTitle。
@@ -7339,16 +10646,16 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
       // ⚠️ 用词「长期」不是「永久」：这些积分都有到期日，只是较远（用户定）。
       // ⚠️ 与上面的池分桶互斥：有当日池的（loomy / raccoon）走池名分桶，
       // 没有的走到期时间分桶。
-      !poolSplitText && expiryParts.length > 0 ? React7.createElement("span", {
+      !poolSplitText && expiryParts.length > 0 ? React10.createElement("span", {
         className: "dim-jh-creditPools"
         // ⚠️ 同上：名词解释已并入 hoverTitle，这里不再挂 title。
       }, expiryParts.flatMap((part, index) => {
-        const node = React7.createElement("span", {
+        const node = React10.createElement("span", {
           key: part.key,
           className: "dim-jh-creditPoolPart",
           "data-tone": part.tone
         }, part.countdown === void 0 ? part.text : `${part.text}（${part.countdown}）`);
-        return index === 0 ? [node] : [React7.createElement("span", { key: `sep-${part.key}`, className: "dim-jh-creditPoolSep" }, " · "), node];
+        return index === 0 ? [node] : [React10.createElement("span", { key: `sep-${part.key}`, className: "dim-jh-creditPoolSep" }, " · "), node];
       })) : null,
       /**
        * **独立池**提示（2026-10-21 用户报障「没标注星火专属」）。
@@ -7360,7 +10667,7 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
        * ⚠️ `exclusiveRemaining === 0` 时不渲染 ⇒ 没有独立池的 provider
        *    （现有全部）行为**逐字不变**。
        */
-      exclusiveRemaining > 0 ? React7.createElement("span", {
+      exclusiveRemaining > 0 ? React10.createElement("span", {
         className: "dim-jh-creditExclusive"
         // ⚠️ 独立池的说明已并入 hoverTitle，这里不再挂 title。
       }, `另有 ${formatUnits(exclusiveRemaining, unit) ?? exclusiveRemaining} 专属（不计入）`) : null,
@@ -7369,7 +10676,7 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
       // （用户报障原文：「不要渲染 / 2/2 个资源包有效」）。窗口自身的读数
       // 已由上面的 `quotaText` 逐条列出，这里再补一句纯属噪音。
       // ⚠️ 非配额单位（真正由多个资源包构成余额的 provider）行为**逐字不变**。
-      quotaText === null && !poolSplitText && expiryParts.length === 0 && all.length > 1 ? React7.createElement(
+      quotaText === null && !poolSplitText && expiryParts.length === 0 && all.length > 1 ? React10.createElement(
         "span",
         { className: "dim-jh-creditPackages" },
         `${activeCount}/${all.length} 个资源包有效`
@@ -7381,13 +10688,13 @@ function CreditBalanceRow({ balance, error, loading, windowDays, provider, actio
        * ⚠️ 配额单位下恒不渲染（`expiredTotal` 就是 0），留着分支只为不改变
        * 其它 provider 的行为。
        */
-      balance.expiredTotal > 0 ? React7.createElement(
+      balance.expiredTotal > 0 ? React10.createElement(
         "span",
         { className: "dim-jh-creditExpired" },
         `另有 ${formatUnits(balance.expiredTotal, unit)} 已失效`
       ) : null,
       // 用量（2026-11-02 三审 F🟡-8，见上方 hover 那段注释）。未下发用量时不渲染。
-      balance.usage ? React7.createElement(
+      balance.usage ? React10.createElement(
         "span",
         { className: "dim-jh-creditUsage" },
         `${balance.usage.label} ${formatUnits(balance.usage.amount, balance.usage.unit) ?? balance.usage.amount}`
@@ -7427,6 +10734,7 @@ function AccountCard({
   showCredits,
   showPackageList,
   windowDays,
+  imminentDays,
   showRateLimitActions,
   drag,
   // ⚠️ opencode 专属：传了才渲染「代理」「指纹」两个按钮（见按钮区注释）。
@@ -7437,6 +10745,8 @@ function AccountCard({
   onRotateFingerprint,
   onEditModelscopeKey,
   onEditQiniuKey,
+  // Qoder 专属：「网页会话」按钮（传了才渲染）；第二参是是否已保存。
+  onOpenWebSession,
   // ⚠️ **本 fork 独有**（MonkeyCode 两站 / 百智云）：两个「改 Key」+ 一个「登录」。
   // 同为 props 存在性开关（而非 provider 硬判断），见各自按钮处注释。
   onEditMonkeycodeKey,
@@ -7457,7 +10767,7 @@ function AccountCard({
     now: Date.now()
   }) : null;
   const accountTitle = packageTooltip ?? (showPackageList && creditsLoading ? "资源包加载中…" : void 0);
-  const actionsNode = React7.createElement(
+  const actionsNode = React10.createElement(
     "div",
     { className: "dim-jh-accountActions" },
     // 新手任务：全仓库**所有** `credits.onboardingTasks: true` 的渠道共用这一个按钮
@@ -7477,14 +10787,14 @@ function AccountCard({
     // 于是国际站用户 hover 看到「合计 10000 积分」、点下去显示「无任务可领」，
     // 与 `src/magicrew-checkin.ts` 那条「0 项不得报已全部完成」的纪律正相反。
     // ⇒ 改成不带金额的通用文案。
-    onClaimOnboarding ? React7.createElement("button", {
+    onClaimOnboarding ? React10.createElement("button", {
       className: "dim-jh-btn dim-jh-iconBtn",
       // tooltip 说明「是什么 + 一次性」，金额由点开后的结果面板给（那里是实测值）
       title: "领取新手任务（一次性奖励，每个账号仅能领取一次；具体金额以领取结果为准）",
       "aria-label": "领取新手任务",
       disabled: busy || onboardingBusy,
       onClick: () => onClaimOnboarding(account.id)
-    }, onboardingBusy ? "领取中…" : React7.createElement(
+    }, onboardingBusy ? "领取中…" : React10.createElement(
       "svg",
       {
         width: 14,
@@ -7499,10 +10809,10 @@ function AccountCard({
         focusable: "false"
       },
       // 礼物盒：盒身 + 盖子 + 竖带 + 蝴蝶结
-      React7.createElement("rect", { x: 3, y: 8, width: 18, height: 4, rx: 1 }),
-      React7.createElement("path", { d: "M12 8v13" }),
-      React7.createElement("path", { d: "M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" }),
-      React7.createElement("path", { d: "M7.5 8a2.5 2.5 0 0 1 0-5A4.8 4.8 0 0 1 12 8a4.8 4.8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5" })
+      React10.createElement("rect", { x: 3, y: 8, width: 18, height: 4, rx: 1 }),
+      React10.createElement("path", { d: "M12 8v13" }),
+      React10.createElement("path", { d: "M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" }),
+      React10.createElement("path", { d: "M7.5 8a2.5 2.5 0 0 1 0-5A4.8 4.8 0 0 1 12 8a4.8 4.8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5" })
     )) : null,
     // 卡片级「重测 / 重置」同样只对会限流的 provider 有意义
     // （Loomy 不返回限流错误，故这两个按钮对它永远禁用 —— 直接不渲染）。
@@ -7516,14 +10826,14 @@ function AccountCard({
     // ⚠️ 该行是 `flex-wrap: nowrap`，多一个按钮就可能溢出（见上方礼物图标
     // 按钮的注释）。故「测试」放在最前，且**只有**在 provider 同时登记了
     // 测试与重测时才会出现 6 个按钮 —— 当前没有任何 provider 两者皆登记。
-    onTest ? React7.createElement("button", {
+    onTest ? React10.createElement("button", {
       className: "dim-jh-btn",
       title: TEST_HELP,
       // 不依赖 hasAnyLimit：测试的意义正是「没有标记时也能探活」。
       disabled: busy,
       onClick: () => onTest(account.id)
     }, "测试") : null,
-    showRateLimitActions ? React7.createElement("button", {
+    showRateLimitActions ? React10.createElement("button", {
       className: "dim-jh-btn",
       // ⚠️ 「重测」只测**已有模型标记**的模型（`retestAccount` 在零标记时
       //    一次请求都不发）。封禁标记不算模型标记 ⇒ 纯封禁账号上它按了也没反应，
@@ -7532,7 +10842,7 @@ function AccountCard({
       disabled: busy || !hasAnyModelLimit,
       onClick: () => onRetest(account.id)
     }, "重测") : null,
-    showRateLimitActions ? React7.createElement("button", {
+    showRateLimitActions ? React10.createElement("button", {
       className: "dim-jh-btn",
       title: RESET_HELP,
       disabled: busy || !hasAnyLimit,
@@ -7547,7 +10857,7 @@ function AccountCard({
     // provider 列表，也避免以后新增同类 provider 时漏改。
     // 位置在「停用」之后、「删除」之前：删除按钮带 data-kind='danger'，
     // 是这一行的视觉终点，不能被挤到中间。
-    onOpenProxy ? React7.createElement("button", {
+    onOpenProxy ? React10.createElement("button", {
       className: "dim-jh-btn",
       // ⚠️ tooltip 必须解释「不设置会怎样」。四家语义不同，故按各自的
       // 池字段分流文案：
@@ -7564,7 +10874,12 @@ function AccountCard({
         account.opencodeProxy || account.minimaxIntlProxy || account.geminiProxy || account.qoderProxy || ""
       )
     }, "代理") : null,
-    onRotateFingerprint ? React7.createElement("button", {
+    onOpenWebSession ? React10.createElement("button", {
+      className: "dim-jh-btn",
+      title: account.qoderWebSession ? "网页会话：已保存（资源包按官网明细显示逐笔到期，点击修改）" : "粘贴官网登录 Cookie，显示资源包每一笔的到期日；不设置则按领取记录推算",
+      onClick: () => onOpenWebSession(account.id, Boolean(account.qoderWebSession))
+    }, account.qoderWebSession ? "会话✓" : "会话") : null,
+    onRotateFingerprint ? React10.createElement("button", {
       className: "dim-jh-btn",
       title: "轮换该账号的指纹（生成新的 project id；用于怀疑多个账号被关联时）",
       disabled: busy,
@@ -7577,7 +10892,7 @@ function AccountCard({
     //    而非 `provider === 'modelscope'` 硬判断。
     //    ⚠️ tooltip 里给的是**宿主算好的打码串**（`modelscopeKeyMask`）——
     //    客户端不自己打码，避免与 `maskModelscopeKey` 两份实现漂移。
-    onEditModelscopeKey ? React7.createElement("button", {
+    onEditModelscopeKey ? React10.createElement("button", {
       className: "dim-jh-btn",
       title: account.modelscopeKeyMask ? "访问令牌：" + account.modelscopeKeyMask + "（点击修改）" : "设置该账号的访问令牌（ms-…）",
       disabled: busy,
@@ -7587,7 +10902,7 @@ function AccountCard({
     //    props 存在性开关（而非 provider 硬判断）；tooltip 给宿主算好的打码串
     //    （`qiniuKeyMask`），客户端不自己打码，避免与宿主 `maskQiniuKey` 漂移。
     //    Key 形状无固定前缀（≥16 位），故占位文案不写 `ms-…` 这类前缀。
-    onEditQiniuKey ? React7.createElement("button", {
+    onEditQiniuKey ? React10.createElement("button", {
       className: "dim-jh-btn",
       title: account.qiniuKeyMask ? "API Key：" + account.qiniuKeyMask + "（点击修改）" : "设置该账号的 API Key",
       disabled: busy,
@@ -7597,7 +10912,7 @@ function AccountCard({
     //    tooltip 给的是宿主算好的打码串（`monkeycodeKeyMask`），客户端不自己打码；
     //    `hasSession === false` 时提一句——那意味着积分 / 每日额度 / 签到都不可用
     //    （它们全靠浏览器登录攒下的 HttpOnly `session_cookie`）。
-    onEditMonkeycodeKey ? React7.createElement("button", {
+    onEditMonkeycodeKey ? React10.createElement("button", {
       className: "dim-jh-btn",
       title: (account.monkeycodeKeyMask ? "API Key：" + account.monkeycodeKeyMask + "（点击修改）" : "设置该账号的 API Key 与签名密钥（oma_…）") + (account.monkeycodeHasSession === false ? "｜未读取网页登录态：积分/额度/签到不可用（点「改 Key」补填 session cookie，或删掉用浏览器登录重新添加）" : ""),
       disabled: busy,
@@ -7605,7 +10920,7 @@ function AccountCard({
     }, "改 Key") : null,
     // ⚠️ **本 fork 独有**（百智云）：改 `sk-` API Key。走 `baizhi.setApiKey`（读旧凭据再合并），
     //    不会冲掉控制台登录态 `session_cookie`。
-    onEditBaizhiKey ? React7.createElement("button", {
+    onEditBaizhiKey ? React10.createElement("button", {
       className: "dim-jh-btn",
       title: account.baizhiKeyMask ? "API Key：" + account.baizhiKeyMask + "（点击修改）" : "设置该账号的 API Key（sk-…，在大模型商店 console/keys 生成）",
       disabled: busy,
@@ -7622,7 +10937,7 @@ function AccountCard({
     //   ⇒ 两套凭据**没有**任何一条能互相顶替的路径，必须各拿各的。
     //
     // 文案用「登录」而不是「读积分」：用户动作确实是去控制台登一次。
-    onReadSession ? React7.createElement("button", {
+    onReadSession ? React10.createElement("button", {
       className: "dim-jh-btn",
       title: account.baizhiHasSession ? "已读到网页登录态（积分可读）。点击可重新登录一次控制台" : "登录百智云控制台（打开浏览器窗口）以读取积分；不会动你已填的 API Key",
       disabled: busy,
@@ -7637,7 +10952,7 @@ function AccountCard({
     //       ⇒ 不给 `aria-label` 时读屏只会念出「按钮」，用户无从知道它删号。
     //       这是「文字改图标」最容易漏、也最难被自测发现的一处。
     //    ⚠️ 行为一行未动（`data-kind='danger'` 也保留，危险色靠它）。
-    React7.createElement(
+    React10.createElement(
       "button",
       {
         className: "dim-jh-btn dim-jh-iconBtn",
@@ -7646,7 +10961,7 @@ function AccountCard({
         "aria-label": "删除该账号",
         onClick: () => onDelete(account.id)
       },
-      React7.createElement(
+      React10.createElement(
         "svg",
         {
           width: 14,
@@ -7661,15 +10976,15 @@ function AccountCard({
           focusable: "false"
         },
         // 垃圾桶：盖沿 + 桶身 + 盖上的提手 + 两道竖纹
-        React7.createElement("path", { d: "M3 6h18" }),
-        React7.createElement("path", { d: "M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" }),
-        React7.createElement("path", { d: "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" }),
-        React7.createElement("path", { d: "M10 11v6" }),
-        React7.createElement("path", { d: "M14 11v6" })
+        React10.createElement("path", { d: "M3 6h18" }),
+        React10.createElement("path", { d: "M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" }),
+        React10.createElement("path", { d: "M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" }),
+        React10.createElement("path", { d: "M10 11v6" }),
+        React10.createElement("path", { d: "M14 11v6" })
       )
     )
   );
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-accountCard",
@@ -7687,27 +11002,27 @@ function AccountCard({
       onDragOver: dragProps.onDragOver,
       onDrop: dragProps.onDrop
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       { className: "dim-jh-accountTop" },
       // 抓取柄 + 序号：序号即自动选号的优先级，让"拖到第一位"的含义明确。
-      dragProps.enabled ? React7.createElement("span", {
+      dragProps.enabled ? React10.createElement("span", {
         className: "dim-jh-dragHandle",
         title: "拖动以调整顺序（顺序即自动选号优先级）",
         "aria-hidden": "true"
       }, "⠿") : null,
-      dragProps.enabled ? React7.createElement(
+      dragProps.enabled ? React10.createElement(
         "span",
         { className: "dim-jh-accountOrder", title: "自动选号优先级" },
         String((order ?? index ?? 0) + 1)
       ) : null,
-      React7.createElement("span", {
+      React10.createElement("span", {
         className: "dim-jh-accountStatus",
         "data-on": account.enabled ? "true" : "false",
         title: account.enabled ? "已启用" : "已停用",
         "aria-hidden": "true"
       }),
-      React7.createElement(
+      React10.createElement(
         "span",
         {
           className: "dim-jh-accountName",
@@ -7726,7 +11041,7 @@ function AccountCard({
              * ⚠️ 键盘可达性靠 `tabIndex` + `onKeyDown`，否则它就成了只能用
              * 鼠标点的控件（原来那个真 `<button>` 是可达的，不能倒退）。
              */
-      React7.createElement("span", {
+      React10.createElement("span", {
         className: "dim-jh-accountTag",
         "data-tone": account.enabled ? "on" : "off",
         "data-clickable": "true",
@@ -7750,7 +11065,7 @@ function AccountCard({
       }, account.enabled ? "已启用" : "已停用"),
       // 受限标记：这张卡片被自动沉到了列表末尾，标出来才说得清「为什么它在下面」。
       // 判据与下方「限额重置」行同源（都是未到期的 modelRateLimits）。
-      rateLimits.length > 0 ? React7.createElement("span", {
+      rateLimits.length > 0 ? React10.createElement("span", {
         className: "dim-jh-accountTag",
         "data-tone": "warn",
         title: "当前处于模型限额中。该账号不会参与自动选号，并已被沉到列表末尾；限额解除后仍留在末尾，避免它再次霸占首位而让其它账号的额度白白过期。"
@@ -7758,26 +11073,26 @@ function AccountCard({
       // ⚠️ 匿名通道标记：它不需要 key、只用于免费模型，额度按**出口 IP** 计。
       // 标注出来是为了让用户知道「这几条不是登录账号」，
       // 以及为什么给它们配不同代理才会各自获得独立额度。
-      provider === "opencode" && isAnonymousAccountId(account.id) ? React7.createElement("span", {
+      provider === "opencode" && isAnonymousAccountId(account.id) ? React10.createElement("span", {
         className: "dim-jh-accountTag",
         "data-tone": "on",
         title: "匿名通道：无需 API key，仅用于免费模型。额度按出口 IP 计算 —— 给它单独配置代理，才会获得独立额度。"
       }, "匿名") : null
     ),
-    React7.createElement(
+    React10.createElement(
       "dl",
-      { className: "dim-jh-accountMeta" },
-      React7.createElement(
+      { className: provider === "modelscope" ? "dim-jh-accountMeta dim-jh-accountMeta--modelscope" : "dim-jh-accountMeta" },
+      React10.createElement(
         "div",
         { className: "dim-jh-metaRow" },
-        React7.createElement("dt", null, "凭据"),
-        React7.createElement("dd", null, React7.createElement("code", null, account.credentialRef))
+        React10.createElement("dt", null, "凭据"),
+        React10.createElement("dd", null, React10.createElement("code", null, account.credentialRef))
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-metaRow" },
-        React7.createElement("dt", null, "有效期"),
-        React7.createElement(
+        React10.createElement("dt", null, provider === "modelscope" ? "令牌有效期" : "有效期"),
+        React10.createElement(
           "dd",
           { "data-tone": expired ? "warn" : void 0 },
           account.expiresAt ? `${formatTime(account.expiresAt) || "未知"}${account.refreshable ? " · 自动续期" : ""}` : "未知"
@@ -7789,11 +11104,11 @@ function AccountCard({
       // 网络失败、非 Gemini 的 provider）时**整行不出现**，不显示「未知」也不
       // 报错：它只是一栏附注信息，不该制造一条无法修复的提示。
       // `title` 放上游原文（`Google AI Pro（g1-pro-tier）`），面板只放得下一个词。
-      credits?.extra?.accountTier ? React7.createElement(
+      credits?.extra?.accountTier ? React10.createElement(
         "div",
         { className: "dim-jh-metaRow" },
-        React7.createElement("dt", null, "账号规格"),
-        React7.createElement(
+        React10.createElement("dt", null, "账号规格"),
+        React10.createElement(
           "dd",
           { title: credits.extra.accountTier.title },
           credits.extra.accountTier.label
@@ -7802,12 +11117,14 @@ function AccountCard({
       // 不支持积分余额的 provider 不渲染该行：留着它只能显示「查询失败」，
       // 而失败原因是「这个 provider 根本没有此接口」——与其展示一条无法修复
       // 的错误，不如不展示。
-      showCredits ? React7.createElement(CreditBalanceRow, {
+      showCredits ? React10.createElement(CreditBalanceRow, {
         balance: credits?.balance ?? null,
         error: credits?.error,
         loading: creditsLoading,
         // 「临时 / 长期」分桶的窗口天数（buddy 系 + TRAE + LobsterAI 有值）。
         windowDays,
+        // 「临期」子窗口天数 —— 与 `windowDays` 成对到达；缺席则面板退化成三段。
+        imminentDays,
         // 池名分桶（loomy / raccoon）要按 provider 决定另一个池的标签。
         provider,
         // 操作按钮（重测 / 重置 / 停用 / 删除）挂在积分这一行的最右侧，
@@ -7816,11 +11133,11 @@ function AccountCard({
       }) : null
     ),
     // ★ 封禁（账号级）必须排在限流（模型级）**前面**、且用红色：它才是「这个号废了」。
-    policyBlocked ? React7.createElement(
+    policyBlocked ? React10.createElement(
       "div",
       { className: "dim-jh-policyBlocked", role: "alert" },
-      React7.createElement("span", { className: "dim-jh-policyBlockedLabel" }, "已限制 · 需重新登录"),
-      policyBlockedMessage === "" ? null : React7.createElement("span", {
+      React10.createElement("span", { className: "dim-jh-policyBlockedLabel" }, "已限制 · 需重新登录"),
+      policyBlockedMessage === "" ? null : React10.createElement("span", {
         className: "dim-jh-policyBlockedMsg",
         title: policyBlockedMessage
       }, policyBlockedMessage),
@@ -7829,20 +11146,20 @@ function AccountCard({
       //   而本 issue 的 buddy / workbuddy **没有这个按钮** —— 让用户「点测试」
       //   等于指一个不存在的入口，比不写更糟。
       //   `onTest` 就是那个能力位在客户端的落点（`undefined` = 没登记）。
-      React7.createElement(
+      React10.createElement(
         "span",
         { className: "dim-jh-policyBlockedHint" },
         policyBlockedHint(onTest !== void 0)
       )
     ) : null,
-    rateLimits.length > 0 ? React7.createElement(
+    rateLimits.length > 0 ? React10.createElement(
       "div",
       { className: "dim-jh-rateLimits" },
       // ⚠️ 文案要说清「**只影响这个模型**」（issue IKS2MV 问题 2）：上游报文自己
       //    就写着「您也可以切换其他模型继续使用」。笼统写「限流」会让用户以为
       //    整个账号废了 —— 实测同一账号同一秒：flash 连续 6 次 429，pro 立刻 200。
-      React7.createElement("span", { className: "dim-jh-rateLimitsLabel" }, "限流（仅该模型）"),
-      rateLimits.map(([modelId, resetAt]) => React7.createElement("span", {
+      React10.createElement("span", { className: "dim-jh-rateLimitsLabel" }, "限流（仅该模型）"),
+      rateLimits.map(([modelId, resetAt]) => React10.createElement("span", {
         key: modelId,
         className: "dim-jh-ttlBadge",
         title: `模型 ${modelId} 限流中（仅此模型；换其它模型仍可用）`
@@ -7855,13 +11172,17 @@ function AccountCard({
 }
 function ModelToggle({ provider, model, busy, onToggle, onRestore }) {
   const dead = model.dead === true;
-  return React7.createElement(
+  const benefitOnly = model.benefitOnly === true;
+  const description = typeof model.description === "string" && model.description.replace(/[\p{Cf}\p{Cc}\p{Cs}\p{Mn}\p{Me}\u115F\u1160\u2800\u3164\uFFA0\uFFFC]/gu, "").trim().length > 0 ? model.description : void 0;
+  return React10.createElement(
     "label",
     {
       className: "dim-jh-modelRow",
       "data-disabled": model.disabled ? "true" : "false",
       "data-dead": dead ? "true" : "false",
-      title: dead ? `${model.id}（上游已下架，点击「重新显示」可恢复）` : model.id
+      // 有介绍时 title 让给**介绍全文**（行内会 ellipsis，悬停是唯一能看全的地方）；
+      // 没有介绍时保持旧行为（显示 id）。已下架的提示优先，不能被子介绍顶掉。
+      title: dead ? `${model.id}（上游已下架，点击「重新显示」可恢复）` : description ?? model.id
     },
     // ⚠️ 供应商图标放在**行首**（与左栏供应商列表同一视觉语言，用户 2026-10-26
     //    要求：「给所有页面供应商和模型左侧 + 供应商图标」）。
@@ -7869,15 +11190,62 @@ function ModelToggle({ provider, model, busy, onToggle, onRestore }) {
     //    `deepseek-v4.1-flash` 这类 id 在多家目录里都出现过。
     // ⚠️ 它在 `<label>` 内、但**不是可标记控件**，故不影响「点整行切开关」
     //    那条既有交互。真正的坑是插入第二个 checkbox，见上面的类注释。
-    React7.createElement(ProviderLogo, { provider }),
-    React7.createElement(
+    React10.createElement(ProviderLogo, { provider }),
+    React10.createElement(
       "span",
-      { className: "dim-jh-modelInfo" },
-      React7.createElement("strong", { className: "dim-jh-modelName" }, model.name || model.id),
-      dead ? React7.createElement("span", { className: "dim-jh-modelDead" }, "已下架") : null,
-      React7.createElement("code", { className: "dim-jh-modelId" }, model.id)
+      {
+        className: "dim-jh-modelInfo",
+        /**
+         * ⚠️ 换行**只在这一行**开启（CSS 选择器是 `.dim-jh-modelInfo[data-desc="true"]`）。
+         *
+         * `.dim-jh-modelInfo` 是**共享类名**：网关弹窗（「启用本机网关」/「允许局域网访问」）
+         * 与供应商开关弹窗的每一行都用它，而它们**没有**第二行子元素。
+         * 若把 `flex-wrap: wrap` 写在无条件规则上，那些行就多了「某天某个子元素变宽
+         * ⇒ 整行折成两行」的可能 —— 一次纯本家需求的改动不该有这种远场风险。
+         */
+        "data-desc": description !== void 0 ? "true" : "false"
+      },
+      React10.createElement("strong", { className: "dim-jh-modelName" }, model.name || model.id),
+      dead ? React10.createElement("span", { className: "dim-jh-modelDead" }, "已下架") : null,
+      // ⚠️ 角标放在 id **之前**：`dim-jh-modelId` 有 `max-width: 46%` 与 ellipsis，
+      //    挂在它后面会被挤到行尾、窄面板下先被裁掉 —— 而这枚标记的全部价值
+      //    就是「一眼看见」。title 承担完整解释（与「已下架」同一条取舍：
+      //    行内只放 ≤ 5 个字的帽子）。
+      benefitOnly ? React10.createElement("span", {
+        className: "dim-jh-modelBenefitOnly",
+        title: "该模型只由 benefit（免费额度）通道提供：请求必须带 maas_type: benefit。账号需要能领到福利包 —— 插件会在首次请求时自动替你领一次（幂等），领不到就没法用这个模型，最终会如实报「002002009.404 模型未注册」。纯积分制账号通常属于这种情况；换一个有福利包的账号即可。"
+      }, "需福利包") : null,
+      React10.createElement("code", { className: "dim-jh-modelId" }, model.id),
+      /**
+       * 模型介绍（**第二行**，2026-11-17）。
+       *
+       * ## 为什么落在插件面板而不是宿主选择器
+       *
+       * 宿主 `dsh-client-ui-model-selection` 把 `description` 塞进 `/model` 弹层的
+       * `detail`，而那个 `detail` 是**同一行行尾的 12px 灰字**（`PopupSelectView`：
+       * `.detail{white-space:nowrap;text-overflow:ellipsis}` + 弹层最窄 220px）
+       * ⇒ 一句 20～60 字的介绍在那行里会被截成几个字，还会把模型名挤短。
+       * 这里宽度足够，且用户正是**在这一页**决定开不开某个模型。
+       *
+       * ## 布局：`flex-basis:100%` 强制换行
+       *
+       * ⚠️ 刻意**不**给 `.dim-jh-modelInfo` 加列方向/包裹层：那会把
+       * `.dim-jh-modelName` / `.dim-jh-modelId` 从直接子元素变成孙元素，
+       * 而既有守卫（`model-benefit-hint.spec.ts` 的「角标在 id 之前」）读的是
+       * **直接子元素顺序** ⇒ 会变成假红。`flex:0 0 100%` 让本元素独占一行，
+       * 父容器一 `flex-wrap` 就落到第二行，DOM 结构逐字节不变。
+       *
+       * ⚠️ 缺失即**不渲染**（不画空的第二行）：`description` 为 `undefined`
+       * 表示该家没下发介绍（多数供应商如此），行高必须与旧版完全一致。
+       */
+      description !== void 0 ? React10.createElement("span", {
+        className: "dim-jh-modelDesc",
+        // 完整描述进 title：行内 still 会 ellipsis（半角 60 字在窄面板放不下），
+        // 悬停是唯一能看到全文的地方。
+        title: description
+      }, description) : null
     ),
-    dead ? React7.createElement("button", {
+    dead ? React10.createElement("button", {
       type: "button",
       className: "dim-jh-modelRestore",
       disabled: busy,
@@ -7886,7 +11254,7 @@ function ModelToggle({ provider, model, busy, onToggle, onRestore }) {
         event.stopPropagation();
         onRestore(model.id);
       }
-    }, "重新显示") : React7.createElement("input", {
+    }, "重新显示") : React10.createElement("input", {
       type: "checkbox",
       className: "dim-jh-switch",
       role: "switch",
@@ -7898,20 +11266,20 @@ function ModelToggle({ provider, model, busy, onToggle, onRestore }) {
   );
 }
 function ModelListPanel({ provider, rpcCall, onClose }) {
-  const [models, setModels] = React7.useState(null);
-  const [phase, setPhase] = React7.useState("loading");
-  const [error, setError] = React7.useState(null);
-  const [toggleError, setToggleError] = React7.useState(null);
-  const [toggleWarnings, setToggleWarnings] = React7.useState([]);
-  const [busyIds, setBusyIds] = React7.useState(() => /* @__PURE__ */ new Set());
-  const [deadRestoreBusy, setDeadRestoreBusy] = React7.useState(false);
-  const [bulkBusy, setBulkBusy] = React7.useState(false);
-  const [query, setQuery] = React7.useState("");
-  const [statusFilter, setStatusFilter] = React7.useState("all");
-  const [groupToggles, setGroupToggles] = React7.useState({});
-  const [groupBusy, setGroupBusy] = React7.useState(null);
-  const mounted = React7.useRef(true);
-  const load = React7.useCallback(async () => {
+  const [models, setModels] = React10.useState(null);
+  const [phase, setPhase] = React10.useState("loading");
+  const [error, setError] = React10.useState(null);
+  const [toggleError, setToggleError] = React10.useState(null);
+  const [toggleWarnings, setToggleWarnings] = React10.useState([]);
+  const [busyIds, setBusyIds] = React10.useState(() => /* @__PURE__ */ new Set());
+  const [deadRestoreBusy, setDeadRestoreBusy] = React10.useState(false);
+  const [bulkBusy, setBulkBusy] = React10.useState(false);
+  const [query, setQuery] = React10.useState("");
+  const [statusFilter, setStatusFilter] = React10.useState("all");
+  const [groupToggles, setGroupToggles] = React10.useState({});
+  const [groupBusy, setGroupBusy] = React10.useState(null);
+  const mounted = React10.useRef(true);
+  const load = React10.useCallback(async () => {
     setPhase("loading");
     setError(null);
     try {
@@ -7925,14 +11293,14 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
       setPhase("error");
     }
   }, [provider, rpcCall]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     mounted.current = true;
     void load();
     return () => {
       mounted.current = false;
     };
   }, [load]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === "Escape") onClose();
     };
@@ -8041,7 +11409,7 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
     setQuery("");
     setStatusFilter("all");
   };
-  const dialog = React7.createElement(
+  const dialog = React10.createElement(
     "div",
     {
       // `--top`：顶部锚定。列表长度随搜索变化，若垂直居中会让弹窗整体上下跳动
@@ -8052,7 +11420,7 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
         if (event.target === event.currentTarget) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         className: "dim-jh-modal",
@@ -8060,51 +11428,51 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
         "aria-modal": "true",
         "aria-label": `${providerLabel2} 模型列表`
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalTitle" },
-          React7.createElement("strong", null, "模型列表"),
-          React7.createElement("span", { className: "dim-jh-modalSubtitle" }, providerLabel2),
-          phase === "ready" ? React7.createElement(
+          React10.createElement("strong", null, "模型列表"),
+          React10.createElement("span", { className: "dim-jh-modalSubtitle" }, providerLabel2),
+          phase === "ready" ? React10.createElement(
             "span",
             { className: "dim-jh-modelPanelCount" },
             filtering ? `${filtered.length} / ${all.length} 个模型${hiddenCount > 0 ? `，已隐藏 ${hiddenCount} 个` : ""}` : `${all.length} 个模型${hiddenCount > 0 ? `，已隐藏 ${hiddenCount} 个` : ""}`
           ) : null
         ),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modelPanelActions" },
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             disabled: phase === "loading",
             onClick: () => void load()
           }, phase === "loading" ? "读取中…" : "刷新"),
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             "data-kind": "primary",
             onClick: onClose
           }, "完成")
         )
       ),
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-modalHint" },
         "关闭开关后该模型不再出现在对话框的模型选择里；其余模型（含服务端新增的）默认显示。"
       ),
       // ⚠️ 失效模型提示条：它们已被上游下架并从目录剔除，故单独说明「为什么看不见」
       // 并给出**批量**恢复入口（逐个点很麻烦，而误判往往不止一个）。
-      phase === "ready" && deadCount > 0 ? React7.createElement(
+      phase === "ready" && deadCount > 0 ? React10.createElement(
         "div",
         { className: "dim-jh-modelDeadBar" },
-        React7.createElement(
+        React10.createElement(
           "span",
           null,
           `有 ${deadCount} 个模型被上游下架，已自动从列表隐藏。`
         ),
-        React7.createElement("button", {
+        React10.createElement("button", {
           className: "dim-jh-btn",
           disabled: deadRestoreBusy,
           title: "清空该供应商的失效模型记录，让它们重新出现在列表里。",
@@ -8113,10 +11481,10 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
       ) : null,
       // 搜索 + 状态筛选：Cline 的目录实测近 500 条，没有它就只能一页页翻。
       // 只在列表可用时渲染（载入中/出错时没有可筛的内容）。
-      phase === "ready" && all.length > 0 ? React7.createElement(
+      phase === "ready" && all.length > 0 ? React10.createElement(
         "div",
         { className: "dim-jh-modelFilterBar" },
-        React7.createElement("input", {
+        React10.createElement("input", {
           type: "search",
           className: "dim-jh-input dim-jh-modelSearch",
           placeholder: "搜索模型名或 id…",
@@ -8124,10 +11492,10 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
           "aria-label": "搜索模型",
           onChange: (event) => setQuery(event.target.value)
         }),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modelStatusFilter", role: "group", "aria-label": "按状态筛选" },
-          [["all", "全部"], ["enabled", "已打开"], ["disabled", "已关闭"]].map(([value, label]) => React7.createElement("button", {
+          [["all", "全部"], ["enabled", "已打开"], ["disabled", "已关闭"]].map(([value, label]) => React10.createElement("button", {
             key: value,
             className: "dim-jh-btn",
             "data-active": statusFilter === value ? "true" : "false",
@@ -8135,62 +11503,62 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
             onClick: () => setStatusFilter(value)
           }, label))
         ),
-        filtering ? React7.createElement("button", {
+        filtering ? React10.createElement("button", {
           className: "dim-jh-btn",
           title: "清空搜索词与状态筛选，恢复完整列表。",
           onClick: resetFilters
         }, "清空筛选") : null
       ) : null,
-      toggleError ? React7.createElement("div", {
+      toggleError ? React10.createElement("div", {
         className: "dim-jh-probeNotice",
         "data-tone": "error",
         role: "alert"
-      }, React7.createElement("div", null, toggleError)) : null,
+      }, React10.createElement("div", null, toggleError)) : null,
       // ⚠️ 与 `toggleError` 分开渲染（Issue IKJW33）：本条是「操作成功，但没有
       // 实际效果」的说明（下架模型的空操作），用中性 tone + `role=status`；
       // 混进错误通道会让「模型已下架」看起来像插件故障。
-      toggleWarnings.length > 0 ? React7.createElement("div", {
+      toggleWarnings.length > 0 ? React10.createElement("div", {
         className: "dim-jh-probeNotice",
         // ⚠️ tone 取值必须是 `warn`：样式表里定义的是 `[data-tone="warn"]`
         //（全仓既有约定），写成 `warning` 会静默落到默认中性色 —— 不报错，
         // 但提示看起来和普通文字一样，等于没做。
         "data-tone": "warn",
         role: "status"
-      }, toggleWarnings.map((text, index) => React7.createElement("div", { key: index }, text))) : null,
-      phase === "error" ? React7.createElement(
+      }, toggleWarnings.map((text, index) => React10.createElement("div", { key: index }, text))) : null,
+      phase === "error" ? React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-empty" },
-          React7.createElement("p", null, error),
-          React7.createElement("button", { className: "dim-jh-btn", onClick: () => void load() }, "重新读取")
+          React10.createElement("p", null, error),
+          React10.createElement("button", { className: "dim-jh-btn", onClick: () => void load() }, "重新读取")
         )
-      ) : phase === "loading" ? React7.createElement(
+      ) : phase === "loading" ? React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React7.createElement("div", { className: "dim-jh-empty" }, "正在读取模型列表…")
-      ) : all.length === 0 ? React7.createElement(
+        React10.createElement("div", { className: "dim-jh-empty" }, "正在读取模型列表…")
+      ) : all.length === 0 ? React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-empty" },
-          React7.createElement("p", null, "该 Provider 当前没有可用的模型。")
+          React10.createElement("p", null, "该 Provider 当前没有可用的模型。")
         )
-      ) : filtered.length === 0 ? React7.createElement(
+      ) : filtered.length === 0 ? React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-empty" },
-          React7.createElement("p", null, "没有符合当前搜索与筛选条件的模型。"),
-          React7.createElement("button", { className: "dim-jh-btn", onClick: resetFilters }, "清空筛选")
+          React10.createElement("p", null, "没有符合当前搜索与筛选条件的模型。"),
+          React10.createElement("button", { className: "dim-jh-btn", onClick: resetFilters }, "清空筛选")
         )
-      ) : React7.createElement(
+      ) : React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modelList" },
           // **按计费/来源分组**渲染（订阅 / 免费 / Cline Cloud / 按量计费）。
@@ -8199,22 +11567,22 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
           groups.map((group) => {
             const expanded = isGroupExpanded(group);
             const groupBulk = groupBulkStateFor(group, bulkBusy || groupBusy !== null);
-            return React7.createElement(
+            return React10.createElement(
               "div",
               {
                 key: group.key,
                 className: "dim-jh-modelGroup"
               },
-              React7.createElement(
+              React10.createElement(
                 "div",
                 { className: "dim-jh-modelGroupHead" },
-                React7.createElement("button", {
+                React10.createElement("button", {
                   className: "dim-jh-modelGroupToggle",
                   "aria-expanded": expanded ? "true" : "false",
                   title: group.hint,
                   onClick: () => toggleGroup(group)
                 }, `${expanded ? "▾" : "▸"} ${group.label}`),
-                React7.createElement(
+                React10.createElement(
                   "span",
                   { className: "dim-jh-modelGroupCount" },
                   group.counts.disabled > 0 ? `${group.counts.shown} 个 · 已关闭 ${group.counts.disabled}` : `${group.counts.shown} 个`
@@ -8223,23 +11591,23 @@ function ModelListPanel({ provider, rpcCall, onClose }) {
                 //    「打开全部 / 关闭全部」工具条已按用户要求删除
                 //    （2026-10-26），两排并列的歧义不复存在，不必再加「本组」前缀。
                 //    title 里仍写明「只影响这一组」—— 分组头本身要能自解释。
-                React7.createElement("button", {
+                React10.createElement("button", {
                   className: "dim-jh-btn dim-jh-modelGroupBtn",
                   title: `打开「${group.label}」的全部模型（只影响这一组）`,
                   disabled: groupBulk.openAllDisabled,
                   onClick: () => void setGroupDisabled(group, false)
                 }, "全开"),
-                React7.createElement("button", {
+                React10.createElement("button", {
                   className: "dim-jh-btn dim-jh-modelGroupBtn",
                   title: `关闭「${group.label}」的全部模型（只影响这一组）`,
                   disabled: groupBulk.closeAllDisabled,
                   onClick: () => void setGroupDisabled(group, true)
                 }, "全关")
               ),
-              expanded ? React7.createElement(
+              expanded ? React10.createElement(
                 "div",
                 { className: "dim-jh-modelGroupBody" },
-                group.models.map((model) => React7.createElement(ModelToggle, {
+                group.models.map((model) => React10.createElement(ModelToggle, {
                   key: model.id,
                   // 本弹窗是**单家供应商**的详情（`provider` 来自
                   // 组件 props，与 `model.list` 用的是同一个值），
@@ -8324,7 +11692,7 @@ function latencyParts(row) {
   return { first, total, rate, rateTitle };
 }
 function StatusDot({ ok, title }) {
-  return React7.createElement("span", {
+  return React10.createElement("span", {
     className: "dim-jh-quotaDot",
     "data-tone": ok ? "ok" : "error",
     title,
@@ -8332,13 +11700,13 @@ function StatusDot({ ok, title }) {
   });
 }
 function MinimaxXffPanel({ rpcCall, value, onSaved, onClose }) {
-  const mounted = React7.useRef(true);
-  React7.useEffect(() => () => {
+  const mounted = React10.useRef(true);
+  React10.useEffect(() => () => {
     mounted.current = false;
   }, []);
-  const [draft, setDraft] = React7.useState(value ?? "");
-  const [busy, setBusy] = React7.useState(false);
-  const [notice, setNotice] = React7.useState(null);
+  const [draft, setDraft] = React10.useState(value ?? "");
+  const [busy, setBusy] = React10.useState(false);
+  const [notice, setNotice] = React10.useState(null);
   const save = async (override) => {
     const payloadValue = typeof override === "string" ? override : draft;
     setBusy(true);
@@ -8361,7 +11729,7 @@ function MinimaxXffPanel({ rpcCall, value, onSaved, onClose }) {
       if (mounted.current) setBusy(false);
     }
   };
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
@@ -8369,7 +11737,7 @@ function MinimaxXffPanel({ rpcCall, value, onSaved, onClose }) {
         if (event.target === event.currentTarget) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         className: "dim-jh-modal",
@@ -8377,48 +11745,48 @@ function MinimaxXffPanel({ rpcCall, value, onSaved, onClose }) {
         "aria-modal": "true",
         "aria-label": "MiniMax 国际站分流设置"
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalTitle" },
-          React7.createElement("strong", null, "MiniMax 国际站分流设置")
+          React10.createElement("strong", null, "MiniMax 国际站分流设置")
         ),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modelPanelActions" },
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             onClick: onClose
           }, "关闭")
         )
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
         // ── 原因说明 ──
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-hint" },
           "MiniMax 国际站的服务器按**出口 IP 所在国家**分流：中国大陆 IP 会被重定向到中国站，从而出现「余额查询失败」「模型不可用」，而凭据本身是好的。"
         ),
         // ── 两条出路（先给更正当的那条）──
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-hint" },
           "① 推荐：用代理把出口 IP 改到海外（此时无需本设置）；② 应急：在下面填一个海外 IP，让请求被判为海外来源。"
         ),
         // ── 输入 ──
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-field" },
-          React7.createElement(
+          React10.createElement(
             "label",
             { className: "dim-jh-fieldLabel", htmlFor: "dim-jh-minimax-xff" },
             "X-Forwarded-For（留空 = 不伪造来源）"
           ),
-          React7.createElement("input", {
+          React10.createElement("input", {
             id: "dim-jh-minimax-xff",
             className: "dim-jh-input",
             type: "text",
@@ -8434,21 +11802,21 @@ function MinimaxXffPanel({ rpcCall, value, onSaved, onClose }) {
           })
         ),
         // ── 结果 / 错误 ──
-        notice !== null ? React7.createElement("div", {
+        notice !== null ? React10.createElement("div", {
           className: "dim-jh-hint",
           style: notice.kind === "bad" ? { color: "var(--dim-danger, #e5534b)" } : void 0
         }, notice.text) : null,
         // ── 风险说明（必须显式写出来）──
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-hint" },
           "⚠️ 该值是**声明一个并非本机的来源 IP**，仅在应急时使用；上游若改为不信任该头，本设置会失效（届时仍会如实报错，不会假装成功）。"
         ),
         // ── 操作 ──
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalActions" },
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             "data-kind": "primary",
             disabled: busy,
@@ -8462,7 +11830,7 @@ function MinimaxXffPanel({ rpcCall, value, onSaved, onClose }) {
            * 而实际请求**仍在带 XFF**（症状：他以为改回了正常行为，其实没有）。
            * ⇒ 这里直接调后端清空并回读，语义与「保存空值」完全一致。
            */
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             disabled: busy || draft === "" && value === "",
             /**
@@ -8481,19 +11849,19 @@ function MinimaxXffPanel({ rpcCall, value, onSaved, onClose }) {
   );
 }
 function ClineQuotaPanel({ rpcCall, onClose }) {
-  const mounted = React7.useRef(true);
-  React7.useEffect(() => () => {
+  const mounted = React10.useRef(true);
+  React10.useEffect(() => () => {
     mounted.current = false;
   }, []);
-  const [quota, setQuota] = React7.useState([]);
-  const [quotaPhase, setQuotaPhase] = React7.useState("loading");
-  const [quotaError, setQuotaError] = React7.useState("");
-  const [viewIndex, setViewIndex] = React7.useState(0);
-  const [logNonce, setLogNonce] = React7.useState(0);
-  const [rows, setRows] = React7.useState([]);
-  const [logPhase, setLogPhase] = React7.useState("idle");
-  const [logError, setLogError] = React7.useState("");
-  const loadQuota = React7.useCallback(async () => {
+  const [quota, setQuota] = React10.useState([]);
+  const [quotaPhase, setQuotaPhase] = React10.useState("loading");
+  const [quotaError, setQuotaError] = React10.useState("");
+  const [viewIndex, setViewIndex] = React10.useState(0);
+  const [logNonce, setLogNonce] = React10.useState(0);
+  const [rows, setRows] = React10.useState([]);
+  const [logPhase, setLogPhase] = React10.useState("idle");
+  const [logError, setLogError] = React10.useState("");
+  const loadQuota = React10.useCallback(async () => {
     setQuotaPhase("loading");
     setQuotaError("");
     try {
@@ -8509,10 +11877,10 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
       setQuotaPhase("error");
     }
   }, [rpcCall]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     void loadQuota();
   }, [loadQuota]);
-  const loadLog = React7.useCallback(async (accountId) => {
+  const loadLog = React10.useCallback(async (accountId) => {
     setLogPhase("loading");
     setLogError("");
     try {
@@ -8533,50 +11901,50 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
     if (quota.length === 0) return;
     setViewIndex((prev) => ((prev + delta) % quota.length + quota.length) % quota.length);
   };
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     if (viewAccountId === "") return;
     void loadLog(viewAccountId);
   }, [viewAccountId, logNonce, loadLog]);
   const renderQuota = () => {
     if (quotaPhase === "loading" && quota.length === 0) {
-      return React7.createElement("div", { className: "dim-jh-empty" }, "正在读取订阅额度…");
+      return React10.createElement("div", { className: "dim-jh-empty" }, "正在读取订阅额度…");
     }
     if (quotaPhase === "error") {
-      return React7.createElement(
+      return React10.createElement(
         "div",
         { className: "dim-jh-empty", role: "alert" },
-        React7.createElement("p", null, quotaError),
-        React7.createElement("button", { className: "dim-jh-btn", onClick: () => void loadQuota() }, "重试")
+        React10.createElement("p", null, quotaError),
+        React10.createElement("button", { className: "dim-jh-btn", onClick: () => void loadQuota() }, "重试")
       );
     }
     if (quota.length === 0) {
-      return React7.createElement("div", { className: "dim-jh-empty" }, "尚未配置账号");
+      return React10.createElement("div", { className: "dim-jh-empty" }, "尚未配置账号");
     }
     const entry2 = viewAccount;
     if (entry2 === void 0) return null;
-    const pager = quota.length > 1 ? React7.createElement(
+    const pager = quota.length > 1 ? React10.createElement(
       "div",
       { className: "dim-jh-quotaPager" },
-      React7.createElement("button", {
+      React10.createElement("button", {
         className: "dim-jh-quotaArrow",
         title: "上一个账号",
         "aria-label": "上一个账号",
         onClick: () => stepView(-1)
       }, "‹"),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-quotaAccountName" },
-        React7.createElement("span", {
+        React10.createElement("span", {
           className: "dim-jh-quotaAccountLabel",
           title: entry2.nickname || entry2.accountId
         }, entry2.nickname || entry2.accountId),
-        React7.createElement(
+        React10.createElement(
           "span",
           { className: "dim-jh-quotaIndex" },
           `第 ${viewIndex + 1} / ${quota.length} 个`
         )
       ),
-      React7.createElement("button", {
+      React10.createElement("button", {
         className: "dim-jh-quotaArrow",
         title: "下一个账号",
         "aria-label": "下一个账号",
@@ -8584,31 +11952,31 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
       }, "›")
     ) : null;
     const windows = quotaWindowsOf(entry2.windows);
-    const body = entry2.ok ? windows.length === 0 ? React7.createElement("div", { className: "dim-jh-quotaMuted" }, "官方未返回额度窗口。") : React7.createElement(
+    const body = entry2.ok ? windows.length === 0 ? React10.createElement("div", { className: "dim-jh-quotaMuted" }, "官方未返回额度窗口。") : React10.createElement(
       "div",
       { className: "dim-jh-quotaWindows" },
       windows.map(([type, label, win]) => {
         const percent = quotaPercentValue(win.percentUsed);
         const tone = quotaTone(percent);
         const resetsIn = quotaResetsIn(win.resetsAt);
-        return React7.createElement(
+        return React10.createElement(
           "div",
           {
             key: `${type}`,
             className: "dim-jh-quotaWindow"
           },
-          React7.createElement(
+          React10.createElement(
             "div",
             { className: "dim-jh-quotaWindowHead" },
-            React7.createElement("span", { className: "dim-jh-quotaWindowName" }, label),
+            React10.createElement("span", { className: "dim-jh-quotaWindowName" }, label),
             // ⚠️ 18px 大字 + 夹取后取整(参考实现同款):百分比是这张卡
             // 唯一要读的数,值得占最大的字级。
-            React7.createElement("span", {
+            React10.createElement("span", {
               className: "dim-jh-quotaWindowPercent",
               "data-tone": tone
             }, formatQuotaPercent(percent))
           ),
-          React7.createElement(
+          React10.createElement(
             "div",
             {
               className: "dim-jh-quotaBar",
@@ -8618,21 +11986,21 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
               "aria-valuemin": 0,
               "aria-valuemax": 100
             },
-            React7.createElement("div", {
+            React10.createElement("div", {
               className: "dim-jh-quotaBarFill",
               "data-tone": tone,
               style: { width: `${percent}%` }
             })
           ),
-          resetsIn === "" ? null : React7.createElement("div", { className: "dim-jh-quotaReset" }, resetsIn)
+          resetsIn === "" ? null : React10.createElement("div", { className: "dim-jh-quotaReset" }, resetsIn)
         );
       })
-    ) : React7.createElement(
+    ) : React10.createElement(
       "div",
       { className: "dim-jh-quotaMuted" },
       `暂时读不到官方额度。${entry2.error ? ` ${entry2.error}` : ""}`
     );
-    return React7.createElement("div", {
+    return React10.createElement("div", {
       // ⚠️ 按账号 id 作 key → 切账号时**重新挂载**该块(参考实现同款):
       // 否则进度条的 width 过渡会在两个账号的读数之间播放,
       // 看起来像"这个账号的额度在涨",而那只是动画。
@@ -8642,39 +12010,39 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
   };
   const renderLog = () => {
     if (viewAccountId === "") return null;
-    const head = React7.createElement(
+    const head = React10.createElement(
       "h3",
       { className: "dim-jh-quotaSectionTitle" },
       "请求记录"
     );
-    const hint = React7.createElement(
+    const hint = React10.createElement(
       "p",
       { className: "dim-jh-quotaLogHint" },
       "是本插件发出的请求流水（进程内存，重启后清空），不是官方账单 —— 官方渠道的消费在 Cline 自己的用量页里。"
     );
-    const tableHead = React7.createElement(
+    const tableHead = React10.createElement(
       "thead",
       null,
-      React7.createElement(
+      React10.createElement(
         "tr",
         null,
-        React7.createElement("th", { className: "dim-jh-quotaDotCol" }, ""),
-        React7.createElement("th", { className: "dim-jh-quotaWhenCol" }, "时间"),
-        React7.createElement("th", null, "模型 / 上游"),
-        React7.createElement("th", null, "TOKEN"),
-        React7.createElement("th", null, "延迟")
+        React10.createElement("th", { className: "dim-jh-quotaDotCol" }, ""),
+        React10.createElement("th", { className: "dim-jh-quotaWhenCol" }, "时间"),
+        React10.createElement("th", null, "模型 / 上游"),
+        React10.createElement("th", null, "TOKEN"),
+        React10.createElement("th", null, "延迟")
       )
     );
-    const colGroup = React7.createElement(
+    const colGroup = React10.createElement(
       "colgroup",
       null,
-      React7.createElement("col", { className: "dim-jh-quotaDotCol" }),
-      React7.createElement("col", { className: "dim-jh-quotaWhenCol" }),
-      React7.createElement("col", null),
-      React7.createElement("col", { className: "dim-jh-quotaTokensCol" }),
-      React7.createElement("col", { className: "dim-jh-quotaLoadCol" })
+      React10.createElement("col", { className: "dim-jh-quotaDotCol" }),
+      React10.createElement("col", { className: "dim-jh-quotaWhenCol" }),
+      React10.createElement("col", null),
+      React10.createElement("col", { className: "dim-jh-quotaTokensCol" }),
+      React10.createElement("col", { className: "dim-jh-quotaLoadCol" })
     );
-    const tableBody = React7.createElement(
+    const tableBody = React10.createElement(
       "tbody",
       null,
       rows.flatMap((row, index) => {
@@ -8683,61 +12051,61 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
         const figures = latencyParts(row);
         const label = String(row.model ?? "").replace(/^cline-pass\//, "");
         const cells = [
-          React7.createElement("td", null, React7.createElement(StatusDot, {
+          React10.createElement("td", null, React10.createElement(StatusDot, {
             ok: !failed,
             title: failed ? String(row.error) : "成功"
           })),
-          React7.createElement("td", { className: "dim-jh-quotaWhen" }, formatStamp(row.ts)),
-          React7.createElement(
+          React10.createElement("td", { className: "dim-jh-quotaWhen" }, formatStamp(row.ts)),
+          React10.createElement(
             "td",
             null,
-            React7.createElement("span", {
+            React10.createElement("span", {
               className: "dim-jh-quotaModel",
               title: String(row.model ?? "")
             }, label || "—"),
             // 上游与模型是两个维度:同模型可能由不同通道服务,拼一列会让
             // 「同名不同上游」的行无法区分。
-            React7.createElement(
+            React10.createElement(
               "span",
               { className: "dim-jh-quotaMeta" },
-              React7.createElement(
+              React10.createElement(
                 "span",
                 { className: "dim-jh-quotaTag" },
                 row.upstream || "—"
               )
             )
           ),
-          React7.createElement("td", {
+          React10.createElement("td", {
             className: "dim-jh-quotaTokens",
             // ⚠️ tooltip = **精确**数字 + 图例:单元格里超过 10 万会缩写成 k/M,
             // tooltip 是唯一保留个位的地方;`—` 的含义也只在图例里解释
             // (参考实现同款)。
             title: tokenTooltip(row)
           }, tokenSummary(row)),
-          React7.createElement(
+          React10.createElement(
             "td",
             { className: "dim-jh-quotaLoad" },
-            React7.createElement(
+            React10.createElement(
               "span",
               { className: "dim-jh-quotaLoadRow" },
-              React7.createElement("span", { className: "dim-jh-quotaLoadKey" }, "首字"),
-              React7.createElement("span", null, formatMs(figures.first))
+              React10.createElement("span", { className: "dim-jh-quotaLoadKey" }, "首字"),
+              React10.createElement("span", null, formatMs(figures.first))
             ),
-            React7.createElement(
+            React10.createElement(
               "span",
               { className: "dim-jh-quotaLoadRow" },
-              React7.createElement("span", { className: "dim-jh-quotaLoadKey" }, "总耗时"),
-              React7.createElement("span", null, formatMs(figures.total))
+              React10.createElement("span", { className: "dim-jh-quotaLoadKey" }, "总耗时"),
+              React10.createElement("span", null, formatMs(figures.total))
             ),
-            React7.createElement(
+            React10.createElement(
               "span",
               { className: "dim-jh-quotaLoadRow", title: figures.rateTitle },
-              React7.createElement("span", { className: "dim-jh-quotaLoadKey" }, "输出速度"),
-              React7.createElement("span", null, figures.rate)
+              React10.createElement("span", { className: "dim-jh-quotaLoadKey" }, "输出速度"),
+              React10.createElement("span", null, figures.rate)
             )
           )
         ];
-        const rowEl = React7.createElement("tr", {
+        const rowEl = React10.createElement("tr", {
           key,
           "data-error": failed ? "error" : void 0,
           // 整行 restate 一遍事实(含 token 与速率):截图或复制时信息不丢
@@ -8755,12 +12123,12 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
         if (failed) {
           return [
             rowEl,
-            React7.createElement(
+            React10.createElement(
               "tr",
               { key: `${key}-err`, "data-error": "error" },
-              React7.createElement("td", null, ""),
-              React7.createElement("td", null, ""),
-              React7.createElement("td", {
+              React10.createElement("td", null, ""),
+              React10.createElement("td", null, ""),
+              React10.createElement("td", {
                 className: "dim-jh-quotaError",
                 colSpan: 3,
                 title: String(row.error)
@@ -8771,25 +12139,25 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
         return [rowEl];
       })
     );
-    const table = React7.createElement(
+    const table = React10.createElement(
       "table",
       { className: "dim-jh-quotaTable" },
       colGroup,
       tableHead,
       tableBody
     );
-    const wrap = React7.createElement(
+    const wrap = React10.createElement(
       "div",
       { className: "dim-jh-quotaTableWrap" },
       table
     );
-    const empty = React7.createElement(
+    const empty = React10.createElement(
       "div",
       { className: "dim-jh-empty" },
       logError === "" ? "暂无记录。（面板打开后新发起的请求才会出现在这里）" : logError
     );
-    const body = logPhase === "loading" ? React7.createElement("div", { className: "dim-jh-empty" }, "正在读取请求记录…") : rows.length === 0 ? empty : wrap;
-    return React7.createElement(
+    const body = logPhase === "loading" ? React10.createElement("div", { className: "dim-jh-empty" }, "正在读取请求记录…") : rows.length === 0 ? empty : wrap;
+    return React10.createElement(
       "div",
       { className: "dim-jh-quotaLog" },
       head,
@@ -8803,7 +12171,7 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
     if (only === void 0) return "Cline";
     return `Cline · 账号 ${only.nickname || only.accountId}`;
   };
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
@@ -8811,7 +12179,7 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
         if (event.target === event.currentTarget) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         className: "dim-jh-modal",
@@ -8819,19 +12187,19 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
         "aria-modal": "true",
         "aria-label": "Cline 订阅额度"
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalTitle" },
-          React7.createElement("strong", null, "订阅额度"),
-          React7.createElement("span", { className: "dim-jh-modalSubtitle" }, quotaSubtitle())
+          React10.createElement("strong", null, "订阅额度"),
+          React10.createElement("span", { className: "dim-jh-modalSubtitle" }, quotaSubtitle())
         ),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modelPanelActions" },
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             disabled: quotaPhase === "loading",
             title: "重新查询全部账号的订阅额度窗口，并重读当前账号的请求记录。",
@@ -8840,14 +12208,14 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
               setLogNonce((n) => n + 1);
             }
           }, quotaPhase === "loading" ? "读取中…" : "刷新"),
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             "data-kind": "primary",
             onClick: onClose
           }, "完成")
         )
       ),
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-modalHint" },
         "额度窗口来自 Cline 官方网关；请求记录是本插件自己发出的请求流水（重启后清空）。两者与账号卡片上的「积分」是三份不同的读数：积分答「还剩多少」，额度答「各时间窗用掉百分之几」，记录答「每一笔发了多久、花了多少 token」。"
@@ -8857,7 +12225,7 @@ function ClineQuotaPanel({ rpcCall, onClose }) {
       // 内容直接铺在里面就会**画出弹窗边界之外** —— 首版正是漏了这一层：
       // 额度卡 + 请求表把弹窗撑破，看起来像「弹窗位置不对、内容显示不对」。
       // 模型列表弹窗的内容同样在 modalBody 里（见其 error/loading/empty 分支）。
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
         renderQuota(),
@@ -8883,30 +12251,134 @@ function downloadCsv(filename, headers, rows) {
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1e3);
 }
-function TokenLedgerPanel({ rpcCall, onClose }) {
-  const mounted = React7.useRef(true);
-  React7.useEffect(() => () => {
+var LEDGER_ENTRY_COLUMNS = Object.freeze([
+  Object.freeze({ key: "time", label: "时间", title: "请求发起时刻（本地时间）；悬停看完整日期", width: "62px" }),
+  Object.freeze({ key: "channel", label: "渠道", title: "直连 = DSH 宿主对话；网关 = OpenAI 兼容网关", width: "46px" }),
+  Object.freeze({
+    key: "account",
+    label: "账号",
+    title: "服务本笔请求的账号：优先显示备注名（nickname），其次上游用户名（accountName）；两者都取不到时显示内部 id（悬停可看完整 id）。账本不存名字，名字由各账号的凭据现读。",
+    /**
+     * ⚠️⚠️ **账号列 = 纯百分比 12.68%**（用户 2026-11-16 两次报障后的定案）。
+     *
+     * ## 为什么不能用 clamp / calc（实测推翻了我的前两版）
+     *
+     * ⚠️⚠️ **`<col>` 的 width 只接受「单一长度或百分比」，clamp() 与 calc() 都失效。**
+     * 真机实测（Chromium，同一张表、同一宽度 690px）：
+     *
+     *   `clamp(88px, 12.68%, 172px)` → 账号列 **162px**
+     *   `clamp(88px, 22%,    172px)` → 账号列 **162px**   ← 两个不同值结果完全相同
+     *   `calc(88px + (100% - 694px) * 0.35)` → **162px**  ← 同上
+     *   `12.68%`（纯百分比）        → 账号列 **87px**    ✅ 生效
+     *   `22%`（纯百分比）           → 账号列 **152px**   ✅ 生效
+     *
+     * 两个不同的 clamp 值给出**逐字节相同**的结果 ⇒ 浏览器把整个声明当无效值丢弃，
+     * 该列退回 `auto`，而 `table-layout: fixed` 下 `auto` 列**平分剩余宽度**
+     * （162 = 剩余宽度的一半）—— 这正好解释了用户看到的
+     * 「账号列 265px、模型列被挤到省略」。
+     *
+     * ⚠️ 这个坑极难发现：clamp 语法完全合法、esbuild 不报错、tsc 不报错、
+     * 单测里的字符串断言照样绿（源码里确实有那串字符）—— **只有真机量宽度才露馅**。
+     * 这与本仓库反复记录的「判据看着在做实事」同型。
+     *
+     * ## 12.68% 怎么来的
+     *
+     * 用户实际面板宽约 **690px**，要求账号列在此时 ≈ **88px**（账号名可读下限）：
+     *   690 × 12.68% ≈ 87.5px ✓
+     * 此时模型列 = 690 − 474（其余 7 列实况：62+46+104+58+86+58+60）− 87.5 = **128.5px**
+     *
+     * ⚠️⚠️ **这里原来写的是「690 − 366 − 88 = 236px（充足）」，算错了 108px**
+     * （366 既不是 7 列也不是 8 列的实况和；真值 474）⇒ 在 690px 面板下模型列
+     * 只有 **128.5px < 实测所需 199.3px**，长模型名**仍然会被截断** ——
+     * 也就是说本 PR 的核心卖点（「模型名不再无谓截断」）在 690px 这个
+     * 最常出现的面板宽度上**不成立**。已知未修：要么继续缩右侧数字列
+     * （属产品取舍，会牵动弹窗 9 列排布），要么接受该宽度下截断（有 title 悬停）。
+     *
+     * ## 上下限怎么保证（百分比本身没有 clamp）
+     *
+     * 用 `@container` 分段覆盖，见 `jet-hub-styles.js` 的
+     * `.dim-jh-ledgerPaneBody` 区块：
+     *   - 容器 < 560px：账号列锁 88px（百分比在窄容器会掉到 50px，不可读）
+     *   - 容器 > 780px：账号列锁 172px（宽屏下与改前的固定值一致）
+     *
+     * ⚠️ **只给账号列设上下限；模型列刻意不设**（用户 2026-11-16 明确要求：
+     * 「要给帐号增加最大宽度限制呀，模型列就不需要了」）—— 模型列必须能吃掉
+     * 全部剩余宽度，否则长模型名会被无谓截断。
+     */
+    width: "12.68%"
+  }),
+  Object.freeze({
+    key: "model",
+    label: "模型",
+    title: "provider/模型（与上游其它处的写法一致）。完整 id 一行显示；窄屏可横向滚动。",
+    /**
+     * ⚠️⚠️ **弹性宽度 `clamp(132px, auto, 1fr)` 的等价写法：`auto`**（用户 2026-11-16 报障）。
+     *
+     * 模型列**吃掉剩余宽度**。配合上面账号列改成弹性后，窄面板下两列**一起收缩**：
+     * 账号列从 172px 收到 88px（让出 84px），剩下的才由模型列承担
+     * —— 这正是原缺陷缺的那一半（原先只有模型列在让步）。
+     *
+     * 实测（960px 弹窗、11.5px 字体）：最长组合
+     *   workbuddy/deepseek-v4.1-flash-free = 187.3px（+12 内边距 = 199.3px）
+     * 而其余 8 列实际只需 62+46+172+104+58+86+58+60 = 646px。912 − 646 = 266px。
+     * ⇒ 给 `auto` 时模型列拿到 266px，余量 67px；给死 200px 则会**截断**（差 7.5px）。
+     * ⚠️ 别改成固定百分比 —— 那正是改前「时间 10%/渠道 8% 各浪费 50px、
+     *    模型只拿到 182px 而放不下」的病根（用户 2026-11-11 报障）。
+     */
+    width: "auto"
+  }),
+  Object.freeze({
+    key: "tokens",
+    label: "TOKEN",
+    title: "总处理量 = 未命中缓存输入 + 缓存命中输入 + 输出；缓存写入单列展示，不重复计入总量",
+    width: "104px"
+  }),
+  Object.freeze({ key: "ttft", label: "首字", title: "首个内容块的耗时；没有内容帧时显示 —", width: "58px" }),
+  Object.freeze({ key: "tps", label: "速率", title: "输出 token / 解码时长；解码不足 100ms 时不测", width: "86px" }),
+  Object.freeze({ key: "duration", label: "耗时", title: "整笔请求的总耗时", width: "58px" }),
+  Object.freeze({ key: "status", label: "状态", title: "成功 / 失败（悬停看失败原因）", width: "60px" })
+]);
+var LEDGER_ENTRY_CSV_COLUMNS = Object.freeze([
+  "时间",
+  "渠道",
+  "账号",
+  "模型",
+  "状态",
+  "总处理量",
+  "输入",
+  "输出",
+  "缓存命中",
+  "缓存写入",
+  "推理",
+  "首字毫秒",
+  "输出tok每秒",
+  "耗时毫秒",
+  "错误"
+]);
+function TokenLedgerPanel({ rpcCall, onClose, chrome = "modal" }) {
+  const mounted = React10.useRef(true);
+  React10.useEffect(() => () => {
     mounted.current = false;
   }, []);
-  const [snapshot, setSnapshot] = React7.useState(null);
-  const [phase, setPhase] = React7.useState("loading");
-  const [error, setError] = React7.useState("");
-  const [selected, setSelected] = React7.useState(null);
-  const [historyRange, setHistoryRange] = React7.useState("30d");
-  const [historyFromDay, setHistoryFromDay] = React7.useState("");
-  const [historyToDay, setHistoryToDay] = React7.useState("");
-  const [history, setHistory] = React7.useState(null);
-  const [historyPhase, setHistoryPhase] = React7.useState("idle");
-  const [deletingHistoryDay, setDeletingHistoryDay] = React7.useState(null);
-  const [historyDeleteError, setHistoryDeleteError] = React7.useState("");
-  const [expandedDay, setExpandedDay] = React7.useState(null);
-  const [hoveredDay, setHoveredDay] = React7.useState(null);
-  const [entryQuery, setEntryQuery] = React7.useState("");
-  const [entryChannel, setEntryChannel] = React7.useState("all");
-  const [entryStatus, setEntryStatus] = React7.useState("all");
-  const [entrySort, setEntrySort] = React7.useState("newest");
-  const [entryPage, setEntryPage] = React7.useState(1);
-  const load = React7.useCallback(async () => {
+  const [snapshot, setSnapshot] = React10.useState(null);
+  const [phase, setPhase] = React10.useState("loading");
+  const [error, setError] = React10.useState("");
+  const [selected, setSelected] = React10.useState(null);
+  const [historyRange, setHistoryRange] = React10.useState("30d");
+  const [historyFromDay, setHistoryFromDay] = React10.useState("");
+  const [historyToDay, setHistoryToDay] = React10.useState("");
+  const [history, setHistory] = React10.useState(null);
+  const [historyPhase, setHistoryPhase] = React10.useState("idle");
+  const [deletingHistoryDay, setDeletingHistoryDay] = React10.useState(null);
+  const [historyDeleteError, setHistoryDeleteError] = React10.useState("");
+  const [expandedDay, setExpandedDay] = React10.useState(null);
+  const [hoveredDay, setHoveredDay] = React10.useState(null);
+  const [entryQuery, setEntryQuery] = React10.useState("");
+  const [entryChannel, setEntryChannel] = React10.useState("all");
+  const [entryStatus, setEntryStatus] = React10.useState("all");
+  const [entrySort, setEntrySort] = React10.useState("newest");
+  const [entryPage, setEntryPage] = React10.useState(1);
+  const load = React10.useCallback(async () => {
     setPhase("loading");
     setError("");
     try {
@@ -8921,10 +12393,10 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
       setPhase("error");
     }
   }, [rpcCall]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     void load();
   }, [load]);
-  const loadHistory = React7.useCallback(async (rangeKey, fromDay = historyFromDay, toDay = historyToDay) => {
+  const loadHistory = React10.useCallback(async (rangeKey, fromDay = historyFromDay, toDay = historyToDay) => {
     if (rangeKey === "custom" && fromDay && toDay && fromDay > toDay) {
       setHistory(null);
       setHistoryPhase("ready");
@@ -8945,7 +12417,7 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
       setHistoryPhase("error");
     }
   }, [historyFromDay, historyToDay, rpcCall]);
-  const deleteHistoryDay = React7.useCallback(async (day) => {
+  const deleteHistoryDay = React10.useCallback(async (day) => {
     if (typeof day !== "string" || !confirm(
       `确认删除 ${day} 的历史用量？只清除这一天的日累计，不会清除实时明细、其他日期或账号设置。`
     )) return;
@@ -8964,55 +12436,194 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
       if (mounted.current) setDeletingHistoryDay(null);
     }
   }, [historyRange, loadHistory, rpcCall]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     void loadHistory(historyRange);
   }, [historyRange, historyFromDay, historyToDay, loadHistory]);
-  const channels = React7.useMemo(() => {
+  const [accountNames, setAccountNames] = React10.useState(() => /* @__PURE__ */ new Map());
+  const namedProviders = React10.useRef(/* @__PURE__ */ new Set());
+  const ledgerProviderKey = React10.useMemo(() => {
+    const ids = /* @__PURE__ */ new Set();
+    const collect = (rows) => {
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const providers = Array.isArray(row?.providers) ? row.providers : [];
+        for (const providerRow of providers) {
+          const id = providerRow?.provider;
+          if (typeof id === "string" && id.length > 0) ids.add(id);
+        }
+      }
+    };
+    collect(snapshot?.channels);
+    for (const day of Array.isArray(history?.history) ? history.history : []) collect(day?.channels);
+    for (const entry2 of Array.isArray(snapshot?.entries) ? snapshot.entries : []) {
+      const id = entry2?.provider;
+      if (typeof id === "string" && id.length > 0) ids.add(id);
+    }
+    return [...ids].sort().join(",");
+  }, [snapshot, history]);
+  React10.useEffect(() => {
+    const wanted = ledgerProviderKey.length === 0 ? [] : ledgerProviderKey.split(",");
+    const pending = wanted.filter((id) => !namedProviders.current.has(id));
+    if (pending.length === 0) return;
+    for (const id of pending) namedProviders.current.add(id);
+    for (const provider of pending) {
+      void rpcCall("account.list", { provider }).then(
+        (res) => {
+          if (!mounted.current) return;
+          const map = buildAccountNameMap(res?.accounts);
+          if (map.size === 0) return;
+          setAccountNames((prev) => {
+            const next = new Map(prev);
+            for (const [id, name2] of map) if (!next.has(id)) next.set(id, name2);
+            return next;
+          });
+        },
+        // ⚠️ **不冒泡成面板报错**（名字是辅助信息，账本主数据照常显示，只是回落 id），
+        //    但**必须有诊断**（2026-11-13 PR #69 正向审计 P2 / 我自己的 D4）：
+        //    该 provider 已被上面登记为「拉过」⇒ 整个挂载期不会再拉 ⇒ 账号列恒显裸 id，
+        //    而「全是裸 id」有三种成因（provider 真没有账号 / 端点拒答 / 连接断开），
+        //    零日志时**无法区分**，等于把三种症状压成一个不可诊断的形态。
+        // ⚠️ 同时**撤销登记**：本次失败不算「拉过」，将来 `ledgerProviderKey` 变化
+        //    导致 effect 重跑时能重试（不额外加定时器 —— 那会带来卸载后仍触发的清理负担）。
+        (error2) => {
+          namedProviders.current.delete(provider);
+          console.warn(
+            "[jet-hub] 读取 " + provider + " 的账号名失败（该渠道的账号列将回落裸池 id）:",
+            error2
+          );
+        }
+      );
+    }
+  }, [ledgerProviderKey, rpcCall]);
+  const channels = React10.useMemo(() => {
     const list = Array.isArray(snapshot?.channels) ? [...snapshot.channels] : [];
     list.sort((a, b) => channelOrder(a?.channel, b?.channel));
     return selected === null ? list : list.filter((c) => c?.channel === selected);
   }, [snapshot, selected]);
-  const perfCell = (row) => React7.createElement("span", {
+  const perfCell = (row) => React10.createElement("span", {
     className: "dim-jh-ledgerPerf",
     title: avgPerfDetailTooltip(row)
   }, avgPerfText(row));
-  const renderModelRow = (modelRow, key) => React7.createElement(
+  const renderModelRow = (modelRow, key) => React10.createElement(
     "div",
     {
       key,
       className: "dim-jh-ledgerModel"
     },
-    React7.createElement("span", { className: "dim-jh-ledgerModelName", title: modelRow.model }, modelRow.model),
-    React7.createElement(
+    React10.createElement("span", { className: "dim-jh-ledgerModelName", title: modelRow.model }, modelRow.model),
+    React10.createElement(
       "span",
-      { className: "dim-jh-ledgerModelReq", title: "请求数（含失败）" },
-      modelRow.requests + " 次"
-    ),
-    perfCell(modelRow),
-    React7.createElement(
-      "span",
-      { className: "dim-jh-ledgerModelTokens", title: tokenSummaryTooltip(modelRow) },
-      tokenSummaryText(modelRow)
+      { className: "dim-jh-ledgerStatGroup" },
+      React10.createElement(
+        "span",
+        { className: "dim-jh-ledgerModelReq", title: "请求数（含失败）" },
+        modelRow.requests + " 次"
+      ),
+      perfCell(modelRow),
+      // ⚠️ 模型行的「总处理」**加粗**：用户要「一眼看到每个帐号下每个模型的请求总量」。
+      React10.createElement(
+        "span",
+        { className: "dim-jh-ledgerModelTokens", title: tokenSummaryTooltip(modelRow) },
+        tokenSummaryText(modelRow)
+      )
     )
   );
+  const renderAccountRow = (accountRow, keyPrefix) => {
+    const models = Array.isArray(accountRow?.models) ? accountRow.models : [];
+    const single = models.length === 1 ? models[0] : null;
+    const statRow = single ?? accountRow.totals;
+    const reqRow = single ?? accountRow.totals;
+    return React10.createElement(
+      "div",
+      {
+        key: keyPrefix + accountRow.accountId,
+        className: "dim-jh-ledgerAccount"
+      },
+      React10.createElement(
+        "div",
+        { className: "dim-jh-ledgerAccountHead" },
+        React10.createElement(
+          "span",
+          { className: "dim-jh-ledgerAccountName", title: accountRow.accountId },
+          accountLabel(accountRow.accountId, accountNames)
+        ),
+        ...single === null ? [] : [
+          React10.createElement("span", { key: "arrow", className: "dim-jh-ledgerAccountArrow" }, "→"),
+          React10.createElement("span", {
+            key: "model",
+            className: "dim-jh-ledgerAccountModel",
+            title: single.model
+          }, single.model)
+        ],
+        /**
+         * ⚠️⚠️ 右侧统计包成**固定宽度的组**（`dim-jh-ledgerStatGroup`）。
+         *
+         * 用户 2026-11-11 第三次修正：「统计信息（红框内）要放在行中间」。
+         *
+         * 改前靠 `margin-left: auto` 把每一格各自推到最右 ⇒ 因为每组内容宽度不同，
+         * 「次数」一列的**起始位置参差不齐**（实测 6 行的起始 x 是
+         * 714 / 720 / 726 / 726 / 732 / 720 —— 4 种位置），账号名后面留一大片空白。
+         *
+         * 修法：整组给固定宽度 460px，`margin-left: auto` 推到右边，**组内左对齐**
+         * ⇒ 所有行的「次数」都从同一条竖线开始（实测全部 510px）。
+         *
+         * ```
+         * [账号 → 模型]              | 338 次  首字 …  总处理 …
+         * [账号]                     | 90 次   首字 …  总处理 …   ← 同一竖线
+         *   ↳ [模型]                 | 75 次   首字 …  总处理 …
+         * ```
+         */
+        React10.createElement(
+          "span",
+          { className: "dim-jh-ledgerStatGroup" },
+          React10.createElement("span", {
+            key: "req",
+            className: "dim-jh-ledgerAccountReq",
+            title: "请求数（含失败）"
+          }, reqRow.requests + " 次"),
+          perfCell(statRow),
+          /**
+           * ⚠️⚠️ **只有「单个模型」的 Total 才加粗**（用户 2026-11-11 第四次修正）：
+           * 「当帐号行有两个模型及以上时，帐号行的总处理是不加粗的，保持原来的就行…
+           *  我只要每个模型的总处理结果是加粗的就行，这样方便我一眼看到每个帐号下
+           *  每个模型的请求总量」。
+           *
+           * | 行 | 语义 | 样式 |
+           * |---|---|---|
+           * | 单模型合并行 | 就是那个模型的用量 | `ledgerModelTokens`（**加粗亮白**）|
+           * | 多模型账号行 | 账号合计（不代表任何单个模型） | `ledgerAccountSum`（灰，不加粗）|
+           * | 缩进模型行 | 单个模型的用量 | `ledgerModelTokens`（**加粗亮白**）|
+           *
+           * ⇒ 判据是 `single === null`（多模型）→ 用 AccountSum；否则用 ModelTokens。
+           * ⚠️ 别为了「账号行也统一」把它改成无条件 ModelTokens —— 那会让账号合计看起来
+           *    像一个模型的用量，正是用户这次要修掉的。
+           */
+          React10.createElement("span", {
+            className: single === null ? "dim-jh-ledgerAccountSum" : "dim-jh-ledgerModelTokens",
+            title: tokenSummaryTooltip(statRow)
+          }, tokenSummaryText(statRow))
+        )
+      ),
+      ...single === null ? models.map((modelRow) => renderModelRow(modelRow, keyPrefix + accountRow.accountId + "#" + modelRow.model)) : []
+    );
+  };
   const renderSummary = () => {
     if (phase === "loading" && snapshot === null) {
-      return React7.createElement("div", { className: "dim-jh-empty" }, "正在读取 Token 用量…");
+      return React10.createElement("div", { className: "dim-jh-empty" }, "正在读取 Token 用量…");
     }
     if (phase === "error") {
-      return React7.createElement(
+      return React10.createElement(
         "div",
         { className: "dim-jh-empty", role: "alert" },
-        React7.createElement("p", null, error),
-        React7.createElement("button", { className: "dim-jh-btn", onClick: () => void load() }, "重试")
+        React10.createElement("p", null, error),
+        React10.createElement("button", { className: "dim-jh-btn", onClick: () => void load() }, "重试")
       );
     }
     if (!hasAnyData(snapshot)) {
-      return React7.createElement(
+      return React10.createElement(
         "div",
         { className: "dim-jh-empty" },
-        React7.createElement("p", null, "还没有任何请求记录。"),
-        React7.createElement(
+        React10.createElement("p", null, "还没有任何请求记录。"),
+        React10.createElement(
           "p",
           null,
           "本插件在每次模型请求结束时记录 token 用量（含直连与网关两条通道），重启 DSH 后清空。"
@@ -9020,10 +12631,10 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
       );
     }
     const present = Array.from(new Set((snapshot?.channels ?? []).map((c) => c?.channel)));
-    const filterRow = present.length > 1 ? React7.createElement(
+    const filterRow = present.length > 1 ? React10.createElement(
       "div",
       { className: "dim-jh-ledgerFilters", key: "filters" },
-      [null, ...present].map((key) => React7.createElement("button", {
+      [null, ...present].map((key) => React10.createElement("button", {
         key: key === null ? "all" : key,
         className: "dim-jh-btn dim-jh-ledgerFilterBtn",
         "data-active": selected === key ? "true" : "false",
@@ -9032,68 +12643,44 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
     ) : null;
     const renderProviderBody = (providerRow) => {
       const accounts = providerRow.accounts ?? [];
-      if (accounts.length > 1) {
-        return accounts.map((accountRow) => React7.createElement(
-          "div",
-          {
-            key: providerRow.provider + "#" + accountRow.accountId,
-            className: "dim-jh-ledgerAccount"
-          },
-          React7.createElement(
-            "div",
-            { className: "dim-jh-ledgerAccountHead" },
-            React7.createElement(
-              "span",
-              { className: "dim-jh-ledgerAccountName", title: accountRow.accountId },
-              accountLabel(accountRow.accountId)
-            ),
-            perfCell(accountRow.totals),
-            React7.createElement(
-              "span",
-              { className: "dim-jh-ledgerAccountSum", title: tokenSummaryTooltip(accountRow.totals) },
-              tokenSummaryText(accountRow.totals)
-            )
-          ),
-          accountRow.models.map((modelRow) => renderModelRow(modelRow, modelRow.model))
-        ));
-      }
-      return accounts.flatMap((accountRow) => accountRow.models.map((modelRow) => renderModelRow(modelRow, providerRow.provider + "#" + modelRow.model)));
+      if (accounts.length === 0) return [];
+      return accounts.map((accountRow) => renderAccountRow(accountRow, accountRow.accountId + "#"));
     };
-    return React7.createElement(
-      React7.Fragment,
+    return React10.createElement(
+      React10.Fragment,
       null,
       filterRow,
       // 汇总卡：渠道 → provider → 账号 → 模型（第 2 期加了账号层）。
       // provider / 账号行带自身小计（与模型行同列对齐）。
-      channels.map((channelRow) => React7.createElement(
+      channels.map((channelRow) => React10.createElement(
         "div",
         {
           key: channelRow.channel,
           className: "dim-jh-ledgerCard"
         },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-ledgerCardHead" },
-          React7.createElement("strong", null, channelCardTitle(channelRow)),
+          React10.createElement("strong", null, channelCardTitle(channelRow)),
           perfCell(channelRow.totals),
-          React7.createElement(
+          React10.createElement(
             "span",
             { className: "dim-jh-ledgerCardSum", title: tokenSummaryTooltip(channelRow.totals) },
             tokenSummaryText(channelRow.totals)
           )
         ),
-        channelRow.providers.map((providerRow) => React7.createElement(
+        channelRow.providers.map((providerRow) => React10.createElement(
           "div",
           {
             key: providerRow.provider,
             className: "dim-jh-ledgerProvider"
           },
-          React7.createElement(
+          React10.createElement(
             "div",
             { className: "dim-jh-ledgerProviderHead" },
-            React7.createElement("span", { className: "dim-jh-ledgerProviderName" }, providerRow.provider),
+            React10.createElement("span", { className: "dim-jh-ledgerProviderName" }, providerRow.provider),
             perfCell(providerRow.totals),
-            React7.createElement(
+            React10.createElement(
               "span",
               { className: "dim-jh-ledgerProviderSum", title: tokenSummaryTooltip(providerRow.totals) },
               tokenSummaryText(providerRow.totals)
@@ -9105,13 +12692,18 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
     );
   };
   const entries = Array.isArray(snapshot?.entries) ? snapshot.entries : [];
-  const visibleEntries = React7.useMemo(() => {
+  const visibleEntries = React10.useMemo(() => {
     const query = entryQuery.trim().toLowerCase();
     const filtered = entries.filter((entry2) => {
       if (entryChannel !== "all" && entry2.channel !== entryChannel) return false;
       if (entryStatus === "success" && entry2.error !== void 0) return false;
       if (entryStatus === "error" && entry2.error === void 0) return false;
-      if (query && !String(entry2.model ?? "").toLowerCase().includes(query)) return false;
+      if (query) {
+        const model = ledgerEntryModelText(entry2).toLowerCase();
+        const accountId = String(entry2.accountId ?? "").toLowerCase();
+        const accountName = String(accountLabel(entry2.accountId, accountNames)).toLowerCase();
+        if (!model.includes(query) && !accountId.includes(query) && !accountName.includes(query)) return false;
+      }
       return true;
     });
     const tokenValue = totalTokensOf;
@@ -9122,8 +12714,8 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
       return b.ts - a.ts;
     });
     return filtered;
-  }, [entries, entryChannel, entryQuery, entrySort, entryStatus]);
-  React7.useEffect(() => {
+  }, [entries, entryChannel, entryQuery, entrySort, entryStatus, accountNames]);
+  React10.useEffect(() => {
     setEntryPage(1);
   }, [entryChannel, entryQuery, entrySort, entryStatus]);
   const entryPageCount = Math.max(1, Math.ceil(visibleEntries.length / 50));
@@ -9131,11 +12723,12 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
   const pageEntries = visibleEntries.slice((safeEntryPage - 1) * 50, safeEntryPage * 50);
   const exportEntries = () => downloadCsv(
     "token-usage-details.csv",
-    ["时间", "渠道", "模型", "状态", "总处理量", "输入", "输出", "缓存命中", "缓存写入", "推理", "首字毫秒", "输出tok每秒", "耗时毫秒", "错误"],
+    [...LEDGER_ENTRY_CSV_COLUMNS],
     visibleEntries.map((entry2) => [
       Number.isFinite(entry2.ts) ? new Date(entry2.ts).toISOString() : "",
       channelLabel(entry2.channel),
-      entry2.model,
+      accountLabel(entry2.accountId, accountNames),
+      ledgerEntryModelText(entry2),
       entry2.error === void 0 ? "成功" : "失败",
       // ⚠️ 未收到 usage 的失败行导出**空串**而非 0：界面用 `—` 与真实的 0 严格区分
       //（见 token-ledger.ts 的「0 会被读成瞬间完成、没花 token」注释），
@@ -9154,112 +12747,162 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
   );
   const renderEntries = () => {
     if (entries.length === 0) return null;
-    const toolbar = React7.createElement(
+    const toolbar = React10.createElement(
       "div",
       { className: "dim-jh-ledgerEntryTools" },
-      React7.createElement("strong", null, "最近请求"),
-      React7.createElement("span", { className: "dim-jh-ledgerEntryCount" }, `${visibleEntries.length} / ${entries.length}`),
-      React7.createElement("input", {
+      React10.createElement("strong", null, "最近请求"),
+      React10.createElement("span", { className: "dim-jh-ledgerEntryCount" }, `${visibleEntries.length} / ${entries.length}`),
+      React10.createElement("input", {
         className: "dim-jh-input dim-jh-ledgerSearch",
         type: "search",
         value: entryQuery,
-        placeholder: "筛选模型",
-        "aria-label": "按模型筛选请求",
+        // ⚠️ 文案要如实说「两个都能筛」：只说「筛选模型」时用户不会去试账号名
+        // （用户 2026-11-12 要求把这里做成「模型或帐号」）。
+        placeholder: "筛选模型 / 帐号",
+        "aria-label": "按模型或账号筛选请求",
+        title: "匹配模型名（含 provider 前缀）、账号显示名与账号 id；不区分大小写",
         onChange: (event) => setEntryQuery(event.target.value)
       }),
-      React7.createElement("select", {
+      React10.createElement("select", {
         className: "dim-jh-ledgerSelect",
         value: entryChannel,
         "aria-label": "按渠道筛选请求",
         onChange: (event) => setEntryChannel(event.target.value)
       }, [
-        React7.createElement("option", { key: "all", value: "all" }, "全部渠道"),
-        React7.createElement("option", { key: "direct", value: "direct" }, "直连"),
-        React7.createElement("option", { key: "gateway", value: "gateway" }, "网关")
+        React10.createElement("option", { key: "all", value: "all" }, "全部渠道"),
+        React10.createElement("option", { key: "direct", value: "direct" }, "直连"),
+        React10.createElement("option", { key: "gateway", value: "gateway" }, "网关")
       ]),
-      React7.createElement("select", {
+      React10.createElement("select", {
         className: "dim-jh-ledgerSelect",
         value: entryStatus,
         "aria-label": "按请求状态筛选",
         onChange: (event) => setEntryStatus(event.target.value)
       }, [
-        React7.createElement("option", { key: "all", value: "all" }, "全部状态"),
-        React7.createElement("option", { key: "success", value: "success" }, "成功"),
-        React7.createElement("option", { key: "error", value: "error" }, "失败")
+        React10.createElement("option", { key: "all", value: "all" }, "全部状态"),
+        React10.createElement("option", { key: "success", value: "success" }, "成功"),
+        React10.createElement("option", { key: "error", value: "error" }, "失败")
       ]),
-      React7.createElement("select", {
+      React10.createElement("select", {
         className: "dim-jh-ledgerSelect",
         value: entrySort,
         "aria-label": "请求排序方式",
         onChange: (event) => setEntrySort(event.target.value)
       }, [
-        React7.createElement("option", { key: "newest", value: "newest" }, "最新优先"),
-        React7.createElement("option", { key: "tokens", value: "tokens" }, "Token 量最多"),
-        React7.createElement("option", { key: "duration", value: "duration" }, "耗时最长"),
-        React7.createElement("option", { key: "speed", value: "speed" }, "速率最高")
+        React10.createElement("option", { key: "newest", value: "newest" }, "最新优先"),
+        React10.createElement("option", { key: "tokens", value: "tokens" }, "Token 量最多"),
+        React10.createElement("option", { key: "duration", value: "duration" }, "耗时最长"),
+        React10.createElement("option", { key: "speed", value: "speed" }, "速率最高")
       ]),
-      React7.createElement("button", {
+      React10.createElement("button", {
         className: "dim-jh-btn dim-jh-ledgerExport",
         onClick: exportEntries,
         disabled: visibleEntries.length === 0,
         title: "导出当前筛选后的请求明细 CSV"
       }, "导出明细")
     );
-    if (visibleEntries.length === 0) return React7.createElement(
+    if (visibleEntries.length === 0) return React10.createElement(
       "div",
       { key: "entries" },
       toolbar,
-      React7.createElement("div", { className: "dim-jh-empty" }, "没有符合当前筛选条件的请求。")
+      React10.createElement("div", { className: "dim-jh-empty" }, "没有符合当前筛选条件的请求。")
     );
-    return React7.createElement(
+    return React10.createElement(
       "div",
       { key: "entries" },
       toolbar,
-      React7.createElement(
-        "table",
-        { className: "dim-jh-ledgerTable" },
-        React7.createElement(
-          "thead",
-          null,
-          React7.createElement(
-            "tr",
+      // ⚠️ 明细表包在**滚动容器**里：9 列是固定像素宽（合计约 912px），
+      //    窄屏放不下时横向滚动而不是压缩各列 —— 压缩会把 9 列一起挤变形
+      //    （数字列对不齐、模型名断成三行），比横向滚动更糟。
+      React10.createElement(
+        "div",
+        { className: "dim-jh-ledgerTableScroll" },
+        React10.createElement(
+          "table",
+          { className: "dim-jh-ledgerTable" },
+          // ⚠️ `table-layout: fixed` 下必须有列宽，否则 9 列等分把模型名压成三行
+          //（8 列时勉强够，加一列就崩）。列宽与表头同源（`LEDGER_ENTRY_COLUMNS`）。
+          React10.createElement(
+            "colgroup",
             null,
-            ["时间", "渠道", "模型", "TOKEN", "首字", "速率", "耗时", "状态"].map((h) => React7.createElement("th", {
-              key: h,
-              title: h === "TOKEN" ? "总处理量 = 未命中缓存输入 + 缓存命中输入 + 输出；缓存写入单列展示，不重复计入总量" : void 0
-            }, h))
-          )
-        ),
-        React7.createElement("tbody", null, pageEntries.map((entry2, index) => React7.createElement(
-          "tr",
-          {
-            key: entry2.ts + "-" + index,
-            "data-error": entry2.error !== void 0 ? "true" : "false"
-          },
-          React7.createElement("td", { title: new Date(entry2.ts).toLocaleString() }, formatEntryTime(entry2.ts)),
-          React7.createElement("td", null, channelLabel(entry2.channel)),
-          React7.createElement("td", { className: "dim-jh-ledgerEntryModel" }, entry2.model),
-          React7.createElement("td", { title: tokenSummaryTooltip(entry2) }, entryTokenText(entry2)),
-          React7.createElement("td", null, formatTtft(entry2)),
-          React7.createElement("td", null, formatTps(entry2)),
-          React7.createElement("td", null, formatDuration(entry2.durationMs)),
-          React7.createElement("td", {
-            className: entry2.error !== void 0 ? "dim-jh-ledgerError" : "dim-jh-ledgerSuccess",
-            title: entry2.error !== void 0 ? entry2.error : "请求成功",
-            "aria-label": entry2.error !== void 0 ? "失败详情：" + entry2.error : "请求成功"
-          }, entry2.error !== void 0 ? "失败 ⓘ" : "成功 ✓")
-        )))
+            LEDGER_ENTRY_COLUMNS.map((column) => (
+              /**
+               * ⚠️ 账号列额外挂一个类名 `dim-jh-ledgerColAccount`：
+               * 它的宽度是纯百分比（12.68%，见 `LEDGER_ENTRY_COLUMNS` 里的长注释），
+               * 而百分比在窄容器里会掉到不可读的宽度 ⇒ 由 `jet-hub-styles.js` 的
+               * `@container` 块按容器宽度给它锁上下限（88px / 172px）。
+               * ⚠️ 只给账号列加；模型列**刻意不加**（它必须吃掉全部剩余宽度）。
+               */
+              React10.createElement("col", {
+                key: column.key,
+                className: column.key === "account" ? "dim-jh-ledgerColAccount" : void 0,
+                /**
+                 * ⚠️⚠️ 账号列**不许**走内联 `style`（PR #94 正向审计 P1-1）：
+                 * 内联 style 的层叠权重恒压过样式表里 `@container` / `@media` 的
+                 * 上下限规则（那 4 条没有 `!important`）⇒「窄锁 88px / 宽锁 172px」
+                 * **全是死代码**，账号列在所有宽度下都恰好等于 12.68%
+                 * （300px 面板里只有 ~35px，比改前的 172px 更不可读）。
+                 * ⇒ 账号列的宽度整条交给 `jet-hub-styles.js`（基础 12.68% + 分段覆盖）。
+                 */
+                style: column.key === "account" ? void 0 : { width: column.width }
+              })
+            ))
+          ),
+          React10.createElement(
+            "thead",
+            null,
+            React10.createElement(
+              "tr",
+              null,
+              // ⚠️ 列头与下面的 `<td>` 由同一个列定义表驱动（`LEDGER_ENTRY_COLUMNS`）：
+              //    两处各写一份必然错位，而错位是「所有列都不对」——比不加列更糟。
+              LEDGER_ENTRY_COLUMNS.map((column) => React10.createElement("th", { key: column.key, title: column.title }, column.label))
+            )
+          ),
+          React10.createElement("tbody", null, pageEntries.map((entry2, index) => React10.createElement(
+            "tr",
+            {
+              key: entry2.ts + "-" + index,
+              "data-error": entry2.error !== void 0 ? "true" : "false"
+            },
+            React10.createElement("td", { title: new Date(entry2.ts).toLocaleString() }, formatEntryTime(entry2.ts)),
+            React10.createElement("td", null, channelLabel(entry2.channel)),
+            // ⚠️ 账号格：只显示名字，**完整 id 靠悬停**（用户 2026-11-10 决策 Q2-A）。
+            //    `entry.accountId` 是可选的（取不到时为空串）⇒ `accountLabel('')` 给「未归属」。
+            //    ⚠️ `title` 为空串时不挂这个属性（空 title 在浏览器里表现为**没有** tooltip，
+            //    留着它只会让人以为「悬停没反应是坏的」）。
+            React10.createElement("td", {
+              className: "dim-jh-ledgerEntryAccount",
+              title: typeof entry2.accountId === "string" && entry2.accountId.length > 0 ? entry2.accountId : "未归属账号"
+            }, accountLabel(entry2.accountId, accountNames)),
+            // ⚠️ 模型格显示 `provider/model`（用户 2026-11-11 要求，见 ledgerEntryModelText）。
+            //    `title` 挂完整串：窄屏下模型列可能被省略号截断，悬停要能看全。
+            React10.createElement("td", {
+              className: "dim-jh-ledgerEntryModel",
+              title: ledgerEntryModelText(entry2)
+            }, ledgerEntryModelText(entry2)),
+            React10.createElement("td", { title: tokenSummaryTooltip(entry2) }, entryTokenText(entry2)),
+            React10.createElement("td", null, formatTtft(entry2)),
+            React10.createElement("td", null, formatTps(entry2)),
+            React10.createElement("td", null, formatDuration(entry2.durationMs)),
+            React10.createElement("td", {
+              className: entry2.error !== void 0 ? "dim-jh-ledgerError" : "dim-jh-ledgerSuccess",
+              title: entry2.error !== void 0 ? entry2.error : "请求成功",
+              "aria-label": entry2.error !== void 0 ? "失败详情：" + entry2.error : "请求成功"
+            }, entry2.error !== void 0 ? "失败 ⓘ" : "成功 ✓")
+          )))
+        )
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-ledgerPagination" },
-        React7.createElement("span", null, `第 ${safeEntryPage} / ${entryPageCount} 页，每页 50 条`),
-        React7.createElement("button", {
+        React10.createElement("span", null, `第 ${safeEntryPage} / ${entryPageCount} 页，每页 50 条`),
+        React10.createElement("button", {
           className: "dim-jh-btn",
           disabled: safeEntryPage <= 1,
           onClick: () => setEntryPage((page) => Math.max(1, page - 1))
         }, "上一页"),
-        React7.createElement("button", {
+        React10.createElement("button", {
           className: "dim-jh-btn",
           disabled: safeEntryPage >= entryPageCount,
           onClick: () => setEntryPage((page) => Math.min(entryPageCount, page + 1))
@@ -9288,10 +12931,10 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
     ])
   );
   const renderHistory = () => {
-    const rangeRow = React7.createElement(
+    const rangeRow = React10.createElement(
       "div",
       { className: "dim-jh-ledgerFilters", key: "historyRanges" },
-      HISTORY_RANGES.map((r) => React7.createElement("button", {
+      HISTORY_RANGES.map((r) => React10.createElement("button", {
         key: r.key,
         className: "dim-jh-btn dim-jh-ledgerFilterBtn",
         "data-active": historyRange === r.key ? "true" : "false",
@@ -9300,7 +12943,7 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
           setExpandedDay(null);
         }
       }, r.label)),
-      React7.createElement("button", {
+      React10.createElement("button", {
         key: "custom",
         className: "dim-jh-btn dim-jh-ledgerFilterBtn",
         "data-active": historyRange === "custom" ? "true" : "false",
@@ -9314,29 +12957,29 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
           setExpandedDay(null);
         }
       }, "自选"),
-      historyRange === "custom" ? React7.createElement(
+      historyRange === "custom" ? React10.createElement(
         "div",
         { className: "dim-jh-ledgerDateRange", key: "dateRange" },
-        React7.createElement("label", null, "从", React7.createElement("input", {
+        React10.createElement("label", null, "从", React10.createElement("input", {
           type: "date",
           className: "dim-jh-input",
           value: historyFromDay,
           onChange: (event) => setHistoryFromDay(event.target.value)
         })),
-        React7.createElement("label", null, "到", React7.createElement("input", {
+        React10.createElement("label", null, "到", React10.createElement("input", {
           type: "date",
           className: "dim-jh-input",
           value: historyToDay,
           onChange: (event) => setHistoryToDay(event.target.value)
         }))
       ) : null,
-      React7.createElement("button", {
+      React10.createElement("button", {
         className: "dim-jh-btn dim-jh-ledgerExport",
         disabled: historyPhase !== "ready" || historyDays.length === 0,
         title: "导出当前日期范围的每日汇总 CSV",
         onClick: exportHistory
       }, "导出历史"),
-      React7.createElement(
+      React10.createElement(
         "span",
         {
           className: "dim-jh-ledgerPerf",
@@ -9346,21 +12989,21 @@ function TokenLedgerPanel({ rpcCall, onClose }) {
         history !== null && history.totals !== void 0 ? "总处理 " + formatTokenCount2(history.totals.totalTokens) + " · " + (history.totals.requests ?? 0) + " 次" : ""
       )
     );
-    const body = invalidHistoryRange ? React7.createElement("div", { className: "dim-jh-empty", key: "histRangeError", role: "alert" }, "起始日期不能晚于结束日期。") : historyPhase === "loading" ? React7.createElement("div", { className: "dim-jh-empty", key: "histLoading" }, "正在读取历史用量…") : historyPhase === "error" ? React7.createElement("div", { className: "dim-jh-empty", key: "histError" }, "历史用量读取失败（不影响明细）。") : historyDays.length === 0 ? React7.createElement(
+    const body = invalidHistoryRange ? React10.createElement("div", { className: "dim-jh-empty", key: "histRangeError", role: "alert" }, "起始日期不能晚于结束日期。") : historyPhase === "loading" ? React10.createElement("div", { className: "dim-jh-empty", key: "histLoading" }, "正在读取历史用量…") : historyPhase === "error" ? React10.createElement("div", { className: "dim-jh-empty", key: "histError" }, "历史用量读取失败（不影响明细）。") : historyDays.length === 0 ? React10.createElement(
       "div",
       { className: "dim-jh-empty", key: "histEmpty" },
       "还没有历史用量。请求完成后会立即按 UTC+8 日期累计，历史最多保留 90 天。"
-    ) : React7.createElement(
-      React7.Fragment,
+    ) : React10.createElement(
+      React10.Fragment,
       { key: "histBody" },
       // GitHub 风格用量格：固定四行，按日期顺序排列，点击可展开当日详情。
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-ledgerHeatmapWrap" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-ledgerHeatmap", role: "group", "aria-label": "每日 Token 用量热力图" },
-          heatmapCells.map((cell) => React7.createElement("button", {
+          heatmapCells.map((cell) => React10.createElement("button", {
             key: cell.day,
             className: "dim-jh-ledgerHeatmapCell",
             type: "button",
@@ -9381,29 +13024,29 @@ ${tokenSummaryTooltip(historyDays.find((day) => day.day === cell.day)?.totals)}
           }))
         )
       ),
-      selectedHistoryDay ? React7.createElement(
+      selectedHistoryDay ? React10.createElement(
         "div",
         { className: "dim-jh-ledgerDayPeek" },
-        React7.createElement("strong", null, selectedHistoryDay.day),
-        React7.createElement("span", null, "总处理 " + formatTokenCount2(selectedHistoryDay.totals?.totalTokens)),
-        React7.createElement("span", null, (selectedHistoryDay.totals?.requests ?? 0) + " 次请求"),
-        React7.createElement("span", { title: tokenSummaryTooltip(selectedHistoryDay.totals) }, "悬停查看 Token 拆分"),
-        React7.createElement("button", {
+        React10.createElement("strong", null, selectedHistoryDay.day),
+        React10.createElement("span", null, "总处理 " + formatTokenCount2(selectedHistoryDay.totals?.totalTokens)),
+        React10.createElement("span", null, (selectedHistoryDay.totals?.requests ?? 0) + " 次请求"),
+        React10.createElement("span", { title: tokenSummaryTooltip(selectedHistoryDay.totals) }, "悬停查看 Token 拆分"),
+        React10.createElement("button", {
           className: "dim-jh-btn dim-jh-ledgerDeleteQuick",
           onClick: () => setExpandedDay(selectedHistoryDay.day),
           title: "展开当日详情与删除入口"
         }, "查看 / 删除")
-      ) : React7.createElement(
+      ) : React10.createElement(
         "div",
         { className: "dim-jh-ledgerChartHint" },
         "悬停查看当日用量，点击日期展开详情"
       ),
       ...expandedDay !== null ? historyDays.filter((d) => d?.day === expandedDay).map((dayRow) => renderDayTree(dayRow)) : []
     );
-    return React7.createElement(
+    return React10.createElement(
       "div",
       { className: "dim-jh-ledgerSection", key: "history" },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-ledgerSectionTitle" },
         historyTitle(historyRange)
@@ -9412,20 +13055,20 @@ ${tokenSummaryTooltip(historyDays.find((day) => day.day === cell.day)?.totals)}
       body
     );
   };
-  const renderDayTree = (dayRow) => React7.createElement(
+  const renderDayTree = (dayRow) => React10.createElement(
     "div",
     { key: "day-" + dayRow.day, className: "dim-jh-ledgerCard" },
-    React7.createElement(
+    React10.createElement(
       "div",
       { className: "dim-jh-ledgerCardHead" },
-      React7.createElement("strong", null, dayRow.day + " · " + (dayRow.totals?.requests ?? 0) + " 次请求"),
+      React10.createElement("strong", null, dayRow.day + " · " + (dayRow.totals?.requests ?? 0) + " 次请求"),
       perfCell(dayRow.totals),
-      React7.createElement(
+      React10.createElement(
         "span",
         { className: "dim-jh-ledgerCardSum", title: tokenSummaryTooltip(dayRow.totals) },
         tokenSummaryText(dayRow.totals)
       ),
-      React7.createElement("button", {
+      React10.createElement("button", {
         className: "dim-jh-btn",
         "data-kind": "danger",
         disabled: deletingHistoryDay === dayRow.day,
@@ -9435,65 +13078,98 @@ ${tokenSummaryTooltip(historyDays.find((day) => day.day === cell.day)?.totals)}
         }
       }, deletingHistoryDay === dayRow.day ? "删除中…" : "删除此日")
     ),
-    historyDeleteError ? React7.createElement("div", { className: "dim-jh-empty", role: "alert" }, historyDeleteError) : null,
-    dayRow.channels.map((channelRow) => React7.createElement(
+    historyDeleteError ? React10.createElement("div", { className: "dim-jh-empty", role: "alert" }, historyDeleteError) : null,
+    dayRow.channels.map((channelRow) => React10.createElement(
       "div",
       { key: channelRow.channel, className: "dim-jh-ledgerProvider" },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-ledgerProviderHead" },
-        React7.createElement("span", { className: "dim-jh-ledgerProviderName" }, channelLabel(channelRow.channel)),
+        React10.createElement("span", { className: "dim-jh-ledgerProviderName" }, channelLabel(channelRow.channel)),
         perfCell(channelRow.totals),
-        React7.createElement(
+        React10.createElement(
           "span",
           { className: "dim-jh-ledgerProviderSum", title: tokenSummaryTooltip(channelRow.totals) },
           tokenSummaryText(channelRow.totals)
         )
       ),
-      channelRow.providers.map((providerRow) => React7.createElement(
+      // ⚠️⚠️ provider 行**必须**用 `dim-jh-ledgerProvider`：这里原先写的是
+      //    `dim-jh-ledgerAccount`，于是 `buddy` / `qodercn` 这些**供应商**被套上了
+      //    账号行的色块样式，界面上看起来「provider 变成了账号」（用户 2026-11-11 报障）。
+      //    实时汇总卡那边一直是对的，只有历史日树写错了 —— 两处各写一份类名正是
+      //    这次分叉的来源，改样式时**两边一起核对**。
+      channelRow.providers.map((providerRow) => React10.createElement(
         "div",
         {
           key: providerRow.provider,
-          className: "dim-jh-ledgerAccount"
+          className: "dim-jh-ledgerProvider"
         },
-        React7.createElement(
+        React10.createElement(
           "div",
-          { className: "dim-jh-ledgerAccountHead" },
-          React7.createElement("span", { className: "dim-jh-ledgerAccountName" }, providerRow.provider),
+          { className: "dim-jh-ledgerProviderHead" },
+          React10.createElement("span", { className: "dim-jh-ledgerProviderName" }, providerRow.provider),
           perfCell(providerRow.totals),
-          React7.createElement(
+          React10.createElement(
             "span",
-            { className: "dim-jh-ledgerAccountSum", title: tokenSummaryTooltip(providerRow.totals) },
+            { className: "dim-jh-ledgerProviderSum", title: tokenSummaryTooltip(providerRow.totals) },
             tokenSummaryText(providerRow.totals)
           )
         ),
-        (providerRow.accounts ?? []).length > 1 ? providerRow.accounts.map((accountRow) => React7.createElement(
-          "div",
-          {
-            key: providerRow.provider + "#" + accountRow.accountId,
-            className: "dim-jh-ledgerAccount",
-            style: { padding: "0 0 0 8px" }
-          },
-          React7.createElement(
-            "div",
-            { className: "dim-jh-ledgerAccountHead" },
-            React7.createElement(
-              "span",
-              { className: "dim-jh-ledgerAccountName" },
-              accountLabel(accountRow.accountId)
-            ),
-            React7.createElement(
-              "span",
-              { className: "dim-jh-ledgerAccountSum", title: tokenSummaryTooltip(accountRow.totals) },
-              tokenSummaryText(accountRow.totals)
-            )
-          ),
-          accountRow.models.map((modelRow) => renderModelRow(modelRow, accountRow.accountId + "#" + modelRow.model))
-        )) : (providerRow.accounts ?? []).flatMap((accountRow) => accountRow.models.map((modelRow) => renderModelRow(modelRow, providerRow.provider + "#" + modelRow.model)))
+        // ⚠️ 与实时汇总卡**同一条判据**：账号层一律渲染（单账号也分层），0 个账号
+        //    给空数组。历史日树原先还是「>1 才分层」，与改后的实时卡分叉 —— 同一天
+        //    的数据在两处显示不同的层级，用户会以为其中一份算错了。
+        // ⚠️ 也**不再**按账号数缩进/挂 `data-single`：样式统一，层级靠账号行色块表达
+        //    （用户 2026-11-11 决策「单账号与多账号完全一样」）。历史树原先那条
+        //    内联 `padding` 会把同一套色块挤歪，故一并删掉。
+        // ⚠️⚠️ 账号行**必须复用 `renderAccountRow`**，不许在这里再写一份：
+        //    单模型合并（账号 → 模型）的判据只有一处实现才可能两处同时正确。
+        //    历史日树曾经因为「各写一份」漏掉过 `>1 → >0` 与 provider 类名两次修正。
+        (providerRow.accounts ?? []).length > 0 ? (providerRow.accounts ?? []).map((accountRow) => renderAccountRow(accountRow, "")) : []
       ))
     ))
   );
-  return React7.createElement(
+  if (chrome === "pane") {
+    return React10.createElement(
+      "div",
+      { className: "dim-jh-ledgerPane", "data-chrome": "pane" },
+      React10.createElement(
+        "div",
+        { className: "dim-jh-modalHead" },
+        React10.createElement(
+          "div",
+          { className: "dim-jh-modalTitle" },
+          React10.createElement("strong", null, "Token 用量"),
+          React10.createElement("span", { className: "dim-jh-modalSubtitle" }, ledgerSubtitle())
+        ),
+        React10.createElement(
+          "div",
+          { className: "dim-jh-modelPanelActions" },
+          React10.createElement("button", {
+            className: "dim-jh-btn",
+            disabled: phase === "loading",
+            title: "重新读取本机 Token 账本。",
+            onClick: () => void load()
+          }, phase === "loading" ? "读取中…" : "刷新")
+        )
+      ),
+      React10.createElement(
+        "p",
+        {
+          className: "dim-jh-modalHint",
+          title: "总处理量 = 输入 + 输出；缓存写入不重复计入。输出速率的均值对离群样本敏感；P50/P90 是完整分布估算。速率要求解码时长至少 100ms。统计（上方汇总）累计进程启动至今的全部请求、无上限，重启清空；下方明细列表只保留最近 500 笔；按日累计写入 token-ledger.json。"
+        },
+        "按渠道、供应商、账号和模型统计用量。悬停数字查看 Token 拆分与性能口径；逐笔明细重启后清空，按日历史会保留。"
+      ),
+      React10.createElement(
+        "div",
+        { className: "dim-jh-ledgerPaneBody" },
+        renderHistory(),
+        renderSummary(),
+        renderEntries()
+      )
+    );
+  }
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
@@ -9501,7 +13177,7 @@ ${tokenSummaryTooltip(historyDays.find((day) => day.day === cell.day)?.totals)}
         if (event.target === event.currentTarget) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         role: "dialog",
@@ -9509,40 +13185,40 @@ ${tokenSummaryTooltip(historyDays.find((day) => day.day === cell.day)?.totals)}
         "aria-label": "Token 用量",
         className: "dim-jh-modal dim-jh-modal--ledger"
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalTitle" },
-          React7.createElement("strong", null, "Token 用量"),
-          React7.createElement("span", { className: "dim-jh-modalSubtitle" }, ledgerSubtitle())
+          React10.createElement("strong", null, "Token 用量"),
+          React10.createElement("span", { className: "dim-jh-modalSubtitle" }, ledgerSubtitle())
         ),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modelPanelActions" },
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             disabled: phase === "loading",
             title: "重新读取本机 Token 账本。",
             onClick: () => void load()
           }, phase === "loading" ? "读取中…" : "刷新"),
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             "data-kind": "primary",
             onClick: onClose
           }, "完成")
         )
       ),
-      React7.createElement(
+      React10.createElement(
         "p",
         {
           className: "dim-jh-modalHint",
-          title: "总处理量 = 输入 + 输出；缓存写入不重复计入。输出速率的均值对离群样本敏感；P50/P90 是完整分布估算。速率要求解码时长至少 100ms。明细最多保留最近 500 笔，重启清空；按日累计写入 token-ledger.json。"
+          title: "总处理量 = 输入 + 输出；缓存写入不重复计入。输出速率的均值对离群样本敏感；P50/P90 是完整分布估算。速率要求解码时长至少 100ms。统计（上方汇总）累计进程启动至今的全部请求、无上限，重启清空；下方明细列表只保留最近 500 笔；按日累计写入 token-ledger.json。"
         },
         "按渠道、供应商、账号和模型统计用量。悬停数字查看 Token 拆分与性能口径；逐笔明细重启后清空，按日历史会保留。"
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
         renderHistory(),
@@ -9570,6 +13246,179 @@ function accioResetSeconds(packages, now) {
   const at = typeof now === "number" && Number.isFinite(now) ? now : Date.now();
   return Math.max(0, Math.round((end - at) / 1e3));
 }
+function QoderTrafficGuardToggle({ provider, rpcCall }) {
+  const [enabled2, setEnabled] = React10.useState(null);
+  const [busy, setBusy] = React10.useState(false);
+  const [error, setError] = React10.useState("");
+  const [loadAttempt, setLoadAttempt] = React10.useState(0);
+  const saving = React10.useRef(false);
+  React10.useEffect(() => {
+    let cancelled = false;
+    setError("");
+    (async () => {
+      try {
+        const value = await rpcCall("qoderTrafficGuard.getEnabled", { provider });
+        if (typeof value?.enabled !== "boolean") throw new Error("服务端未返回设置状态");
+        if (!cancelled) setEnabled(value.enabled);
+      } catch (caught) {
+        if (!cancelled) setError("读取单账号限流失败：" + (caught?.message || "未知错误"));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [provider, rpcCall, loadAttempt]);
+  const update = async (nextEnabled) => {
+    if (enabled2 === null || saving.current) return;
+    saving.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const value = await rpcCall("qoderTrafficGuard.setEnabled", { provider, enabled: nextEnabled });
+      if (typeof value?.enabled !== "boolean") throw new Error("服务端未返回设置状态");
+      setEnabled(value.enabled);
+    } catch (caught) {
+      setError("保存单账号限流失败：" + (caught?.message || "未知错误"));
+    } finally {
+      saving.current = false;
+      setBusy(false);
+    }
+  };
+  return React10.createElement(
+    React10.Fragment,
+    null,
+    React10.createElement(
+      "label",
+      {
+        className: "dim-jh-nativeSearch",
+        title: "每个账号同时处理 1 条聊天请求，发出请求的间隔至少 400 毫秒。"
+      },
+      React10.createElement("input", {
+        className: "dim-jh-switch",
+        type: "checkbox",
+        role: "switch",
+        checked: enabled2 === true,
+        disabled: busy || enabled2 === null,
+        onChange: (event) => void update(event.target.checked)
+      }),
+      React10.createElement("span", null, "单账号限流")
+    ),
+    error ? React10.createElement("span", { className: "dim-jh-settingsInlineFail", role: "alert" }, error) : null,
+    enabled2 === null && error ? React10.createElement("button", {
+      type: "button",
+      className: "dim-jh-btn",
+      onClick: () => setLoadAttempt((attempt) => attempt + 1)
+    }, "重试读取") : null
+  );
+}
+function ModelscopeAutoCheckinToggle({ rpcCall }) {
+  const [enabled2, setEnabled] = React10.useState(null);
+  const [busy, setBusy] = React10.useState(false);
+  const [error, setError] = React10.useState("");
+  const saveInFlight = React10.useRef(false);
+  React10.useEffect(() => {
+    let active = true;
+    rpcCall("modelscope.autoCheckin", {}).then((value) => {
+      if (typeof value?.enabled !== "boolean") throw new Error("服务端未返回开关状态");
+      if (active) setEnabled(value.enabled);
+    }).catch((cause) => {
+      if (active) setError(cause?.message || "读取魔搭自动签到设置失败");
+    });
+    return () => {
+      active = false;
+    };
+  }, [rpcCall]);
+  const save = async (nextEnabled) => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const value = await rpcCall("modelscope.autoCheckin", { enabled: nextEnabled });
+      if (typeof value?.enabled !== "boolean") throw new Error("服务端未返回开关状态");
+      setEnabled(value.enabled);
+    } catch (cause) {
+      setError(cause?.message || "保存魔搭自动签到设置失败");
+    } finally {
+      saveInFlight.current = false;
+      setBusy(false);
+    }
+  };
+  return React10.createElement(
+    React10.Fragment,
+    null,
+    React10.createElement(
+      "label",
+      {
+        className: "dim-jh-nativeSearch",
+        title: "跟随全局签到时间。⚠️ 开启后本插件会代替你登录魔搭网页来触发每日发放（账号风险由平台判定）。关闭后仍可手动领取魔粒。"
+      },
+      React10.createElement("input", {
+        type: "checkbox",
+        role: "switch",
+        checked: enabled2 === true,
+        disabled: enabled2 === null || busy,
+        onChange: (event) => void save(event.target.checked)
+      }),
+      "魔搭自动签到"
+    ),
+    error ? React10.createElement("span", { role: "alert" }, error) : null
+  );
+}
+function ZcodeAutoCheckinToggle({ rpcCall }) {
+  const [enabled2, setEnabled] = React10.useState(null);
+  const [busy, setBusy] = React10.useState(false);
+  const [error, setError] = React10.useState("");
+  const saveInFlight = React10.useRef(false);
+  React10.useEffect(() => {
+    let active = true;
+    rpcCall("zcode.autoCheckin", {}).then((value) => {
+      if (typeof value?.enabled !== "boolean") throw new Error("服务端未返回开关状态");
+      if (active) setEnabled(value.enabled);
+    }).catch((cause) => {
+      if (active) setError(cause?.message || "读取 ZCode 自动签到设置失败");
+    });
+    return () => {
+      active = false;
+    };
+  }, [rpcCall]);
+  const save = async (nextEnabled) => {
+    if (saveInFlight.current) return;
+    saveInFlight.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const value = await rpcCall("zcode.autoCheckin", { enabled: nextEnabled });
+      if (typeof value?.enabled !== "boolean") throw new Error("服务端未返回开关状态");
+      setEnabled(value.enabled);
+    } catch (cause) {
+      setError(cause?.message || "保存 ZCode 自动签到设置失败");
+    } finally {
+      saveInFlight.current = false;
+      setBusy(false);
+    }
+  };
+  return React10.createElement(
+    React10.Fragment,
+    null,
+    React10.createElement(
+      "label",
+      {
+        className: "dim-jh-nativeSearch",
+        title: "默认关闭。打开后 ZCode 跟随全局签到时间自动领取。⚠️ 领取会在本机拉起浏览器完成阿里云验证，该验证按设备限流（同设备每小时 150 次）；一个时段失败后不再重试，下个时段再来。关闭时仍可手动点「一键领取积分」。"
+      },
+      React10.createElement("input", {
+        type: "checkbox",
+        role: "switch",
+        checked: enabled2 === true,
+        disabled: enabled2 === null || busy,
+        onChange: (event) => void save(event.target.checked)
+      }),
+      "ZCode 自动签到"
+    ),
+    error ? React10.createElement("span", { role: "alert" }, error) : null
+  );
+}
 function ProviderPanel({
   provider,
   rpcCall,
@@ -9580,54 +13429,60 @@ function ProviderPanel({
   const switchState = providerSwitchState(providerStatuses?.[provider]);
   const switchBusy = providerBusy?.has?.(provider) === true;
   const providerLabel2 = PROVIDERS.find((p) => p.id === provider)?.label || provider;
-  const [accounts, setAccounts] = React7.useState([]);
-  const [phase, setPhase] = React7.useState("loading");
-  const [error, setError] = React7.useState(null);
-  const [creating, setCreating] = React7.useState(false);
-  const [compensation, setCompensation] = React7.useState(null);
-  const compensationClaimRef = React7.useRef(false);
-  const [zcodeProvider, setZcodeProvider] = React7.useState("bigmodel");
-  const [accioRegion, setAccioRegion] = React7.useState("cn");
-  const [astudioLoginMethod, setAstudioLoginMethod] = React7.useState("local");
-  const [autoclawMode, setAutoclawMode] = React7.useState(
+  const [accounts, setAccounts] = React10.useState([]);
+  const [phase, setPhase] = React10.useState("loading");
+  const [error, setError] = React10.useState(null);
+  const [creating, setCreating] = React10.useState(false);
+  const [compensation, setCompensation] = React10.useState(null);
+  const compensationClaimRef = React10.useRef(false);
+  const [zcodeProvider, setZcodeProvider] = React10.useState("bigmodel");
+  const [accioRegion, setAccioRegion] = React10.useState("cn");
+  const [astudioLoginMethod, setAstudioLoginMethod] = React10.useState("local");
+  const [autoclawMode, setAutoclawMode] = React10.useState(
     provider === "autoclawintl" ? "zai" : "local"
   );
-  const [pendingLogin, setPendingLogin] = React7.useState(void 0);
-  const [probeBusy, setProbeBusy] = React7.useState(null);
-  const [probeNotice, setProbeNoticeState] = React7.useState(null);
-  const setProbeNotice = React7.useCallback((next) => {
+  const [pendingLogin, setPendingLogin] = React10.useState(void 0);
+  const [probeBusy, setProbeBusy] = React10.useState(null);
+  const [probeNotice, setProbeNoticeState] = React10.useState(null);
+  const setProbeNotice = React10.useCallback((next) => {
     setProbeNoticeState(normalizeProbeNotice(next));
   }, []);
-  const [credits, setCredits] = React7.useState({});
-  const [creditsLoading, setCreditsLoading] = React7.useState(false);
-  const [expiryWindowDays, setExpiryWindowDays] = React7.useState(null);
-  const [loginUrlForManual, setLoginUrlForManual] = React7.useState(null);
-  const [loginLinkCopied, setLoginLinkCopied] = React7.useState(null);
-  const [proxyModal, setProxyModal] = React7.useState(null);
-  const [keyEditModal, setKeyEditModal] = React7.useState(null);
-  const [qiniuKeyEditModal, setQiniuKeyEditModal] = React7.useState(null);
-  const [keyModal, setKeyModal] = React7.useState(null);
-  const keyModalRef = React7.useRef(null);
+  const [credits, setCredits] = React10.useState({});
+  const creditLoadRef = React10.useRef(null);
+  const [creditsLoading, setCreditsLoading] = React10.useState(false);
+  const [expiryWindowDays, setExpiryWindowDays] = React10.useState(null);
+  const [imminentWindowDays, setImminentWindowDays] = React10.useState(null);
+  const [loginUrlForManual, setLoginUrlForManual] = React10.useState(null);
+  const [loginLinkCopied, setLoginLinkCopied] = React10.useState(null);
+  const [loginManualMode, setLoginManualMode] = React10.useState(false);
+  const [manualCallback, setManualCallback] = React10.useState(null);
+  const manualSubmitInFlightRef = React10.useRef(false);
+  const [proxyModal, setProxyModal] = React10.useState(null);
+  const [webSessionModal, setWebSessionModal] = React10.useState(null);
+  const [keyEditModal, setKeyEditModal] = React10.useState(null);
+  const [qiniuKeyEditModal, setQiniuKeyEditModal] = React10.useState(null);
+  const [keyModal, setKeyModal] = React10.useState(null);
+  const keyModalRef = React10.useRef(null);
   keyModalRef.current = keyModal;
-  const keyInputRef = React7.useRef(null);
-  const keyEditInputRef = React7.useRef(null);
-  const qiniuKeyEditInputRef = React7.useRef(null);
-  const [credentialModal, setCredentialModal] = React7.useState(null);
-  const magicrewInFlightRef = React7.useRef(false);
-  const baizhiSessionRef = React7.useRef(/* @__PURE__ */ new Set());
-  const [draggingId, setDraggingId] = React7.useState(null);
-  const [dropTargetId, setDropTargetId] = React7.useState(null);
-  const [dropPosition, setDropPosition] = React7.useState("before");
-  const [reordering, setReordering] = React7.useState(false);
-  const [reorderError, setReorderError] = React7.useState(null);
-  const [strictManualOrder, setStrictManualOrder] = React7.useState(false);
-  const [strictOrderBusy, setStrictOrderBusy] = React7.useState(false);
-  const [strictOrderReadFailed, setStrictOrderReadFailed] = React7.useState(false);
-  const mounted = React7.useRef(true);
-  const accountsRef = React7.useRef([]);
-  const pollRef = React7.useRef(0);
-  const claimInFlightRef = React7.useRef(false);
-  const loadAccounts = React7.useCallback(async () => {
+  const keyInputRef = React10.useRef(null);
+  const keyEditInputRef = React10.useRef(null);
+  const qiniuKeyEditInputRef = React10.useRef(null);
+  const [credentialModal, setCredentialModal] = React10.useState(null);
+  const magicrewInFlightRef = React10.useRef(false);
+  const baizhiSessionRef = React10.useRef(/* @__PURE__ */ new Set());
+  const [draggingId, setDraggingId] = React10.useState(null);
+  const [dropTargetId, setDropTargetId] = React10.useState(null);
+  const [dropPosition, setDropPosition] = React10.useState("before");
+  const [reordering, setReordering] = React10.useState(false);
+  const [reorderError, setReorderError] = React10.useState(null);
+  const [strictManualOrder, setStrictManualOrder] = React10.useState(false);
+  const [strictOrderBusy, setStrictOrderBusy] = React10.useState(false);
+  const [strictOrderReadFailed, setStrictOrderReadFailed] = React10.useState(false);
+  const mounted = React10.useRef(true);
+  const accountsRef = React10.useRef([]);
+  const pollRef = React10.useRef(0);
+  const claimInFlightRef = React10.useRef(false);
+  const loadAccounts = React10.useCallback(async () => {
     setPhase("loading");
     setError(null);
     try {
@@ -9643,7 +13498,7 @@ function ProviderPanel({
       setPhase("error");
     }
   }, [provider, rpcCall]);
-  const reloadAccountsQuietly = React7.useCallback(async () => {
+  const reloadAccountsQuietly = React10.useCallback(async () => {
     try {
       const res = await rpcCall("account.list", { provider });
       if (!mounted.current) return;
@@ -9656,7 +13511,8 @@ function ProviderPanel({
   }, [provider, rpcCall]);
   const canLoadCredits = supportsCreditBalance(provider);
   const canStrictOrder = supportsBalanceTier(provider);
-  const loadStrictManualOrder = React7.useCallback(async () => {
+  const showManualCallback = manualCallback !== null && PROVIDERS_WITH_LOOPBACK_CALLBACK.has(provider);
+  const loadStrictManualOrder = React10.useCallback(async () => {
     if (!canStrictOrder) return;
     try {
       const res = await rpcCall("strictManualOrder.getEnabled", { provider });
@@ -9668,7 +13524,7 @@ function ProviderPanel({
       if (mounted.current) setStrictOrderReadFailed(true);
     }
   }, [rpcCall, provider, canStrictOrder]);
-  const toggleStrictManualOrder = React7.useCallback(async (nextEnabled) => {
+  const toggleStrictManualOrder = React10.useCallback(async (nextEnabled) => {
     setStrictOrderBusy(true);
     try {
       const res = await rpcCall("strictManualOrder.setEnabled", { provider, enabled: nextEnabled });
@@ -9691,11 +13547,11 @@ function ProviderPanel({
   const autoclawZaiAvailable = provider === "autoclawintl";
   const supportsCredits = supportsDailyCheckin(provider);
   const supportsGrowthTasks = GROWTH_TASK_PROVIDERS.has(provider);
-  const supportsSessionBalance = provider === "zcode";
-  const [sessionBalanceOn, setSessionBalanceOn] = React7.useState(true);
-  const [sessionBalanceBusy, setSessionBalanceBusy] = React7.useState(false);
-  const [sessionBalanceFailed, setSessionBalanceFailed] = React7.useState(false);
-  const loadSessionBalanceStatus = React7.useCallback(async () => {
+  const supportsSessionBalance = provider === "zcode" || provider === "marvis";
+  const [sessionBalanceOn, setSessionBalanceOn] = React10.useState(true);
+  const [sessionBalanceBusy, setSessionBalanceBusy] = React10.useState(false);
+  const [sessionBalanceFailed, setSessionBalanceFailed] = React10.useState(false);
+  const loadSessionBalanceStatus = React10.useCallback(async () => {
     if (!supportsSessionBalance) return;
     try {
       const res = await rpcCall("sessionBalance.getEnabled", {});
@@ -9709,7 +13565,7 @@ function ProviderPanel({
       setSessionBalanceFailed(true);
     }
   }, [rpcCall, supportsSessionBalance]);
-  const toggleSessionBalance = React7.useCallback(async (nextEnabled) => {
+  const toggleSessionBalance = React10.useCallback(async (nextEnabled) => {
     setSessionBalanceBusy(true);
     try {
       const res = await rpcCall("sessionBalance.setEnabled", { enabled: nextEnabled });
@@ -9724,26 +13580,39 @@ function ProviderPanel({
       if (mounted.current) setSessionBalanceBusy(false);
     }
   }, [rpcCall, loadSessionBalanceStatus]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     void loadSessionBalanceStatus();
   }, [loadSessionBalanceStatus]);
   const canShowSubscriptionQuota = supportsSubscriptionQuota(provider);
-  const loadCredits = React7.useCallback(async (force = false) => {
+  const loadCredits = React10.useCallback(async (force = false, quiet = false) => {
     if (!canLoadCredits) return;
-    setCreditsLoading(true);
+    if (quiet && creditLoadRef.current !== null) return;
+    const request = {};
+    creditLoadRef.current = request;
+    if (!quiet) setCreditsLoading(true);
     try {
       const res = await rpcCall("credits.balances", force ? { provider, force: true } : { provider });
-      if (!mounted.current) return;
+      if (!mounted.current || creditLoadRef.current !== request) return;
       const next = {};
       for (const item of res.accounts || []) {
         next[item.accountId] = { balance: item.balance, error: item.error, extra: item.extra };
       }
       setCredits(next);
       setExpiryWindowDays(res?.windowDays ?? null);
-      await reloadAccountsQuietly();
+      setImminentWindowDays(res?.imminentDays ?? null);
+      if (!quiet) await reloadAccountsQuietly();
+      if (res?.fromCache === true && mounted.current) {
+        const providerAtSchedule = provider;
+        setTimeout(() => {
+          if (!mounted.current) return;
+          if (providerAtSchedule !== provider) return;
+          void loadCredits(true, true);
+        }, 2500);
+      }
     } catch (caught) {
       console.error("[jet-hub] load credits failed:", caught);
-      if (!mounted.current) return;
+      if (!mounted.current || creditLoadRef.current !== request) return;
+      if (quiet) return;
       const snapshot = accountsRef.current;
       setCredits((prev) => {
         const next = { ...prev };
@@ -9753,10 +13622,13 @@ function ProviderPanel({
         return next;
       });
     } finally {
-      if (mounted.current) setCreditsLoading(false);
+      if (creditLoadRef.current === request) {
+        creditLoadRef.current = null;
+        if (mounted.current) setCreditsLoading(false);
+      }
     }
   }, [provider, rpcCall, canLoadCredits, reloadAccountsQuietly]);
-  const loadCompensation = React7.useCallback(async () => {
+  const loadCompensation = React10.useCallback(async () => {
     if (provider !== "buddy") return;
     try {
       const list = await rpcCall("account.list", { provider });
@@ -9811,7 +13683,7 @@ function ProviderPanel({
       if (mounted.current) setCompensation((prev) => prev === null ? prev : { ...prev, busy: false });
     }
   };
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     mounted.current = true;
     void loadAccounts();
     void loadCompensation();
@@ -9819,6 +13691,7 @@ function ProviderPanel({
     if (canLoadCredits) void loadCredits();
     return () => {
       mounted.current = false;
+      creditLoadRef.current = null;
       if (pollRef.current !== 0) {
         clearInterval(pollRef.current);
         pollRef.current = 0;
@@ -9827,18 +13700,41 @@ function ProviderPanel({
       compensationClaimRef.current = false;
     };
   }, [provider]);
-  const [claiming, setClaiming] = React7.useState(false);
-  const [claimNotice, setClaimNotice] = React7.useState(null);
-  const [onboarding, setOnboarding] = React7.useState(null);
-  const [onboardingLoading, setOnboardingLoading] = React7.useState(false);
-  const [onboardingNotice, setOnboardingNotice] = React7.useState(null);
+  React10.useEffect(() => {
+    if (provider !== "modelscope" || typeof document === "undefined") return;
+    const refresh = (force = false) => {
+      if (!document.hidden) void loadCredits(force, true);
+    };
+    const interval = setInterval(() => refresh(), 6e4);
+    const onVisibility = () => refresh();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [provider, loadCredits]);
+  const nextModelscopeExpiry = provider === "modelscope" ? Math.min(...Object.values(credits).map((item) => item.balance?.dailyGrantExpiresAt ?? Infinity)) : Infinity;
+  React10.useEffect(() => {
+    const delay3 = nextModelscopeExpiry - Date.now();
+    if (!Number.isFinite(delay3) || delay3 <= 0 || delay3 > 864e5) return;
+    const timeout = setTimeout(() => {
+      if (typeof document === "undefined" || !document.hidden) void loadCredits(true, true);
+    }, delay3 + 1e3);
+    return () => clearTimeout(timeout);
+  }, [nextModelscopeExpiry, loadCredits]);
+  const [claiming, setClaiming] = React10.useState(false);
+  const [claimNotice, setClaimNotice] = React10.useState(null);
+  const [onboarding, setOnboarding] = React10.useState(null);
+  const [onboardingLoading, setOnboardingLoading] = React10.useState(false);
+  const [onboardingNotice, setOnboardingNotice] = React10.useState(null);
   const canClaimOnboarding = supportsOnboardingTasks(provider);
   const canLockPermanent = supportsPermanentLock(provider);
+  const supportsExpiryWindow = usesExpiryWindow(provider);
   const lockCopy = permanentLockCopy(provider, expiryWindowDays);
-  const [permanentLocked, setPermanentLocked] = React7.useState(false);
-  const [lockBusy, setLockBusy] = React7.useState(false);
-  const [lockNotice, setLockNotice] = React7.useState(null);
-  React7.useEffect(() => {
+  const [permanentLocked, setPermanentLocked] = React10.useState(false);
+  const [lockBusy, setLockBusy] = React10.useState(false);
+  const [lockNotice, setLockNotice] = React10.useState(null);
+  React10.useEffect(() => {
     if (!canLockPermanent) return void 0;
     let alive = true;
     void (async () => {
@@ -9847,6 +13743,7 @@ function ProviderPanel({
         if (!alive) return;
         setPermanentLocked(res?.locked === true);
         setExpiryWindowDays(res?.windowDays ?? null);
+        setImminentWindowDays(res?.imminentDays ?? null);
       } catch (caught) {
         console.error("[jet-hub] load permanent lock failed:", caught);
       }
@@ -9855,7 +13752,7 @@ function ProviderPanel({
       alive = false;
     };
   }, [canLockPermanent, provider]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     if (provider !== "minimaxintl") return void 0;
     let alive = true;
     void (async () => {
@@ -9881,6 +13778,7 @@ function ProviderPanel({
       if (!mounted.current) return;
       setPermanentLocked(res?.locked === true);
       setExpiryWindowDays(res?.windowDays ?? null);
+      setImminentWindowDays(res?.imminentDays ?? null);
       setLockNotice({
         tone: "ok",
         text: next ? lockCopy.lockedNotice : lockCopy.unlockedNotice
@@ -9928,10 +13826,11 @@ function ProviderPanel({
       if (mounted.current) setOnboardingLoading(false);
     }
   };
-  const [showModels, setShowModels] = React7.useState(false);
-  const [showQuota, setShowQuota] = React7.useState(false);
-  const [minimaxXff, setMinimaxXff] = React7.useState("");
-  const [showMinimaxXff, setShowMinimaxXff] = React7.useState(false);
+  const [showModels, setShowModels] = React10.useState(false);
+  const [showQuota, setShowQuota] = React10.useState(false);
+  const [showWindowModal, setShowWindowModal] = React10.useState(false);
+  const [minimaxXff, setMinimaxXff] = React10.useState("");
+  const [showMinimaxXff, setShowMinimaxXff] = React10.useState(false);
   const claimCredits = async () => {
     if (!supportsCredits) return;
     if (claimInFlightRef.current) {
@@ -10478,6 +14377,32 @@ function ProviderPanel({
       setCredentialModal({ provider, error: "" });
       return;
     }
+    if (provider === "doubao") {
+      setCreating(true);
+      try {
+        const created = await rpcCall("account.create", { provider: "doubao", mode: "browser" });
+        const accountId2 = created && created.accountId ? created.accountId : "";
+        if (!accountId2) {
+          setProbeNotice({ tone: "err", text: "宿主未返回账号 id，请重试。", details: [] });
+          return;
+        }
+        setProbeNotice({
+          tone: "ok",
+          text: "浏览器窗口已打开，请用手机豆包 App 扫码登录（完成后自动读取登录态）。",
+          details: []
+        });
+        startLoginPoll({ accountId: accountId2, provider: "doubao" });
+      } catch (caught) {
+        setProbeNotice({
+          tone: "err",
+          text: caught && caught.message ? caught.message : "豆包登录启动失败",
+          details: []
+        });
+      } finally {
+        if (mounted.current) setCreating(false);
+      }
+      return;
+    }
     setCreating(true);
     let accountId = "";
     let loginUrl = "";
@@ -10493,6 +14418,7 @@ function ProviderPanel({
       console.log("[jet-hub] account.create ok, provider =", provider, ", accountId =", accountId);
       if (res.reused) {
         setLoginUrlForManual(null);
+        setLoginManualMode(false);
         await loadAccounts();
         setProbeNotice({ tone: "ok", text: "已复用本机已有的账号凭据，未新建账号。", details: [] });
         return;
@@ -10505,7 +14431,13 @@ function ProviderPanel({
       if (loginUrl) {
         let loginWindow = null;
         let skipClientOpen = false;
-        if (res.incognitoOpened === true) {
+        if (!loginAutoOpenEnabled()) {
+          const manualUrl = typeof res.forcedLoginUrl === "string" && res.forcedLoginUrl.length > 0 ? res.forcedLoginUrl : loginUrl;
+          setLoginUrlForManual(manualUrl);
+          setLoginManualMode(true);
+          setLoginLinkCopied(await copyToClipboard(manualUrl, { silent: true }));
+          skipClientOpen = true;
+        } else if (res.incognitoOpened === true) {
           console.log("[jet-hub] 宿主也以无痕窗口打开过授权页");
           const canConfirm = typeof window !== "undefined" && typeof window.confirm === "function";
           const confirmed = canConfirm ? window.confirm(
@@ -10543,6 +14475,9 @@ function ProviderPanel({
           }
         }
         const deadline = Date.now() + 3e5;
+        if (PROVIDERS_WITH_LOOPBACK_CALLBACK.has(provider) && accountId) {
+          setManualCallback({ accountId, value: "", error: "", busy: false });
+        }
         startLoginPoll({ accountId, provider, loginWindow });
       } else {
         setError("后端未返回登录地址（loginUrl 为空）。");
@@ -10554,6 +14489,29 @@ function ProviderPanel({
       setPhase("error");
     } finally {
       if (pollRef.current === 0) setCreating(false);
+    }
+  };
+  const submitManualCallback = async () => {
+    if (!manualCallback) return;
+    const { accountId, value, busy } = manualCallback;
+    if (busy) return;
+    if (manualSubmitInFlightRef.current) return;
+    if (typeof value !== "string" || value.trim().length === 0) {
+      setManualCallback((current) => current ? { ...current, error: "请先把回调链接粘贴进来（整条地址栏内容，含 code=… 或 secret=…）。" } : current);
+      return;
+    }
+    manualSubmitInFlightRef.current = true;
+    setManualCallback((current) => current ? { ...current, busy: true, error: "" } : current);
+    try {
+      if (provider === "codearts" || provider === "trae") {
+        await rpcCall("account.submitCallback", { accountId, callbackUrl: value });
+      } else {
+        await rpcCall("login.submitCallback", { url: value });
+      }
+    } catch (caught) {
+      setManualCallback((current) => current ? { ...current, busy: false, error: caught?.message || "回调链接提交失败（宿主未给出原因）。" } : current);
+    } finally {
+      manualSubmitInFlightRef.current = false;
     }
   };
   const startLoginPoll = ({ accountId, provider: provider2, loginWindow = null }) => {
@@ -10568,6 +14526,8 @@ function ProviderPanel({
       if (Date.now() > deadline) {
         if (loginWindow && !loginWindow.closed) loginWindow.close();
         setLoginUrlForManual(null);
+        setLoginManualMode(false);
+        setManualCallback(null);
         setError("登录超时或未完成（已等待 5 分钟）：可能是授权未完成、授权被拒，或账号条目已被删除。请重新点击「+ 新建账号」再试一次；若账号其实已经添加，可点「重新读取」查看。" + (pollErrorCount > 0 ? `（期间有 ${pollErrorCount} 次轮询请求本身失败，最后一次：${lastPollError}）` : ""));
         setPhase("error");
         stopPoll();
@@ -10579,6 +14539,8 @@ function ProviderPanel({
         if (pollRes?.success === false) {
           if (loginWindow && !loginWindow.closed) loginWindow.close();
           setLoginUrlForManual(null);
+          setLoginManualMode(false);
+          setManualCallback(null);
           setError(pollRes.error || "登录失败（宿主未给出原因），请重新点击「+ 新建账号」。");
           setPhase("error");
           stopPoll();
@@ -10587,6 +14549,8 @@ function ProviderPanel({
         if (!pollRes?.done) return;
         if (loginWindow && !loginWindow.closed) loginWindow.close();
         setLoginUrlForManual(null);
+        setLoginManualMode(false);
+        setManualCallback(null);
         await loadAccounts();
         stopPoll();
       } catch (caught) {
@@ -10595,11 +14559,11 @@ function ProviderPanel({
       }
     }, 1e3);
   };
-  const toggleAccount = async (accountId, enabled) => {
+  const toggleAccount = async (accountId, enabled2) => {
     try {
-      const isLastEnabled = !enabled && disablingLeavesNoEnabledAccount(accountsRef.current, accountId, provider);
-      const isFirstEnabled = enabled && !accountsRef.current.some((a) => a.provider === provider && a.id !== accountId && a.enabled !== false);
-      await rpcCall("account.update", { accountId, patch: { enabled } });
+      const isLastEnabled = !enabled2 && disablingLeavesNoEnabledAccount(accountsRef.current, accountId, provider);
+      const isFirstEnabled = enabled2 && !accountsRef.current.some((a) => a.provider === provider && a.id !== accountId && a.enabled !== false);
+      await rpcCall("account.update", { accountId, patch: { enabled: enabled2 } });
       await loadAccounts();
       if (isLastEnabled) {
         const closeModels = confirm(
@@ -10792,17 +14756,17 @@ function ProviderPanel({
       if (mounted.current) setProbeBusy(null);
     }
   };
-  const compensationCard = provider === "buddy" && shouldShowCompensation(compensation) ? React7.createElement(
+  const compensationCard = provider === "buddy" && shouldShowCompensation(compensation) ? React10.createElement(
     "div",
     {
       className: "dim-jh-probeNotice",
       "data-tone": compensation.error ? "warn" : compensation.total > 0 ? "ok" : "idle"
     },
-    React7.createElement("div", null, compensationHeadline(compensation)),
+    React10.createElement("div", null, compensationHeadline(compensation)),
     // 副文案可能为空串（已领完那条分支已不再印说明）⇒ 空时不挂空 div，
     // 否则 .dim-jh-hint 的 margin 会凭空多出一截间距。
-    compensationHint(compensation).length > 0 ? React7.createElement("div", { className: "dim-jh-hint" }, compensationHint(compensation)) : null,
-    compensation.total > 0 ? React7.createElement("button", {
+    compensationHint(compensation).length > 0 ? React10.createElement("div", { className: "dim-jh-hint" }, compensationHint(compensation)) : null,
+    compensation.total > 0 ? React10.createElement("button", {
       className: "dim-jh-btn",
       type: "button",
       disabled: compensation.busy === true,
@@ -10810,7 +14774,7 @@ function ProviderPanel({
       onClick: () => void claimCompensation()
     }, compensation.busy === true ? "领取中…" : "立即领取") : null
   ) : null;
-  return React7.createElement(
+  return React10.createElement(
     "section",
     {
       className: "dim-jh-accountSection",
@@ -10824,13 +14788,13 @@ function ProviderPanel({
     //    不同父级，CSS 无论如何排不到同一行（这是本次改动的关键，不是样式微调）。
     //    ⚠️ 提示为 null（账号 ≤ 1）时按钮组仍靠右：margin-left: auto 与
     //    justify-content: flex-end 两条都留着，任一条都能把它推到右边。
-    React7.createElement(
+    React10.createElement(
       "div",
       { className: "dim-jh-panelHead" },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-panelTitleRow" },
-        React7.createElement(
+        React10.createElement(
           "h2",
           { className: "dim-jh-panelTitle" },
           `${PROVIDERS.find((p) => p.id === provider)?.label || provider} 账号管理`
@@ -10878,7 +14842,7 @@ function ProviderPanel({
         //    ⚠️ 判据一律走 `./provider-toggle.js` 的 `providerSwitchState()` ——
         //    它同时给出 checked / disabled / reason 三件套，其中「已关闭优先于
         //    没有模型可关」那条顺序是 IKP8OF 死锁的修复，不能在这里重写一遍。
-        React7.createElement(
+        React10.createElement(
           "button",
           {
             className: "dim-jh-providerSwitch",
@@ -10904,7 +14868,7 @@ function ProviderPanel({
               void onToggleProvider?.(provider, !switchState.checked);
             }
           },
-          React7.createElement("span", { className: "dim-jh-providerSwitchThumb" })
+          React10.createElement("span", { className: "dim-jh-providerSwitchThumb" })
         )
       ),
       // ⚠️ 2026-10-26 用户要求「信息应该在按钮行上方行，而不是下方行」：
@@ -10918,84 +14882,151 @@ function ProviderPanel({
       //    又变回「挤在按钮旁边」的老毛病。
       //    ⚠️ 它们仍必须是 panelHead 的**直接**子节点：包一层容器会让
       //    `.dim-jh-panelHead > ...` 那组选择器全部失效。
-      probeNotice ? React7.createElement(
+      probeNotice ? React10.createElement(
         "div",
         {
           className: "dim-jh-probeNotice",
           "data-tone": probeNotice.tone,
           role: "status"
         },
-        React7.createElement("div", null, probeNotice.text),
+        React10.createElement("div", null, probeNotice.text),
         // ⚠️ 不能直接读 `probeNotice.details.length`：`probeNotice` 若被写成裸
         //    字符串（2026-10-22 整页白屏事故），`.details` 是 undefined ⇒ 抛
         //    TypeError ⇒ 整个 Jet Hub 设置页被 React 卸载。这里按「无明细」
         //    降级：宁可少一行明细，也不能让整页消失。
-        safeNoticeDetails(probeNotice.details).length > 0 ? React7.createElement(
+        safeNoticeDetails(probeNotice.details).length > 0 ? React10.createElement(
           "ul",
           { className: "dim-jh-probeDetails" },
-          safeNoticeDetails(probeNotice.details).map((d, i) => React7.createElement("li", { key: i }, d))
+          safeNoticeDetails(probeNotice.details).map((d, i) => React10.createElement("li", { key: i }, d))
         ) : null
       ) : null,
-      lockNotice ? React7.createElement("div", {
+      lockNotice ? React10.createElement("div", {
         className: "dim-jh-probeNotice",
         "data-tone": lockNotice.tone,
         role: lockNotice.tone === "error" ? "alert" : "status"
       }, lockNotice.text) : null,
-      claimNotice ? React7.createElement(
+      claimNotice ? React10.createElement(
         "div",
         {
           className: "dim-jh-probeNotice",
           "data-tone": claimNotice.tone,
           role: claimNotice.tone === "error" ? "alert" : "status"
         },
-        React7.createElement("div", null, claimNotice.text),
+        React10.createElement("div", null, claimNotice.text),
         // 逐账号原因列表。没有它时用户只看到「1 个失败」，无从判断是
         // 凭据问题、活动未开、还是解析 bug。
-        (claimNotice.details || []).length > 0 ? React7.createElement(
+        (claimNotice.details || []).length > 0 ? React10.createElement(
           "ul",
           { className: "dim-jh-probeDetails" },
-          claimNotice.details.map((d, i) => React7.createElement("li", { key: i }, d))
+          claimNotice.details.map((d, i) => React10.createElement("li", { key: i }, d))
         ) : null
       ) : null,
       // 新手任务结果（仅 Loomy，一次性领取）。
-      onboardingNotice ? React7.createElement(
+      onboardingNotice ? React10.createElement(
         "div",
         {
           className: "dim-jh-probeNotice",
           "data-tone": onboardingNotice.tone,
           role: onboardingNotice.tone === "error" ? "alert" : "status"
         },
-        React7.createElement("div", null, onboardingNotice.text),
-        (onboardingNotice.details || []).length > 0 ? React7.createElement(
+        React10.createElement("div", null, onboardingNotice.text),
+        (onboardingNotice.details || []).length > 0 ? React10.createElement(
           "ul",
           { className: "dim-jh-probeDetails" },
-          onboardingNotice.details.map((line, index) => React7.createElement("li", { key: index }, line))
+          onboardingNotice.details.map((line, index) => React10.createElement("li", { key: index }, line))
         ) : null
+      ) : null,
+      // **手动回调链接**输入框（`PROVIDERS_WITH_LOOPBACK_CALLBACK` 里的渠道）。
+      // 只用既有类名（dim-jh-probeNotice / dim-jh-input / dim-jh-loginLinkRow /
+      // dim-jh-btn），不新增选择器。role='alert' 只在有错误时给 ——
+      // 成功了就别让读屏器再念一遍。
+      showManualCallback ? React10.createElement(
+        "div",
+        {
+          className: "dim-jh-probeNotice",
+          "data-tone": manualCallback.error ? "warn" : "ok",
+          role: manualCallback.error ? "alert" : "status"
+        },
+        React10.createElement(
+          "div",
+          null,
+          "浏览器若停在「无法访问 127.0.0.1」或「授权完成但打不开页面」，把那一页地址栏里的整条回调链接复制到下面 —— 登录会在本机完成（手机登录尤其需要这一步）："
+        ),
+        React10.createElement("input", {
+          className: "dim-jh-input",
+          type: "text",
+          // ⚠⚠ **不许写死具体路径**（PR #8 审计 P3）：七家回环渠道的回调路径
+          //    各不相同 —— codearts `/oauth/callback`、gemini `/oauth-callback`、
+          //    accio / lobsterai `/auth/callback`、autoclaw(+intl)
+          //    `/auth/callback-zai`、trae `/authorize`。原先只给 trae 一家写了
+          //    专属提示，其余六家一律展示 `/oauth/callback?code=…`，
+          //    用户照抄格式手拼就会拼出错路径、拿到 404 且不知所云。
+          //    ⇒ 提示只说明「什么形状」，路径与参数由浏览器填好，原样粘就行。
+          placeholder: "http://127.0.0.1:端口/…（授权完成后浏览器地址栏里的完整地址，原样粘贴）",
+          value: manualCallback.value,
+          disabled: manualCallback.busy,
+          spellCheck: false,
+          autoComplete: "off",
+          onChange: (event) => {
+            const next = event?.target?.value ?? "";
+            setManualCallback((current) => current ? { ...current, value: next, error: "" } : current);
+          }
+        }),
+        React10.createElement(
+          "div",
+          { className: "dim-jh-loginLinkRow" },
+          // type='button' 必须有：按钮若落在表单里，默认 submit 会连带提交表单。
+          React10.createElement("button", {
+            className: "dim-jh-btn",
+            type: "button",
+            "aria-disabled": String(manualCallback.busy),
+            onClick: () => {
+              if (manualCallback.busy) return;
+              void submitManualCallback();
+            }
+          }, manualCallback.busy ? "提交中…" : "提交回调链接"),
+          React10.createElement("button", {
+            className: "dim-jh-btn",
+            type: "button",
+            title: "取消后可以重新点「+ 新建账号」",
+            onClick: () => setManualCallback(null)
+          }, "取消")
+        ),
+        manualCallback.error ? React10.createElement("div", { className: "dim-jh-probeDetails" }, manualCallback.error) : null
       ) : null,
       // 弹窗被拦截：给出可点击的登录链接 + 复制按钮。不劫持当前页面（见 createAccount 的说明）。
       // 链接 300+ 字符，用户此刻唯一动作就是复制到别处；手工框选漏一个字符会得到「授权失败」假象。
-      loginUrlForManual ? React7.createElement(
+      loginUrlForManual ? React10.createElement(
         "div",
         {
           className: "dim-jh-probeNotice",
           "data-tone": "warn",
           role: "alert"
         },
-        React7.createElement("div", null, "登录窗口被浏览器拦截，请手动打开下方链接完成登录："),
-        React7.createElement(
+        React10.createElement(
+          "div",
+          null,
+          loginManualMode ? loginLinkCopied === false ? "已关闭「自动打开浏览器」：自动复制被浏览器拦截，请手动选中下方链接复制。" : "已关闭「自动打开浏览器」：授权链接已复制到剪贴板，请粘贴到浏览器打开并完成登录。" : "登录窗口被浏览器拦截，请手动打开下方链接完成登录："
+        ),
+        loginManualMode && (provider === "codearts" || provider === "officeace") ? React10.createElement(
+          "div",
+          null,
+          "⚠️ 该渠道建议在浏览器的无痕 / 隐私窗口中打开，否则可能复用上一个账号的登录态。"
+        ) : null,
+        React10.createElement(
           "div",
           {
             className: "dim-jh-loginLinkRow",
             "data-copy-state": loginLinkCopied === false ? "failed" : "idle"
           },
-          React7.createElement("a", {
+          React10.createElement("a", {
             className: "dim-jh-loginLink",
             href: loginUrlForManual,
             target: "_blank",
             rel: "noopener noreferrer"
           }, loginUrlForManual),
           // type='button' 必须有：按钮若落在表单里，默认 submit 会连带提交表单。
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             type: "button",
             title: loginLinkCopied === false ? "复制失败：请手动选中链接后按 Ctrl+C" : "复制授权链接",
@@ -11012,7 +15043,7 @@ function ProviderPanel({
       // ⚠️ 文案必须**单行显示**（用户同日「文案改为一行显示」）：样式侧用
       //    white-space: nowrap 钉死，故窄窗口下会被省略号截断 ⇒ 必须把
       //    完整文案挂到 title 上，否则被截掉的那半句就再也读不到。
-      accounts.length > 1 ? React7.createElement("p", {
+      accounts.length > 1 ? React10.createElement("p", {
         className: "dim-jh-orderHint",
         title: ORDER_HINT_TEXT
       }, ORDER_HINT_TEXT) : null,
@@ -11024,10 +15055,10 @@ function ProviderPanel({
        *    而那正是「拖拽时灵时不灵」这条报障的根源。关着的时候必须**明说**
        *    当前是按档位排的，否则用户只会继续以为拖拽坏了。
        */
-      canStrictOrder ? React7.createElement(
+      canStrictOrder ? React10.createElement(
         "div",
         { className: "dim-jh-orderMode" },
-        React7.createElement(
+        React10.createElement(
           "button",
           {
             className: "dim-jh-btn",
@@ -11047,24 +15078,26 @@ function ProviderPanel({
           strictManualOrder ? "严格手动顺序：开" : "严格手动顺序：关"
           // 居中的状态说明单独一段，避免与按钮文案抢注意力。
         ),
-        React7.createElement("span", {
+        React10.createElement("span", {
           className: "dim-jh-orderModeHint",
           title: ORDER_HINT_SUBTLE
         }, strictOrderReadFailed ? "读取开关状态失败 —— 点击按钮可重试" : strictManualOrder ? "选号顺序 = 上面的序号（限额/锁定仍会跳过不可用的号）" : "当前先按积分到期档位排 —— 要让序号说了算，请打开右侧开关")
       ) : null,
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-headerActions" },
         // 「订阅额度」放在**面板级**（而不是账号卡片的按钮行）：
         // 那一行已有 5 个按钮且 `flex-wrap: nowrap`，再塞一个必然溢出
         // （该行的注释里记着「领取新手任务」当时就是这么被挤出去的）。
         // 且额度是**跨账号**的读数，放在面板级与它的语义一致。
-        canShowSubscriptionQuota ? React7.createElement("button", {
+        canShowSubscriptionQuota ? React10.createElement("button", {
           className: "dim-jh-btn",
           title: "查看 Cline 官方订阅额度窗口（5 小时 / 周 / 月各用掉百分之几）与逐笔请求记录（模型、token、积分）。数据来自官方网关，非本地记账。",
           onClick: () => setShowQuota(true)
         }, "订阅额度") : null,
-        supportsCredits ? React7.createElement("button", {
+        provider === "modelscope" ? React10.createElement(ModelscopeAutoCheckinToggle, { rpcCall }) : null,
+        provider === "zcode" ? React10.createElement(ZcodeAutoCheckinToggle, { rpcCall }) : null,
+        supportsCredits ? React10.createElement("button", {
           className: "dim-jh-btn",
           title: supportsGrowthTasks ? `领取全部 ${PROVIDERS.find((p) => p.id === provider)?.label || provider} 账号（含已停用）的每日签到积分，**并完成成长中心任务**。成长一轮单账号可达数分钟（小程序族任务有 45s/条的反作弊节奏）且全串行，账号多时可能需多点几次；同时自动领取连登兑换、补签、抽奖、首Buddy 与新手礼包；受客户端动作限制的项（微信、夜猫子窗口、判据推不动）会如实标为「需客户端」。` : `领取全部 ${PROVIDERS.find((p) => p.id === provider)?.label || provider} 账号（含已停用）的每日签到积分`,
           disabled: claiming || accounts.length === 0,
@@ -11075,13 +15108,13 @@ function ProviderPanel({
         // 隐藏这两个按钮 —— 重测永远测不出限流、重置也没有标记可清，
         // 而重测还会白烧积分（用户报障：「这个 provider 好像没发现模型限流，
         // 把重置所有按钮删掉」）。
-        supportsRateLimit(provider) ? React7.createElement("button", {
+        supportsRateLimit(provider) ? React10.createElement("button", {
           className: "dim-jh-btn",
           title: RETEST_ALL_HELP,
           disabled: probeBusy !== null || accounts.length === 0,
           onClick: () => void runLimitAction("retestAll")
         }, probeBusy === "all" ? "重测中…" : "重测所有") : null,
-        supportsRateLimit(provider) ? React7.createElement("button", {
+        supportsRateLimit(provider) ? React10.createElement("button", {
           className: "dim-jh-btn",
           title: RESET_ALL_HELP,
           disabled: probeBusy !== null || accounts.length === 0,
@@ -11103,7 +15136,7 @@ function ProviderPanel({
         //    ③ 加载态文字换成「处理中…」之外，图标也一起转圈（`data-loading`
         //       驱动样式里的 .dim-jh-iconBtn[data-loading="true"] svg 动画）——
         //       双保险：文字换了但用户眼神在图标上，只动一处会看不出还在忙。
-        canLockPermanent ? React7.createElement(
+        canLockPermanent ? React10.createElement(
           "button",
           {
             className: "dim-jh-btn dim-jh-iconTextBtn",
@@ -11114,7 +15147,7 @@ function ProviderPanel({
             disabled: lockBusy,
             onClick: () => void togglePermanentLock()
           },
-          React7.createElement(
+          React10.createElement(
             "svg",
             {
               width: 14,
@@ -11131,21 +15164,64 @@ function ProviderPanel({
             // 挂锁图标，两种状态共用锁体，只改锁梁：
             //   锁定 = 锁梁闭合（两边都落到锁体上）；
             //   解锁 = 锁梁右侧抬起（左端仍插在锁体里），一眼能分辨。
-            React7.createElement("rect", { x: 3, y: 11, width: 18, height: 11, rx: 2 }),
-            permanentLocked ? React7.createElement("path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }) : React7.createElement("path", { d: "M7 11V7a5 5 0 0 1 9.9-1" })
+            React10.createElement("rect", { x: 3, y: 11, width: 18, height: 11, rx: 2 }),
+            permanentLocked ? React10.createElement("path", { d: "M7 11V7a5 5 0 0 1 10 0v4" }) : React10.createElement("path", { d: "M7 11V7a5 5 0 0 1 9.9-1" })
           ),
           lockBusy ? "处理中…" : "永久积分"
         ) : null,
-        // 「负载均衡」开关：**只对 ZCode 面板渲染**（supportsSessionBalance）。
-        // 与页头开关同款 Switch 形态；挂在按钮行（面板页头最右），与
-        // 「一键领取积分 / 重测所有」同一排。
-        supportsSessionBalance ? React7.createElement(
+        provider === "qoder" || provider === "qodercn" ? React10.createElement(QoderTrafficGuardToggle, { key: provider, provider, rpcCall }) : null,
+        /**
+         * ★ **分档窗口按钮**（2026-11-19，用户指定位置：永久积分 与 模型 之间）。
+         *
+         * ⚠️ 只在 `usesExpiryWindow` 的渠道渲染：没有「按到期分桶」概念的渠道
+         *（如纯 token 余额、百分比配额）没有窗口可设，渲染一个点了没用的按钮
+         * 比不渲染更糟（本仓记过同型教训）。
+         */
+        supportsExpiryWindow ? React10.createElement(
+          "button",
+          {
+            className: "dim-jh-btn dim-jh-iconTextBtn",
+            title: `设置本渠道的积分分档窗口（距过期多少天算「临期」/「短期」）。默认取环境变量（现在 ${expiryWindowDays ?? 15} / ${imminentWindowDays ?? 5} 天），在这里设置后只对 ${providerLabel2} 生效，且保存后立即生效。`,
+            "aria-label": "分档窗口",
+            onClick: () => setShowWindowModal(true)
+          },
+          React10.createElement(
+            "svg",
+            {
+              width: 14,
+              height: 14,
+              viewBox: "0 0 24 24",
+              fill: "none",
+              stroke: "currentColor",
+              strokeWidth: 2,
+              strokeLinecap: "round",
+              strokeLinejoin: "round",
+              "aria-hidden": "true",
+              focusable: "false"
+            },
+            // 滑块图标（三档调节的语义）
+            React10.createElement("path", { d: "M4 21v-7" }),
+            React10.createElement("path", { d: "M4 10V3" }),
+            React10.createElement("path", { d: "M12 21v-9" }),
+            React10.createElement("path", { d: "M12 8V3" }),
+            React10.createElement("path", { d: "M20 21v-5" }),
+            React10.createElement("path", { d: "M20 12V3" }),
+            React10.createElement("path", { d: "M1 14h6" }),
+            React10.createElement("path", { d: "M9 8h6" }),
+            React10.createElement("path", { d: "M17 16h6" })
+          ),
+          "分档窗口"
+        ) : null,
+        // 「负载均衡」开关：**只对支持会话分散的渠道渲染**（supportsSessionBalance：
+        // zcode / marvis）。与页头开关同款 Switch 形态；挂在按钮行（面板页头最右），
+        // 与「一键领取积分 / 重测所有」同一排。
+        supportsSessionBalance ? React10.createElement(
           "label",
           {
             className: "dim-jh-nativeSearch",
-            title: sessionBalanceFailed ? "⚠️ 开关状态读取失败，当前显示的是默认值（开启）。点击即可重新提交一次。" : "负载均衡：多账号按会话分散（同一会话优先同一账号；账号今日请求数达阈值后会沉底，正在跑的会话可能迁移一次以摊平负载；无会话标识的请求随机分摊）。关闭后回到「手动顺序优先」的选号方式。"
+            title: sessionBalanceFailed ? "⚠️ 开关状态读取失败，当前显示的是默认值（开启）。点击即可重新提交一次。" : "负载均衡：多账号按会话分散（同一会话优先同一账号；账号今日请求数达阈值后会沉底，正在跑的会话可能迁移一次以摊平负载；" + (provider === "marvis" ? "无会话标识的请求（本地网关进来的）保持池序、不分散）" : "无会话标识的请求随机分摊）") + "。关闭后回到「手动顺序优先」的选号方式。"
           },
-          React7.createElement("input", {
+          React10.createElement("input", {
             type: "checkbox",
             className: "dim-jh-switch",
             checked: sessionBalanceOn,
@@ -11153,7 +15229,7 @@ function ProviderPanel({
             disabled: sessionBalanceBusy,
             onChange: (event) => void toggleSessionBalance(event.target.checked)
           }),
-          React7.createElement("span", null, "负载均衡")
+          React10.createElement("span", null, "负载均衡")
         ) : null,
         // ⚠️ **「模型列表」排在「+ 新建账号」左边，且已改成图标 + 文字**
         //    （用户 2026-10-26：「模型按钮移动到新建账号左边改为图标+模型」）。
@@ -11162,7 +15238,7 @@ function ProviderPanel({
         //    宽度，省不出多少地方。
         //    ⚠️ `aria-label` 仍写全「模型列表」（读屏念的是动作，不是按钮上那两个字）。
         //    ⚠️ 顺序：**模型列表 → 新建账号 → 刷新积分**（三个都跟「本页内容」相关）。
-        React7.createElement(
+        React10.createElement(
           "button",
           {
             className: "dim-jh-btn dim-jh-iconTextBtn",
@@ -11170,7 +15246,7 @@ function ProviderPanel({
             "aria-label": "模型列表",
             onClick: () => setShowModels(true)
           },
-          React7.createElement(
+          React10.createElement(
             "svg",
             {
               width: 14,
@@ -11185,19 +15261,19 @@ function ProviderPanel({
               focusable: "false"
             },
             // 列表图标：三横线 + 左侧圆点
-            React7.createElement("path", { d: "M9 6h11" }),
-            React7.createElement("path", { d: "M9 12h11" }),
-            React7.createElement("path", { d: "M9 18h11" }),
-            React7.createElement("path", { d: "M4.5 6h.01" }),
-            React7.createElement("path", { d: "M4.5 12h.01" }),
-            React7.createElement("path", { d: "M4.5 18h.01" })
+            React10.createElement("path", { d: "M9 6h11" }),
+            React10.createElement("path", { d: "M9 12h11" }),
+            React10.createElement("path", { d: "M9 18h11" }),
+            React10.createElement("path", { d: "M4.5 6h.01" }),
+            React10.createElement("path", { d: "M4.5 12h.01" }),
+            React10.createElement("path", { d: "M4.5 18h.01" })
           ),
           "模型"
         ),
         // ⚠️ 渠道弹窗**只服务 ZCode**：非 zcode 直接发起登录，与「搬进弹窗」
         //   之前逐字等价。上游 15ccae5 把渠道选择搬进弹窗时丢了这层门控，
         //   于是全部 14 个 provider 点「+ 新建账号」都弹出一个「添加 ZCode 账号」。
-        React7.createElement(
+        React10.createElement(
           "button",
           {
             className: "dim-jh-btn dim-jh-iconBtn",
@@ -11225,7 +15301,7 @@ function ProviderPanel({
             },
             disabled: creating
           },
-          React7.createElement(
+          React10.createElement(
             "svg",
             {
               width: 14,
@@ -11240,10 +15316,10 @@ function ProviderPanel({
               focusable: "false"
             },
             // 人形 + 加号（user-plus）：新建的是「一个账号」，不是「一个文件」
-            React7.createElement("path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }),
-            React7.createElement("circle", { cx: 9, cy: 7, r: 4 }),
-            React7.createElement("path", { d: "M19 8v6" }),
-            React7.createElement("path", { d: "M22 11h-6" })
+            React10.createElement("path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }),
+            React10.createElement("circle", { cx: 9, cy: 7, r: 4 }),
+            React10.createElement("path", { d: "M19 8v6" }),
+            React10.createElement("path", { d: "M22 11h-6" })
           )
         ),
         // ⚠️ **刷新积分排在「+ 新建账号」右边**（用户 2026-10-26 要求
@@ -11251,7 +15327,7 @@ function ProviderPanel({
         //    与「新建账号」隔了两个按钮 —— 两者同属「让本页数据变新」的动作，
         //    挨在一起比夹在领取/重测中间更顺手。
         //    ⚠️ 它必须仍在 minimaxintl 的「国际站分流设置」之前：那个是排障入口。
-        canLoadCredits ? React7.createElement(
+        canLoadCredits ? React10.createElement(
           "button",
           {
             className: "dim-jh-btn dim-jh-iconBtn",
@@ -11261,7 +15337,7 @@ function ProviderPanel({
             disabled: creditsLoading,
             onClick: () => void loadCredits(true)
           },
-          React7.createElement(
+          React10.createElement(
             "svg",
             {
               width: 14,
@@ -11276,8 +15352,8 @@ function ProviderPanel({
               focusable: "false"
             },
             // 环形箭头：缺口圆 + 端点箭头（顺时针方向）
-            React7.createElement("path", { d: "M21 12a9 9 0 1 1-3.2-6.9" }),
-            React7.createElement("path", { d: "M21 3v5h-5" })
+            React10.createElement("path", { d: "M21 12a9 9 0 1 1-3.2-6.9" }),
+            React10.createElement("path", { d: "M21 3v5h-5" })
           )
         ) : null,
         /**
@@ -11293,7 +15369,7 @@ function ProviderPanel({
          * 分流设置是**排障用的次要入口** —— 次要项排在主操作前面会让用户
          * 先看到「分流设置」而不是「怎么加账号」。
          */
-        provider === "minimaxintl" ? React7.createElement("button", {
+        provider === "minimaxintl" ? React10.createElement("button", {
           className: "dim-jh-btn",
           "data-kind": minimaxXff !== "" ? "primary" : void 0,
           title: `MiniMax 国际站的服务器会按**出口 IP 所在国家**决定把你路由到哪个站：中国大陆 IP 会被 307 重定向到中国站，表现为「余额查询失败 / 模型不可用」。
@@ -11324,36 +15400,36 @@ function ProviderPanel({
         // ⚠ 本弹窗原先有**两个入口**（这里与官方模型卡片里的 ZCode 账号区）；后者
         //   已随 Gitee issue IKJLHQ 整体移除（它占用的 provider-card 槽 key 与第三方
         //   pi-ai 扩展互斥，机制见 index.js 文件头）—— 现在只剩本处一个入口。
-        pendingLogin === void 0 || !newAccountAsksChannel(provider) ? null : React7.createElement(
+        pendingLogin === void 0 || !newAccountAsksChannel(provider) ? null : React10.createElement(
           "div",
           {
             className: "dim-jh-zcDialogMask",
             onClick: () => setPendingLogin(void 0)
           },
-          React7.createElement(
+          React10.createElement(
             "div",
             {
               className: "dim-jh-zcDialog",
               onClick: (event) => event.stopPropagation()
             },
-            React7.createElement(
+            React10.createElement(
               "h3",
               { className: "dim-jh-zcDialogTitle" },
               // ⚠ 弹窗服务四个 provider（zcode / accio / astudio / autoclaw），
               //   各问各的东西：渠道 / 区域 / AStudio 登录方式 / AutoClaw 登录方式。
               astudioDialog ? "添加 AStudio 账号" : autoclawDialog ? "添加 AutoClaw 账号" : accioDialog ? "添加 Accio 账号" : "添加 ZCode 账号"
             ),
-            React7.createElement(
+            React10.createElement(
               "p",
               { className: "dim-jh-zcDialogHint" },
               astudioDialog ? "支持导入本机桌面端已登录会话，或在浏览器中打开三合一登录页（支持手机短信/账号密码/微信扫码）。" : autoclawDialog ? autoclawZaiAvailable ? "请选择登录方式：可直接读取本机已安装并登录的桌面端凭据，或使用 Z.ai 账号在浏览器中授权登录。" : "请选择登录方式：可直接读取本机已安装并登录的桌面端凭据，或使用手机短信验证码快速登录。" : accioDialog ? "Accio 的登录页按区域分域名，且区域由服务端按账号下发 —— 登录前无法自动判断。请选择该账号所属的区域，否则会打开打不开的登录页。" : "选择登录渠道后才会打开对应的认证页面。两个渠道的授权页与凭据各自独立，"
             ),
-            accioDialog || astudioDialog || autoclawDialog ? null : React7.createElement(
+            accioDialog || astudioDialog || autoclawDialog ? null : React10.createElement(
               "p",
               { className: "dim-jh-zcDialogHint" },
               "可用 z.ai（国际）登录另一个账号。"
             ),
-            React7.createElement(
+            React10.createElement(
               "label",
               { className: "dim-jh-zcProvider" },
               astudioDialog ? "登录方式" : autoclawDialog ? "登录方式" : accioDialog ? "登录区域" : "登录渠道"
@@ -11380,7 +15456,7 @@ function ProviderPanel({
               //   `pnpm build:client`，见 AGENTS.md 的「单测只读源码文本」那条。
             ),
             // 彻底解决 Windows/Electron 下原生 <select> 下拉框经常点不开的恶心 bug：使用 100% 可靠的 DOM 单选卡片组
-            React7.createElement(
+            React10.createElement(
               "div",
               {
                 style: {
@@ -11395,7 +15471,7 @@ function ProviderPanel({
                 { value: "web", label: "🌐 网页三合一快捷登录", desc: "在浏览器载体页中登录，支持手机短信/账号密码/微信扫码，免依赖桌面端" }
               ].map((opt) => {
                 const active = astudioLoginMethod === opt.value;
-                return React7.createElement(
+                return React10.createElement(
                   "div",
                   {
                     key: opt.value,
@@ -11413,7 +15489,7 @@ function ProviderPanel({
                       userSelect: "none"
                     }
                   },
-                  React7.createElement("div", {
+                  React10.createElement("div", {
                     style: {
                       width: "14px",
                       height: "14px",
@@ -11424,17 +15500,17 @@ function ProviderPanel({
                       background: active ? "#fff" : "transparent"
                     }
                   }),
-                  React7.createElement(
+                  React10.createElement(
                     "div",
                     { style: { display: "flex", flexDirection: "column" } },
-                    React7.createElement("span", {
+                    React10.createElement("span", {
                       style: {
                         fontSize: "13px",
                         fontWeight: active ? 600 : 400,
                         color: "var(--dsw-alias-label-primary, inherit)"
                       }
                     }, opt.label),
-                    React7.createElement("span", {
+                    React10.createElement("span", {
                       style: {
                         fontSize: "11px",
                         color: "var(--dsw-alias-label-tertiary, #888)",
@@ -11448,7 +15524,7 @@ function ProviderPanel({
                 { value: "global", label: "🌐 国际版（zh.accio.com）", desc: "适用于 Accio 国际站点账号" }
               ].map((opt) => {
                 const active = accioRegion === opt.value;
-                return React7.createElement(
+                return React10.createElement(
                   "div",
                   {
                     key: opt.value,
@@ -11466,7 +15542,7 @@ function ProviderPanel({
                       userSelect: "none"
                     }
                   },
-                  React7.createElement("div", {
+                  React10.createElement("div", {
                     style: {
                       width: "14px",
                       height: "14px",
@@ -11477,17 +15553,17 @@ function ProviderPanel({
                       background: active ? "#fff" : "transparent"
                     }
                   }),
-                  React7.createElement(
+                  React10.createElement(
                     "div",
                     { style: { display: "flex", flexDirection: "column" } },
-                    React7.createElement("span", {
+                    React10.createElement("span", {
                       style: {
                         fontSize: "13px",
                         fontWeight: active ? 600 : 400,
                         color: "var(--dsw-alias-label-primary, inherit)"
                       }
                     }, opt.label),
-                    React7.createElement("span", {
+                    React10.createElement("span", {
                       style: {
                         fontSize: "11px",
                         color: "var(--dsw-alias-label-tertiary, #888)",
@@ -11508,7 +15584,7 @@ function ProviderPanel({
                 ...autoclawZaiAvailable ? [{ value: "zai", label: "🌐 使用 Z.ai 账号登录", desc: "在浏览器里用 Z.ai 账号授权（国际版唯一可用方式）" }] : []
               ].map((opt) => {
                 const active = autoclawMode === opt.value;
-                return React7.createElement(
+                return React10.createElement(
                   "div",
                   {
                     key: opt.value,
@@ -11526,7 +15602,7 @@ function ProviderPanel({
                       userSelect: "none"
                     }
                   },
-                  React7.createElement("div", {
+                  React10.createElement("div", {
                     style: {
                       width: "14px",
                       height: "14px",
@@ -11537,17 +15613,17 @@ function ProviderPanel({
                       background: active ? "#fff" : "transparent"
                     }
                   }),
-                  React7.createElement(
+                  React10.createElement(
                     "div",
                     { style: { display: "flex", flexDirection: "column" } },
-                    React7.createElement("span", {
+                    React10.createElement("span", {
                       style: {
                         fontSize: "13px",
                         fontWeight: active ? 600 : 400,
                         color: "var(--dsw-alias-label-primary, inherit)"
                       }
                     }, opt.label),
-                    React7.createElement("span", {
+                    React10.createElement("span", {
                       style: {
                         fontSize: "11px",
                         color: "var(--dsw-alias-label-tertiary, #888)",
@@ -11561,7 +15637,7 @@ function ProviderPanel({
                 { value: "zai", label: "🌐 z.ai（chat.z.ai，国际版）", desc: "适用于 z.ai 国际版账号" }
               ].map((opt) => {
                 const active = zcodeProvider === opt.value;
-                return React7.createElement(
+                return React10.createElement(
                   "div",
                   {
                     key: opt.value,
@@ -11579,7 +15655,7 @@ function ProviderPanel({
                       userSelect: "none"
                     }
                   },
-                  React7.createElement("div", {
+                  React10.createElement("div", {
                     style: {
                       width: "14px",
                       height: "14px",
@@ -11590,17 +15666,17 @@ function ProviderPanel({
                       background: active ? "#fff" : "transparent"
                     }
                   }),
-                  React7.createElement(
+                  React10.createElement(
                     "div",
                     { style: { display: "flex", flexDirection: "column" } },
-                    React7.createElement("span", {
+                    React10.createElement("span", {
                       style: {
                         fontSize: "13px",
                         fontWeight: active ? 600 : 400,
                         color: "var(--dsw-alias-label-primary, inherit)"
                       }
                     }, opt.label),
-                    React7.createElement("span", {
+                    React10.createElement("span", {
                       style: {
                         fontSize: "11px",
                         color: "var(--dsw-alias-label-tertiary, #888)",
@@ -11611,14 +15687,14 @@ function ProviderPanel({
                 );
               })
             ),
-            React7.createElement(
+            React10.createElement(
               "div",
               { className: "dim-jh-zcDialogActions" },
-              React7.createElement("button", {
+              React10.createElement("button", {
                 className: "dim-jh-btn",
                 onClick: () => setPendingLogin(void 0)
               }, "取消"),
-              React7.createElement(
+              React10.createElement(
                 "button",
                 {
                   className: "dim-jh-btn",
@@ -11647,36 +15723,36 @@ function ProviderPanel({
     //    用 AST 守着 —— 文本切片断言在括号错位时**全部通过**，只有 AST 能发现。
     //    ⚠️ 本段（section 的直接子节点）**不得**再出现任何 .dim-jh-probeNotice：
     //    它们一律属于 panelHead，出现在这里就会落到按钮行下方。
-    phase === "loading" ? React7.createElement("div", { className: "dim-jh-empty" }, "正在读取账号列表…") : phase === "error" ? React7.createElement(
+    phase === "loading" ? React10.createElement("div", { className: "dim-jh-empty" }, "正在读取账号列表…") : phase === "error" ? React10.createElement(
       "div",
       { className: "dim-jh-empty", role: "alert" },
-      React7.createElement("p", null, error),
-      React7.createElement("button", { className: "dim-jh-btn", onClick: loadAccounts }, "重新读取")
-    ) : accounts.length === 0 ? React7.createElement(
+      React10.createElement("p", null, error),
+      React10.createElement("button", { className: "dim-jh-btn", onClick: loadAccounts }, "重新读取")
+    ) : accounts.length === 0 ? React10.createElement(
       "div",
       { className: "dim-jh-empty" },
       // ⚠️ opencode 的「新建」是**粘贴 API key**、不是浏览器登录，
       // 空态文案必须跟着变 —— 否则用户会去找一个根本不存在的登录页。
-      provider === "opencode" ? React7.createElement(
+      provider === "opencode" ? React10.createElement(
         "div",
         null,
-        React7.createElement(
+        React10.createElement(
           "p",
           null,
           "尚未添加账号。免费模型无需账号即可使用；添加自己的 API key 可启用付费模型，并为每个账号配置独立出口。"
         ),
-        React7.createElement(
+        React10.createElement(
           "p",
           { className: "dim-jh-hint" },
           "API key 在 opencode.ai/console/account 生成（旧 key 形如 sk-…，新 key 形如 oc_sk_…）"
         )
-      ) : React7.createElement(
+      ) : React10.createElement(
         "div",
         null,
-        React7.createElement("p", null, "尚未配置账号"),
-        React7.createElement("p", null, '点击"+ 新建账号"进行浏览器登录。')
+        React10.createElement("p", null, "尚未配置账号"),
+        React10.createElement("p", null, '点击"+ 新建账号"进行浏览器登录。')
       )
-    ) : React7.createElement(
+    ) : React10.createElement(
       "div",
       { className: "dim-jh-accountList" },
       // ⚠️ **必须有 className**（2026-10-21 修）：本行的父级是
@@ -11691,7 +15767,7 @@ function ProviderPanel({
       // ⚠️ opencode 专属策略提示：必须说清「多账号 ≠ 多额度」——
       // 匿名通道按出口 IP 限流，同一出口下的多个账号共用一份额度。
       // 不解释的话，用户加了 5 个号却只看到一份配额，会以为功能坏了。
-      provider === "opencode" ? React7.createElement(
+      provider === "opencode" ? React10.createElement(
         "p",
         { className: "dim-jh-hint" },
         "免费模型在所有通道间自动轮换，收费模型仅「API key 账号」可用。匿名通道无需 key，可添加多条、各自配代理；注意额度按「出口 IP」计算 —— 多条通道共用一个出口不会增加额度，分别配不同代理才会各自获得独立额度。"
@@ -11699,12 +15775,12 @@ function ProviderPanel({
       // ⚠️ 排序提示**已挪到 `.dim-jh-panelHead` 里**（用户 2026-10-26
       //    「将按钮行合并到文案行最右侧」）—— 它必须与按钮组同父级
       //    才能排到同一行。**不要**搬回这里：搬回来会立刻变回三行。
-      reorderError ? React7.createElement("div", {
+      reorderError ? React10.createElement("div", {
         className: "dim-jh-probeNotice",
         "data-tone": "warn",
         role: "alert"
-      }, React7.createElement("div", null, `顺序保存失败：${reorderError}`)) : null,
-      accounts.map((account, index) => React7.createElement(AccountCard, {
+      }, React10.createElement("div", null, `顺序保存失败：${reorderError}`)) : null,
+      accounts.map((account, index) => React10.createElement(AccountCard, {
         key: account.id,
         account,
         index,
@@ -11728,6 +15804,7 @@ function ProviderPanel({
         showPackageList: supportsCreditPackageList(provider),
         // 「临时 / 长期」分桶的窗口天数（buddy 系 + TRAE + LobsterAI 才有值）。
         windowDays: expiryWindowDays,
+        imminentDays: imminentWindowDays,
         // 卡片级「重测 / 重置」：只对会返回限流错误的 provider 渲染。
         showRateLimitActions: supportsRateLimit(provider),
         onToggle: toggleAccount,
@@ -11761,7 +15838,8 @@ function ProviderPanel({
         // 「配了代理却查不到自己的出口」时的可见性；弹窗内部按
         // `provider` 分站给文案与探测目标。
         ...provider === "qoder" || provider === "qodercn" ? {
-          onOpenProxy: (id, current) => setProxyModal({ provider, accountId: id, current })
+          onOpenProxy: (id, current) => setProxyModal({ provider, accountId: id, current }),
+          onOpenWebSession: (id, hasSession) => setWebSessionModal({ provider, accountId: id, hasSession })
         } : {},
         // ⚠️ **MiniMax 国际站也要「代理」按钮**：`agent.minimax.io` 按出口
         // IP 国别分流，大陆来源会被 307 到中国站 ⇒ 与「凭据失效」同形的
@@ -11824,7 +15902,7 @@ function ProviderPanel({
     ),
     // 模型列表以 modal 渲染：它是覆盖层，放在账号区之后只是组件树的书写顺序，
     // 实际靠 fixed 定位浮在整个面板之上，不再挤占账号池的版面。
-    showModels ? React7.createElement(ModelListPanel, {
+    showModels ? React10.createElement(ModelListPanel, {
       provider,
       rpcCall,
       onClose: () => setShowModels(false)
@@ -11832,16 +15910,58 @@ function ProviderPanel({
     // 「订阅额度」弹窗同样以覆盖层渲染（不挤占账号池版面）。
     // 不复用 ModelListPanel 的 provider 形参：额度端点当前只认 Cline，
     // 由 `canShowSubscriptionQuota` 门控按钮，面板内部固定传 'cline'。
-    showQuota ? React7.createElement(ClineQuotaPanel, {
+    showQuota ? React10.createElement(ClineQuotaPanel, {
       rpcCall,
       onClose: () => setShowQuota(false)
     }) : null,
     // MiniMax 国际站分流设置弹窗（issue IKMEVG）：覆盖层，独立 state。
-    showMinimaxXff ? React7.createElement(MinimaxXffPanel, {
+    showMinimaxXff ? React10.createElement(MinimaxXffPanel, {
       rpcCall,
       value: minimaxXff,
       onSaved: (next) => setMinimaxXff(next),
       onClose: () => setShowMinimaxXff(false)
+    }) : null,
+    /**
+     * ★ **分档窗口弹窗**（2026-11-19）：覆盖层，独立 state。
+     *
+     * ⚠️ `accounts` 传**函数**而不是快照：弹窗要在每次输入变化时重算覆盖账号数
+     *（纯前端，零请求），而面板的账号列表可能在这期间刷新过 ——
+     * 传函数保证拿到的是**最新**读数，不会用到开弹窗那一刻的旧值。
+     */
+    showWindowModal ? React10.createElement(CreditWindowModal, {
+      provider,
+      providerLabel: providerLabel2,
+      rpcCall,
+      /**
+       * ★★★ **逐包数据来自 `credits` 这个 state，不是 `accounts`**
+       *（真实缺陷，2026-11-20 用户报障「覆盖 0 个账号 / 预览全是 0」）。
+       *
+       * ## 我第一版写错的地方
+       *
+       * 传的是 `accounts`（= `providerRow.accounts`，**账号池列表**）——
+       * 它的每条是 `{ id, credentialRef, enabled, ... }`，**根本没有 `balance`**。
+       * 于是 `account.balance?.packages` 恒 `undefined` ⇒ `computeCoverage`
+       * 把每个账号都算成「无可用积分」⇒ **覆盖数恒 0、三档金额恒 0**，
+       * 且**不会有任何报错**（这正是注释里 warning 过的那种静默失效）。
+       *
+       * ## 正确来源
+       *
+       * `credits` state 的形状是 `{ [accountId]: { balance, error, extra } }`
+       *（由 `credits.balances` 的 `res.accounts` 逐条填充，见 loadCredits）。
+       * 逐包数据在 **`balance.packages`**。
+       *
+       * ⚠️ 传**函数**而不是快照：弹窗要在每次输入变化时重算（纯前端零请求），
+       *    面板的 `credits` 可能在这期间刷新过 ⇒ 每次调用都读**最新** state。
+       */
+      accounts: () => {
+        const rows = [];
+        for (const account of accounts) {
+          const entry2 = credits[account.id];
+          rows.push({ id: account.id, packages: entry2?.balance?.packages });
+        }
+        return rows;
+      },
+      onClose: () => setShowWindowModal(false)
     }) : null,
     // 出口代理弹窗（仅 opencode）：覆盖层，与上面两个弹窗各自独立 state，
     // 同时打开也只是叠加，不会互相顶掉。
@@ -11855,7 +15975,7 @@ function ProviderPanel({
     // ClineQuotaPanel）都是 `createElement` 形式，正是这个原因。
     // ⚠️ `proxyModalComponent` 对未知 provider 返回 `null`（白名单，2026-11-03 五审），
     //    这里必须判空再 `createElement`，否则 `createElement(null)` 直接抛。
-    proxyModal && proxyModalComponent(proxyModal.provider) ? React7.createElement(proxyModalComponent(proxyModal.provider), {
+    proxyModal && proxyModalComponent(proxyModal.provider) ? React10.createElement(proxyModalComponent(proxyModal.provider), {
       // ⚠️ 传最小 ctx 门面而不是整个面板：弹窗只需要 rpc，
       // 这样它在单测/复用时不必拖上整个 ProviderPanel 的依赖。
       ctx: { rpc: (payload) => rpcCall(payload.method, payload.payload) },
@@ -11866,12 +15986,25 @@ function ProviderPanel({
       provider: proxyModal.provider,
       onClose: () => setProxyModal(null)
     }) : null,
+    webSessionModal ? React10.createElement(QoderWebSessionModal, {
+      ctx: { rpc: (payload) => rpcCall(payload.method, payload.payload) },
+      accountId: webSessionModal.accountId,
+      provider: webSessionModal.provider,
+      hasSession: webSessionModal.hasSession,
+      onClose: (changed) => {
+        setWebSessionModal(null);
+        if (changed) {
+          void loadAccounts();
+          void loadCredits(true);
+        }
+      }
+    }) : null,
     // 「添加 opencode 账号」弹窗：自绘而非 window.prompt ——
     // DSH 客户端沙箱里 prompt() 直接抛 `prompt() is not supported`（真机报障）。
     // ⚠️ 白名单（2026-11-02 四审）：原先这里是**排除式**（`!== 'modelscope' && !== 'qiniu'`），
     //    任何没被点名的新 provider 都会落到本弹窗 ⇒ 用户往里粘的是别家的 Key，
     //    却按本 provider 打 RPC（跨 provider 落库）。排除名单是开放式，白名单是封闭式。
-    keyModal && keyModal.provider === "opencode" ? React7.createElement(OpencodeKeyModal, {
+    keyModal && keyModal.provider === "opencode" ? React10.createElement(OpencodeKeyModal, {
       error: keyModal.error,
       busy: creating,
       inputRef: keyInputRef,
@@ -11884,7 +16017,7 @@ function ProviderPanel({
     //    「通用面板里的按钮与弹窗必须按 provider 分支」，两家的表单字段不同。
     //    ⚠️ 必须用 `React.createElement` 而非直接调用组件函数：直接调用会把
     //    组件的 hook 算进 ProviderPanel（该文件头记录过 hook #310 事故）。
-    keyModal && keyModal.provider === "modelscope" ? React7.createElement(ModelscopeKeyModal, {
+    keyModal && keyModal.provider === "modelscope" ? React10.createElement(ModelscopeKeyModal, {
       error: keyModal.error,
       busy: creating,
       inputRef: keyInputRef,
@@ -11893,14 +16026,14 @@ function ProviderPanel({
     }) : null,
     // ⚠️ **本 fork 独有**（七牛云）：与 modelscope 同款按 provider 分派；
     //    ⚠️ 必须用 React.createElement 而非直接调用组件函数（hook #310 事故）。
-    keyModal && keyModal.provider === "qiniu" ? React7.createElement(QiniuKeyModal, {
+    keyModal && keyModal.provider === "qiniu" ? React10.createElement(QiniuKeyModal, {
       error: keyModal.error,
       busy: creating,
       inputRef: keyInputRef,
       onSubmit: (value) => void submitQiniuKey(value),
       onClose: () => setKeyModal(null)
     }) : null,
-    keyModal && keyModal.provider === "baizhi" ? React7.createElement(BaizhiKeyModal, {
+    keyModal && keyModal.provider === "baizhi" ? React10.createElement(BaizhiKeyModal, {
       error: keyModal.error,
       busy: creating,
       // ⚠️ 编辑模式判据**必须由 `accountId` 派生**（2026-11-02 二审 D🟡-2）：
@@ -11920,7 +16053,7 @@ function ProviderPanel({
     //    弹窗里的站点名与「去哪个域名生 Key」都由它派生。不传会恒按国内站渲染 ⇒
     //    国际站用户被指去 .com 生 Key，而两站凭据不通用（国际站的 cookie 打国内站
     //    回 401）⇒ 建出每次 401 的账号。
-    keyModal && MONKEYCODE_PROVIDER_IDS.includes(keyModal.provider) ? React7.createElement(MonkeycodeKeyModal, {
+    keyModal && MONKEYCODE_PROVIDER_IDS.includes(keyModal.provider) ? React10.createElement(MonkeycodeKeyModal, {
       provider: keyModal.provider,
       error: keyModal.error,
       busy: creating,
@@ -11936,7 +16069,7 @@ function ProviderPanel({
     // ⚠️ **本 fork 独有**（魔搭）：「编辑访问令牌」弹窗（独立 state + 独立 ref）。
     // ⚠️ 必须用 `React.createElement` 而非直接调用组件函数：直接调用会把组件的
     // hook 算进 ProviderPanel（该文件头记录过 hook #310 事故，整个设置页白屏）。
-    keyEditModal && provider === "modelscope" ? React7.createElement(ModelscopeKeyEditModal, {
+    keyEditModal && provider === "modelscope" ? React10.createElement(ModelscopeKeyEditModal, {
       error: keyEditModal.error || "",
       busy: creating,
       currentMasked: keyEditModal.currentMasked || "",
@@ -11945,7 +16078,7 @@ function ProviderPanel({
       onClose: () => setKeyEditModal(null)
     }) : null,
     // ⚠️ **本 fork 独有**（七牛云）：「编辑 API Key」弹窗（独立 state + 独立 ref）。
-    qiniuKeyEditModal && provider === "qiniu" ? React7.createElement(QiniuKeyEditModal, {
+    qiniuKeyEditModal && provider === "qiniu" ? React10.createElement(QiniuKeyEditModal, {
       error: qiniuKeyEditModal.error || "",
       busy: creating,
       currentMasked: qiniuKeyEditModal.currentMasked || "",
@@ -11958,7 +16091,7 @@ function ProviderPanel({
     // 理由见 `credentialModal` 的声明处。
     // ⚠️ 同样必须 `React.createElement` 而非直接调用组件函数：直接调用会把
     // 组件的 hook 算进 ProviderPanel（该文件头记录过 hook #310 事故，整页白屏）。
-    credentialModal && credentialModal.provider === "baizhi" ? React7.createElement(BaizhiLoginModal, {
+    credentialModal && credentialModal.provider === "baizhi" ? React10.createElement(BaizhiLoginModal, {
       error: credentialModal.error || "",
       busy: creating,
       onBrowse: () => void submitBaizhiBrowserLogin(),
@@ -11971,7 +16104,7 @@ function ProviderPanel({
     // MonkeyCode 走**浏览器登录**（本 fork 独有，2026-11-02）：与 magicrew 共用
     // `credentialModal` 这个 state，但渲染的是**另一个组件** —— 它没有「导入本机
     // 登录态」这条腿（cookie 是 HttpOnly，只能由插件自己开的窗口读到）。
-    credentialModal && MONKEYCODE_PROVIDER_IDS.includes(credentialModal.provider) ? React7.createElement(MonkeycodeLoginModal, {
+    credentialModal && MONKEYCODE_PROVIDER_IDS.includes(credentialModal.provider) ? React10.createElement(MonkeycodeLoginModal, {
       provider: credentialModal.provider,
       error: credentialModal.error || "",
       busy: creating,
@@ -11985,7 +16118,7 @@ function ProviderPanel({
     }) : null,
     // 腾讯 Marvis（本 fork 独有，2026-11-09）：两条 OAuth 链 + 「从 magpie 导入」。
     // ⚠️ 与上面几家共用 `credentialModal` 这个 state，但渲染**独立组件**。
-    credentialModal && credentialModal.provider === "marvis" ? React7.createElement(MarvisLoginModal, {
+    credentialModal && credentialModal.provider === "marvis" ? React10.createElement(MarvisLoginModal, {
       error: credentialModal.error || "",
       busy: creating,
       onQq: () => void submitMarvisLogin("1"),
@@ -11995,7 +16128,7 @@ function ProviderPanel({
     }) : null,
     // ⚠️ 白名单（2026-11-02 四审 H-1）：原先末支是整条排除式（`credentialModal ?`），
     //    任何 provider 误用都会落到本弹窗 ⇒ 看到 Magicrew 文案、并按错的 provider 打 RPC。
-    credentialModal && (credentialModal.provider === "magicrew" || credentialModal.provider === "magicrewintl") ? React7.createElement(MagicrewImportModal, {
+    credentialModal && (credentialModal.provider === "magicrew" || credentialModal.provider === "magicrewintl") ? React10.createElement(MagicrewImportModal, {
       // ⚠️ **必须传 provider**（2026-11-01 接线审查）：本弹窗同时服务
       //    `magicrew`（超级麦吉 / www.letsmagic.cn）与 `magicrewintl`
       //    （MagiCrew 国际版 / www.magicrew.ai）。不传的话标题与引导文案
@@ -12015,7 +16148,7 @@ function MagicrewImportModal({ provider, error, busy, onSubmit, onBrowse, onClos
   const isIntl = provider === "magicrewintl";
   const siteName = isIntl ? "MagiCrew (国际版)" : "超级麦吉";
   const webHost = isIntl ? "www.magicrew.ai" : "www.letsmagic.cn";
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
@@ -12023,7 +16156,7 @@ function MagicrewImportModal({ provider, error, busy, onSubmit, onBrowse, onClos
         if (e.target === e.currentTarget && !busy && onClose) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         className: "dim-jh-modal",
@@ -12032,31 +16165,31 @@ function MagicrewImportModal({ provider, error, busy, onSubmit, onBrowse, onClos
         "aria-label": `导入${siteName}`,
         style: { maxWidth: "460px" }
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement("div", { className: "dim-jh-modalTitle" }, `导入${siteName}`)
+        React10.createElement("div", { className: "dim-jh-modalTitle" }, `导入${siteName}`)
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React7.createElement(
+        React10.createElement(
           "p",
           { className: "dim-jh-modalHint" },
           // ⚠️ 纯文本（不走 markdown 渲染），不要写 `**强调**`。
           `「导入」：先用 Edge / Chrome 打开 ${webHost} 登录，然后回到这里点「导入」。插件会直接读取该浏览器的登录态，不需要再输一次密码。`
         ),
-        React7.createElement(
+        React10.createElement(
           "p",
           { className: "dim-jh-modalHint" },
           "「网页登录」：插件会另开一个干净的浏览器窗口，你在里面完成登录即可（可能需要在那个窗口里重新登一次 —— 它不带你日常浏览器的登录态）。"
         ),
-        error ? React7.createElement("p", { className: "dim-jh-error", role: "alert" }, error) : null
+        error ? React10.createElement("p", { className: "dim-jh-error", role: "alert" }, error) : null
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalActions" },
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn dim-jh-btnPrimary",
           disabled: !!busy,
@@ -12064,7 +16197,7 @@ function MagicrewImportModal({ provider, error, busy, onSubmit, onBrowse, onClos
             if (onSubmit) onSubmit();
           }
         }, busy ? "处理中…" : "导入"),
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn",
           // ⚠️ 禁用判据必须与「导入」共用 `busy`：两条腿都会建账号，同时跑
@@ -12074,7 +16207,7 @@ function MagicrewImportModal({ provider, error, busy, onSubmit, onBrowse, onClos
             if (onBrowse) onBrowse();
           }
         }, "网页登录"),
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn",
           disabled: !!busy,
@@ -12087,7 +16220,7 @@ function MagicrewImportModal({ provider, error, busy, onSubmit, onBrowse, onClos
   );
 }
 function BaizhiLoginModal({ error, busy, onBrowse, onManual, onClose }) {
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
@@ -12095,7 +16228,7 @@ function BaizhiLoginModal({ error, busy, onBrowse, onManual, onClose }) {
         if (e.target === e.currentTarget && !busy && onClose) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         className: "dim-jh-modal",
@@ -12104,31 +16237,31 @@ function BaizhiLoginModal({ error, busy, onBrowse, onManual, onClose }) {
         "aria-label": "登录百智云",
         style: { maxWidth: "460px" }
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement("div", { className: "dim-jh-modalTitle" }, "登录百智云")
+        React10.createElement("div", { className: "dim-jh-modalTitle" }, "登录百智云")
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React7.createElement(
+        React10.createElement(
           "p",
           { className: "dim-jh-modalHint" },
           // ⚠️ 纯文本（不走 markdown 渲染），不要写 `**强调**`。
           "点「打开浏览器登录」后，插件会新开一个浏览器窗口，你在里面登录百智云（手机号 / 密码 / 第三方都行）。登录完成后会自动建号：同时取回大模型商店的 sk- API Key（用于对话）与控制台登录态（用于读积分），不需要你复制任何东西。"
         ),
-        React7.createElement(
+        React10.createElement(
           "p",
           { className: "dim-jh-modalHint" },
           "如果你已经有一把 sk- 开头的 Key（大模型商店 console/keys 页可以创建），也可以点「手动填写 API Key」直接填入；这样能对话，但卡片上看不到积分。"
         ),
-        error ? React7.createElement("p", { className: "dim-jh-error", role: "alert" }, error) : null
+        error ? React10.createElement("p", { className: "dim-jh-error", role: "alert" }, error) : null
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalActions" },
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn dim-jh-btnPrimary",
           disabled: !!busy,
@@ -12136,7 +16269,7 @@ function BaizhiLoginModal({ error, busy, onBrowse, onManual, onClose }) {
             if (onBrowse) onBrowse();
           }
         }, busy ? "等待登录…" : "打开浏览器登录"),
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn",
           disabled: !!busy,
@@ -12144,7 +16277,7 @@ function BaizhiLoginModal({ error, busy, onBrowse, onManual, onClose }) {
             if (onManual) onManual();
           }
         }, "手动填写 API Key"),
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn",
           disabled: !!busy,
@@ -12158,7 +16291,7 @@ function BaizhiLoginModal({ error, busy, onBrowse, onManual, onClose }) {
 }
 function MonkeycodeLoginModal({ provider, error, busy, onBrowse, onManual, onClose }) {
   const siteName = provider === "monkeycodeintl" ? "MonkeyCode 国际站" : "MonkeyCode";
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
@@ -12166,7 +16299,7 @@ function MonkeycodeLoginModal({ provider, error, busy, onBrowse, onManual, onClo
         if (e.target === e.currentTarget && !busy && onClose) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         className: "dim-jh-modal",
@@ -12175,31 +16308,31 @@ function MonkeycodeLoginModal({ provider, error, busy, onBrowse, onManual, onClo
         "aria-label": `登录 ${siteName}`,
         style: { maxWidth: "460px" }
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement("div", { className: "dim-jh-modalTitle" }, `登录 ${siteName}`)
+        React10.createElement("div", { className: "dim-jh-modalTitle" }, `登录 ${siteName}`)
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        React7.createElement(
+        React10.createElement(
           "p",
           { className: "dim-jh-modalHint" },
           // ⚠️ 纯文本（不走 markdown 渲染），不要写 `**强调**`。
           `点「打开浏览器登录」后，插件会新开一个浏览器窗口。你在里面用手机号 / 密码 / 第三方账号登录 ${siteName}，登录完成后插件自动读取登录态并建号 —— 不需要复制任何东西。`
         ),
-        React7.createElement(
+        React10.createElement(
           "p",
           { className: "dim-jh-modalHint" },
           "如果你已经有 OhMyAgent 的 API Key（oma_ 开头，可在站内「OhMyAgent」页面生成），可以点「手动填写 API Key」。"
         ),
-        error ? React7.createElement("p", { className: "dim-jh-error", role: "alert" }, error) : null
+        error ? React10.createElement("p", { className: "dim-jh-error", role: "alert" }, error) : null
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalActions" },
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn dim-jh-btnPrimary",
           disabled: !!busy,
@@ -12207,7 +16340,7 @@ function MonkeycodeLoginModal({ provider, error, busy, onBrowse, onManual, onClo
             if (onBrowse) onBrowse();
           }
         }, busy ? "等待登录…" : "打开浏览器登录"),
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn",
           // ⚠️ 与「打开浏览器登录」共用 `busy`：两条路都会建账号，同时跑会让池里
@@ -12217,7 +16350,7 @@ function MonkeycodeLoginModal({ provider, error, busy, onBrowse, onManual, onClo
             if (onManual) onManual();
           }
         }, "手动填写 API Key"),
-        React7.createElement("button", {
+        React10.createElement("button", {
           type: "button",
           className: "dim-jh-btn",
           disabled: !!busy,
@@ -12230,23 +16363,23 @@ function MonkeycodeLoginModal({ provider, error, busy, onBrowse, onManual, onClo
   );
 }
 function BackupPanel({ rpcCall, onImported }) {
-  const [dialog, setDialog] = React7.useState(null);
-  const [encrypt, setEncrypt] = React7.useState(true);
-  const [pass1, setPass1] = React7.useState("");
-  const [pass2, setPass2] = React7.useState("");
-  const [importFile, setImportFile] = React7.useState(null);
-  const [importPass, setImportPass] = React7.useState("");
-  const [backupStatus, setBackupStatus] = React7.useState(null);
-  const [confirmStep, setConfirmStep] = React7.useState(false);
-  const [decryptedPayload, setDecryptedPayload] = React7.useState(null);
-  const [busy, setBusy] = React7.useState(false);
-  const [notice, setNotice] = React7.useState(null);
-  const [exportIds, setExportIds] = React7.useState(null);
-  const [importMode, setImportMode] = React7.useState("replace");
-  const [importIds, setImportIds] = React7.useState(null);
-  const fileRef = React7.useRef(null);
-  const mounted = React7.useRef(true);
-  React7.useEffect(() => {
+  const [dialog, setDialog] = React10.useState(null);
+  const [encrypt, setEncrypt] = React10.useState(true);
+  const [pass1, setPass1] = React10.useState("");
+  const [pass2, setPass2] = React10.useState("");
+  const [importFile, setImportFile] = React10.useState(null);
+  const [importPass, setImportPass] = React10.useState("");
+  const [backupStatus, setBackupStatus] = React10.useState(null);
+  const [confirmStep, setConfirmStep] = React10.useState(false);
+  const [decryptedPayload, setDecryptedPayload] = React10.useState(null);
+  const [busy, setBusy] = React10.useState(false);
+  const [notice, setNotice] = React10.useState(null);
+  const [exportIds, setExportIds] = React10.useState(null);
+  const [importMode, setImportMode] = React10.useState("replace");
+  const [importIds, setImportIds] = React10.useState(null);
+  const fileRef = React10.useRef(null);
+  const mounted = React10.useRef(true);
+  React10.useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
@@ -12440,7 +16573,7 @@ function BackupPanel({ rpcCall, onImported }) {
   };
   const renderAccountPicker = (entries, ids, setIds, emptyHint) => {
     if (!Array.isArray(entries) || entries.length === 0) {
-      return React7.createElement("p", { className: "dim-jh-modalHint" }, emptyHint);
+      return React10.createElement("p", { className: "dim-jh-modalHint" }, emptyHint);
     }
     const allSelected = ids === null;
     const toggleOne = (id) => {
@@ -12449,39 +16582,39 @@ function BackupPanel({ rpcCall, onImported }) {
       else base.add(id);
       setIds(base);
     };
-    return React7.createElement(
+    return React10.createElement(
       "div",
       { className: "dim-jh-accountPick" },
-      React7.createElement(
+      React10.createElement(
         "label",
         { className: "dim-jh-checkRow" },
-        React7.createElement("input", {
+        React10.createElement("input", {
           type: "checkbox",
           checked: allSelected,
           onChange: (event) => setIds(event.target.checked ? null : /* @__PURE__ */ new Set())
         }),
         `全部账号（${entries.length} 个）`
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-accountPickList" },
-        entries.map((entry2) => React7.createElement(
+        entries.map((entry2) => React10.createElement(
           "label",
           {
             key: entry2.id,
             className: "dim-jh-checkRow dim-jh-accountPickRow"
           },
-          React7.createElement("input", {
+          React10.createElement("input", {
             type: "checkbox",
             // 「全部」态下每条都显示为选中，用户一取消某条就自动落到逐条模式。
             checked: allSelected || ids.has(entry2.id),
             onChange: () => toggleOne(entry2.id)
           }),
-          React7.createElement(
+          React10.createElement(
             "span",
             { className: "dim-jh-accountPickName" },
             entry2.nickname || entry2.id,
-            React7.createElement(
+            React10.createElement(
               "span",
               { className: "dim-jh-accountPickMeta" },
               `${entry2.provider}${entry2.enabled === false ? " · 已停用" : ""}`
@@ -12495,17 +16628,17 @@ function BackupPanel({ rpcCall, onImported }) {
     const isExport = dialog === "export";
     const title = isExport ? "导出备份" : "导入备份";
     const subtitle = isExport ? "全部或选中的账号密钥与凭据" : importFile?.name || "";
-    const body = isExport ? React7.createElement(
-      React7.Fragment,
+    const body = isExport ? React10.createElement(
+      React10.Fragment,
       null,
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-modalHint" },
         "备份文件包含账号的密钥与 refresh_token，请",
-        React7.createElement("strong", { className: "dim-jh-emph-warn" }, "妥善保管"),
+        React10.createElement("strong", { className: "dim-jh-emph-warn" }, "妥善保管"),
         "。"
       ),
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-modalHint" },
         "备份是导出时刻的凭据快照：refresh_token 会随续期轮换或过期，建议导出后尽快迁移，导入后失效的账号需重新登录。"
@@ -12516,27 +16649,27 @@ function BackupPanel({ rpcCall, onImported }) {
         setExportIds,
         "读取账号列表失败，将导出全部账号。"
       ),
-      React7.createElement(
+      React10.createElement(
         "label",
         { className: "dim-jh-checkRow" },
-        React7.createElement("input", {
+        React10.createElement("input", {
           type: "checkbox",
           checked: encrypt,
           onChange: (event) => setEncrypt(event.target.checked)
         }),
         "加密备份文件（推荐）"
       ),
-      encrypt ? React7.createElement(
+      encrypt ? React10.createElement(
         "div",
         { className: "dim-jh-formRows" },
-        React7.createElement("input", {
+        React10.createElement("input", {
           className: "dim-jh-input",
           type: "password",
           placeholder: "备份口令（用于解密，请牢记）",
           value: pass1,
           onChange: (event) => setPass1(event.target.value)
         }),
-        React7.createElement("input", {
+        React10.createElement("input", {
           className: "dim-jh-input",
           type: "password",
           placeholder: "再次输入口令",
@@ -12546,26 +16679,26 @@ function BackupPanel({ rpcCall, onImported }) {
       ) : null
     ) : !isExport && confirmStep ? (
       // 导入确认页（应用内二次确认）：模式选择 + 覆盖警告 / 追加说明
-      React7.createElement(
-        React7.Fragment,
+      React10.createElement(
+        React10.Fragment,
         null,
         // 第三方账号列表的转换摘要：让用户先确认「识别到了几条、都是谁」，
         // 再决定导入。没有这段提示时，用户会怀疑文件没被读进去。
-        importFile?.converted ? React7.createElement(
-          React7.Fragment,
+        importFile?.converted ? React10.createElement(
+          React10.Fragment,
           null,
-          React7.createElement(
+          React10.createElement(
             "p",
             { className: "dim-jh-modalHint" },
             "已自动识别为",
-            React7.createElement("strong", { className: "dim-jh-emph-warn" }, "第三方账号列表"),
+            React10.createElement("strong", { className: "dim-jh-emph-warn" }, "第三方账号列表"),
             "并转换为插件格式：共 ",
-            React7.createElement("strong", { className: "dim-jh-emph-warn" }, `${importFile.converted.count}`),
+            React10.createElement("strong", { className: "dim-jh-emph-warn" }, `${importFile.converted.count}`),
             " 个账号",
             importFile.converted.providers?.length > 0 ? `（${importFile.converted.providers.join("、")}）` : "",
             "。"
           ),
-          importFile.converted.warnings?.length > 0 ? React7.createElement(
+          importFile.converted.warnings?.length > 0 ? React10.createElement(
             "p",
             { className: "dim-jh-modalHint" },
             `${importFile.converted.warnings.length} 条记录被跳过：`,
@@ -12573,13 +16706,13 @@ function BackupPanel({ rpcCall, onImported }) {
             importFile.converted.warnings.length > 3 ? " …" : ""
           ) : null
         ) : null,
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modePick" },
-          React7.createElement(
+          React10.createElement(
             "label",
             { className: "dim-jh-checkRow" },
-            React7.createElement("input", {
+            React10.createElement("input", {
               type: "radio",
               name: "dim-jh-import-mode",
               checked: importMode === "replace",
@@ -12587,10 +16720,10 @@ function BackupPanel({ rpcCall, onImported }) {
             }),
             "整体还原（覆盖当前全部账号）"
           ),
-          React7.createElement(
+          React10.createElement(
             "label",
             { className: "dim-jh-checkRow" },
-            React7.createElement("input", {
+            React10.createElement("input", {
               type: "radio",
               name: "dim-jh-import-mode",
               checked: importMode === "merge",
@@ -12599,39 +16732,39 @@ function BackupPanel({ rpcCall, onImported }) {
             "单独导入（只增加账号，不覆盖现有账号）"
           )
         ),
-        importMode === "replace" ? React7.createElement(
-          React7.Fragment,
+        importMode === "replace" ? React10.createElement(
+          React10.Fragment,
           null,
-          React7.createElement(
+          React10.createElement(
             "p",
             { className: "dim-jh-modalHint" },
             "导入将",
-            React7.createElement("strong", { className: "dim-jh-emph-danger" }, "覆盖"),
+            React10.createElement("strong", { className: "dim-jh-emph-danger" }, "覆盖"),
             "当前全部账号与模型开关（共 ",
-            React7.createElement("strong", { className: "dim-jh-emph-warn" }, `${decryptedPayload?.accounts?.length ?? 0}`),
+            React10.createElement("strong", { className: "dim-jh-emph-warn" }, `${decryptedPayload?.accounts?.length ?? 0}`),
             " 个账号），且",
-            React7.createElement("strong", { className: "dim-jh-emph-danger" }, "不可撤销"),
+            React10.createElement("strong", { className: "dim-jh-emph-danger" }, "不可撤销"),
             "。"
           ),
-          backupStatus?.withoutExpiry > 0 ? React7.createElement(
+          backupStatus?.withoutExpiry > 0 ? React10.createElement(
             "p",
             { className: "dim-jh-modalHint" },
             "当前有 ",
-            React7.createElement("strong", { className: "dim-jh-emph-warn" }, `${backupStatus.withoutExpiry}`),
+            React10.createElement("strong", { className: "dim-jh-emph-warn" }, `${backupStatus.withoutExpiry}`),
             " 个账号缺少有效期信息（可能是版本切换后自动恢复的），导入将",
-            React7.createElement("strong", { className: "dim-jh-emph-warn" }, "整体覆盖"),
+            React10.createElement("strong", { className: "dim-jh-emph-warn" }, "整体覆盖"),
             "它们。"
           ) : null
-        ) : React7.createElement(
-          React7.Fragment,
+        ) : React10.createElement(
+          React10.Fragment,
           null,
-          React7.createElement(
+          React10.createElement(
             "p",
             { className: "dim-jh-modalHint" },
             "只把选中的账号",
-            React7.createElement("strong", { className: "dim-jh-emph-warn" }, "追加"),
+            React10.createElement("strong", { className: "dim-jh-emph-warn" }, "追加"),
             "到当前账号池：同 id 的账号",
-            React7.createElement("strong", { className: "dim-jh-emph-warn" }, "自动跳过、不会被覆盖"),
+            React10.createElement("strong", { className: "dim-jh-emph-warn" }, "自动跳过、不会被覆盖"),
             "，现有账号、模型开关与锁定状态都不受影响。"
           ),
           renderAccountPicker(
@@ -12642,27 +16775,27 @@ function BackupPanel({ rpcCall, onImported }) {
           )
         )
       )
-    ) : importFile?.encrypted ? React7.createElement(
-      React7.Fragment,
+    ) : importFile?.encrypted ? React10.createElement(
+      React10.Fragment,
       null,
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-modalHint" },
         "该备份已加密，请输入导出时设置的口令。"
       ),
-      React7.createElement("input", {
+      React10.createElement("input", {
         className: "dim-jh-input",
         type: "password",
         placeholder: "备份口令",
         value: importPass,
         onChange: (event) => setImportPass(event.target.value)
       })
-    ) : React7.createElement(
+    ) : React10.createElement(
       "p",
       { className: "dim-jh-modalHint" },
       "该备份为明文文件，点「下一步」后选择导入方式（整体还原或单独导入）。"
     );
-    return React7.createElement(
+    return React10.createElement(
       "div",
       {
         className: "dim-jh-modalOverlay",
@@ -12670,7 +16803,7 @@ function BackupPanel({ rpcCall, onImported }) {
           if (event.target === event.currentTarget) closeDialog();
         }
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         {
           className: "dim-jh-modal",
@@ -12678,45 +16811,45 @@ function BackupPanel({ rpcCall, onImported }) {
           "aria-modal": "true",
           "aria-label": title
         },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalHead" },
-          React7.createElement(
+          React10.createElement(
             "div",
             { className: "dim-jh-modalTitle" },
-            React7.createElement("strong", null, title),
-            subtitle.length > 0 ? React7.createElement("span", { className: "dim-jh-modalSubtitle" }, subtitle) : null
+            React10.createElement("strong", null, title),
+            subtitle.length > 0 ? React10.createElement("span", { className: "dim-jh-modalSubtitle" }, subtitle) : null
           ),
-          React7.createElement(
+          React10.createElement(
             "div",
             { className: "dim-jh-modelPanelActions" },
-            React7.createElement("button", {
+            React10.createElement("button", {
               className: "dim-jh-btn",
               onClick: closeDialog
             }, "关闭")
           )
         ),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalBody" },
           body,
-          notice ? React7.createElement("div", {
+          notice ? React10.createElement("div", {
             className: "dim-jh-probeNotice",
             "data-tone": notice.tone,
             role: notice.tone === "error" ? "alert" : "status"
-          }, React7.createElement("div", null, notice.text)) : null,
-          React7.createElement(
+          }, React10.createElement("div", null, notice.text)) : null,
+          React10.createElement(
             "div",
             { className: "dim-jh-modalActions" },
-            isExport ? React7.createElement("button", {
+            isExport ? React10.createElement("button", {
               className: "dim-jh-btn",
               "data-kind": "primary",
               disabled: busy,
               onClick: () => void doExport()
-            }, busy ? "生成中…" : "生成备份文件") : confirmStep ? React7.createElement(
-              React7.Fragment,
+            }, busy ? "生成中…" : "生成备份文件") : confirmStep ? React10.createElement(
+              React10.Fragment,
               null,
-              React7.createElement("button", {
+              React10.createElement("button", {
                 className: "dim-jh-btn",
                 disabled: busy,
                 onClick: () => {
@@ -12724,13 +16857,13 @@ function BackupPanel({ rpcCall, onImported }) {
                   setNotice(null);
                 }
               }, "返回"),
-              React7.createElement("button", {
+              React10.createElement("button", {
                 className: "dim-jh-btn",
                 "data-kind": "primary",
                 disabled: busy,
                 onClick: () => void confirmImport()
               }, busy ? "导入中…" : "确认导入")
-            ) : React7.createElement("button", {
+            ) : React10.createElement("button", {
               className: "dim-jh-btn",
               "data-kind": "primary",
               disabled: busy,
@@ -12741,20 +16874,20 @@ function BackupPanel({ rpcCall, onImported }) {
       )
     );
   };
-  return React7.createElement(
-    React7.Fragment,
+  return React10.createElement(
+    React10.Fragment,
     null,
-    React7.createElement("button", {
+    React10.createElement("button", {
       className: "dim-jh-btn",
       title: "导出账号的密钥与凭据（全部或勾选其中几个），便于迁移或单独搬一个账号。",
       onClick: () => void openExportDialog()
     }, "备份"),
-    React7.createElement("button", {
+    React10.createElement("button", {
       className: "dim-jh-btn",
       title: "从备份文件导入账号：可选「整体还原（会覆盖当前全部账号）」或「单独导入（只增加账号，不覆盖）」。",
       onClick: () => fileRef.current?.click()
     }, "恢复"),
-    React7.createElement("input", {
+    React10.createElement("input", {
       ref: fileRef,
       type: "file",
       accept: ".json,application/json",
@@ -12788,17 +16921,17 @@ function providerRowSummary(row) {
   return row.accounts ? `账号 ${row.accounts.total ?? 0}（启用 ${row.accounts.enabled ?? 0}）` : "账号 —";
 }
 function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onToggle, onReload, onClose, order, onCommitOrder, reordering, notice, rpcCall, onStatusReload }) {
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
-  const [draggingId, setDraggingId] = React7.useState(null);
-  const [dropTargetId, setDropTargetId] = React7.useState(null);
-  const [dropPosition, setDropPosition] = React7.useState("before");
-  const [view, setView] = React7.useState("switches");
+  const [draggingId, setDraggingId] = React10.useState(null);
+  const [dropTargetId, setDropTargetId] = React10.useState(null);
+  const [dropPosition, setDropPosition] = React10.useState("before");
+  const [view, setView] = React10.useState("switches");
   const rows = providerSwitchRows(providers, statuses, order);
   const summary = providerToggleSummary(providers, statuses);
   const countText = summary.known ? `共 ${summary.total} 个，已打开 ${summary.open}，已关闭 ${summary.closed}` : statusFailed ? "状态读取失败" : "正在读取状态…";
@@ -12851,7 +16984,7 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
       }
     };
   };
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       // 遮罩层：垂直居中（2026-10-26 起全仓弹窗统一居中，`--top` 修饰类已删除）。
@@ -12860,7 +16993,7 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
         if (event.target === event.currentTarget) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         className: "dim-jh-modal",
@@ -12868,32 +17001,32 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
         "aria-modal": "true",
         "aria-label": "供应商开关"
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalTitle" },
-          React7.createElement("strong", null, view === "models" ? "供应商模型列表" : "供应商开关"),
-          React7.createElement(
+          React10.createElement("strong", null, view === "models" ? "供应商模型列表" : "供应商开关"),
+          React10.createElement(
             "span",
             { className: "dim-jh-modelPanelCount" },
             view === "models" ? "跨供应商统一管理" : countText
           )
         ),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modelPanelActions" },
           // 两屏共用一个弹窗（见上面 `view` 的注释）。复用 `.dim-jh-modelStatusFilter`
           // 那套 `[data-active="true"]` 高亮样式，不新增样式类。
-          React7.createElement(
+          React10.createElement(
             "div",
             {
               className: "dim-jh-modelStatusFilter",
               role: "group",
               "aria-label": "弹窗视图"
             },
-            [["switches", "开关"], ["models", "模型列表"]].map(([value, label]) => React7.createElement("button", {
+            [["switches", "开关"], ["models", "模型列表"]].map(([value, label]) => React10.createElement("button", {
               key: value,
               className: "dim-jh-btn",
               "data-active": view === value ? "true" : "false",
@@ -12902,19 +17035,19 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
               onClick: () => setView(value)
             }, label))
           ),
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             title: "重新读取各供应商的模型数与账号数。",
             onClick: () => void onReload()
           }, "刷新"),
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             "data-kind": "primary",
             onClick: onClose
           }, "完成")
         )
       ),
-      view === "models" ? null : React7.createElement(
+      view === "models" ? null : React10.createElement(
         "p",
         { className: "dim-jh-modalHint" },
         "关闭一个供应商 = 关闭它的全部模型（从对话框的模型选择里移除）并停用它的全部账号；打开则恢复。关闭前会再确认一次。没有可关闭模型的供应商会被禁用（服务端也会拒绝）。拖动可自定义顺序（顺序只保存在本机）；已打开与已关闭各自排序，组间先后不变。"
@@ -12926,22 +17059,22 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
       // 它们此刻在页面层同样被遮住，只按 inModal 过滤会让切换结果一样消失。
       // 弹窗关闭即不挂载、页面层那条照旧渲染，两边不会重复出现。
       // 复用既有 `.dim-jh-probeNotice` + `.dim-jh-modal .dim-jh-probeNotice` 样式，不新增样式。
-      notice ? React7.createElement("div", {
+      notice ? React10.createElement("div", {
         className: "dim-jh-probeNotice",
         "data-tone": notice.tone,
         role: notice.tone === "error" ? "alert" : "status"
-      }, React7.createElement("div", null, notice.text)) : null,
-      React7.createElement(
+      }, React10.createElement("div", null, notice.text)) : null,
+      React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
-        view === "models" ? React7.createElement(ModelCenterPanel, { providers, rpcCall, statuses, onStatusReload }) : React7.createElement(
+        view === "models" ? React10.createElement(ModelCenterPanel, { providers, rpcCall, statuses, onStatusReload }) : React10.createElement(
           "div",
           { className: "dim-jh-modelList" },
           rows.map((row) => {
             const busy = busyIds.has(row.id);
             const action = row.checked ? "关闭" : "打开";
             const drag = dragPropsFor(row);
-            return React7.createElement(
+            return React10.createElement(
               "label",
               {
                 key: row.id,
@@ -12960,7 +17093,7 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
                 "data-dropAfter": drag.isDropTarget && drag.dropPosition === "after" ? "true" : void 0,
                 title: row.disabled ? row.reason : `${action}「${row.label}」：${action}它的全部模型并${row.checked ? "停用" : "启用"}全部账号`
               },
-              drag.enabled ? React7.createElement("span", {
+              drag.enabled ? React10.createElement("span", {
                 className: "dim-jh-dragHandle",
                 title: "拖动以调整顺序（顺序只保存在本机）",
                 "aria-hidden": "true",
@@ -12976,14 +17109,14 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
               //    但这个**供应商弹窗**里的同一批清单从来没有 —— 两处列的是同一份
               //    PROVIDERS，一有一无，用户在弹窗里只能靠读名字认供应商。
               //    图标走 `row.id`（就是 provider id），与 `data-provider` 同源。
-              React7.createElement(ProviderLogo, { provider: row.id }),
-              React7.createElement(
+              React10.createElement(ProviderLogo, { provider: row.id }),
+              React10.createElement(
                 "span",
                 { className: "dim-jh-modelInfo" },
-                React7.createElement("strong", { className: "dim-jh-modelName" }, row.label),
-                React7.createElement("code", { className: "dim-jh-modelId" }, providerRowSummary(row))
+                React10.createElement("strong", { className: "dim-jh-modelName" }, row.label),
+                React10.createElement("code", { className: "dim-jh-modelId" }, providerRowSummary(row))
               ),
-              React7.createElement("input", {
+              React10.createElement("input", {
                 type: "checkbox",
                 className: "dim-jh-switch",
                 role: "switch",
@@ -13001,23 +17134,23 @@ function ProviderSwitchPanel({ providers, statuses, statusFailed, busyIds, onTog
   );
 }
 function ModelCenterPanel({ providers, rpcCall, statuses, onStatusReload }) {
-  const [states, setStates] = React7.useState({});
-  const [query, setQuery] = React7.useState("");
-  const [statusFilter, setStatusFilter] = React7.useState("all");
-  const [openIds, setOpenIds] = React7.useState({});
-  const [busyIds, setBusyIds] = React7.useState(() => /* @__PURE__ */ new Set());
-  const [providerBusy, setProviderBusy] = React7.useState(() => /* @__PURE__ */ new Set());
-  const [toggleError, setToggleError] = React7.useState("");
-  const [toggleWarnings, setToggleWarnings] = React7.useState([]);
-  const [loadingAll, setLoadingAll] = React7.useState(false);
-  const mounted = React7.useRef(true);
-  React7.useEffect(() => {
+  const [states, setStates] = React10.useState({});
+  const [query, setQuery] = React10.useState("");
+  const [statusFilter, setStatusFilter] = React10.useState("all");
+  const [openIds, setOpenIds] = React10.useState({});
+  const [busyIds, setBusyIds] = React10.useState(() => /* @__PURE__ */ new Set());
+  const [providerBusy, setProviderBusy] = React10.useState(() => /* @__PURE__ */ new Set());
+  const [toggleError, setToggleError] = React10.useState("");
+  const [toggleWarnings, setToggleWarnings] = React10.useState([]);
+  const [loadingAll, setLoadingAll] = React10.useState(false);
+  const mounted = React10.useRef(true);
+  React10.useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
-  const loadProvider = React7.useCallback(async (providerId) => {
+  const loadProvider = React10.useCallback(async (providerId) => {
     setStates((prev) => {
       if (prev[providerId]?.phase === "ready") return prev;
       return { ...prev, [providerId]: { phase: "loading", models: [], error: "" } };
@@ -13052,7 +17185,7 @@ function ModelCenterPanel({ providers, rpcCall, statuses, onStatusReload }) {
     if (Object.prototype.hasOwnProperty.call(openIds, providerId)) return openIds[providerId] === true;
     return filtering && states[providerId]?.phase === "ready";
   };
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     for (const section of sections) {
       if (section.phase !== "idle") continue;
       if (!isOpen(section.id)) continue;
@@ -13182,49 +17315,49 @@ function ModelCenterPanel({ providers, rpcCall, statuses, onStatusReload }) {
     const bulk = centerBulkState(section.models);
     const allDisabled = section.loaded && bulk.allDisabled;
     const noneDisabled = section.loaded && bulk.noneDisabled;
-    return React7.createElement(
+    return React10.createElement(
       "div",
       { key: section.id, className: "dim-jh-modelGroup" },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modelGroupHead" },
-        React7.createElement("button", {
+        React10.createElement("button", {
           className: "dim-jh-modelGroupToggle",
           "aria-expanded": opened ? "true" : "false",
           title: opened ? "收起该供应商的模型" : "展开并读取该供应商的模型列表",
           onClick: () => toggleSection(section.id)
         }, `${opened ? "▾" : "▸"} ${section.label}`),
-        React7.createElement("span", { className: "dim-jh-modelGroupCount" }, countText),
-        React7.createElement("button", {
+        React10.createElement("span", { className: "dim-jh-modelGroupCount" }, countText),
+        React10.createElement("button", {
           className: "dim-jh-btn dim-jh-modelGroupBtn",
           disabled: !section.loaded || sectionBusy || noneDisabled,
           title: noneDisabled ? "该供应商没有已关闭的模型" : "打开该供应商的全部模型（含之前关闭的）",
           onClick: () => void setProviderAll(section.id, section.label, false)
         }, sectionBusy ? "处理中…" : "全开"),
-        React7.createElement("button", {
+        React10.createElement("button", {
           className: "dim-jh-btn dim-jh-modelGroupBtn",
           disabled: !section.loaded || sectionBusy || allDisabled,
           title: allDisabled ? "该供应商的模型已全部关闭" : "关闭该供应商的全部模型",
           onClick: () => void setProviderAll(section.id, section.label, true)
         }, sectionBusy ? "处理中…" : "全关")
       ),
-      opened ? React7.createElement(
+      opened ? React10.createElement(
         "div",
         { className: "dim-jh-modelGroupBody" },
-        section.phase === "error" ? React7.createElement(
+        section.phase === "error" ? React10.createElement(
           "div",
           { className: "dim-jh-empty" },
-          React7.createElement("p", null, states[section.id]?.error || "读取该供应商的模型列表失败。"),
-          React7.createElement("button", {
+          React10.createElement("p", null, states[section.id]?.error || "读取该供应商的模型列表失败。"),
+          React10.createElement("button", {
             className: "dim-jh-btn",
             onClick: () => void loadProvider(section.id)
           }, "重新读取")
-        ) : !section.loaded ? React7.createElement("p", { className: "dim-jh-modalHint" }, "正在读取该供应商的模型列表…") : section.summary.total === 0 ? React7.createElement("p", { className: "dim-jh-modalHint" }, "该 Provider 当前没有可用的模型。") : section.models.length === 0 ? React7.createElement(
+        ) : !section.loaded ? React10.createElement("p", { className: "dim-jh-modalHint" }, "正在读取该供应商的模型列表…") : section.summary.total === 0 ? React10.createElement("p", { className: "dim-jh-modalHint" }, "该 Provider 当前没有可用的模型。") : section.models.length === 0 ? React10.createElement(
           "div",
           { className: "dim-jh-empty" },
-          React7.createElement("p", null, "没有符合当前搜索与筛选条件的模型。"),
-          React7.createElement("button", { className: "dim-jh-btn", onClick: resetFilters }, "清空筛选")
-        ) : section.models.map((model) => React7.createElement(ModelToggle, {
+          React10.createElement("p", null, "没有符合当前搜索与筛选条件的模型。"),
+          React10.createElement("button", { className: "dim-jh-btn", onClick: resetFilters }, "清空筛选")
+        ) : section.models.map((model) => React10.createElement(ModelToggle, {
           key: model.id,
           // 模型中心**横跨全部供应商**，故图标必须按**分组所属**
           // 的那家取（`section.id`）。这里没有外层 `provider`
@@ -13239,13 +17372,13 @@ function ModelCenterPanel({ providers, rpcCall, statuses, onStatusReload }) {
       ) : null
     );
   };
-  return React7.createElement(
+  return React10.createElement(
     "div",
     null,
-    React7.createElement(
+    React10.createElement(
       "div",
       { className: "dim-jh-modelFilterBar" },
-      React7.createElement("input", {
+      React10.createElement("input", {
         type: "search",
         className: "dim-jh-input dim-jh-modelSearch",
         placeholder: "搜索供应商、模型名或 id…",
@@ -13253,14 +17386,14 @@ function ModelCenterPanel({ providers, rpcCall, statuses, onStatusReload }) {
         value: query,
         onChange: (event) => setQuery(event.target.value)
       }),
-      React7.createElement(
+      React10.createElement(
         "div",
         {
           className: "dim-jh-modelStatusFilter",
           role: "group",
           "aria-label": "按模型开关状态筛选"
         },
-        [["all", "全部"], ["enabled", "已打开"], ["disabled", "已关闭"]].map(([value, label]) => React7.createElement("button", {
+        [["all", "全部"], ["enabled", "已打开"], ["disabled", "已关闭"]].map(([value, label]) => React10.createElement("button", {
           key: value,
           className: "dim-jh-btn",
           "data-active": statusFilter === value ? "true" : "false",
@@ -13268,45 +17401,62 @@ function ModelCenterPanel({ providers, rpcCall, statuses, onStatusReload }) {
           onClick: () => setStatusFilter(value)
         }, label))
       ),
-      filtering ? React7.createElement("button", { className: "dim-jh-btn", onClick: resetFilters }, "清空筛选") : null,
-      React7.createElement("button", {
+      filtering ? React10.createElement("button", { className: "dim-jh-btn", onClick: resetFilters }, "清空筛选") : null,
+      React10.createElement("button", {
         className: "dim-jh-btn",
         title: "读取所有还没读过的供应商目录（并发 3 个，避免同时打爆上游）。",
         disabled: loadingAll || pending.length === 0,
         onClick: () => void loadAll()
       }, loadingAll ? "读取中…" : `加载全部${pending.length > 0 ? `（${pending.length}）` : ""}`)
     ),
-    React7.createElement(
+    React10.createElement(
       "p",
       { className: "dim-jh-modalHint" },
       `已读取 ${totals.loaded} / ${providerCount} 家` + (totals.loaded === 0 ? "。展开某一家，或点「加载全部」。" : `：共 ${totals.total} 个模型，已关闭 ${totals.disabled} 个。`) + "关闭开关后该模型不再出现在对话框的模型选择里；「已下架」的模型是上游移除的，可用「重新显示」恢复。未读取的供应商不参与搜索，点「加载全部」补齐。"
     ),
-    toggleError ? React7.createElement("div", {
+    /**
+     * ⚠️ **思考档位**的说明（2026-11-11 新增）。
+     *
+     * 两条信息缺一不可，且都必须是**对外承诺**而不是实现细节：
+     * - 选模型时的默认思考强度 = 该模型声明的最强档（这是本次功能的用户面）；
+     * - 有一批渠道**根本不提供**思考档位，对它们本功能无效 —— 不写这句，
+     *   用户会以为「选了模型却没变强」是插件坏了。
+     *
+     * ⚠️ 名单来自宿主 `src/reasoning-default.ts` 的 `PROVIDERS_WITHOUT_REASONING`
+     * （**唯一权威**）。这里**只做文案渲染**，不再列第二份 id 数组 ——
+     * 两处各列一份必然漂移，而漂移的症状是「面板说 A 家不支持、实际支持」。
+     */
+    React10.createElement(
+      "p",
+      { className: "dim-jh-modalHint" },
+      "思考强度：选中模型后默认使用该模型支持的最高档（如 Max / Extra High），可在对话框的模型菜单里手动改回低档。没有「思考档位」的供应商不参与这一默认值，它们只有一个固定的思考行为。"
+    ),
+    toggleError ? React10.createElement("div", {
       className: "dim-jh-probeNotice",
       "data-tone": "error",
       role: "alert"
-    }, React7.createElement("div", null, toggleError)) : null,
+    }, React10.createElement("div", null, toggleError)) : null,
     // `warn` 必须是这个拼写：写成 `warning` 会静默落成中性色（`data-tone` 是枚举）。
-    toggleWarnings.length > 0 ? React7.createElement("div", {
+    toggleWarnings.length > 0 ? React10.createElement("div", {
       className: "dim-jh-probeNotice",
       "data-tone": "warn",
       role: "status"
-    }, React7.createElement("div", null, toggleWarnings.join("；"))) : null,
-    React7.createElement(
+    }, React10.createElement("div", null, toggleWarnings.join("；"))) : null,
+    React10.createElement(
       "div",
       { className: "dim-jh-modelList" },
-      sections.length === 0 ? React7.createElement(
+      sections.length === 0 ? React10.createElement(
         "div",
         { className: "dim-jh-empty" },
-        React7.createElement("p", null, "没有符合当前搜索与筛选条件的供应商。"),
-        React7.createElement("button", { className: "dim-jh-btn", onClick: resetFilters }, "清空筛选")
+        React10.createElement("p", null, "没有符合当前搜索与筛选条件的供应商。"),
+        React10.createElement("button", { className: "dim-jh-btn", onClick: resetFilters }, "清空筛选")
       ) : sections.map((section) => renderSection(section))
     )
   );
 }
 function GatewayModelRow({ model }) {
   const badge = modelCapabilityBadge(model);
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-gatewayModelRow",
@@ -13314,13 +17464,13 @@ function GatewayModelRow({ model }) {
       title: `${model.id}
 ${model.name || ""}`.trim()
     },
-    React7.createElement("code", { className: "dim-jh-modelId" }, gatewayModelKeyOf(model)),
-    React7.createElement("span", { className: "dim-jh-modelName" }, model.name || model.id),
-    badge ? React7.createElement("span", { className: "dim-jh-modelBadge", title: "该模型接受图片输入。" }, badge) : null
+    React10.createElement("code", { className: "dim-jh-modelId" }, gatewayModelKeyOf(model)),
+    React10.createElement("span", { className: "dim-jh-modelName" }, model.name || model.id),
+    badge ? React10.createElement("span", { className: "dim-jh-modelBadge", title: "该模型接受图片输入。" }, badge) : null
   );
 }
 function GatewayEffortRow({ row }) {
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-effortRow",
@@ -13328,48 +17478,48 @@ function GatewayEffortRow({ row }) {
 真实档位：${row.declared}
 客户端该填：${row.fill}`
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       { className: "dim-jh-effortHead" },
       // 卡片头已写明供应商，行内显示去掉前缀的名字；完整 id 在 tooltip 与复制里。
-      React7.createElement("code", { className: "dim-jh-effortModel" }, gatewayModelKeyOf(row)),
-      row.lossy ? React7.createElement("span", {
+      React10.createElement("code", { className: "dim-jh-effortModel" }, gatewayModelKeyOf(row)),
+      row.lossy ? React10.createElement("span", {
         className: "dim-jh-modelBadge",
         title: "该模型的档位名与 OpenAI 客户端不同名：照 DSH 界面上的名字填，网关会按强度就近翻译。"
       }, "需对照") : null
     ),
-    React7.createElement(
+    React10.createElement(
       "div",
       { className: "dim-jh-effortLine" },
-      React7.createElement("span", { className: "dim-jh-effortLabel" }, "真实档位："),
+      React10.createElement("span", { className: "dim-jh-effortLabel" }, "真实档位："),
       row.declared
     ),
-    React7.createElement(
+    React10.createElement(
       "div",
       { className: "dim-jh-effortLine" },
-      React7.createElement("span", { className: "dim-jh-effortLabel" }, "客户端该填："),
+      React10.createElement("span", { className: "dim-jh-effortLabel" }, "客户端该填："),
       row.fill
     )
   );
 }
 function GatewayCards({ cards, renderRow, isExpanded, onToggle, onCopy, isCopied, foldSuffix, foldLabel, copyNoun }) {
-  return React7.createElement(
+  return React10.createElement(
     "div",
     { className: "dim-jh-gatewayCards", style: { marginTop: "6px" } },
     cards.map((card) => {
       const expanded = isExpanded(card.provider);
       const label = gatewayCardLabel(card.provider, providerLabel);
-      return React7.createElement(
+      return React10.createElement(
         "div",
         {
           // ⚠️ 供应商 key 拿不到时用 `__unknown__`：`key: ''` 会让 React 报警并可能丢行。
           key: card.provider === "" ? "__unknown__" : card.provider,
           className: "dim-jh-gatewayCard"
         },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-gatewayCardHead" },
-          React7.createElement(
+          React10.createElement(
             "button",
             {
               className: "dim-jh-gatewayCardToggle",
@@ -13384,25 +17534,25 @@ function GatewayCards({ cards, renderRow, isExpanded, onToggle, onCopy, isCopied
             //    被点击/换行。放外面时窄屏换行会把图标甩到上一行去。
             //    `card.provider` 可能是空串（上游没回传供应商字段，卡片标题回落
             //    到兜底名）—— `ProviderLogo` 对未知 id 返回 null，正好不留空位。
-            React7.createElement(ProviderLogo, { provider: card.provider }),
+            React10.createElement(ProviderLogo, { provider: card.provider }),
             ` ${label}`
           ),
-          React7.createElement(
+          React10.createElement(
             "span",
             { className: "dim-jh-gatewayCardCount" },
             card.counts.fold > 0 && foldLabel !== "" ? `${card.counts.total} ${foldSuffix} · ${card.counts.fold} 个${foldLabel}` : `${card.counts.total} ${foldSuffix}`
           ),
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn dim-jh-gatewayCardBtn",
             title: `只复制「${label}」这一家的 ${card.counts.total} ${copyNoun}（每行一个完整 ID）。`,
             onClick: () => onCopy(card)
           }, isCopied(card.provider) ? "已复制 ✓" : "复制本组")
         ),
-        expanded ? React7.createElement(
+        expanded ? React10.createElement(
           "div",
           { className: "dim-jh-gatewayCardBody" },
-          card.entries.map((entry2, index) => React7.createElement(
-            React7.Fragment,
+          card.entries.map((entry2, index) => React10.createElement(
+            React10.Fragment,
             { key: `${card.provider}#${entry2.id}#${index}` },
             renderRow(entry2)
           ))
@@ -13411,19 +17561,19 @@ function GatewayCards({ cards, renderRow, isExpanded, onToggle, onCopy, isCopied
     })
   );
 }
-function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onReload, onClose }) {
-  const [copied, setCopied] = React7.useState(false);
-  const [revealed, setRevealed] = React7.useState(false);
-  const [modelsOpen, setModelsOpen] = React7.useState(false);
-  const [effortsOpen, setEffortsOpen] = React7.useState(false);
-  const [modelsQuery, setModelsQuery] = React7.useState("");
-  const [effortsQuery, setEffortsQuery] = React7.useState("");
-  const [effortsCopied, setEffortsCopied] = React7.useState(false);
-  const [idsCopied, setIdsCopied] = React7.useState(false);
-  const [modelCardToggles, setModelCardToggles] = React7.useState({});
-  const [effortCardToggles, setEffortCardToggles] = React7.useState({});
-  const [copiedModelCard, setCopiedModelCard] = React7.useState(null);
-  const [copiedEffortCard, setCopiedEffortCard] = React7.useState(null);
+function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onReload, onClose, rpcCall }) {
+  const [copied, setCopied] = React10.useState(false);
+  const [revealed, setRevealed] = React10.useState(false);
+  const [modelsOpen, setModelsOpen] = React10.useState(false);
+  const [effortsOpen, setEffortsOpen] = React10.useState(false);
+  const [modelsQuery, setModelsQuery] = React10.useState("");
+  const [effortsQuery, setEffortsQuery] = React10.useState("");
+  const [effortsCopied, setEffortsCopied] = React10.useState(false);
+  const [idsCopied, setIdsCopied] = React10.useState(false);
+  const [modelCardToggles, setModelCardToggles] = React10.useState({});
+  const [effortCardToggles, setEffortCardToggles] = React10.useState({});
+  const [copiedModelCard, setCopiedModelCard] = React10.useState(null);
+  const [copiedEffortCard, setCopiedEffortCard] = React10.useState(null);
   const apiKey = status?.apiKey ?? null;
   const models = status?.models ?? [];
   const modelsFiltering = isFilterActive({ query: modelsQuery });
@@ -13433,19 +17583,19 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
   const visibleEffortRows = filterEffortRows(effortRows, effortsQuery);
   const effortsFiltering = isFilterActive({ query: effortsQuery });
   const effortCards = groupGatewayEntries(visibleEffortRows, (row) => row.lossy);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     setCopied(false);
     setRevealed(false);
   }, [status?.apiKey?.value]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     setIdsCopied(false);
     setCopiedModelCard(null);
   }, [models.length, modelsQuery]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     setEffortsCopied(false);
     setCopiedEffortCard(null);
   }, [models.length, effortsQuery]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === "Escape") onClose();
     };
@@ -13494,7 +17644,7 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
   const action = status?.enabled ? "关闭" : "打开";
   const allowLanDisabled = gatewayAllowLanSwitchDisabled(status);
   const allowLanAction = status?.allowLan ? "关闭" : "打开";
-  return React7.createElement(
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-modalOverlay",
@@ -13502,7 +17652,7 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
         if (event.target === event.currentTarget) onClose();
       }
     },
-    React7.createElement(
+    React10.createElement(
       "div",
       {
         className: "dim-jh-modal dim-jh-gatewayModal",
@@ -13510,30 +17660,30 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
         "aria-modal": "true",
         "aria-label": "本机 OpenAI 网关"
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalHead" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalTitle" },
-          React7.createElement("strong", null, "本机 OpenAI 网关")
+          React10.createElement("strong", null, "本机 OpenAI 网关")
         ),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modelPanelActions" },
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             title: "重新读取网关状态。",
             onClick: () => void onReload()
           }, "刷新"),
-          React7.createElement("button", {
+          React10.createElement("button", {
             className: "dim-jh-btn",
             "data-kind": "primary",
             onClick: onClose
           }, "完成")
         )
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-modalBody" },
         // ── 第 1 段：开关与连接信息 ──
@@ -13541,16 +17691,16 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
         // 一起有点难看清」）。做法是每段包一个 .dim-jh-gatewaySection：
         // 段与段之间用上边框 + 更大的间距分开，段内保持紧凑。
         // ⚠️ 不要用「给每段加不同底色」：弹窗会被截图，色块在深色主题下还要另配一套 token。
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-gatewaySection" },
-          React7.createElement(
+          React10.createElement(
             "label",
             { className: "dim-jh-modelRow" },
-            React7.createElement(
+            React10.createElement(
               "span",
               { className: "dim-jh-modelInfo" },
-              React7.createElement("strong", { className: "dim-jh-modelName" }, "启用本机网关"),
+              React10.createElement("strong", { className: "dim-jh-modelName" }, "启用本机网关"),
               // ⚠️ 用户 2026-10-04 要求这句只留「在 127.0.0.1 监听，供客户端调用」——
               // 原先列了 Pi / Continue / Cline / OpenCode 四个客户端名，在窄面板下折成两行
               // 且把「打开/关闭」那个动作词挤到很后面。客户端列举属于 README 的内容。
@@ -13558,13 +17708,13 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
               // 就是容器桥接 IP），写死 127.0.0.1 会让用户照着抄一个从容器外连不上的
               // 地址 —— 而那正是 issue 报告者踩的坑。未在监听时退回「本机」这一定性
               // 说法（与 gatewayEndpoint 返回 '' 的既有取舍同源：不编造具体地址）。
-              React7.createElement(
+              React10.createElement(
                 "code",
                 { className: "dim-jh-modelId" },
                 status?.address ? `在 ${status.address.host} 监听，供客户端调用` : "在本机监听，供客户端调用"
               )
             ),
-            React7.createElement("input", {
+            React10.createElement("input", {
               type: "checkbox",
               className: "dim-jh-switch",
               role: "switch",
@@ -13579,20 +17729,20 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
           // ⚠️ 与主开关同一行结构，但**语义不同**：它改变的是监听地址（127.0.0.1 ↔
           // 0.0.0.0），翻动会触发服务端关闭旧实例并重建换绑；env 显式给了
           // DSH_OPENAI_GATEWAY_HOST 时被禁用（那一刻翻动无效，禁用并说明原因）。
-          React7.createElement(
+          React10.createElement(
             "label",
             { className: "dim-jh-modelRow" },
-            React7.createElement(
+            React10.createElement(
               "span",
               { className: "dim-jh-modelInfo" },
-              React7.createElement("strong", { className: "dim-jh-modelName" }, "允许局域网访问"),
-              React7.createElement(
+              React10.createElement("strong", { className: "dim-jh-modelName" }, "允许局域网访问"),
+              React10.createElement(
                 "code",
                 { className: "dim-jh-modelId" },
                 "打开后监听 0.0.0.0，同一局域网的设备可凭 API Key 访问"
               )
             ),
-            React7.createElement("input", {
+            React10.createElement("input", {
               type: "checkbox",
               className: "dim-jh-switch",
               role: "switch",
@@ -13602,14 +17752,14 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
               onChange: () => void onToggleAllowLan(!(status?.allowLan === true))
             })
           ),
-          gatewayAllowLanHint(status) ? React7.createElement("p", {
+          gatewayAllowLanHint(status) ? React10.createElement("p", {
             key: "allow-lan-hint",
             className: "dim-jh-modalHint dim-jh-gatewayLine"
           }, gatewayAllowLanHint(status)) : null,
           gatewayStatusLines(status).map((line, index) => (
             // ⚠️ 顶部三行是同一段话，用更紧的 .dim-jh-gatewayLine（再叠上弹窗级的
             // 6px 会显得像三段互不相干的内容）。
-            React7.createElement("p", {
+            React10.createElement("p", {
               key: `status-${index}`,
               className: "dim-jh-modalHint dim-jh-gatewayLine"
             }, line)
@@ -13622,25 +17772,25 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
           // <网关 API Key>。」+ 下面一排按钮，现改为「API KEY：」与两个按钮**同一行**。
           // Bearer 那半句没丢 —— 它移到了 CC Switch 之外的客户端需要的信息里，见 README
           // 的「鉴权使用」；面板上只留用户真正要抄的两个东西（地址、密钥）。
-          apiKey ? React7.createElement(
+          apiKey ? React10.createElement(
             "div",
             { className: "dim-jh-gatewayKeyRow", style: { marginTop: "6px" } },
-            React7.createElement("span", { className: "dim-jh-modalHint dim-jh-gatewayKeyLabel" }, "API KEY："),
-            React7.createElement("button", {
+            React10.createElement("span", { className: "dim-jh-modalHint dim-jh-gatewayKeyLabel" }, "API KEY："),
+            React10.createElement("button", {
               className: "dim-jh-btn",
               "data-kind": "primary",
               title: "把密钥复制到剪贴板。明文会进入剪贴板历史，注意别在不信任的机器上这么做。",
               onClick: () => void handleCopy()
             }, copied ? "已复制 ✓" : "复制密钥"),
-            revealed ? React7.createElement("code", {
+            revealed ? React10.createElement("code", {
               className: "dim-jh-modelId",
               style: { userSelect: "all" }
-            }, apiKey.value) : React7.createElement("button", {
+            }, apiKey.value) : React10.createElement("button", {
               className: "dim-jh-btn",
               title: "自动复制不可用时用它显示明文，供手动选中。",
               onClick: () => setRevealed(true)
             }, "显示明文")
-          ) : React7.createElement(
+          ) : React10.createElement(
             "p",
             { className: "dim-jh-modalHint" },
             "API KEY：尚未生成（启用网关时会自动创建）。"
@@ -13649,36 +17799,36 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
           // 「尚未生成（启用网关时会自动创建）」已经把事情说完，而
           // `gatewayApiKeyHint(null)` 说的是同一件事 —— 两句并排就是冗余，
           // 与本次「精简臃肿」的目标正好相反。
-          apiKey ? React7.createElement("p", { className: "dim-jh-modalHint" }, gatewayApiKeyHint(apiKey)) : null
+          apiKey ? React10.createElement("p", { className: "dim-jh-modalHint" }, gatewayApiKeyHint(apiKey)) : null
         ),
         // ── 第 2 段：模型目录 ──
         // 存在的理由：有些 agent（ZCode 等）**不会**主动扫 `/v1/models`，要靠用户
         // 手工把 ID 填进配置。而该端点需要 Bearer 头，浏览器地址栏直接打开只会得到
         // 401 —— 所以清单必须出现在设置页里。
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-gatewaySection" },
-          React7.createElement(
+          React10.createElement(
             "p",
             { className: "dim-jh-gatewaySectionTitle" },
-            React7.createElement("strong", null, "模型 ID（可用的完整清单）")
+            React10.createElement("strong", null, "模型 ID（可用的完整清单）")
           ),
-          React7.createElement("p", { className: "dim-jh-modalHint" }, gatewayModelsHint(models, status?.modelsSource)),
+          React10.createElement("p", { className: "dim-jh-modalHint" }, gatewayModelsHint(models, status?.modelsSource)),
           // ⚠️ `dim-jh-gatewayActions` 是给「下方四个按钮压成与密钥行同款小号」用的钩子
           // （见 jet-hub-styles.js 里与 .dim-jh-gatewayKeyRow 合并的那条规则）。
           // 不能直接改 .dim-jh-modelPanelActions .dim-jh-btn —— 那个类在页头、模型面板、
           // 卡片头等 8 处都在用，改它会把无关页面一起改小。
-          React7.createElement(
+          React10.createElement(
             "div",
             { className: "dim-jh-modelPanelActions dim-jh-gatewayActions", style: { marginTop: "4px" } },
-            React7.createElement("button", {
+            React10.createElement("button", {
               className: "dim-jh-btn",
               "data-kind": "primary",
               disabled: visibleModels.length === 0,
               title: "把模型 ID 每行一个复制到剪贴板（每行一个完整 ID；有搜索词时只复制筛出来的那些）。",
               onClick: () => void handleCopyModelIds()
             }, idsCopied ? "已复制 ✓" : `复制全部 ${visibleModels.length} 个 ID`),
-            React7.createElement("button", {
+            React10.createElement("button", {
               className: "dim-jh-btn",
               "aria-expanded": modelsOpen ? "true" : "false",
               onClick: () => {
@@ -13687,13 +17837,13 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
               }
             }, modelsOpen ? "收起清单" : "展开清单")
           ),
-          modelsOpen ? React7.createElement(
-            React7.Fragment,
+          modelsOpen ? React10.createElement(
+            React10.Fragment,
             null,
-            React7.createElement(
+            React10.createElement(
               "div",
               { className: "dim-jh-modelFilterBar" },
-              React7.createElement("input", {
+              React10.createElement("input", {
                 type: "search",
                 className: "dim-jh-input dim-jh-modelSearch",
                 placeholder: "搜索模型 ID 或展示名…",
@@ -13701,15 +17851,15 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
                 "aria-label": "搜索模型 ID",
                 onChange: (event) => setModelsQuery(event.target.value)
               }),
-              modelsFiltering ? React7.createElement("button", {
+              modelsFiltering ? React10.createElement("button", {
                 className: "dim-jh-btn",
                 title: "清空搜索词，恢复完整清单。",
                 onClick: () => setModelsQuery("")
               }, "清空搜索") : null
             ),
-            visibleModels.length === 0 ? React7.createElement("div", { className: "dim-jh-gatewayEmpty" }, gatewayModelsEmptyHint(modelsQuery)) : React7.createElement(GatewayCards, {
+            visibleModels.length === 0 ? React10.createElement("div", { className: "dim-jh-gatewayEmpty" }, gatewayModelsEmptyHint(modelsQuery)) : React10.createElement(GatewayCards, {
               cards: modelCards,
-              renderRow: (model) => React7.createElement(GatewayModelRow, { model }),
+              renderRow: (model) => React10.createElement(GatewayModelRow, { model }),
               isExpanded: (provider) => gatewayCardExpanded(
                 modelCards.find((card) => card.provider === provider),
                 // 有搜索词时一律展开：命中结果藏在折叠卡里，用户会以为「搜不到」。
@@ -13739,36 +17889,36 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
         //
         // ⚠️ 数据只含**已开启**的模型（来自适配器 listModels 的黑名单过滤），
         // 故与对话框里的模型选择器同源。
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-gatewaySection" },
-          React7.createElement(
+          React10.createElement(
             "p",
             { className: "dim-jh-gatewaySectionTitle" },
-            React7.createElement("strong", null, "思考档位对照表")
+            React10.createElement("strong", null, "思考档位对照表")
           ),
           // ⚠️ 说明**一行一个 p**（与弹窗顶部 gatewayStatusLines 同款做法）。
           // 用户 2026-10-04 第三次报障：这两句原先拼成一整段交给浏览器断行，
           // 于是品牌名被从中间切开 —— 前一行结尾是「CC」、下一行开头是「Switch」。
           // 两句本就各说一件事，各占一行既不会断开品牌名，也更好读。
-          gatewayEffortsHintLines(models).map((line, index) => React7.createElement("p", {
+          gatewayEffortsHintLines(models).map((line, index) => React10.createElement("p", {
             key: `efforts-hint-${index}`,
             className: "dim-jh-modalHint dim-jh-gatewayLine"
           }, line)),
           // ⚠️ 用户 2026-10-04 要求这两个按钮**互换位置**，与模型清单那段保持一致
           //（那边是「复制全部 …」在前、「展开清单」在后）。顺序统一后，
           // 三段里的按钮位置可预期，用户不必每段重新找。
-          React7.createElement(
+          React10.createElement(
             "div",
             { className: "dim-jh-modelPanelActions dim-jh-gatewayActions", style: { marginTop: "4px" } },
             // 复制的是**当前筛出来的那些行**：用户搜完再复制，拿到的正是屏幕上看到的内容。
-            effortRows.length > 0 ? React7.createElement("button", {
+            effortRows.length > 0 ? React10.createElement("button", {
               className: "dim-jh-btn",
               "data-kind": "primary",
               title: "把对照表（含真实档位与该填的值）复制到剪贴板。有搜索词时只复制筛出来的行。",
               onClick: () => void handleCopyEfforts()
             }, effortsCopied ? "已复制 ✓" : `复制对照表（${visibleEffortRows.length} 行）`) : null,
-            React7.createElement("button", {
+            React10.createElement("button", {
               className: "dim-jh-btn",
               "aria-expanded": effortsOpen ? "true" : "false",
               // 没有模型声明档位时禁用而非「点了没反应」：展开一张空表毫无意义。
@@ -13779,18 +17929,18 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
               }
             }, effortsOpen ? "收起对照表" : `展开对照表（${effortRows.length} 行）`)
           ),
-          effortsOpen ? React7.createElement(
-            React7.Fragment,
+          effortsOpen ? React10.createElement(
+            React10.Fragment,
             null,
             // 搜索：对照表本身要能按**档位名**查（「哪些渠道有 xhigh？」「界面上的 Max 是哪个 id？」
             // —— 后者是用户真踩过的坑）。故判据比模型清单的搜索多匹配档位名，
             // 但「空搜索词 = 未搜索」的约定与它共用同一份实现（model-filter.js）。
             //
             // ⚠️ 用户 2026-10-04 要求它**展开后才可用**（原先挂在展开区之外，收起时也在占位）。
-            effortRows.length > 0 ? React7.createElement(
+            effortRows.length > 0 ? React10.createElement(
               "div",
               { className: "dim-jh-modelFilterBar" },
-              React7.createElement("input", {
+              React10.createElement("input", {
                 type: "search",
                 className: "dim-jh-input dim-jh-modelSearch",
                 placeholder: "搜索模型 id、展示名或档位名（如 xhigh / Max / Extra）…",
@@ -13798,15 +17948,15 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
                 "aria-label": "搜索思考档位",
                 onChange: (event) => setEffortsQuery(event.target.value)
               }),
-              effortsFiltering ? React7.createElement("button", {
+              effortsFiltering ? React10.createElement("button", {
                 className: "dim-jh-btn",
                 title: "清空搜索词，恢复完整对照表。",
                 onClick: () => setEffortsQuery("")
               }, "清空搜索") : null
             ) : null,
-            visibleEffortRows.length === 0 ? React7.createElement("div", { className: "dim-jh-effortEmpty" }, gatewayEffortsEmptyHint(effortsQuery)) : React7.createElement(GatewayCards, {
+            visibleEffortRows.length === 0 ? React10.createElement("div", { className: "dim-jh-effortEmpty" }, gatewayEffortsEmptyHint(effortsQuery)) : React10.createElement(GatewayCards, {
               cards: effortCards,
-              renderRow: (row) => React7.createElement(GatewayEffortRow, { row }),
+              renderRow: (row) => React10.createElement(GatewayEffortRow, { row }),
               isExpanded: (provider) => gatewayCardExpanded(
                 effortCards.find((card) => card.provider === provider),
                 // ⚠️ 有搜索词时一律展开：命中结果藏在折叠卡里，用户会以为「搜不到」
@@ -13828,21 +17978,26 @@ function GatewayPanel({ status, busy, notice, onToggle, onToggleAllowLan, onRelo
             })
           ) : null
         ),
+        // ── 第 4 段：模型同步（2026-11-11）──
+        // ⚠️ 位置从「设置弹窗」搬到这里的理由：同步的**就是上面这份模型目录**，
+        //    用户点「网关」本就是为了看目录 ⇒ 入口在这里才找得到。
+        //    （用户实测：藏在设置弹窗第 5 节时完全没发现。）
+        React10.createElement(SyncModelsSection, { rpcCall }),
         // ── 网关弹窗脚注 ──
         // ⚠️ 这段是**安全声明**，随着 host 可配（issue IKL7UN）它必须跟着实际监听
         // 地址变化 —— 写死「只绑定 127.0.0.1」在容器部署下是错误陈述（详见
         // `gatewayFootnote` 的注释）。
-        React7.createElement(
+        React10.createElement(
           "p",
           { className: "dim-jh-modalHint dim-jh-gatewayFootnote" },
           gatewayFootnote(status)
         ),
-        notice ? React7.createElement("div", {
+        notice ? React10.createElement("div", {
           className: "dim-jh-probeNotice",
           "data-tone": notice.tone,
           role: notice.tone === "error" ? "alert" : "status",
           style: { marginTop: "10px" }
-        }, React7.createElement("div", null, notice.text)) : null
+        }, React10.createElement("div", null, notice.text)) : null
       )
     )
   );
@@ -13870,21 +18025,23 @@ var AGG_WIRED_CHANNEL_IDS = [
   "monkeycode",
   "monkeycodeintl",
   "baizhi",
-  "marvis"
+  "marvis",
+  "agnescode",
+  "agnescodeintl"
 ];
 var AGG_EXPIRY_REPROBE_MS = 2 * 60 * 1e3;
-function AggregatePanel({ rpcCall }) {
-  const [models, setModels] = React7.useState(null);
-  const [rejections, setRejections] = React7.useState({});
-  const [busy, setBusy] = React7.useState(false);
-  const [notice, setNotice] = React7.useState(null);
-  const [expanded, setExpanded] = React7.useState({});
-  const [orderMode, setOrderMode] = React7.useState("expiry");
-  const [pendingOrder, setPendingOrder] = React7.useState({});
-  const [orderBusy, setOrderBusy] = React7.useState({});
-  const [rejectBusy, setRejectBusy] = React7.useState(false);
-  const [lastProbeAt, setLastProbeAt] = React7.useState(null);
-  const load = React7.useCallback(async (force = false, options = {}) => {
+function AggregatePanel({ rpcCall, providerStatuses, providerBusy, onToggleProvider }) {
+  const [models, setModels] = React10.useState(null);
+  const [rejections, setRejections] = React10.useState({});
+  const [busy, setBusy] = React10.useState(false);
+  const [notice, setNotice] = React10.useState(null);
+  const [expanded, setExpanded] = React10.useState({});
+  const [orderMode, setOrderMode] = React10.useState("expiry");
+  const [pendingOrder, setPendingOrder] = React10.useState({});
+  const [orderBusy, setOrderBusy] = React10.useState({});
+  const [rejectBusy, setRejectBusy] = React10.useState(false);
+  const [lastProbeAt, setLastProbeAt] = React10.useState(null);
+  const load = React10.useCallback(async (force = false, options = {}) => {
     setBusy(true);
     try {
       const res = await rpcCall("aggregate.catalog", { force });
@@ -13900,10 +18057,10 @@ function AggregatePanel({ rpcCall }) {
       setBusy(false);
     }
   }, [rpcCall]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     void load();
   }, [load]);
-  const onToggleCandidate = React7.useCallback(async (model, candidate) => {
+  const onToggleCandidate = React10.useCallback(async (model, candidate) => {
     const { rpc, payload } = candidateToggleAction(model.canonicalId, candidate, {
       // ⚠️ 传**回退后**的三态：老宿主（响应无 `state`）下按终端的拒绝表判，
       //    于是只会发出老宿主认识的 `aggregate.setRejected`（它没有 `setAllowed` 端点）。
@@ -13927,9 +18084,9 @@ function AggregatePanel({ rpcCall }) {
       await load(false, { keepNotice: true });
     }
   }, [rpcCall, load]);
-  const [expiryOrder, setExpiryOrder] = React7.useState(null);
-  const [expiryBusy, setExpiryBusy] = React7.useState(false);
-  const onSortByExpiry = React7.useCallback(async () => {
+  const [expiryOrder, setExpiryOrder] = React10.useState(null);
+  const [expiryBusy, setExpiryBusy] = React10.useState(false);
+  const onSortByExpiry = React10.useCallback(async () => {
     setExpiryBusy(true);
     try {
       const res = await rpcCall("aggregate.expiryOrder", { force: true });
@@ -13942,7 +18099,7 @@ function AggregatePanel({ rpcCall }) {
       setExpiryBusy(false);
     }
   }, [rpcCall]);
-  const onSelectOrderMode = React7.useCallback(async (mode) => {
+  const onSelectOrderMode = React10.useCallback(async (mode) => {
     if (mode === orderMode) {
       await onSortByExpiry();
       return;
@@ -13957,7 +18114,7 @@ function AggregatePanel({ rpcCall }) {
       setNotice(`切换排序方式失败：${caught?.message ?? String(caught)}`);
     }
   }, [orderMode, rpcCall, load, onSortByExpiry]);
-  React7.useEffect(() => startExpiryReprobe({
+  React10.useEffect(() => startExpiryReprobe({
     orderMode,
     intervalMs: AGG_EXPIRY_REPROBE_MS,
     isHidden: () => typeof document !== "undefined" && document.hidden === true,
@@ -13965,7 +18122,7 @@ function AggregatePanel({ rpcCall }) {
       void onSortByExpiry();
     }
   }), [orderMode, onSortByExpiry]);
-  const onRejectNonExpiring = React7.useCallback(async () => {
+  const onRejectNonExpiring = React10.useCallback(async () => {
     setRejectBusy(true);
     try {
       const res = await rpcCall("aggregate.rejectNonExpiring", {});
@@ -13979,7 +18136,7 @@ function AggregatePanel({ rpcCall }) {
     }
   }, [rpcCall, load]);
   const orderOf = (model) => pendingOrder[model.canonicalId] ?? model.order ?? [];
-  const commitOrder = React7.useCallback(async (model, participating) => {
+  const commitOrder = React10.useCallback(async (model, participating) => {
     if (orderBusy[model.canonicalId] === true) return;
     setOrderBusy((prev) => ({ ...prev, [model.canonicalId]: true }));
     try {
@@ -13998,7 +18155,7 @@ function AggregatePanel({ rpcCall }) {
       setOrderBusy((prev) => ({ ...prev, [model.canonicalId]: false }));
     }
   }, [orderBusy, rpcCall]);
-  const dragKeyRef = React7.useRef(null);
+  const dragKeyRef = React10.useRef(null);
   const renderCandidate = (model, candidate, options = {}) => {
     const canonicalId = model.canonicalId;
     const resolvedState = { state: candidateStateOf(canonicalId, candidate, rejections) };
@@ -14007,7 +18164,7 @@ function AggregatePanel({ rpcCall }) {
     const inactive = candidateStateOf(canonicalId, candidate, rejections) !== "allowed";
     const draggable = options.draggable === true;
     const parts = candidateRowParts(candidate);
-    return React7.createElement(
+    return React10.createElement(
       "div",
       {
         className: "dim-jh-aggCandidate" + (inactive ? " dim-jh-aggCandidateRejected" : "") + (options.dragOver === true ? " dim-jh-aggDragOver" : ""),
@@ -14051,7 +18208,7 @@ function AggregatePanel({ rpcCall }) {
       },
       // ⚠️ 拖动手柄**显式**给出（HTML5 拖动的一个已知可用性坑）：
       //    整行可拖时用户不知道能拖；且手柄能承载 title 说明「拖到哪」。
-      draggable ? React7.createElement("span", {
+      draggable ? React10.createElement("span", {
         className: "dim-jh-aggDragHandle",
         title: "按住拖动以调整这个模型的候选顺序",
         "aria-hidden": "true"
@@ -14062,7 +18219,7 @@ function AggregatePanel({ rpcCall }) {
       //    buddy / codearts / lobsterai / loomy / … 各有一条候选），认渠道却只能
       //    读名字。图标在这里的信息量比其它列表更大。
       //    `candidate.provider` 就是渠道 id，与 `candidateRowLabel` 用的是同一个值。
-      React7.createElement(ProviderLogo, { provider: candidate.provider }),
+      React10.createElement(ProviderLogo, { provider: candidate.provider }),
       // ── 候选行的文字部分：拆成**四个独立格子**（用户 2026-10-27「美化聚合页模型列表」）──
       // ⚠️ 原先这里是 `candidateRowLabel(candidate)` 一个字符串直接塞进 span，
       //    于是「渠道名 · 模型 id · 倍率」三者在视觉上完全同权、同色、同字号 ——
@@ -14075,27 +18232,27 @@ function AggregatePanel({ rpcCall }) {
       // ⚠️ 整行的完整文案仍挂在 `title` 上 —— 模型 id 过长时会被省略号截断，
       //    悬停必须能读到全文，否则用户分不清 `deepseek-v4.1-flash` 与
       //    `deepseek-v4.1-flash-thinking`（前 20 个字符完全一样）。
-      React7.createElement(
+      React10.createElement(
         "span",
         {
           className: "dim-jh-aggCandidateLabel",
           title: candidateRowLabel(candidate)
         },
-        React7.createElement("span", { className: "dim-jh-aggCandidateProvider" }, parts.provider),
-        React7.createElement("span", { className: "dim-jh-aggCandidateId" }, parts.realId),
-        parts.price === null ? null : React7.createElement("span", {
+        React10.createElement("span", { className: "dim-jh-aggCandidateProvider" }, parts.provider),
+        React10.createElement("span", { className: "dim-jh-aggCandidateId" }, parts.realId),
+        parts.price === null ? null : React10.createElement("span", {
           className: "dim-jh-aggCandidatePrice",
           // `price === 0` 是「不计倍率」，与「倍率 0.15」是两回事 ⇒ 用 data-free 走另一套配色。
           "data-free": parts.price === 0 ? "true" : void 0,
           title: parts.price === 0 ? "该渠道对这个模型不计倍率（免费）" : `该渠道对这个模型的计费倍率：x${parts.price}`
         }, parts.price === 0 ? "免费" : `x${parts.price}`),
-        parts.patched ? React7.createElement("span", {
+        parts.patched ? React10.createElement("span", {
           className: "dim-jh-aggCandidatePatch",
           title: "这条候选来自显式映射补丁（不是字面推导出来的）—— 规格 §7.1 要求对这种来源人工核查一次。"
         }, "补丁") : null
       ),
       // ⚠️ 只有探测过才显示到期提示 —— 否则显示「到期未知」会让用户以为查过了。
-      expiry === void 0 ? null : React7.createElement("span", {
+      expiry === void 0 ? null : React10.createElement("span", {
         className: "dim-jh-aggCandidateExpiry",
         title: "按临期排序时算出的到期时刻"
       }, expiryLabel(expiry)),
@@ -14107,7 +18264,7 @@ function AggregatePanel({ rpcCall }) {
       // ⚠️ 上移 / 下移按钮**已删除**（用户明确要求：「我们不应该有上下箭头就是应该
       //    鼠标拖动」）。键盘可达性由开关与展开区承担；拖动走 HTML5 drag（已修
       //    `setData` 那一处，见 `onDragStart`）。
-      React7.createElement("button", {
+      React10.createElement("button", {
         type: "button",
         className: "dim-jh-aggToggle" + (state.pressed ? "" : " dim-jh-aggToggleOff"),
         // ⚠️ 语义是「**参与**轮换」的正向开关：打开 = 允许用这个渠道（规格 §7.1 的原话）。
@@ -14131,24 +18288,24 @@ function AggregatePanel({ rpcCall }) {
       expiry: expiryOrder[c.provider]
     })));
     const blocker = rotationBlockerOf(model, rejections);
-    const blockerNode = blocker === "all-rejected" ? React7.createElement("span", {
+    const blockerNode = blocker === "all-rejected" ? React10.createElement("span", {
       className: "dim-jh-aggAllRejected",
       title: "你把该模型的全部候选都关了「参与轮换」——请求会如实报「没有任何可用候选」。若想恢复，展开后在子列表里重新打开至少一条。"
-    }, "全部被拒") : blocker === "all-default" ? React7.createElement("span", {
+    }, "全部被拒") : blocker === "all-default" ? React10.createElement("span", {
       className: "dim-jh-aggAllRejected",
       title: "该模型的候选都来自没有临期积分折算的渠道，默认不参与轮换。展开后可以逐条手工打开（打开后它们排在所有能算出临期的候选之后）。在打开之前，这个模型不会出现在模型选择器里。"
-    }, "无临期全拒") : blocker === "mixed" ? React7.createElement("span", {
+    }, "无临期全拒") : blocker === "mixed" ? React10.createElement("span", {
       className: "dim-jh-aggAllRejected",
       title: "候选全部未参与轮换：其中一部分是你拒绝的、一部分是没有临期积分折算默认不参与的。展开后可以逐条处理。"
     }, "均未参与") : null;
-    return React7.createElement(
+    return React10.createElement(
       "div",
       {
         className: "dim-jh-aggModel",
         "data-open": open ? "true" : void 0,
         key: model.canonicalId
       },
-      React7.createElement(
+      React10.createElement(
         "button",
         {
           type: "button",
@@ -14156,7 +18313,7 @@ function AggregatePanel({ rpcCall }) {
           "aria-expanded": String(open),
           onClick: () => setExpanded((prev) => ({ ...prev, [model.canonicalId]: !open }))
         },
-        React7.createElement(
+        React10.createElement(
           "span",
           { className: "dim-jh-aggModelName" },
           model.name || model.canonicalId
@@ -14168,10 +18325,10 @@ function AggregatePanel({ rpcCall }) {
         //   ⚠️ 候选**数量**信息并未丢失：展开后「未参与轮换（K）」那一段仍带计数，
         //   而参与数量 = 展开后的可拖行数。
         blockerNode,
-        React7.createElement(
+        React10.createElement(
           "span",
           { className: "dim-jh-aggChevron", "aria-hidden": "true" },
-          React7.createElement(
+          React10.createElement(
             "svg",
             {
               width: 12,
@@ -14185,11 +18342,11 @@ function AggregatePanel({ rpcCall }) {
             },
             // 右侧箭头，展开时由 CSS 转 90° 朝下 —— 比换两个字符顺滑，
             // 且旋转有过渡动画（字符版本没有中间态，看起来是「跳」的）。
-            React7.createElement("path", { d: "M9 6l6 6-6 6" })
+            React10.createElement("path", { d: "M9 6l6 6-6 6" })
           )
         )
       ),
-      open ? React7.createElement(
+      open ? React10.createElement(
         "div",
         { className: "dim-jh-aggCandidates" },
         candidates.map((candidate, index) => renderCandidate(model, candidate, {
@@ -14202,10 +18359,10 @@ function AggregatePanel({ rpcCall }) {
         //    **松手即提交**（见 `onDrop`），那个按钮既多余、又会让人以为
         //    「不点就不会保存」（真实缺陷：原先不点就真的不保存 ⇒
         //     关窗再开顺序就丢了）。交互与本仓库另两处拖动统一。
-        manual && inactive.length > 0 ? React7.createElement(
+        manual && inactive.length > 0 ? React10.createElement(
           "div",
           { className: "dim-jh-aggInactiveSection" },
-          React7.createElement(
+          React10.createElement(
             "span",
             { className: "dim-jh-aggInactiveTitle" },
             `未参与轮换（${inactive.length}）`
@@ -14220,27 +18377,56 @@ function AggregatePanel({ rpcCall }) {
     const minutes = Math.floor((Date.now() - lastProbeAt) / 6e4);
     return minutes < 1 ? "刚刚" : `${minutes} 分钟前`;
   })();
-  return React7.createElement(
+  const switchState = providerSwitchState(providerStatuses?.["aggregate"]);
+  const switchBusy = providerBusy?.has?.("aggregate") === true;
+  return React10.createElement(
     "div",
     {
       className: "dim-jh-aggPanel"
     },
     // ── 说明区 ──
-    React7.createElement(
+    React10.createElement(
       "section",
       { className: "dim-jh-aggIntro" },
-      React7.createElement("h2", { className: "dim-jh-aggTitle" }, "聚合"),
-      React7.createElement(
+      // 标题行：左边「聚合」标题，右边「启用/关闭」开关（与普通供应商页头同款控件）。
+      React10.createElement(
+        "div",
+        {
+          className: "dim-jh-aggTitleRow",
+          style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }
+        },
+        React10.createElement("h2", { className: "dim-jh-aggTitle", style: { margin: 0 } }, "聚合"),
+        React10.createElement(
+          "button",
+          {
+            className: "dim-jh-providerSwitch",
+            type: "button",
+            role: "switch",
+            "aria-checked": switchState.checked ? "true" : "false",
+            "aria-label": `聚合 (跨渠道)：${switchState.checked ? "已启用" : "已关闭"}`,
+            // 与普通供应商同款：不用 disabled（否则 Chromium 不显示原生 tooltip），
+            // 改用 aria-disabled + 点击早退，保住「为什么点不动」的可读原因。
+            "aria-disabled": switchState.disabled === true || switchBusy ? "true" : "false",
+            title: switchBusy ? "正在提交「聚合」的开关变更…" : switchState.reason ?? `点击${switchState.checked ? "关闭" : "打开"}「聚合」（关闭 = 把聚合目录里的全部虚拟模型从模型选择器里移除；再打开即恢复，不影响各渠道自身的账号与黑名单）`,
+            onClick: () => {
+              if (switchState.disabled === true || switchBusy) return;
+              void onToggleProvider?.("aggregate", !switchState.checked);
+            }
+          },
+          React10.createElement("span", { className: "dim-jh-providerSwitchThumb" })
+        )
+      ),
+      React10.createElement(
         "p",
         { className: "dim-jh-aggIntroLine" },
         "把同一个模型在各渠道的条目聚合成一个名字，请求时按「积分最快作废」自动选渠道。"
       ),
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-aggIntroLine" },
         "三层开关互不影响：关渠道（各渠道自己的面板）、关模型（模型选择器）、以及本页子列表里逐条控制某个候选是否参与轮换（只影响这一个模型）。"
       ),
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-aggIntroWarn" },
         "本 provider 无需登录、没有账号池；积分与限流由各渠道自己管理。"
@@ -14248,7 +18434,7 @@ function AggregatePanel({ rpcCall }) {
       // ⚠️ 文案必须**说真话**（2026-10-15 改写）：未接入折算的渠道现在**也出现在目录里**
       //    且可逐条手工打开，故不能再写「不参与轮换（仍可直连使用）」那句 ——
       //    它会让用户以为这里做什么都没用。
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-aggIntroLine" },
         "没有临期积分折算的渠道**默认不参与轮换**（它们现在也出现在目录里，展开模型后可以逐条手工打开）。"
@@ -14256,7 +18442,7 @@ function AggregatePanel({ rpcCall }) {
       // ⚠️ 这一句是**必须**的：手工打开的未接入候选与「无临期积分」的已接入候选
       //    都是 `NEVER` ⇒ 它们排在能算出临期的候选**之后**。用户看到「我明明手工打开了
       //    却排在最后」时，若面板从没说过这件事，就会以为是缺陷。
-      React7.createElement(
+      React10.createElement(
         "p",
         { className: "dim-jh-aggIntroLine" },
         "「按手工排序」模式下可以拖动候选调整顺序。手工打开的「无临期积分」候选排在所有能算出临期的候选之后（两者没有可比较的到期时间），这种混合顺序是正常的、不是缺陷。"
@@ -14267,7 +18453,7 @@ function AggregatePanel({ rpcCall }) {
     //    「43 个聚合模型应该显示在按钮下面」）。
     //    原先计数在最前 ⇒ 它占掉第一行的一个位置。⇒ 现在按钮先排，计数放**最后**
     //    并由 CSS 的 flex-basis: 100% 强制换行 ⇒ 恒定显示在按钮**下面**。
-    React7.createElement(
+    React10.createElement(
       "div",
       { className: "dim-jh-aggToolbar" },
       // ⚠️⚠️ 排序模式改成**单个切换按钮**（用户 2026-10-16 验收要求：
@@ -14285,7 +18471,7 @@ function AggregatePanel({ rpcCall }) {
       //    「解锁永久积分」正是它）⇒ 两套样式看起来不像同一个 UI。
       //    ⇒ 排序切换与「拒绝非临期」「刷新」全部改用 `.dim-jh-btn`，
       //      激活态沿用 `data-kind='primary'`（与「锁定永久积分」**逐字同一形态**）。
-      React7.createElement("button", {
+      React10.createElement("button", {
         type: "button",
         className: "dim-jh-btn",
         "data-kind": orderMode === "manual" ? "primary" : void 0,
@@ -14299,7 +18485,7 @@ function AggregatePanel({ rpcCall }) {
       // ⚠️ 一键「拒绝非临期」：把未接入折算渠道的手工打开恢复为「默认不参与」。
       //    它**不弹确认**（可逆、且逐条还能再打开）—— 但文案必须区分
       //    「恢复了 N 条」与「本来就没打开」（见 `onRejectNonExpiring`）。
-      React7.createElement("button", {
+      React10.createElement("button", {
         type: "button",
         className: "dim-jh-btn",
         disabled: rejectBusy,
@@ -14308,7 +18494,7 @@ function AggregatePanel({ rpcCall }) {
           void onRejectNonExpiring();
         }
       }, rejectBusy ? "处理中…" : "拒绝非临期"),
-      React7.createElement("button", {
+      React10.createElement("button", {
         type: "button",
         className: "dim-jh-btn",
         disabled: busy,
@@ -14321,13 +18507,13 @@ function AggregatePanel({ rpcCall }) {
       }, busy ? "刷新中…" : "刷新"),
       // ⚠️ 计数**放最后**（见工具行开头的注释）：CSS 的 flex-basis: 100% 让它
       //    恒定换行到按钮**下一行**（用户要求「应该显示在按钮下面」）。
-      React7.createElement(
+      React10.createElement(
         "span",
         { className: "dim-jh-aggCount" },
         models === null ? "读取中…" : `${models.length} 个聚合模型`
       )
     ),
-    notice !== null ? React7.createElement("div", { className: "dim-jh-aggNotice" }, notice) : null,
+    notice !== null ? React10.createElement("div", { className: "dim-jh-aggNotice" }, notice) : null,
     // ── 空态 ──
     // ⚠️ 文案**不得写死渠道数量**（那类快照必然腐坏，仓库既有教训：接入 accio/officeace
     //    后手抄名单没人回头改，只登那两家的用户会看到「请先登录」这句错话）。
@@ -14335,7 +18521,7 @@ function AggregatePanel({ rpcCall }) {
     //    由用例锁死；**名字不抄**（registry 是唯一真相源）⇒ 改名 / 新增均零改动。
     // ⚠️ 2026-10-15 补上「或手工打开」这条出路：未接入渠道的账号**不会**让模型自动
     //    进轮换，用户若只登录了那几家，看到的仍是空态 —— 必须告诉他第二步做什么。
-    models !== null && models.length === 0 ? React7.createElement(
+    models !== null && models.length === 0 ? React10.createElement(
       "div",
       { className: "dim-jh-aggEmpty" },
       "当前没有可聚合的模型：请先在至少一个已接入临期折算的渠道（" + AGG_WIRED_CHANNEL_IDS.map((id) => providerLabel(id)).join(" / ") + "）登录账号；或者登录其它渠道后，在本页展开模型、把候选逐条手工打开。"
@@ -14343,20 +18529,20 @@ function AggregatePanel({ rpcCall }) {
     // ── 模型列表（**平铺**，全局按候选渠道数降序；不再有厂商分组标题）──
     sortedModels.map((model) => renderModel(model)),
     // ── 页脚说明 ──
-    React7.createElement(
+    React10.createElement(
       "footer",
       { className: "dim-jh-aggFooter" },
-      React7.createElement(
+      React10.createElement(
         "p",
         null,
         "为什么没有签到 / 重置 / 新建账号按钮：本 provider 不持有账号与积分。"
       ),
-      React7.createElement(
+      React10.createElement(
         "p",
         null,
         "候选如何得出：字面推导（id / name 双通道）+ 显式映射补丁。"
       ),
-      React7.createElement(
+      React10.createElement(
         "p",
         null,
         "如何核查：展开任一模型，逐条看渠道与真实 modelId；不同意就关掉那一行。"
@@ -14364,58 +18550,193 @@ function AggregatePanel({ rpcCall }) {
     )
   );
 }
+var __tokenLedgerPanelForTest = TokenLedgerPanel;
 function JetHubPage({ rpcCall }) {
-  const [selected, setSelected] = React7.useState(PROVIDERS[0].id);
-  const [version, setVersion] = React7.useState(0);
-  const [checkinBusy, setCheckinBusy] = React7.useState(false);
-  const [checkinNotice, setCheckinNotice] = React7.useState(null);
-  const [showSettings, setShowSettings] = React7.useState(false);
-  const [autoCheckin, setAutoCheckin] = React7.useState(null);
-  const [autoCheckinError, setAutoCheckinError] = React7.useState("");
-  const [autoCheckinBusy, setAutoCheckinBusy] = React7.useState(false);
-  const [timeDraft, setTimeDraft] = React7.useState(["09:00", "21:00"]);
-  const [jitterOn, setJitterOn] = React7.useState(false);
-  const [jitterMinutes, setJitterMinutes] = React7.useState(10);
-  const timeDraftRef = React7.useRef(timeDraft);
-  const jitterOnRef = React7.useRef(jitterOn);
-  const jitterMinutesRef = React7.useRef(jitterMinutes);
-  React7.useEffect(() => {
+  const [selected, setSelected] = React10.useState(PROVIDERS[0].id);
+  const [version, setVersion] = React10.useState(0);
+  const [checkinBusy, setCheckinBusy] = React10.useState(false);
+  const [checkinNotice, setCheckinNotice] = React10.useState(null);
+  const [showSettings, setShowSettings] = React10.useState(false);
+  const [loginAutoOpenOn, setLoginAutoOpenOnState] = React10.useState(() => loginAutoOpenEnabled());
+  const [loginAutoOpenBusy, setLoginAutoOpenBusy] = React10.useState(false);
+  const [loginAutoOpenFailed, setLoginAutoOpenFailedState] = React10.useState(
+    () => loginAutoOpenReadFailed()
+  );
+  React10.useEffect(() => {
+    const unsubscribe = subscribeLoginAutoOpen(() => {
+      setLoginAutoOpenOnState(loginAutoOpenEnabled());
+      setLoginAutoOpenFailedState(loginAutoOpenReadFailed());
+    });
+    if (typeof rpcCall === "function") void loadLoginAutoOpen(rpcCall);
+    return unsubscribe;
+  }, [rpcCall]);
+  const [autoCheckin, setAutoCheckin] = React10.useState(null);
+  const [autoCheckinError, setAutoCheckinError] = React10.useState("");
+  const [autoCheckinBusy, setAutoCheckinBusy] = React10.useState(false);
+  const [doubaoCheckinBusy, setDoubaoCheckinBusy] = React10.useState(false);
+  const [timeDraft, setTimeDraft] = React10.useState(["09:00", "21:00"]);
+  const [jitterOn, setJitterOn] = React10.useState(false);
+  const [jitterMinutes, setJitterMinutes] = React10.useState(10);
+  const timeDraftRef = React10.useRef(timeDraft);
+  const jitterOnRef = React10.useRef(jitterOn);
+  const jitterMinutesRef = React10.useRef(jitterMinutes);
+  React10.useEffect(() => {
     timeDraftRef.current = timeDraft;
   }, [timeDraft]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     jitterOnRef.current = jitterOn;
   }, [jitterOn]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     jitterMinutesRef.current = jitterMinutes;
   }, [jitterMinutes]);
-  const autoCheckinRef = React7.useRef(autoCheckin);
-  React7.useEffect(() => {
+  const autoCheckinRef = React10.useRef(autoCheckin);
+  React10.useEffect(() => {
     autoCheckinRef.current = autoCheckin;
   }, [autoCheckin]);
-  const checkinSavingRef = React7.useRef(false);
-  const checkinSaveFailedRef = React7.useRef(false);
-  const checkinPendingCloseRef = React7.useRef(null);
-  const [providerStatuses, setProviderStatuses] = React7.useState(null);
-  const providerStatusSeqRef = React7.useRef(0);
-  const providerStatusEverLoadedRef = React7.useRef(false);
-  const [providerStatusFailed, setProviderStatusFailed] = React7.useState(false);
-  const [showProviderSwitches, setShowProviderSwitches] = React7.useState(false);
-  const [providerBusy, setProviderBusy] = React7.useState(() => /* @__PURE__ */ new Set());
-  const providerToggleInFlightRef = React7.useRef(/* @__PURE__ */ new Set());
-  const [providerOrder, setProviderOrder] = React7.useState(null);
-  const [providerReordering, setProviderReordering] = React7.useState(false);
-  const reorderLockRef = React7.useRef(false);
-  const [providerNotice, setProviderNotice] = React7.useState(null);
-  const [showGateway, setShowGateway] = React7.useState(false);
-  const [gatewayStatus, setGatewayStatus] = React7.useState(null);
-  const [gatewayBusy, setGatewayBusy] = React7.useState(false);
-  const [gatewayNotice, setGatewayNotice] = React7.useState(null);
-  const [showTokenLedger, setShowTokenLedger] = React7.useState(false);
-  const mounted = React7.useRef(true);
-  React7.useEffect(() => () => {
+  const checkinSavingRef = React10.useRef(false);
+  const checkinSaveFailedRef = React10.useRef(false);
+  const checkinPendingCloseRef = React10.useRef(null);
+  const [providerStatuses, setProviderStatuses] = React10.useState(null);
+  const providerStatusSeqRef = React10.useRef(0);
+  const providerStatusEverLoadedRef = React10.useRef(false);
+  const [providerStatusFailed, setProviderStatusFailed] = React10.useState(false);
+  const [showProviderSwitches, setShowProviderSwitches] = React10.useState(false);
+  const [providerBusy, setProviderBusy] = React10.useState(() => /* @__PURE__ */ new Set());
+  const providerToggleInFlightRef = React10.useRef(/* @__PURE__ */ new Set());
+  const [providerOrder, setProviderOrder] = React10.useState(null);
+  const [providerReordering, setProviderReordering] = React10.useState(false);
+  const reorderLockRef = React10.useRef(false);
+  const [providerNotice, setProviderNotice] = React10.useState(null);
+  const [showGateway, setShowGateway] = React10.useState(false);
+  const [gatewayStatus, setGatewayStatus] = React10.useState(null);
+  const [gatewayBusy, setGatewayBusy] = React10.useState(false);
+  const [gatewayNotice, setGatewayNotice] = React10.useState(null);
+  const [showTokenLedger, setShowTokenLedger] = React10.useState(false);
+  const mounted = React10.useRef(true);
+  React10.useEffect(() => () => {
     mounted.current = false;
   }, []);
-  const loadGatewayStatus = React7.useCallback(async () => {
+  const [globalStats, setGlobalStats] = React10.useState(null);
+  const loadGlobalStats = React10.useCallback(async () => {
+    const targets = PROVIDERS.filter((p) => p.id !== "aggregate");
+    const lists = await Promise.all(targets.map(async (p) => {
+      try {
+        const res = await rpcCall("account.list", { provider: p.id });
+        return Array.isArray(res?.accounts) ? res.accounts : [];
+      } catch (caught) {
+        console.error("[jet-hub] global stats: account.list failed for " + p.id + ":", caught);
+        return [];
+      }
+    }));
+    if (!mounted.current) return;
+    const accounts = lists.flat().length;
+    setGlobalStats({ accounts, totalCredits: null, remainingCredits: null, creditsLoading: true, creditsPartial: false });
+    const creditTargets = targets.filter((p) => supportsCreditBalance(p.id));
+    const balances = await Promise.all(creditTargets.map(async (p) => {
+      try {
+        const res = await rpcCall("credits.balances", { provider: p.id });
+        return Array.isArray(res?.accounts) ? res.accounts : [];
+      } catch (caught) {
+        console.error("[jet-hub] global stats: credits.balances failed for " + p.id + ":", caught);
+        return null;
+      }
+    }));
+    if (!mounted.current) return;
+    let totalCredits = 0;
+    let remainingCredits = 0;
+    let partial = false;
+    let totalUnknown = false;
+    for (const list of balances) {
+      if (list === null) {
+        partial = true;
+        continue;
+      }
+      for (const entry2 of list) {
+        const balance = entry2?.balance;
+        if (!balance) {
+          partial = true;
+          continue;
+        }
+        remainingCredits += Number(balance.total) || 0;
+        for (const pkg of balance.packages ?? []) {
+          if (pkg?.active === false) continue;
+          if (pkg?.totalKnown === false) {
+            totalUnknown = true;
+            continue;
+          }
+          totalCredits += Number(pkg?.total) || 0;
+        }
+      }
+    }
+    setGlobalStats({
+      accounts,
+      totalCredits,
+      remainingCredits,
+      creditsLoading: false,
+      creditsPartial: partial,
+      totalUnknown
+    });
+  }, [rpcCall]);
+  React10.useEffect(() => {
+    void loadGlobalStats();
+  }, [loadGlobalStats]);
+  const renderGlobalStats = () => {
+    if (globalStats === null) return null;
+    const fmt = (value) => {
+      if (typeof value !== "number" || Number.isNaN(value)) return "—";
+      return Number.isInteger(value) ? value.toLocaleString("zh-CN") : value.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+    const creditsPending = globalStats.creditsLoading || globalStats.totalCredits === null;
+    const totalValue = globalStats.totalUnknown === true ? null : globalStats.totalCredits;
+    const partialTitle = globalStats.creditsPartial === true ? "（部分渠道读取失败，实际数值可能更高）" : "";
+    const cells = [
+      {
+        key: "total",
+        label: "总积分",
+        value: fmt(totalValue),
+        unit: creditsPending ? "" : "积分",
+        tone: "info",
+        title: globalStats.totalUnknown === true ? "部分账号的上游只下发当前余额、下发不了本周期总额，无法给出可靠的总量" : "全部账号本计费周期的额度总量（各 provider 单位不同，仅供总量参考）"
+      },
+      {
+        key: "remaining",
+        label: "剩余积分",
+        value: fmt(globalStats.remainingCredits),
+        unit: creditsPending ? "" : "积分",
+        tone: globalStats.creditsPartial === true ? "warn" : "ok",
+        title: "全部账号当前可用余额（与 IDE 顶部的 Credits Balance 同口径）" + partialTitle
+      },
+      {
+        key: "accounts",
+        label: "账号数量",
+        value: fmt(globalStats.accounts),
+        unit: "个",
+        tone: "muted",
+        title: "全部 provider 已保存的账号总数"
+      }
+    ];
+    return React10.createElement("div", {
+      className: "dim-jh-globalStats",
+      role: "group",
+      "aria-label": "全局积分与账号统计"
+    }, cells.map((cell) => React10.createElement(
+      "div",
+      {
+        key: cell.key,
+        className: "dim-jh-globalStat",
+        "data-tone": cell.tone,
+        title: cell.title
+      },
+      React10.createElement("span", { className: "dim-jh-globalStatLabel" }, cell.label),
+      React10.createElement(
+        "span",
+        { className: "dim-jh-globalStatValue" },
+        cell.value,
+        cell.unit === "" ? null : React10.createElement("span", { className: "dim-jh-globalStatUnit" }, cell.unit)
+      )
+    )));
+  };
+  const loadGatewayStatus = React10.useCallback(async () => {
     try {
       const res = await rpcCall("gateway.getEnabled", {});
       if (!mounted.current) return;
@@ -14427,10 +18748,10 @@ function JetHubPage({ rpcCall }) {
       setGatewayNotice({ tone: "error", text: "读取网关状态失败：" + (caught?.message || "未知错误") });
     }
   }, [rpcCall]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     void loadGatewayStatus();
   }, [loadGatewayStatus]);
-  const toggleGatewayAllowLan = React7.useCallback(async (nextAllowLan) => {
+  const toggleGatewayAllowLan = React10.useCallback(async (nextAllowLan) => {
     setGatewayBusy(true);
     setGatewayNotice(null);
     try {
@@ -14447,7 +18768,7 @@ function JetHubPage({ rpcCall }) {
       if (mounted.current) setGatewayBusy(false);
     }
   }, [rpcCall, loadGatewayStatus]);
-  const toggleGateway = React7.useCallback(async (nextEnabled) => {
+  const toggleGateway = React10.useCallback(async (nextEnabled) => {
     setGatewayBusy(true);
     setGatewayNotice(null);
     try {
@@ -14464,7 +18785,7 @@ function JetHubPage({ rpcCall }) {
       if (mounted.current) setGatewayBusy(false);
     }
   }, [rpcCall, loadGatewayStatus]);
-  const loadProviderStatuses = React7.useCallback(async () => {
+  const loadProviderStatuses = React10.useCallback(async () => {
     const seq = ++providerStatusSeqRef.current;
     try {
       const res = await rpcCall("provider.status", { providers: PROVIDERS.map((p) => p.id) });
@@ -14490,11 +18811,11 @@ function JetHubPage({ rpcCall }) {
       });
     }
   }, [rpcCall]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     mounted.current = true;
     void loadProviderStatuses();
   }, [loadProviderStatuses]);
-  const loadProviderOrder = React7.useCallback(async () => {
+  const loadProviderOrder = React10.useCallback(async () => {
     try {
       const res = await rpcCall("provider.getOrder", {});
       if (!mounted.current) return;
@@ -14505,11 +18826,11 @@ function JetHubPage({ rpcCall }) {
       setProviderOrder(null);
     }
   }, [rpcCall]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     void loadProviderOrder();
   }, [loadProviderOrder]);
-  const providerTouchedRef = React7.useRef(false);
-  React7.useEffect(() => {
+  const providerTouchedRef = React10.useRef(false);
+  React10.useEffect(() => {
     if (providerTouchedRef.current) return;
     if (!Array.isArray(providerOrder) || providerOrder.length === 0) return;
     const firstUsable = providerOrder.find((id) => providerStatuses === null || providerStatuses?.[id]?.closed !== true) ?? providerOrder[0];
@@ -14518,7 +18839,7 @@ function JetHubPage({ rpcCall }) {
       setVersion((v) => v + 1);
     }
   }, [providerOrder, providerStatuses, selected]);
-  const commitProviderOrder = React7.useCallback(async (next) => {
+  const commitProviderOrder = React10.useCallback(async (next) => {
     if (!Array.isArray(next)) return;
     if (reorderLockRef.current) return;
     reorderLockRef.current = true;
@@ -14549,12 +18870,12 @@ function JetHubPage({ rpcCall }) {
     setSelected(id);
     setVersion((v) => v + 1);
   };
-  const toggleProvider = async (providerId, enabled) => {
+  const toggleProvider2 = async (providerId, enabled2) => {
     const label = PROVIDERS.find((p) => p.id === providerId)?.label || providerId;
     if (providerToggleInFlightRef.current.has(providerId)) return;
     providerToggleInFlightRef.current.add(providerId);
     const status = providerStatuses?.[providerId];
-    if (!enabled) {
+    if (!enabled2) {
       const models = status?.models?.total ?? 0;
       const accounts = status?.accounts?.enabled ?? 0;
       const ok = confirm(
@@ -14572,11 +18893,11 @@ function JetHubPage({ rpcCall }) {
     setProviderBusy((prev) => new Set(prev).add(providerId));
     setProviderNotice(null);
     try {
-      const res = await rpcCall("provider.setEnabled", { provider: providerId, enabled });
+      const res = await rpcCall("provider.setEnabled", { provider: providerId, enabled: enabled2 });
       if (!mounted.current) return;
       setProviderNotice({
         tone: "ok",
-        text: `${label}：${summarizeProviderToggle(enabled, res)}`
+        text: `${label}：${summarizeProviderToggle(enabled2, res)}`
       });
       await loadProviderStatuses();
       if (mounted.current) setVersion((v) => v + 1);
@@ -14598,7 +18919,7 @@ function JetHubPage({ rpcCall }) {
       }
     }
   };
-  const loadAutoCheckin = React7.useCallback(async () => {
+  const loadAutoCheckin = React10.useCallback(async () => {
     try {
       const res = await rpcCall("usage.autoCheckin", {});
       const next = res?.autoCheckin || null;
@@ -14662,11 +18983,11 @@ function JetHubPage({ rpcCall }) {
     setShowTokenLedger(false);
     void loadAutoCheckin();
   };
-  const toggleAutoCheckin = async (enabled) => {
+  const toggleAutoCheckin = async (enabled2) => {
     setAutoCheckinBusy(true);
     setAutoCheckinError("");
     try {
-      const res = await rpcCall("usage.autoCheckin", { enabled });
+      const res = await rpcCall("usage.autoCheckin", { enabled: enabled2 });
       const next = res?.autoCheckin || null;
       setAutoCheckin(next);
       if (Array.isArray(next?.times) && next.times.length === 2) setTimeDraft([...next.times]);
@@ -14674,6 +18995,21 @@ function JetHubPage({ rpcCall }) {
       setAutoCheckinError(error?.message || "定时签到开关保存失败");
     } finally {
       setAutoCheckinBusy(false);
+    }
+  };
+  const toggleDoubaoCheckin = async (enabled2) => {
+    setDoubaoCheckinBusy(true);
+    setAutoCheckinError("");
+    try {
+      const res = await rpcCall("doubao.autoCheckin", { enabled: enabled2 });
+      const value = typeof res?.enabled === "boolean" ? res.enabled : null;
+      if (value !== null) {
+        setAutoCheckin((prev) => prev === null ? prev : { ...prev, doubaoCheckinEnabled: value });
+      }
+    } catch (error) {
+      setAutoCheckinError(error?.message || "豆包自动签到开关保存失败");
+    } finally {
+      setDoubaoCheckinBusy(false);
     }
   };
   const saveCheckinTimesWith = async (draft, jOn, jMin) => {
@@ -14758,35 +19094,38 @@ function JetHubPage({ rpcCall }) {
   };
   const renderProviderRow = (p) => {
     const closed = providerStatuses?.[p.id]?.closed === true;
-    return React7.createElement(
+    const pinned = isPinnedProvider(p.id);
+    return React10.createElement(
       "div",
       {
         className: closed ? "dim-jh-providerRow dim-jh-providerRowClosed" : "dim-jh-providerRow",
         key: p.id,
-        "data-provider": p.id
+        "data-provider": p.id,
+        "data-pinned": pinned ? "true" : void 0
       },
-      React7.createElement(
+      React10.createElement(
         "button",
         {
           type: "button",
           role: "tab",
-          className: "dim-jh-provider",
+          className: pinned ? "dim-jh-provider dim-jh-provider--pinned" : "dim-jh-provider",
           "aria-selected": p.id === selected,
           // 标题带上关闭状态：行本身已经没有开关，用户得知道去哪儿打开它。
           // ⚠️ 按钮名是「供应商」（页头），文案要与它一致，否则用户找不到。
           title: closed ? `${p.label}（已关闭，可在页头「供应商」按钮里打开）` : p.label,
           onClick: () => selectProvider(p.id)
         },
-        React7.createElement(ProviderLogo, { provider: p.id }),
+        React10.createElement(ProviderLogo, { provider: p.id }),
         // ⚠️ 这里给 label 加了 `dim-jh-providerLabel` —— 该类在样式表里**早已定义**
         // （含 min-width: 0 与省略号），但此前从未被任何 JS 使用，故真实界面上长
         // 供应商名一直在**折行**。加上它可把折行改为单行省略号（实测：rail 243px 时
         // 只有 WorkBuddy 一行超宽 21px），且列表总高不变（384px）；若不加，行高会
         // 从 48px 被顶到 58px、总高 424px。这是一处左侧的可见变化，已在交付说明中注明。
-        React7.createElement(
+        React10.createElement(
           "span",
           { className: "dim-jh-providerLabel" },
-          React7.createElement("strong", null, p.label)
+          React10.createElement("strong", null, p.label),
+          pinned ? React10.createElement("small", { className: "dim-jh-providerSub" }, "按额度跨渠道选号") : null
         )
       )
     );
@@ -14806,46 +19145,46 @@ function JetHubPage({ rpcCall }) {
       style: { flex: "none" }
     };
     if (kind === "checkin") {
-      return React7.createElement(
+      return React10.createElement(
         "svg",
         common,
-        React7.createElement("circle", { cx: 12, cy: 12, r: 10 }),
-        React7.createElement("path", { d: "M12 7v5l3 2" })
+        React10.createElement("circle", { cx: 12, cy: 12, r: 10 }),
+        React10.createElement("path", { d: "M12 7v5l3 2" })
       );
     }
     if (kind === "gateway") {
-      return React7.createElement(
+      return React10.createElement(
         "svg",
         common,
-        React7.createElement("circle", { cx: 12, cy: 12, r: 10 }),
-        React7.createElement("path", { d: "M2 12h20" }),
-        React7.createElement("path", { d: "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" })
+        React10.createElement("circle", { cx: 12, cy: 12, r: 10 }),
+        React10.createElement("path", { d: "M2 12h20" }),
+        React10.createElement("path", { d: "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" })
       );
     }
     if (kind === "usage") {
-      return React7.createElement(
+      return React10.createElement(
         "svg",
         common,
-        React7.createElement("path", { d: "M3 3v18h18" }),
-        React7.createElement("path", { d: "M8 17v-5" }),
-        React7.createElement("path", { d: "M13 17v-9" }),
-        React7.createElement("path", { d: "M18 17v-3" })
+        React10.createElement("path", { d: "M3 3v18h18" }),
+        React10.createElement("path", { d: "M8 17v-5" }),
+        React10.createElement("path", { d: "M13 17v-9" }),
+        React10.createElement("path", { d: "M18 17v-3" })
       );
     }
-    return React7.createElement(
+    return React10.createElement(
       "svg",
       common,
-      React7.createElement("circle", { cx: 12, cy: 12, r: 3 }),
-      React7.createElement("path", {
+      React10.createElement("circle", { cx: 12, cy: 12, r: 3 }),
+      React10.createElement("path", {
         d: "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
       })
     );
   }
   function renderRailActions() {
-    return React7.createElement(
+    return React10.createElement(
       "div",
       { className: "dim-jh-railActions" },
-      React7.createElement(
+      React10.createElement(
         "button",
         {
           className: "dim-jh-btn dim-jh-railAction",
@@ -14861,9 +19200,9 @@ function JetHubPage({ rpcCall }) {
         //    两个分支逐字相同，是纯死三元（旧页头那版是 `签到中…`/`一键签到`，
         //    搬过来时把分支改同了却没删掉三元）。直接写常量，`aria-busy`
         //    仍然承担「正在跑」的可访问性语义。
-        React7.createElement("span", null, "签到")
+        React10.createElement("span", null, "签到")
       ),
-      React7.createElement(
+      React10.createElement(
         "button",
         {
           className: "dim-jh-btn dim-jh-railAction",
@@ -14885,9 +19224,9 @@ function JetHubPage({ rpcCall }) {
         //    搬到底部操作行时丢了，运行/停止的差别只剩 `title` 里的一句话。
         //    而 `openai-gateway-panel.spec.ts:66-73` 仍在测那个纯函数 ⇒
         //    所有测试全绿、圆点却不见了。必须走 `gatewayButtonLabel(status)`。
-        React7.createElement("span", null, gatewayButtonLabel(gatewayStatus))
+        React10.createElement("span", null, gatewayButtonLabel(gatewayStatus))
       ),
-      React7.createElement(
+      React10.createElement(
         "button",
         {
           className: "dim-jh-btn dim-jh-railAction",
@@ -14899,9 +19238,9 @@ function JetHubPage({ rpcCall }) {
           }
         },
         renderRailIcon("usage"),
-        React7.createElement("span", null, "用量")
+        React10.createElement("span", null, "用量")
       ),
-      React7.createElement(
+      React10.createElement(
         "button",
         {
           className: "dim-jh-btn dim-jh-railAction",
@@ -14911,12 +19250,12 @@ function JetHubPage({ rpcCall }) {
           onClick: openSettings
         },
         renderRailIcon("settings"),
-        React7.createElement("span", null, "设置")
+        React10.createElement("span", null, "设置")
       )
     );
   }
   function renderSettingsPanel() {
-    return React7.createElement(
+    return React10.createElement(
       "div",
       {
         className: "dim-jh-modalOverlay",
@@ -14926,19 +19265,19 @@ function JetHubPage({ rpcCall }) {
           if (event.target === event.currentTarget) closeSettings();
         }
       },
-      React7.createElement(
+      React10.createElement(
         "div",
         {
-          className: "dim-jh-modal",
+          className: "dim-jh-modal dim-jh-settingsModal",
           role: "dialog",
           "aria-modal": "true",
           "aria-label": "Jet Hub 设置"
         },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalHead" },
-          React7.createElement("div", { className: "dim-jh-modalTitle" }, "设置"),
-          React7.createElement("button", {
+          React10.createElement("div", { className: "dim-jh-modalTitle" }, "设置"),
+          React10.createElement("button", {
             className: "dim-jh-btn",
             // ⚠️⚠️ **必须包一层箭头函数**（2026-11-05 二审 P0）：直接传
             //    `closeSettings` 的话 React 会以 `(SyntheticEvent)` 调用它，
@@ -14947,23 +19286,23 @@ function JetHubPage({ rpcCall }) {
             onClick: () => closeSettings()
           }, "完成")
         ),
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-modalBody" },
           // ① 供应商
-          React7.createElement(
+          React10.createElement(
             "div",
             { className: "dim-jh-settingsSection" },
-            React7.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "供应商"),
-            React7.createElement(
+            React10.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "供应商"),
+            React10.createElement(
               "p",
               { className: "dim-jh-modalHint" },
               "逐个打开 / 关闭供应商。关闭一个供应商 = 关闭它的全部模型并停用它的全部账号。"
             ),
-            React7.createElement(
+            React10.createElement(
               "div",
               { className: "dim-jh-settingsSectionActions" },
-              React7.createElement("button", {
+              React10.createElement("button", {
                 className: "dim-jh-btn",
                 title: (providerSummary.known ? "供应商开关：逐个打开/关闭（已打开 " + String(providerSummary.open) + "、已关闭 " + String(providerSummary.closed) + "）。" : "供应商开关：逐个打开/关闭。") + "关闭一个供应商 = 关闭它的全部模型并停用它的全部账号。",
                 "aria-haspopup": "dialog",
@@ -14978,22 +19317,73 @@ function JetHubPage({ rpcCall }) {
               }, "打开供应商开关")
             )
           ),
-          // ② 定时签到
-          renderCheckinSection(),
-          // ③ 备份与恢复
-          React7.createElement(
+          /**
+           * ①b 登录授权（2026-11-23 用户功能）。
+           *
+           * 开（默认）= 点「+ 新建账号」后自动打开授权页（= 本功能上线前的行为）；
+           * 关 = 不自动开窗，授权链接复制到剪贴板并显示在账号面板里。
+           *
+           * ⚠️ 开关文案按用户 2026-11-23 定稿的 **D 方案**：两态写进同一句
+           *    label（与「思考强度」同款长句写法），不另起一行说明「关会怎样」。
+           * ⚠️ 读 / 写失败时**不禁用**开关：一次抖动不该让用户失去「再切一次」
+           *    这条自救路径（与「渠道原生搜索」同取向）。
+           */
+          React10.createElement(
             "div",
             { className: "dim-jh-settingsSection" },
-            React7.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "备份与恢复"),
-            React7.createElement(
+            React10.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "登录授权"),
+            React10.createElement(
+              "label",
+              {
+                className: loginAutoOpenFailed ? "dim-jh-settingsToggleLine dim-jh-settingsToggleLineFailed" : "dim-jh-settingsToggleLine",
+                title: loginAutoOpenFailed ? "⚠️ 开关状态读取 / 保存失败（宿主可能仍在运行旧代码）。请重试；仍不行请完全退出并重新打开 DSH。" : "开（默认）：点「+ 新建账号」后自动打开授权页。关：不自动开窗；授权链接复制到剪贴板，并显示在账号面板里（带「复制链接」按钮）。"
+              },
+              React10.createElement("input", {
+                type: "checkbox",
+                className: "dim-jh-switch",
+                checked: loginAutoOpenOn,
+                disabled: loginAutoOpenBusy,
+                onChange: (event) => void toggleLoginAutoOpen(event.target.checked)
+              }),
+              React10.createElement(
+                "span",
+                { className: "dim-jh-settingsToggleText" },
+                "新建账号时自动打开浏览器授权页；关闭则把授权链接复制到剪贴板"
+              )
+            ),
+            loginAutoOpenFailed ? React10.createElement(
+              "div",
+              { className: "dim-jh-settingsInlineFail", role: "alert" },
+              "⚠️ 开关状态读取 / 保存失败（宿主可能仍在运行旧代码）。请重试；仍不行请完全退出并重新打开 DSH。"
+            ) : null,
+            React10.createElement(
+              "p",
+              { className: "dim-jh-settingsNote" },
+              "开（默认）：点「+ 新建账号」后自动打开授权页，与现在的行为一致。关：不自动开窗；授权链接复制到剪贴板，并显示在账号面板里（带「复制链接」按钮）。"
+            )
+          ),
+          // ② 定时签到
+          renderCheckinSection(),
+          // ②b 限流续跑（解禁后自动继续）
+          //
+          // ⚠️ 与「定时签到」分开成两段：一个是每天定时打上游，一个是**被动**
+          //    等解禁时刻补一句「继续」，失败语义与调试路径都不同（那段还要列出
+          //    当前挂着的待续跑记录）。
+          React10.createElement(RateLimitResumeSection, { rpcCall }),
+          // ③ 备份与恢复
+          React10.createElement(
+            "div",
+            { className: "dim-jh-settingsSection" },
+            React10.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "备份与恢复"),
+            React10.createElement(
               "p",
               { className: "dim-jh-modalHint" },
               "导出全部账号（含凭据）为备份文件；导入时可选「合并」或「替换」。"
             ),
-            React7.createElement(
+            React10.createElement(
               "div",
               { className: "dim-jh-settingsSectionActions" },
-              React7.createElement(BackupPanel, {
+              React10.createElement(BackupPanel, {
                 rpcCall,
                 // 导入成功会整体替换账号，ProviderPanel 只在挂载时拉列表；
                 // 递增版号强制重新挂载，让账号列表与模型目录立即反映新状态。
@@ -15002,17 +19392,17 @@ function JetHubPage({ rpcCall }) {
             )
           ),
           // ④ 渠道原生搜索
-          React7.createElement(
+          React10.createElement(
             "div",
             { className: "dim-jh-settingsSection" },
-            React7.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "渠道原生搜索"),
-            React7.createElement(
+            React10.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "渠道原生搜索"),
+            React10.createElement(
               "label",
               {
-                className: "dim-jh-nativeSearch",
+                className: "dim-jh-settingsToggleLine",
                 title: nativeSearchFailed ? "⚠️ 开关状态读取失败，当前显示的是默认值（开启）。点击即可重新提交一次。" : "渠道原生搜索：为支持原生搜索的渠道（CodeBuddy / WorkBuddy）启用其自带搜索。关闭后所有渠道都改用 DeepSeek 官方搜索（需要 DEEPSEEK_API_KEY）。"
               },
-              React7.createElement("input", {
+              React10.createElement("input", {
                 type: "checkbox",
                 className: "dim-jh-switch",
                 checked: nativeSearchOn,
@@ -15023,7 +19413,63 @@ function JetHubPage({ rpcCall }) {
                 disabled: nativeSearchBusy,
                 onChange: (event) => void toggleNativeSearch(event.target.checked)
               }),
-              React7.createElement("span", null, "为支持原生搜索的渠道（CodeBuddy / WorkBuddy）启用其自带搜索")
+              React10.createElement(
+                "span",
+                { className: "dim-jh-settingsToggleText" },
+                "为支持原生搜索的渠道（CodeBuddy / WorkBuddy）启用其自带搜索"
+              )
+            )
+          ),
+          /**
+           * ⑤ 思考强度（2026-11-11 用户要求「加一个开关，开了就是现在的效果，
+           * 关了就是原来的默认效果」）。
+           *
+           * ⚠️ **默认开**：本功能先于开关上线，默认开才与用户当时看到的、已经
+           * 在用的效果一致 —— 反过来（默认关）等于悄悄把他要求的东西撤销了。
+           *
+           * ⚠️ 文案必须把「开了是什么、关了是什么」**都写出来**：只写「默认取
+           * 最高档」的话，用户关掉后看到思考变弱、却不知道这是不是预期。
+           *
+           * ⚠️⚠️ **读不到状态时必须说出来**（真实报障，2026-11-11 用户实测
+           * 「点击无效」）：宿主侧 RPC 是**进程内**的，插件更新后如果没重启 DSH，
+           * 客户端 bundle 已经热替换、而宿主还是旧代码 ⇒ 这条 RPC 不存在 ⇒
+           * 客户端 catch 后把开关**复原成默认开**，用户看到的就是「点了又弹回去、
+           * 而且没有任何提示」。⇒ 这里给一条明确的失败提示 + 重启指引。
+           */
+          React10.createElement(
+            "div",
+            { className: "dim-jh-settingsSection" },
+            React10.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "思考强度"),
+            React10.createElement(
+              "label",
+              {
+                className: reasoningDefaultFailed ? "dim-jh-settingsToggleLine dim-jh-settingsToggleLineFailed" : "dim-jh-settingsToggleLine",
+                title: reasoningDefaultFailed ? "⚠️ 开关状态读取失败（多为宿主还在运行旧代码），当前显示的是默认值（开启）。请完全退出并重新打开 DSH 后再试。" : "默认取最高档：选完模型后，思考强度自动落到该模型支持的最高档（如 Max / Extra High）。关闭后回到各渠道自己的默认档（多为 High）。两种模式下都可以在对话框的模型菜单里手动改档。"
+              },
+              React10.createElement("input", {
+                type: "checkbox",
+                className: "dim-jh-switch",
+                checked: reasoningDefaultOn,
+                // 与「渠道原生搜索」同取向：读取失败时**不禁用**，让用户仍能切一次
+                //（切一次成功就说明宿主其实是新的，失败提示自然消失）。
+                disabled: reasoningDefaultBusy,
+                onChange: (event) => void toggleReasoningDefault(event.target.checked)
+              }),
+              React10.createElement(
+                "span",
+                { className: "dim-jh-settingsToggleText" },
+                "选完模型后自动把思考强度调到最高档（如 Max / Extra High）；关闭则用各渠道自己的默认档"
+              )
+            ),
+            reasoningDefaultFailed ? React10.createElement(
+              "div",
+              { className: "dim-jh-settingsInlineFail", role: "alert" },
+              "⚠️ 读取不到开关状态（宿主可能仍在运行旧代码）。请完全退出并重新打开 DSH。"
+            ) : null,
+            React10.createElement(
+              "p",
+              { className: "dim-jh-settingsNote" },
+              "开启后思考更充分，但思考 token 计入输出、与正文共享额度，长回答更早触顶、首字更慢。感觉太慢可以关掉这一项。"
             )
           )
         )
@@ -15031,34 +19477,41 @@ function JetHubPage({ rpcCall }) {
     );
   }
   const renderRail = () => {
+    const sections = buildRailSections(PROVIDERS, providerStatuses);
+    const pinnedBlock = sections.pinned.length > 0 ? React10.createElement(
+      "div",
+      { className: "dim-jh-railPinned", key: "pinned" },
+      React10.createElement("div", { className: "dim-jh-railGroupTitle" }, "跨渠道"),
+      sections.pinned.map((p) => renderProviderRow(p))
+    ) : null;
     if (providerStatuses === null) {
-      return PROVIDERS.map((p) => renderProviderRow(p));
+      return [pinnedBlock, ...sections.channels.map((p) => renderProviderRow(p))];
     }
-    const { open, closed } = groupProviders(PROVIDERS, providerStatuses);
-    const group = (title, list, key) => React7.createElement(
+    const group = (title, list, key) => React10.createElement(
       "div",
       { className: "dim-jh-railGroup", key },
-      React7.createElement("div", { className: "dim-jh-railGroupTitle" }, title),
+      React10.createElement("div", { className: "dim-jh-railGroupTitle" }, title),
       list.map((p) => renderProviderRow(p))
     );
     return [
+      pinnedBlock,
       // ⚠️ 第三个实参 = **声明顺序**（注册表全量 id）。传它才能让
       // `providerOrder` 里缺失的**新增** provider 落回它该在的位置，
       // 而不是被缀到末尾（真实缺陷，2026-10-17 用户报障
       // 「minimax 国际版的顺序应该在中国版下面」）。
       group(
-        `已打开 (${open.length})`,
-        sortOpenProvidersByOrder(open, providerOrder, PROVIDERS.map((p) => p.id)),
+        `已打开 (${sections.open.length})`,
+        sortOpenProvidersByOrder(sections.open, providerOrder, PROVIDERS.map((p) => p.id)),
         "open"
       ),
-      group(`已关闭 (${closed.length})`, closed, "closed")
+      group(`已关闭 (${sections.closed.length})`, sections.closed, "closed")
     ];
   };
   const providerSummary = providerToggleSummary(PROVIDERS, providerStatuses);
-  const [nativeSearchOn, setNativeSearchOn] = React7.useState(true);
-  const [nativeSearchBusy, setNativeSearchBusy] = React7.useState(false);
-  const [nativeSearchFailed, setNativeSearchFailed] = React7.useState(false);
-  const loadNativeSearchStatus = React7.useCallback(async () => {
+  const [nativeSearchOn, setNativeSearchOn] = React10.useState(true);
+  const [nativeSearchBusy, setNativeSearchBusy] = React10.useState(false);
+  const [nativeSearchFailed, setNativeSearchFailed] = React10.useState(false);
+  const loadNativeSearchStatus = React10.useCallback(async () => {
     try {
       const res = await rpcCall("nativeSearch.getEnabled", {});
       if (!mounted.current) return;
@@ -15071,7 +19524,7 @@ function JetHubPage({ rpcCall }) {
       setNativeSearchFailed(true);
     }
   }, [rpcCall]);
-  const toggleNativeSearch = React7.useCallback(async (nextEnabled) => {
+  const toggleNativeSearch = React10.useCallback(async (nextEnabled) => {
     setNativeSearchBusy(true);
     try {
       const res = await rpcCall("nativeSearch.setEnabled", { enabled: nextEnabled });
@@ -15086,13 +19539,62 @@ function JetHubPage({ rpcCall }) {
       if (mounted.current) setNativeSearchBusy(false);
     }
   }, [rpcCall, loadNativeSearchStatus]);
-  React7.useEffect(() => {
+  React10.useEffect(() => {
     void loadNativeSearchStatus();
   }, [loadNativeSearchStatus]);
+  const [reasoningDefaultOn, setReasoningDefaultOn] = React10.useState(true);
+  const [reasoningDefaultBusy, setReasoningDefaultBusy] = React10.useState(false);
+  const [reasoningDefaultFailed, setReasoningDefaultFailed] = React10.useState(false);
+  const loadReasoningDefaultStatus = React10.useCallback(async () => {
+    try {
+      const res = await rpcCall("reasoningDefault.getEnabled", {});
+      if (!mounted.current) return;
+      setReasoningDefaultOn(res?.enabled !== false);
+      setReasoningDefaultFailed(false);
+    } catch (caught) {
+      console.warn("[jet-hub] load reasoning default status failed:", caught);
+      if (!mounted.current) return;
+      setReasoningDefaultOn(true);
+      setReasoningDefaultFailed(true);
+    }
+  }, [rpcCall]);
+  const toggleReasoningDefault = React10.useCallback(async (nextEnabled) => {
+    setReasoningDefaultBusy(true);
+    try {
+      const res = await rpcCall("reasoningDefault.setEnabled", { enabled: nextEnabled });
+      if (!mounted.current) return;
+      setReasoningDefaultOn(res?.enabled !== false);
+      setReasoningDefaultFailed(false);
+    } catch (caught) {
+      console.error("[jet-hub] toggle reasoning default failed:", caught);
+      if (!mounted.current) return;
+      await loadReasoningDefaultStatus();
+    } finally {
+      if (mounted.current) setReasoningDefaultBusy(false);
+    }
+  }, [rpcCall, loadReasoningDefaultStatus]);
+  React10.useEffect(() => {
+    void loadReasoningDefaultStatus();
+  }, [loadReasoningDefaultStatus]);
+  const toggleLoginAutoOpen = React10.useCallback(async (nextEnabled) => {
+    if (typeof rpcCall !== "function") return;
+    setLoginAutoOpenBusy(true);
+    try {
+      await setLoginAutoOpen(rpcCall, nextEnabled);
+      setLoginAutoOpenOnState(loginAutoOpenEnabled());
+      setLoginAutoOpenFailedState(false);
+    } catch (caught) {
+      console.error("[jet-hub] 切换「自动打开浏览器」失败:", caught);
+      setLoginAutoOpenOnState(loginAutoOpenEnabled());
+      setLoginAutoOpenFailedState(true);
+    } finally {
+      setLoginAutoOpenBusy(false);
+    }
+  }, [rpcCall]);
   function renderCheckinSection() {
     const a = autoCheckin;
     const busy = autoCheckinBusy;
-    return React7.createElement(
+    return React10.createElement(
       "div",
       {
         className: "dim-jh-settingsSection"
@@ -15100,8 +19602,8 @@ function JetHubPage({ rpcCall }) {
         //    ⇒ 去掉 `role="dialog"`（弹窗本体才是 dialog，嵌套 dialog 会让读屏
         //    软件报两次「进入对话框」）与「阻止冒泡」（遮罩层自己处理点击关闭）。
       },
-      React7.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "定时签到"),
-      React7.createElement(
+      React10.createElement("div", { className: "dim-jh-settingsSectionTitle" }, "定时签到"),
+      React10.createElement(
         "p",
         { className: "dim-jh-modalHint" },
         "每天自动执行两次签到；改完点「完成」自动保存。"
@@ -15111,13 +19613,13 @@ function JetHubPage({ rpcCall }) {
       //    命中区，用户点行尾空白也会把开关切走。
       //    修法：容器改 `div`，只有**开关 + 紧邻文字**包在 label 里。
       //    ⚠️ 也不能干脆不要 label：那样键盘 Tab 到 checkbox 时没有可读的关联文字。
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-checkinRow" },
-        React7.createElement(
+        React10.createElement(
           "label",
           { className: "dim-jh-checkinToggle" },
-          React7.createElement("input", {
+          React10.createElement("input", {
             type: "checkbox",
             className: "dim-jh-switch",
             checked: a?.enabled === true,
@@ -15126,14 +19628,14 @@ function JetHubPage({ rpcCall }) {
             disabled: busy,
             onChange: (event) => void toggleAutoCheckin(event.target.checked)
           }),
-          React7.createElement("span", null, "每天自动签到（两次）")
+          React10.createElement("span", null, "每天自动签到（两次）")
         )
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-checkinRow" },
-        React7.createElement("label", null, "执行时刻"),
-        timeDraft.map((value, index) => React7.createElement("input", {
+        React10.createElement("label", null, "执行时刻"),
+        timeDraft.map((value, index) => React10.createElement("input", {
           key: `t-${index}`,
           type: "time",
           className: "dim-jh-checkinTime",
@@ -15154,13 +19656,13 @@ function JetHubPage({ rpcCall }) {
       // ⚠️ 同「每天自动签到」那行：`label` **只**包开关 + 紧邻文字，
       //    数字框与「分钟」在 label 外面 —— 否则点数字框附近也会切换开关
       //    （用户 2026-10-31：「按钮范围有点大啊」）。
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-checkinRow" },
-        React7.createElement(
+        React10.createElement(
           "label",
           { className: "dim-jh-checkinToggle" },
-          React7.createElement("input", {
+          React10.createElement("input", {
             type: "checkbox",
             className: "dim-jh-switch",
             checked: jitterOn,
@@ -15170,9 +19672,9 @@ function JetHubPage({ rpcCall }) {
               setJitterOn(event.target.checked);
             }
           }),
-          React7.createElement("span", null, "随机浮动")
+          React10.createElement("span", null, "随机浮动")
         ),
-        React7.createElement("input", {
+        React10.createElement("input", {
           type: "number",
           className: "dim-jh-checkinJitter",
           min: 0,
@@ -15186,43 +19688,71 @@ function JetHubPage({ rpcCall }) {
             setJitterMinutes(Number(event.target.value));
           }
         }),
-        React7.createElement("span", null, "分钟")
+        React10.createElement("span", null, "分钟")
       ),
-      React7.createElement(
+      React10.createElement(
         "div",
         { className: "dim-jh-checkinHint" },
         jitterOn ? "每个时刻会在 ±" + String(jitterMinutes) + " 分钟内随机偏移（两个时刻挨得近时，幅度会被夹到间隔的一半），避免固定时刻被识别为脚本；改完关闭面板自动保存。" : "固定时刻执行；改完关闭面板自动保存。"
       ),
+      // ★ 豆包自动签到开关（2026-11-22 用户需求：「面板里面加个豆包自动签到的开关」）。
+      //
+      // ⚠️ 只在宿主给出**生效值**时才渲染（`typeof === 'boolean'`）：旧宿主
+      // （插件已热替换、进程还是旧代码）没有这个字段，渲染出来只会是一个永远
+      // 勾不上/关不掉的假开关；不渲染比渲染错的好排查。
+      // ⚠️ 勾选态**照抄宿主**（三态的结果值已在宿主算好），客户端不重算 registry 默认。
+      typeof a?.doubaoCheckinEnabled === "boolean" ? React10.createElement(
+        "div",
+        { className: "dim-jh-checkinRow" },
+        React10.createElement(
+          "label",
+          { className: "dim-jh-checkinToggle" },
+          React10.createElement("input", {
+            type: "checkbox",
+            className: "dim-jh-switch",
+            checked: a.doubaoCheckinEnabled,
+            // 只在这一个开关的写请求在飞时禁用（不拖累整个面板）
+            disabled: doubaoCheckinBusy,
+            onChange: (event) => void toggleDoubaoCheckin(event.target.checked)
+          }),
+          React10.createElement("span", null, "豆包自动签到")
+        ),
+        React10.createElement(
+          "span",
+          { className: "dim-jh-checkinHint" },
+          "关掉后豆包不参与每天两次的自动签到；仍可在账号卡片上手动点「一键领取积分」。"
+        )
+      ) : null,
       renderCheckinStatus(a),
-      autoCheckinError === "" ? null : React7.createElement("div", { className: "dim-jh-checkinHint", role: "alert", style: { color: "#d93025" } }, autoCheckinError)
+      autoCheckinError === "" ? null : React10.createElement("div", { className: "dim-jh-checkinHint", role: "alert", style: { color: "var(--dsw-alias-state-error-primary, #d93025)" } }, autoCheckinError)
     );
   }
   function renderCheckinStatus(a) {
     if (a === null) {
-      return React7.createElement("div", {
+      return React10.createElement("div", {
         className: "dim-jh-checkinStatus dim-jh-checkinStatusLoading",
         "aria-hidden": "true"
       });
     }
     if (needsHostRestartNotice(a)) {
-      return React7.createElement(
+      return React10.createElement(
         "div",
         { className: "dim-jh-checkinStatus", role: "alert" },
         "⚠️ 宿主仍在运行旧代码（没有定时签到接口）。请完全退出并重新打开 DSH，之后这里才会显示「下次执行」时间。"
       );
     }
-    return React7.createElement(
+    return React10.createElement(
       "div",
       { className: "dim-jh-checkinStatus" },
-      React7.createElement("div", null, `下次执行：${formatNextRunAt(a.nextRunAt, Date.now())}`),
+      React10.createElement("div", null, `下次执行：${formatNextRunAt(a.nextRunAt, Date.now())}`),
       // ★ 逐渠道水位线：这个时段还有渠道没领到（典型：10:00 才刷新额度的渠道）。
       //   宿主会按退避重试它们，界面必须说出来 —— 否则用户只看到「下次执行 21:00」
       //   却不知道 10:00 那批还要再过一会儿才会领到。
-      typeof a.pendingSlot === "string" && a.pendingSlot !== "" ? React7.createElement("div", null, `有渠道待补（${a.pendingSlot.slice(11, 16)} 那一轮），正在自动重试`) : null,
-      a.lastResult === "" ? null : React7.createElement("div", null, `上次：${a.lastResult}`)
+      typeof a.pendingSlot === "string" && a.pendingSlot !== "" ? React10.createElement("div", null, `有渠道待补（${a.pendingSlot.slice(11, 16)} 那一轮），正在自动重试`) : null,
+      a.lastResult === "" ? null : React10.createElement("div", null, `上次：${a.lastResult}`)
     );
   }
-  return React7.createElement(
+  return React10.createElement(
     "section",
     { className: "dim-jh-page", "aria-label": "Jet Hub Provider 设置" },
     // ⚠️⚠️ **整个页头已删除**（用户 2026-11-06 要求：「将顶部的按钮功能移动
@@ -15250,7 +19780,7 @@ function JetHubPage({ rpcCall }) {
     //
     // ⚠️ `flex: none` 仍是必需的 —— `dim-jh-page` 是 column flex 且
     //    `dim-jh-layout` 带 `flex: 1`，不锁住的话提示条会被压扁（与 modal 内同款做法）。
-    checkinNotice ? React7.createElement(
+    checkinNotice ? React10.createElement(
       "div",
       {
         className: "dim-jh-probeNotice",
@@ -15258,47 +19788,59 @@ function JetHubPage({ rpcCall }) {
         role: checkinNotice.tone === "error" ? "alert" : "status",
         style: { flex: "none", margin: "12px 24px 0" }
       },
-      React7.createElement("div", null, checkinNotice.text),
+      React10.createElement("div", null, checkinNotice.text),
       // 需要用户操作的提示单列成列表（如「请先用 Qoder 官方客户端登录一次」）。
       // 复用既有的 `dim-jh-probeDetails` 样式，不引入新样式。
-      (checkinNotice.notes || []).length > 0 ? React7.createElement(
+      (checkinNotice.notes || []).length > 0 ? React10.createElement(
         "ul",
         { className: "dim-jh-probeDetails" },
-        checkinNotice.notes.map((note, index) => React7.createElement("li", { key: index }, note))
+        checkinNotice.notes.map((note, index) => React10.createElement("li", { key: index }, note))
       ) : null
     ) : null,
     // ⚠️ `inModal` 的提示交给弹窗自己渲染（见 ProviderSwitchPanel）—— 重复渲染
     // 会让同一条错误在遮罩内外各出现一次。
-    providerNotice && !providerNotice.inModal ? React7.createElement("div", {
+    providerNotice && !providerNotice.inModal ? React10.createElement("div", {
       className: "dim-jh-probeNotice",
       "data-tone": providerNotice.tone,
       role: providerNotice.tone === "error" ? "alert" : "status",
       style: { flex: "none", margin: "12px 24px 0" }
-    }, React7.createElement("div", null, providerNotice.text)) : null,
-    React7.createElement(
+    }, React10.createElement("div", null, providerNotice.text)) : null,
+    // 全局统计带：与上面两条提示同位置（页头之后、layout 之前），
+    // 所以左右边距、`flex: none` 防压扁的写法也一致。读数是异步的，
+    // 首帧不渲染（见 renderGlobalStats 的 `null` 判断），避免布局先跳一次。
+    renderGlobalStats(),
+    React10.createElement(
       "div",
       { className: "dim-jh-layout" },
       // ⚠️ 侧边栏分成「可滚动的开关列表」+「固定的底部操作行」两段：
       //    `.dim-jh-rail` 本身是 `display: grid`（每个 tab 一个格子、gap 8px），
       //    直接塞操作行会让它变成「又一个 tab」。包一层 flex 列之后，列表
       //    自己滚、操作行永远贴在底部。
-      React7.createElement(
+      React10.createElement(
         "nav",
         { className: "dim-jh-rail", role: "tablist", "aria-label": "Provider 导航" },
-        React7.createElement(
+        React10.createElement(
           "div",
           { className: "dim-jh-railScroll" },
           renderRail()
         ),
         renderRailActions()
       ),
-      React7.createElement(
+      React10.createElement(
         "main",
         {
           className: "dim-jh-panel",
           role: "tabpanel"
         },
-        PROVIDERS.map((p) => p.id === selected ? p.id === "aggregate" ? React7.createElement(AggregatePanel, { key: p.id + "-" + version, rpcCall }) : React7.createElement(ProviderPanel, {
+        PROVIDERS.map((p) => p.id === selected ? p.id === "aggregate" ? React10.createElement(AggregatePanel, {
+          key: p.id + "-" + version,
+          rpcCall,
+          // 聚合页头也要「启用/关闭」开关（2026-11-20 用户要求），
+          // 复用页面级状态与切换动作，与普通供应商同源。
+          providerStatuses,
+          providerBusy,
+          onToggleProvider: toggleProvider2
+        }) : React10.createElement(ProviderPanel, {
           key: p.id + "-" + version,
           provider: p.id,
           rpcCall,
@@ -15306,18 +19848,18 @@ function JetHubPage({ rpcCall }) {
           // 点击走页面级 `toggleProvider`（带 confirm + 重拉状态 + 重挂载面板）。
           providerStatuses,
           providerBusy,
-          onToggleProvider: toggleProvider
+          onToggleProvider: toggleProvider2
         }) : null)
       )
     ),
     // 「供应商开关」以 modal 渲染：它是覆盖层，放在布局之后只是组件树的书写顺序
     // （与账号面板里的模型列表同款做法）。关闭即不挂载，避免常驻一份开关列表。
-    showProviderSwitches ? React7.createElement(ProviderSwitchPanel, {
+    showProviderSwitches ? React10.createElement(ProviderSwitchPanel, {
       providers: PROVIDERS,
       statuses: providerStatuses,
       statusFailed: providerStatusFailed,
       busyIds: providerBusy,
-      onToggle: toggleProvider,
+      onToggle: toggleProvider2,
       onReload: loadProviderStatuses,
       onClose: () => setShowProviderSwitches(false),
       order: providerOrder,
@@ -15332,18 +19874,19 @@ function JetHubPage({ rpcCall }) {
     }) : null,
     // 同款做法：网关开关也是覆盖层，且与「供应商开关」互斥 —— 两者都是
     // `position: fixed` 的全屏弹窗，同时打开会叠在一起、ESC 只关掉后挂载的那个。
-    showGateway ? React7.createElement(GatewayPanel, {
+    showGateway ? React10.createElement(GatewayPanel, {
       status: gatewayStatus,
       busy: gatewayBusy,
       notice: gatewayNotice,
       onToggle: toggleGateway,
       onToggleAllowLan: toggleGatewayAllowLan,
       onReload: loadGatewayStatus,
-      onClose: () => setShowGateway(false)
+      onClose: () => setShowGateway(false),
+      rpcCall
     }) : null,
     // 「Token 用量」弹窗：同样是覆盖层（createElement 形式 —— 与其它弹窗
     // 同一理由，见 OpencodeProxyModal 上方的 hook 计数事故注释）。
-    showTokenLedger ? React7.createElement(TokenLedgerPanel, {
+    showTokenLedger ? React10.createElement(TokenLedgerPanel, {
       rpcCall,
       onClose: () => setShowTokenLedger(false)
     }) : null,
@@ -15847,7 +20390,7 @@ function startCarrierContribution(options = {}) {
 }
 
 // plugin-src/client/usage-badge.js
-var React8 = __toESM(require("react"), 1);
+var React11 = __toESM(require("react"), 1);
 var import_react_dom = require("react-dom");
 
 // plugin-src/client/badge-model.js
@@ -16022,6 +20565,16 @@ function badgeView(input) {
     windows,
     failedCount,
     okCount,
+    /**
+     * 该渠道的**账号总数**（= 读到的 + 读取失败的）。
+     *
+     * ⚠️ 与 `okCount` 分开给：胶囊上要显示的是「这个渠道有几个号」，
+     * 那个数**不该因为某次读取失败就变小** —— 否则用户会以为账号被删了。
+     * 失败数另有 `failedCount`，由弹窗脚注单独说明，两者不混。
+     *
+     * ⚠️ 用户 2026-11-18 要求胶囊显示「共 7 帐号」，即这个值。
+     */
+    accountCount: okCount + failedCount,
     failureReason,
     incompleteNote
   };
@@ -16083,15 +20636,260 @@ function firstUnitOf(packages) {
   const hit = packages.find((pkg) => pkg && typeof pkg.unit === "string" && pkg.unit.length > 0);
   return hit === void 0 ? void 0 : hit.unit;
 }
-function balanceOrder(row) {
-  const total = row?.balance?.total;
-  return typeof total === "number" && Number.isFinite(total) ? total : Number.NEGATIVE_INFINITY;
+var CREDIT_ORDER_TIER = Object.freeze({ imminent: 0, expiring: 1, permanent: 2, none: 3 });
+function sumAvailableCredits(accounts, opts) {
+  if (opts?.locked !== true) return null;
+  const rows = Array.isArray(accounts) ? accounts : [];
+  if (rows.length === 0) return null;
+  let total = 0;
+  let seen = false;
+  for (const row of rows) {
+    const packages = row?.balance?.packages;
+    if (!Array.isArray(packages)) continue;
+    const unit = packages.find((pkg) => pkg && pkg.unit)?.unit;
+    if (unit === QUOTA_UNIT) return null;
+    const split = splitCreditsByExpiry(packages, opts.windowDays, void 0, opts.imminentDays);
+    if (split == null) continue;
+    total += (split.shortTerm ?? 0) + (split.imminent ?? 0);
+    seen = true;
+  }
+  return seen ? total : null;
+}
+function backendOrderTierIsUsable(tier) {
+  return tier !== CREDIT_ORDER_TIER.none;
+}
+function backendOrderTier(split, allowPermanent) {
+  if (split == null) return CREDIT_ORDER_TIER.none;
+  const positive = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
+  if (positive(split.imminent) > 0) return CREDIT_ORDER_TIER.imminent;
+  if (positive(split.expiring) > 0) return CREDIT_ORDER_TIER.expiring;
+  if (allowPermanent === false) return CREDIT_ORDER_TIER.none;
+  if (positive(split.permanent) > 0 || positive(split.longTerm) > 0) return CREDIT_ORDER_TIER.permanent;
+  return CREDIT_ORDER_TIER.none;
+}
+function rotationStartHint(tier) {
+  if (!Number.isFinite(tier)) return null;
+  if (tier === CREDIT_ORDER_TIER.imminent) return null;
+  if (tier === CREDIT_ORDER_TIER.expiring) {
+    return "⚠️ 起点是「短期」档：先烧它的短期积分，其他账号的临期仍优先";
+  }
+  if (tier === CREDIT_ORDER_TIER.permanent) {
+    return "⚠️ 起点是「永久」档：先烧它的永久积分，其他账号的临期仍优先";
+  }
+  return null;
+}
+function rotationTierShiftHint(selectionTier, currentTier) {
+  if (typeof selectionTier !== "string" || selectionTier.length === 0) return null;
+  if (!Number.isFinite(currentTier)) return null;
+  const labelOf = (t) => {
+    if (t === "imminent") return "临期";
+    if (t === "expiring") return "短期";
+    if (t === "permanent") return "永久";
+    return "不可用";
+  };
+  const nowTier = currentTier === CREDIT_ORDER_TIER.imminent ? "imminent" : currentTier === CREDIT_ORDER_TIER.expiring ? "expiring" : currentTier === CREDIT_ORDER_TIER.permanent ? "permanent" : "none";
+  if (nowTier === selectionTier) return null;
+  const rank = { imminent: 0, expiring: 1, permanent: 2, none: 3 };
+  const from = labelOf(selectionTier);
+  const to = labelOf(nowTier);
+  if (rank[nowTier] > rank[selectionTier]) {
+    return `ℹ️ 起点「${from}」已用完，现剩「${to}」⇒ 已交回队列`;
+  }
+  return `ℹ️ 起点现有「${from}」积分（原为「${to}」）⇒ 已交回队列`;
+}
+function isEarliestPartial(amount, earliestAmount) {
+  const total = Number(amount);
+  const earliest = Number(earliestAmount);
+  if (!Number.isFinite(total) || !Number.isFinite(earliest)) return false;
+  return total - earliest > 5e-3;
+}
+function creditOrderLabel(options = {}) {
+  if (options.strictManualOrder === true) return "手动顺序";
+  if (options.hasRotationStart === true) return "起点优先";
+  if (options.hasTiered === false) return "按位次";
+  return "临期优先";
+}
+function describeCreditOrder(options = {}) {
+  const lines = [];
+  const windowDays = Number.isFinite(options.windowDays) ? options.windowDays : 15;
+  const imminentDays = Number.isFinite(options.imminentDays) ? options.imminentDays : 5;
+  if (options.strictManualOrder === true) {
+    lines.push("当前：严格手动顺序");
+    lines.push("按「位次」（你在面板里的拖拽顺序）排列，档位不决定先后。");
+    lines.push("档位只决定「谁还可用」：不可用的账号仍排在最后。");
+    lines.push("⚠️ 此模式下「临期优先」失效 —— 离到期最近的号不保证排在前面。");
+  } else if (options.hasTiered === false) {
+    lines.push("当前：按「位次」排列（本渠道没有积分到期分档）");
+    lines.push("配额类渠道的每个窗口是并行百分比，没有「哪档先用完」的概念。");
+    lines.push("不可用的账号（查询失败）仍排在最后。");
+  } else {
+    lines.push("当前：按积分档位排序（= 后端选号顺序）");
+    if (imminentDays > 0) {
+      lines.push(`① ${imminentDays} 天内到期（临期）—— 最优先消耗`);
+      lines.push(`② ${imminentDays}~${windowDays} 天内到期（短期）`);
+    } else {
+      lines.push(`① ${windowDays} 天内到期（临期档已关闭，全部并入短期）`);
+    }
+    lines.push(`③ ${windowDays} 天以上或无到期日（永久）`);
+    lines.push("④ 不可用（无余额 / 查询失败）—— 排最后");
+    lines.push("同一档内按「位次」排列，不按金额。");
+  }
+  if (options.hasRotationStart === true) {
+    lines.push("");
+    lines.push("已设轮换起点：起点及其之后的账号绕到最前面。");
+  }
+  if (options.locked === true) {
+    lines.push("");
+    lines.push("「锁定永久积分」已开启：只剩永久积分的账号视为不可用，排在最后。");
+  }
+  return lines.join("\n");
+}
+function rotationIdsOf(rotationState) {
+  if (rotationState === null || typeof rotationState !== "object") return [];
+  const accounts = rotationState.accounts;
+  if (!Array.isArray(accounts)) return [];
+  const out = [];
+  for (const entry2 of accounts) {
+    if (entry2 === null || typeof entry2 !== "object") continue;
+    if (typeof entry2.id === "string" && entry2.id.length > 0) out.push(entry2.id);
+  }
+  return out;
+}
+function rotationOrderOptionsOf(rotationState) {
+  if (rotationState === null || typeof rotationState !== "object") return {};
+  const selected = rotationState.selected;
+  if (typeof selected !== "string" || selected.length === 0) return {};
+  const ids = rotationIdsOf(rotationState);
+  const tier = typeof rotationState.tierAtSelection === "string" ? { tierAtSelection: rotationState.tierAtSelection } : {};
+  return ids.length === 0 ? { rotationStartId: selected, ...tier } : { rotationStartId: selected, enabledAccountIds: ids, ...tier };
+}
+function creditOrderOptionsOf(input) {
+  const source = input === null || typeof input !== "object" ? {} : input;
+  const limit = Number.isFinite(source.limit) ? source.limit : 0;
+  const options = {
+    limit,
+    expanded: source.expanded === true,
+    strictManualOrder: source.strictManualOrder === true,
+    allowPermanent: source.locked !== true,
+    now: Number.isFinite(source.now) ? source.now : Date.now()
+  };
+  if (Number.isFinite(source.windowDays)) options.windowDays = source.windowDays;
+  if (Number.isFinite(source.imminentDays)) options.imminentDays = source.imminentDays;
+  return { ...options, ...rotationOrderOptionsOf(source.rotationState) };
 }
 function orderCreditRows(rows, options = {}) {
   const limit = Number.isFinite(options.limit) ? options.limit : 0;
-  const ordered = [...Array.isArray(rows) ? rows : []].sort((a, b) => balanceOrder(b) - balanceOrder(a));
+  const copy = Array.isArray(rows) ? rows : [];
+  const startId = options.rotationStartId;
+  const allowPermanent = options.allowPermanent !== false;
+  const strict = options.strictManualOrder === true;
+  const windowDays = Number.isFinite(options.windowDays) ? options.windowDays : void 0;
+  const imminentDays = Number.isFinite(options.imminentDays) ? options.imminentDays : void 0;
+  const now = Number.isFinite(options.now) ? options.now : Date.now();
+  const tierOf = (row) => {
+    const packages = row?.balance?.packages;
+    if (!Array.isArray(packages)) return CREDIT_ORDER_TIER.none;
+    const unit = packages.find((pkg) => pkg && pkg.unit)?.unit;
+    if (unit === QUOTA_UNIT) return CREDIT_ORDER_TIER.none;
+    const split = splitCreditsByExpiry(packages, windowDays, now, imminentDays);
+    return backendOrderTier(split, allowPermanent);
+  };
+  const decorated = copy.map((row, index) => ({
+    row,
+    index,
+    sortKey: strict ? backendOrderTierIsUsable(tierOf(row)) ? 0 : 1 : tierOf(row)
+  }));
+  decorated.sort((a, b) => a.sortKey - b.sortKey || a.index - b.index);
+  const orderedByStrategy = decorated.map((entry2) => entry2.row);
+  const tierOfGroup = (row) => {
+    const packages = row?.balance?.packages;
+    if (!Array.isArray(packages)) return CREDIT_ORDER_TIER.none;
+    const unit = packages.find((pkg) => pkg && pkg.unit)?.unit;
+    if (unit === QUOTA_UNIT) return CREDIT_ORDER_TIER.none;
+    const split = splitCreditsByExpiry(packages, windowDays, now, imminentDays);
+    return backendOrderTier(split, true);
+  };
+  const enabledAccountIds = Array.isArray(options.enabledAccountIds) ? options.enabledAccountIds : [];
+  const ordered = typeof startId === "string" && startId.length > 0 ? rotateRows(
+    orderedByStrategy,
+    startId,
+    tierOf,
+    tierOfGroup,
+    enabledAccountIds,
+    /**
+     * ★ **起点选定时的档位快照**（S6，2026-11-20）。
+     *
+     * ⚠️ 必须与后端**读同一份数据**（`account.getRotation` 回的
+     * `tierAtSelection`），否则「弹窗显示的选号顺序」与「实际选号」
+     * 会在降档后分叉 —— 那正是本函数 2026-11-18 三处分叉的同型缺陷。
+     *
+     * `undefined` / `null` ⇒ 老数据 ⇒ 保持 S5。
+     */
+    typeof options.tierAtSelection === "string" ? options.tierAtSelection : void 0
+  ) : orderedByStrategy;
   const hidden = Math.max(0, ordered.length - limit);
   return { shown: options.expanded === true ? ordered : ordered.slice(0, limit), hidden };
+}
+function rotateRows(rows, startId, tierOf, tierOfGroup, enabledAccountIds, tierAtSelection) {
+  let index = rows.findIndex((row) => row?.accountId === startId);
+  if (index < 0) {
+    const ids = Array.isArray(enabledAccountIds) ? enabledAccountIds : [];
+    const startPosition = ids.indexOf(startId);
+    if (startPosition < 0) return [...rows];
+    index = rows.findIndex((row) => ids.indexOf(row?.accountId) >= startPosition);
+    if (index < 0) index = 0;
+  }
+  let anchor = -1;
+  for (let step = 0; step < rows.length; step += 1) {
+    const at = (index + step) % rows.length;
+    if (backendOrderTierIsUsable(tierOf(rows[at]))) {
+      anchor = at;
+      break;
+    }
+  }
+  if (anchor < 0) return [...rows];
+  const startRow = rows[anchor];
+  const startTier = tierOfGroup(startRow);
+  const tierNow = (() => {
+    if (startTier === CREDIT_ORDER_TIER.imminent) return "imminent";
+    if (startTier === CREDIT_ORDER_TIER.expiring) return "expiring";
+    if (startTier === CREDIT_ORDER_TIER.permanent) return "permanent";
+    return void 0;
+  })();
+  const tierStillHeld = tierAtSelection !== void 0 && tierNow === tierAtSelection;
+  if (!tierStillHeld) {
+    const ids = Array.isArray(enabledAccountIds) ? enabledAccountIds : [];
+    let rotated = [...rows];
+    if (ids.length > 0) {
+      const posOf = (id) => {
+        const at = ids.indexOf(id);
+        return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+      };
+      rotated = [...rows].sort((a, b) => posOf(a?.accountId) - posOf(b?.accountId));
+      const startAt = rotated.findIndex((row) => row?.accountId === startRow?.accountId);
+      if (startAt >= 0) rotated = [...rotated.slice(startAt), ...rotated.slice(0, startAt)];
+    }
+    return rotated.sort((a, b) => tierOfGroup(a) - tierOfGroup(b));
+  }
+  const byTier = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const t = tierOfGroup(row);
+    const group = byTier.get(t);
+    if (group === void 0) byTier.set(t, [row]);
+    else group.push(row);
+  }
+  const out = [startRow];
+  const tiers = [...byTier.keys()].sort((a, b) => a - b);
+  for (const tier of tiers) {
+    const group = byTier.get(tier);
+    if (tier !== startTier) {
+      out.push(...group);
+      continue;
+    }
+    const posInTier = group.findIndex((row) => row?.accountId === startRow?.accountId);
+    out.push(...posInTier >= 0 ? [...group.slice(posInTier + 1), ...group.slice(0, posInTier)] : group);
+  }
+  return out;
 }
 function autoBadgeName(options = {}) {
   const fallback = typeof options.fallback === "string" ? options.fallback : "";
@@ -16144,7 +20942,32 @@ function formatUpdatedAt(ms) {
 // plugin-src/client/usage-badge.js
 var POPOVER_ANCHOR_STYLE = Object.freeze({
   position: "absolute",
-  right: 0,
+  /**
+   * ★★ **弹窗以胶囊为中心居中**（用户 2026-11-18 要求：
+   *    「弹窗居中于胶囊……我不是要求弹窗跟胶囊一样大，只是显示位置而已」）。
+   *
+   * ## 沿革
+   *
+   * | 时间 | 对齐 | 问题 |
+   * |---|---|---|
+   * | 原状 | `right: 0`（右边缘对齐胶囊右边缘）| 弹窗偏左，压住左侧模型选择器 |
+   * | 中途尝试 | `left: 0`（左边缘对齐胶囊左边缘）| ⚠️ 胶囊在输入区最右，530px 必溢出窗口 |
+   * | **现在** | **居中** | 两侧各溢出一半，视觉最平衡 |
+   *
+   * ## 实现
+   *
+   * `left: 50%` + `translateX(-50%)` —— 相对**定位父元素**（`.dim-jh-badge`，
+   * 它正好包住胶囊）居中。这样弹窗中心 = 胶囊中心。
+   *
+   * ⚠️ 为什么用 `left: 50%` 而不是 `left: 0; margin-left: -265px`：
+   *    弹窗宽度是 `min(530px, 92vw)` **会变**（窄窗口），写死半宽会错位。
+   *    `translateX(-50%)` 按**自身实际宽度**算，永远精确居中。
+   * ⚠️ 居中后必然两侧溢出（胶囊贴右边缘 + 弹窗 530px）⇒
+   *    由 `useLayoutEffect` 做**视口收敛**（见该 effect 的注释）。
+   */
+  left: "50%",
+  right: "auto",
+  transform: "translateX(-50%)",
   bottom: "calc(100% + 8px)",
   maxHeight: "58vh",
   overflowY: "auto",
@@ -16187,14 +21010,26 @@ var BADGE_POLL_MS = 6e4;
 var ACTIVE_PROVIDER_POLL_MS = 5e3;
 var CLAIM_NOTICE_MS = 8e3;
 var CLAIM_NOTICE_WARN_MS = 2e4;
-var CREDITS_COLLAPSED_LIMIT = 5;
+var CREDITS_COLLAPSED_LIMIT = 15;
+var ROTATION_EXCLUDED = Object.freeze(["zcode", "loomy", "aggregate"]);
+function supportsRotation(provider) {
+  return typeof provider === "string" && provider.length > 0 && !ROTATION_EXCLUDED.includes(provider);
+}
+var ROTATION_REASON_TEXT = Object.freeze({
+  "policy-blocked": "该账号被上游限制（异常行为）—— 需在面板「重置」后才能恢复",
+  "rate-limited": "该账号在当前模型下被限流 —— 等解禁或换账号",
+  "no-expiring": "该账号没有「临期窗口内」到期的积分，而「锁定永久积分」已开启 —— 只会消耗永久积分，故跳过"
+});
+var ROTATION_TIP_LABEL = "只改「从哪个账号开始轮换」，不改任何选号策略。\n\n【起点这一档还没用完时】先烧它的 —— 例：选「位次 4」，若它有临期积分，就从 4 开始，按档位顺序 4 → 5 → 6 → 7 → 1 → 2 → 3 轮换。\n\n【起点这一档用完之后】自动交回轮换队列，不再是第一位：改为按档位优先（临期 → 短期 → 永久）从起点往后轮流消耗**其他**账号，绕一圈后才再轮到它的低档积分。\n\n也就是说：指定一个「只有永久积分」的账号当起点，会**先消耗永久积分**；永久用完后才轮到别人。\n\n「默认」= 按渠道原有策略决定起点：余额分档的渠道会优先用在临期积分更多的账号。\n\n本设置只对当前会话生效，换会话回到「默认」。";
+var ROTATION_TIP_SELECT = "选择从哪个账号开始轮换（仅当前会话生效）";
 var RESOLVE_RETRY_DELAYS = [300, 700, 1500, 2e3];
 function UsageBadge(props) {
   const resolveDirectory = props.resolveDirectory;
-  const [directory, setDirectory] = React8.useState(null);
-  const resolvedRef = React8.useRef(false);
-  const snapshotErrorRef = React8.useRef(false);
-  React8.useEffect(() => {
+  const [directory, setDirectory] = React11.useState(null);
+  const resolvedRef = React11.useRef(false);
+  const [closed, setClosed] = React11.useState(false);
+  const snapshotErrorRef = React11.useRef(false);
+  React11.useEffect(() => {
     if (typeof resolveDirectory !== "function") return void 0;
     if (resolvedRef.current) return void 0;
     let alive = true;
@@ -16244,7 +21079,7 @@ function UsageBadge(props) {
       return void 0;
     }
   };
-  const state = React8.useSyncExternalStore(
+  const state = React11.useSyncExternalStore(
     // ⚠️ 订阅要**真的转发 onChange**（用户切模型时徽标跟着更新）；
     // try/catch 只为把「订阅时才发现抛错」这一类也收进徽标内部。
     (onChange) => {
@@ -16260,12 +21095,13 @@ function UsageBadge(props) {
     safe((d) => d.getSnapshot()),
     safe((d) => d.getSnapshot())
   );
-  let provider = state?.current?.provider;
+  const rawProvider = state?.current?.provider;
+  let provider = rawProvider;
   const modelId = state?.current?.model;
   const readActiveProvider = props.readActiveProvider;
-  const [activeProvider, setActiveProvider] = React8.useState(null);
+  const [activeProvider, setActiveProvider] = React11.useState(null);
   const isAggregate = provider === AGGREGATE_PROVIDER_ID;
-  React8.useEffect(() => {
+  React11.useEffect(() => {
     if (!isAggregate || typeof readActiveProvider !== "function") return void 0;
     let alive = true;
     let timer = null;
@@ -16284,47 +21120,90 @@ function UsageBadge(props) {
       if (timer !== null) clearInterval(timer);
     };
   }, [isAggregate, readActiveProvider, modelId]);
+  React11.useEffect(() => {
+    const readProviderClosed = props.readProviderClosed;
+    if (typeof readProviderClosed !== "function") {
+      setClosed(false);
+      return void 0;
+    }
+    if (typeof rawProvider !== "string" || rawProvider.length === 0) {
+      setClosed(false);
+      return void 0;
+    }
+    let alive = true;
+    const refresh = () => {
+      Promise.resolve().then(() => readProviderClosed(rawProvider)).then((value) => {
+        if (alive) setClosed(value === true);
+      }).catch(() => {
+        if (alive) setClosed(false);
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, ACTIVE_PROVIDER_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [props.readProviderClosed, rawProvider]);
   if (isAggregate) {
     provider = resolveBadgeProvider(provider, activeProvider === null ? null : { provider: activeProvider });
   }
   if (isAggregate && provider === null) {
-    return React8.createElement("span", {
+    return React11.createElement("span", {
       className: "dim-jh-badgePending",
       role: "status",
       title: "聚合（跨渠道）：尚未发出过请求，还不知道会走哪个渠道。发送一条消息后这里会显示实际使用的渠道与积分。"
     }, [
-      React8.createElement("span", { key: "dot", className: "dim-jh-badgeDot", "data-tone": "muted" }),
-      React8.createElement("span", { key: "text" }, "聚合 · 待首次请求")
+      React11.createElement("span", { key: "dot", className: "dim-jh-badgeDot", "data-tone": "muted" }),
+      React11.createElement("span", { key: "text" }, "聚合 · 待首次请求")
     ]);
   }
   if (typeof provider !== "string" || provider.length === 0) return null;
   if (provider === AUTO_PROVIDER_ID) {
-    return React8.createElement(UsageBadgeActive, { ...props, provider });
+    return React11.createElement(UsageBadgeActive, { ...props, provider });
   }
   if (!supportsCreditBalance(provider)) return null;
-  return React8.createElement(UsageBadgeActive, { ...props, provider });
+  if (closed) return null;
+  return React11.createElement(UsageBadgeActive, { ...props, provider });
 }
 function UsageBadgeActive(props) {
   const { provider, providerLabel: providerLabel2, readBadge, writePreference, setAutoCheckin, dismissAutoCheckin, claimCredits } = props;
+  const { sessionId, readRotation, writeRotation } = props;
+  const readStrictManualOrder = props.readStrictManualOrder;
   const label = providerLabel2(provider);
-  const [snapshot, setSnapshot] = React8.useState(null);
-  const [failed, setFailed] = React8.useState(false);
-  const [readError, setReadError] = React8.useState("");
-  const [busy, setBusy] = React8.useState(false);
-  const [open, setOpen] = React8.useState(false);
-  const [preference, setPreference] = React8.useState(null);
-  const [prefError, setPrefError] = React8.useState("");
-  const [autoError, setAutoError] = React8.useState("");
-  const [claiming, setClaiming] = React8.useState(null);
-  const [claimProgress, setClaimProgress] = React8.useState(null);
-  const [claimNotice, setClaimNotice] = React8.useState(null);
-  const [creditsExpanded, setCreditsExpanded] = React8.useState(false);
-  const root = React8.useRef(null);
-  const popRef = React8.useRef(null);
-  const read = React8.useRef(() => {
+  const [snapshot, setSnapshot] = React11.useState(null);
+  const [failed, setFailed] = React11.useState(false);
+  const [readError, setReadError] = React11.useState("");
+  const [busy, setBusy] = React11.useState(false);
+  const [open, setOpen] = React11.useState(false);
+  const [preference, setPreference] = React11.useState(null);
+  const [prefError, setPrefError] = React11.useState("");
+  const [rotationState, setRotationState] = React11.useState(null);
+  const [modelInfo, setModelInfo] = React11.useState(null);
+  const [strictManualOrder, setStrictManualOrder] = React11.useState(false);
+  const [rotationError, setRotationError] = React11.useState("");
+  const [rotationBusy, setRotationBusy] = React11.useState(false);
+  const [autoError, setAutoError] = React11.useState("");
+  const [claiming, setClaiming] = React11.useState(null);
+  const [claimProgress, setClaimProgress] = React11.useState(null);
+  const [claimNotice, setClaimNotice] = React11.useState(null);
+  const [creditsExpanded, setCreditsExpanded] = React11.useState(false);
+  const [activeTab, setActiveTab] = React11.useState("credits");
+  const root = React11.useRef(null);
+  const popRef = React11.useRef(null);
+  const creditsPaneHeightRef = React11.useRef(0);
+  const creditsPanelRef = React11.useRef(null);
+  React11.useLayoutEffect(() => {
+    if (activeTab !== "credits") return;
+    const node = creditsPanelRef.current;
+    if (node === null) return;
+    const height = Math.round(node.getBoundingClientRect().height);
+    if (height > 0) creditsPaneHeightRef.current = height;
   });
-  const claimInFlightRef = React8.useRef(false);
-  React8.useEffect(() => {
+  const read = React11.useRef(() => {
+  });
+  const claimInFlightRef = React11.useRef(false);
+  React11.useEffect(() => {
     ensureJetHubStyles();
     if (!open) return;
     const element = popRef.current;
@@ -16334,15 +21213,33 @@ function UsageBadgeActive(props) {
       console.warn(`[jet-hub] 浮层定位异常（position=${position}）：会撑高输入区（检查 POPOVER_ANCHOR_STYLE / NARROW_POPOVER_STYLE 是否被改坏）`);
     }
   }, [open]);
-  React8.useEffect(() => {
+  React11.useLayoutEffect(() => {
+    if (!open) return;
+    if (isNarrowViewport()) return;
+    const element = popRef.current;
+    if (element === null || typeof window === "undefined") return;
+    element.style.transform = "translateX(-50%)";
+    const rect = element.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const overflowRight = Math.max(0, Math.round(rect.right - viewportWidth));
+    let shift = 0;
+    if (overflowRight > 0) {
+      shift = Math.min(overflowRight, Math.max(0, Math.round(rect.left)));
+    }
+    element.style.transform = shift > 0 ? `translateX(calc(-50% - ${shift}px))` : "translateX(-50%)";
+  });
+  React11.useEffect(() => {
     setSnapshot(null);
     setFailed(false);
     setClaimNotice(null);
     setPrefError("");
     setAutoError("");
     setCreditsExpanded(false);
+    setRotationState(null);
+    setRotationError("");
+    void loadRotation();
   }, [provider]);
-  React8.useEffect(() => {
+  React11.useEffect(() => {
     let alive = true;
     let inFlight = false;
     const load = async (options = {}) => {
@@ -16387,7 +21284,7 @@ function UsageBadgeActive(props) {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [provider, readBadge]);
-  React8.useEffect(() => {
+  React11.useEffect(() => {
     if (!open) return void 0;
     const onDown = (event) => {
       if (!(event.target instanceof Node)) return;
@@ -16405,7 +21302,7 @@ function UsageBadgeActive(props) {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
-  React8.useEffect(() => {
+  React11.useEffect(() => {
     if (claimNotice === null) return void 0;
     const ms = claimNotice.tone === "warn" ? CLAIM_NOTICE_WARN_MS : CLAIM_NOTICE_MS;
     const timer = setTimeout(() => setClaimNotice(null), ms);
@@ -16428,6 +21325,16 @@ function UsageBadgeActive(props) {
     loading: snapshot === null && !failed,
     failed: failed && snapshot === null
   });
+  const availableReadingText = (() => {
+    const creditGroup = view.groups.find((group) => group.unit !== QUOTA_UNIT);
+    if (creditGroup === void 0) return null;
+    const total = sumAvailableCredits(value?.accounts, {
+      locked: value?.locked,
+      windowDays: value?.windowDays,
+      imminentDays: value?.imminentDays
+    });
+    return total === null ? null : formatUnits(total, creditGroup.unit);
+  })();
   const auto = value?.autoCheckin;
   const onToggleAutoCheckin = async () => {
     if (auto === void 0) return;
@@ -16569,16 +21476,53 @@ function UsageBadgeActive(props) {
   const tone = failed && snapshot === null ? "error" : view.tone;
   const title = [view.text, view.incompleteNote, view.failureReason].filter((part) => part !== "").join("\n");
   const ariaLabel = `${label} 用量：${view.text}${view.incompleteNote === "" ? "" : `（${view.incompleteNote}）`}`;
-  const collapsed = React8.createElement("span", { key: "text", className: "dim-jh-badgeText" }, [
-    React8.createElement("span", { key: "name", className: "dim-jh-badgeName" }, view.name),
-    React8.createElement("span", { key: "sep", className: "dim-jh-badgeSep" }, "•"),
+  const collapsed = React11.createElement("span", { key: "text", className: "dim-jh-badgeText" }, [
+    React11.createElement("span", { key: "name", className: "dim-jh-badgeName" }, view.name),
+    React11.createElement("span", { key: "sep", className: "dim-jh-badgeSep" }, "•"),
     // 空串时**不渲染**该节点：留一个空 span 会白吃一个 5px 的 gap
     //（.dim-jh-badgeText 用的是 .dim-jh-badgeBtn 的 gap）。只有套餐模式有中段。
-    view.detail === "" ? null : React8.createElement("span", { key: "detail", className: "dim-jh-badgeDetail" }, view.detail),
+    view.detail === "" ? null : React11.createElement("span", { key: "detail", className: "dim-jh-badgeDetail" }, view.detail),
     // ⚠️ 类名是 Reading 而**不是** Value：.dim-jh-badgeValue 已被弹窗里的读数占用
     //（那条规则带 font-weight:600，且排在样式表更后面 —— 同名会让胶囊里的数字
     // 被静默加粗、并拿到 flex:none 而无法收缩）。
-    React8.createElement("span", { key: "value", className: "dim-jh-badgeReading" }, view.reading),
+    /**
+     * ★★ **胶囊读数：可用 / 总**（用户 2026-11-18 要求）。
+     *
+     * 形态：`可用 1900积分/总 8500积分`
+     *
+     * ## 只在「锁定永久积分」时显示可用
+     *
+     * 未锁定时可用 == 总，显示「可用 8500/总 8500」纯属噪音
+     * ⇒ 保持原样（只显示 `view.reading`）。
+     *
+     * ## ⚠️ 可用 = 短期 + 临期
+     *
+     * 不是「总 − 永久」（那会把长期也算进去）。详见 availableCreditsTotal 的注释。
+     *
+     * ## tooltip
+     *
+     * 用户要求两处都加说明 ⇒ 悬停给出公式与口径。
+     * ⚠️ 胶囊的 `title` 已经用于「三段拼接」（读数→不完整说明→失败原因），
+     *    故这里**不能覆盖**它 —— 而是把可用说明**插到最前面**再拼原有的。
+     */
+    availableReadingText === null ? React11.createElement("span", { key: "value", className: "dim-jh-badgeReading" }, view.reading) : React11.createElement("span", {
+      key: "value",
+      className: "dim-jh-badgeReading",
+      title: [
+        `可用 ${availableReadingText}积分 / 总 ${view.reading}`,
+        "可用 = 短期 + 临期（锁定永久积分模式下只会消耗这两档）",
+        "不含：永久、长期、已过期",
+        "未锁定时可用即等于总计，故不单独显示"
+      ].join("\n")
+    }, [
+      React11.createElement(
+        "span",
+        { key: "av", className: "dim-jh-badgeAvail" },
+        `可用 ${availableReadingText}积分`
+      ),
+      React11.createElement("span", { key: "sl", className: "dim-jh-badgeReadingSlash" }, "/"),
+      React11.createElement("span", { key: "tot" }, view.reading)
+    ]),
     /**
      * 「这个数字不完整」的标记（用户 2026-10-03 要求）。
      *
@@ -16591,15 +21535,81 @@ function UsageBadgeActive(props) {
      * ⚠️ `aria-hidden` 是**故意**的：同一句话已经并进按钮的 `aria-label`，
      * 不隐藏会被读屏念两遍。鼠标用户的解释走 `title`。
      */
-    view.incompleteNote === "" ? null : React8.createElement("span", {
+    view.incompleteNote === "" ? null : React11.createElement("span", {
       key: "incomplete",
       className: "dim-jh-badgeWarn",
       title: view.incompleteNote,
       "aria-hidden": "true"
-    }, "⚠")
+    }, "⚠"),
+    /**
+     * ★ **位次**与**账号数**（2026-11-18 用户要求）。
+     *
+     * 形态：`TRAE (字节) • 39575.71积分 默认 · 共 7 帐号`
+     *
+     * - **位次段**：`rotationState.selectedPosition` 为 `null` ⇒ 显示「默认」；
+     *   是数字 ⇒ 显示「位次 N」。
+     * - **账号数段**：`view.accountCount`（= okCount + failedCount）
+     *   ⇒ **读取失败不会让这个数变小**（否则用户会以为账号被删了）。
+     *
+     * ⚠️ 两段都 `flex: none` + 小一号字 + 降透明：它们是**补语**，
+     *    空间不足时**先**牺牲中间的渠道名/读数（既有 flex 权重已经那样设计），
+     *    不能让补语把读数挤掉。
+     * ⚠️ 账号数为 0 时不渲染（「共 0 帐号」是噪音，弹窗里已有更明确的空态文案）。
+     * ⚠️ `aria-hidden`：同样的信息已在 `title` 里，读屏念两遍是噪音。
+     */
+    rotationState === null || rotationState.selectedPosition === null ? React11.createElement("span", {
+      key: "pos",
+      className: "dim-jh-badgeCount",
+      title: "当前轮换起点：默认（不指定）",
+      "aria-hidden": "true"
+    }, "默认") : React11.createElement("span", {
+      key: "pos",
+      className: "dim-jh-badgeCount",
+      /**
+       * ★ **带账号名**（2026-11-24 用户选的「方案 B」）。
+       *
+       * 用户原话：「我想要子代理对话页面，达到跟主代理对话页面一样的效果，
+       * 从页面就能看出这个对话是跟哪个帐号在进行的」
+       *
+       * ⇒ `位次 3 · 陈水广`（有名字时）／`位次 3`（取不到名字时）。
+       *
+       * ⚠️ 名字来自服务端 `selectedAccountName`（那里才跑
+       * `enrichAccountIdentity()` 补全链路），客户端**不自己 find**
+       * —— 本仓红线：同一语义两处实现必然漂移。
+       *
+       * ⚠️ 取不到名字时**只显示位次**（与改动前逐字相同），不显示
+       * 「位次 3 · 未知」之类的噪音。
+       */
+      title: rotationState.selectedAccountName === null || rotationState.selectedAccountName === void 0 ? `当前轮换起点：位次 ${rotationState.selectedPosition}` : `当前轮换起点：位次 ${rotationState.selectedPosition} · ${rotationState.selectedAccountName}`,
+      "aria-hidden": "true"
+    }, rotationState.selectedAccountName === null || rotationState.selectedAccountName === void 0 ? `位次 ${rotationState.selectedPosition}` : `位次 ${rotationState.selectedPosition} · ${rotationState.selectedAccountName}`),
+    view.accountCount > 0 ? React11.createElement("span", {
+      key: "cnt",
+      className: "dim-jh-badgeCount",
+      title: `该渠道账号池共 ${view.accountCount} 个账号`,
+      "aria-hidden": "true"
+    }, `· 共 ${view.accountCount} 帐号`) : null
   ]);
-  return React8.createElement("div", { className: "dim-jh-badge", ref: root }, [
-    React8.createElement("button", {
+  const isSubagentBadge = rotationState !== null && rotationState.selectedAccountName !== null;
+  const modelPill = isSubagentBadge && modelInfo !== null ? React11.createElement("span", {
+    key: "model",
+    className: "dim-jh-badgeModelPill",
+    title: modelInfo.effort === null ? `子代理当前模型：${modelInfo.model}` : `子代理当前模型：${modelInfo.model}（思考强度 ${modelInfo.effort}）`,
+    "aria-hidden": "true"
+  }, [
+    React11.createElement(
+      "span",
+      { key: "m", className: "dim-jh-badgeModelName" },
+      /**
+       * ⚠️ **优先用服务端下发的 `modelName`**（与档次窗口下拉框同源）；
+       * 取不到才回落 id —— 至少有信息，不空白。
+       */
+      rotationState?.modelName ?? modelInfo.model
+    ),
+    modelInfo.effort === null ? null : React11.createElement("span", { key: "e", className: "dim-jh-badgeModelEffort" }, modelInfo.effort)
+  ]) : null;
+  return React11.createElement("div", { className: "dim-jh-badge", ref: root }, [
+    React11.createElement("button", {
       key: "btn",
       type: "button",
       className: "dim-jh-badgeBtn",
@@ -16608,23 +21618,31 @@ function UsageBadgeActive(props) {
       title,
       onClick: () => setOpen((was) => !was)
     }, [
-      React8.createElement("span", { key: "dot", className: "dim-jh-badgeDot", "data-tone": tone }),
+      React11.createElement("span", { key: "dot", className: "dim-jh-badgeDot", "data-tone": tone }),
       collapsed
     ]),
-    open ? renderPopover() : null
+    open ? renderPopover() : null,
+    modelPill
   ]);
   function renderPopover() {
     const stamp = snapshot === null ? "" : formatUpdatedAt(value?.generatedAt ?? snapshot.at);
     const children = [
-      React8.createElement("div", { key: "head", className: "dim-jh-badgeHead" }, [
-        React8.createElement("span", { key: "dot", className: "dim-jh-badgeDot", "data-tone": tone }),
-        React8.createElement("span", { key: "title", className: "dim-jh-badgeTitle" }, label),
-        React8.createElement(
+      React11.createElement("div", { key: "head", className: "dim-jh-badgeHead" }, [
+        React11.createElement("span", { key: "dot", className: "dim-jh-badgeDot", "data-tone": tone }),
+        React11.createElement("span", { key: "title", className: "dim-jh-badgeTitle" }, label),
+        /**
+         * ★ **页签切换器**（用户 2026-11-18 指定的位置：标题右侧、自动按钮左侧）。
+         *
+         * ⚠️ 位置在「标题」与「时间戳」之间：时间戳是**右对齐推送**的（`margin-left: auto`
+         * 由 CSS 的 `.dim-jh-badgeAt` 承担），故页签紧跟标题即可，无需额外定位。
+         */
+        renderTabs(),
+        React11.createElement(
           "span",
           { key: "at", className: "dim-jh-badgeAt" },
           snapshot === null ? "读取中…" : `${stamp === "" ? "已读取" : stamp}${value?.cached === true ? " · 缓存" : ""}`
         ),
-        React8.createElement("button", {
+        React11.createElement("button", {
           key: "auto",
           type: "button",
           className: "dim-jh-badgeAuto",
@@ -16636,8 +21654,8 @@ function UsageBadgeActive(props) {
           onClick: () => {
             void onToggleAutoCheckin();
           }
-        }, auto?.running === true ? "…" : React8.createElement("span", { className: "dim-jh-badgeAutoDot" })),
-        React8.createElement("button", {
+        }, auto?.running === true ? "…" : React11.createElement("span", { className: "dim-jh-badgeAutoDot" })),
+        React11.createElement("button", {
           key: "refresh",
           type: "button",
           className: "dim-jh-badgeRefresh",
@@ -16649,28 +21667,117 @@ function UsageBadgeActive(props) {
       ]),
       // 开关写入失败时单独一行说明：它属于设置写入，混进偏好那行会让人以为
       // 是「显示偏好」没保存。
-      autoError === "" ? null : React8.createElement("div", { key: "autoErr", className: "dim-jh-badgeFail", role: "alert" }, autoError),
-      renderPreference()
+      autoError === "" ? null : React11.createElement("div", { key: "autoErr", className: "dim-jh-badgeFail", role: "alert" }, autoError)
+      /**
+       * ★ **工具行：轮换起点 + 三个显示偏好页签，同一行**（2026-11-18 用户要求）。
+       *
+       * 原形态是两行：页签一行（27px）+ 轮换一行（38px + 7px 边距）= **72px**。
+       * 合并后 **33px**，省 39px —— 这是「默认显示 15 个账号」能落地的另一半前提。
+       *
+       * ⚠️⚠️ **2026-11-18 起本行属于「积分」页，不再是弹窗公共区**（用户明确：
+       *     「这个归于积分页，不是共同页」）。
+       *     「轮换起点」与「显示偏好」都只影响**积分怎么显示/从哪个号开始烧**，
+       *     与签到毫无关系 ⇒ 放在签到页是噪音。
+       *     ⇒ 已移入 {@link renderTabContent} 的 credits 分支。
+       *
+       * ## 布局（原公共区形态，现仅在积分页生效）
+       *
+       * - 轮换的黄框 `flex: 1 1 auto` ⇒ 吃掉中间所有空间，**下拉框跟着变宽**
+       *   （实测约 165px，原 ~88px ⇒ 「位次 23」不再被截断）
+       * - 三个页签 `flex: 0 0 auto` ⇒ **贴最右**
+       * - ⚠️ **样式仍然完全分开**：黄框只包轮换起点，页签是独立的灰框分段控件
+       *   （用户原话：「不要被包进去轮换起点的样式里面，分开」）
+       *
+       * ⚠️ 为什么轮换在左、页签在右：轮换起点是**每次会话都可能改**的选项，
+       *    且带黄色警示条；页签是一次性偏好。更常动的放左侧符合扫视习惯。
+       *
+       * ⚠️ 窄屏（< 720px）由 CSS 的 `flex-wrap: wrap` 回退两行 —— 不隐藏任何功能。
+       */
     ];
     if (snapshot === null) {
-      children.push(React8.createElement("div", {
+      children.push(React11.createElement("div", {
         key: "placeholder",
         className: failed ? "dim-jh-badgeFail" : "dim-jh-badgeNote",
         role: failed ? "alert" : void 0
       }, failed ? readError === "" ? "用量不可用，可点右上角 ↻ 重试" : `${readError}（可点右上角 ↻ 重试）` : "正在读取用量…（首次要逐账号查询，可能要几秒）"));
-      children.push(renderClaim());
+      children.push(renderTabContent());
       return wrapPopover(children);
     }
-    children.push(renderSubscription());
-    children.push(renderCredits());
-    children.push(renderClaim());
-    children.push(renderFoot());
+    children.push(renderTabContent());
     return wrapPopover(children);
+  }
+  function renderTabContent() {
+    if (activeTab === "claim") {
+      const minH = creditsPaneHeightRef.current;
+      return React11.createElement("div", {
+        key: "tabClaim",
+        className: "dim-jh-badgeTabPanel",
+        role: "tabpanel",
+        ...minH > 0 ? { style: { minHeight: `${minH}px` } } : {}
+      }, [renderClaim()]);
+    }
+    return React11.createElement("div", {
+      key: "tabCredits",
+      className: "dim-jh-badgeTabPanel",
+      role: "tabpanel",
+      /**
+       * 这个 ref 供 {@link creditsPaneHeightRef} 的测量 effect 读取
+       * （见该 ref 的注释：记录积分页高度，供签到页撑高用）。
+       */
+      ref: creditsPanelRef
+    }, [
+      /**
+       * ★ **工具行属于「积分」页**（用户 2026-11-18 明确：「这个归于积分页，不是共同页」）。
+       *
+       * 轮换起点 + 显示偏好只影响**积分怎么显示 / 从哪个号开始烧**，与签到无关，
+       * 放在签到页是噪音 ⇒ 仅在 credits 分支渲染。
+       */
+      renderToolbar(),
+      snapshot === null ? null : renderSubscription(),
+      snapshot === null ? null : renderCredits(),
+      renderCreditsFoot()
+    ].filter(Boolean));
+  }
+  function renderTabs() {
+    const TABS = [
+      ["credits", "积分"],
+      ["claim", "签到"]
+    ];
+    const move = (delta) => {
+      const idx = TABS.findIndex(([key]) => key === activeTab);
+      const next = TABS[(idx + delta + TABS.length) % TABS.length][0];
+      setActiveTab(next);
+    };
+    return React11.createElement("div", {
+      key: "tabs",
+      className: "dim-jh-badgeTabs",
+      role: "tablist",
+      "aria-label": "用量弹窗页面",
+      onKeyDown: (event) => {
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          move(-1);
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          move(1);
+        }
+      }
+    }, TABS.map(([key, label2]) => React11.createElement("button", {
+      key,
+      type: "button",
+      className: "dim-jh-badgeTab",
+      role: "tab",
+      "aria-selected": activeTab === key,
+      // ⚠️ 不用 tabIndex=-1 的漫游焦点：本控件只有两项，
+      //    保持都可 Tab 到更符合直觉（WAI-ARIA 允许两种实现）。
+      onClick: () => setActiveTab(key)
+    }, label2)));
   }
   function wrapPopover(children) {
     const narrow = isNarrowViewport();
     if (!narrow) {
-      return React8.createElement("div", {
+      return React11.createElement("div", {
         className: "dim-jh-badgePop",
         style: POPOVER_ANCHOR_STYLE,
         ref: popRef
@@ -16683,7 +21790,7 @@ function UsageBadgeActive(props) {
       // 直接用 CSS 变量名作 key。
       "--dsh-composer-height": `${composerHeight}px`
     };
-    const node = React8.createElement("div", {
+    const node = React11.createElement("div", {
       className: "dim-jh-badgePop",
       style,
       ref: popRef
@@ -16691,15 +21798,353 @@ function UsageBadgeActive(props) {
     if (typeof document === "undefined" || document.body === null || document.body === void 0) return node;
     return (0, import_react_dom.createPortal)(node, document.body, "jet-hub-badge-pop");
   }
+  async function loadRotation() {
+    if (typeof readStrictManualOrder === "function") {
+      try {
+        setStrictManualOrder(await readStrictManualOrder(provider) === true);
+      } catch {
+        setStrictManualOrder(false);
+      }
+    }
+    if (!supportsRotation(provider)) return;
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      setRotationState(null);
+      setRotationError("本会话未拿到会话标识");
+      return;
+    }
+    if (typeof readRotation !== "function") {
+      setRotationState(null);
+      setRotationError("宿主未提供该接口（插件版本不匹配）");
+      return;
+    }
+    try {
+      let currentModel;
+      let capturedModelInfo = null;
+      try {
+        const directory = typeof props.resolveDirectory === "function" ? props.resolveDirectory() : void 0;
+        const current = directory?.store?.getSnapshot?.()?.current;
+        currentModel = typeof current?.model === "string" ? current.model : void 0;
+        if (typeof current?.model === "string" && current.model.length > 0) {
+          capturedModelInfo = {
+            model: current.model,
+            effort: typeof current?.reasoningEffort === "string" && current.reasoningEffort.length > 0 ? current.reasoningEffort : null
+          };
+        }
+      } catch {
+        currentModel = void 0;
+      }
+      setModelInfo(capturedModelInfo);
+      const res = await Promise.race([
+        readRotation(provider, sessionId, currentModel),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error("RPC 超时（8s 未返回）")), 8e3);
+        })
+      ]);
+      const value2 = res?.value ?? res;
+      setRotationState({
+        selected: typeof value2?.selected === "string" ? value2.selected : null,
+        // ⚠️ 位次才是下拉框的 value（用户 2026-11-10 要求「跟随位次」）
+        selectedPosition: typeof value2?.selectedPosition === "number" ? value2.selectedPosition : null,
+        /**
+         * ★ **选中账号的显示名**（2026-11-24 方案 B）。
+         *
+         * 服务端只在「取得到名字」时下发；`null` = 取不到 ⇒ 胶囊只显示位次。
+         * ⚠️ 用 `null` 而不是 `undefined` 作内部表示：`undefined` 会与
+         * 「本次 RPC 还没返回」混淆，而胶囊的渲染判据需要区分这两者
+         *（虽然当前两者渲染相同，但将来加 loading 态时不能混）。
+         */
+        selectedAccountName: typeof value2?.selectedAccountName === "string" && value2.selectedAccountName.length > 0 ? value2.selectedAccountName : null,
+        /**
+         * ★★★ **当前模型的显示名**（2026-11-24 用户要求）。
+         *
+         * ## 用户原话
+         *
+         * > 「模型名字要跟主代理的模型列表一模一样，
+         * >   也就是跟档次窗口模型下拉框的一模一样呀」
+         *
+         * 服务端 `account.getRotation` 用**同一个取数路径**（`ctx.llm.listModels`）
+         * 取到 `m.name`，与档次窗口下拉框**逐字同源**。
+         *
+         * ⚠️ `null` = 服务端没给（目录里没这个模型 / 目录未就绪）
+         *   ⇒ 胶囊**回落显示 id**（至少有信息，不空白）。
+         */
+        modelName: typeof value2?.modelName === "string" && value2.modelName.length > 0 ? value2.modelName : null,
+        stale: value2?.stale === true,
+        locked: value2?.locked === true,
+        /**
+         * ★ **起点选定时的档位快照**（S6，2026-11-20）。
+         *
+         * `null` = 没有快照（老数据 / 未设置）⇒ 轮换仍走 S5（起点绝对第一）。
+         * 客户端用它做两件事：
+         * 1. 传给 `badgeView` 的 `tierAtSelection`，让**弹窗顺序**与真实选号同构；
+         * 2. 判断是否要提示「重选一次起点以启用新规则」。
+         */
+        tierAtSelection: typeof value2?.tierAtSelection === "string" ? value2.tierAtSelection : null,
+        accounts: Array.isArray(value2?.accounts) ? value2.accounts : []
+      });
+      setRotationError("");
+    } catch (error) {
+      setRotationState(null);
+      setRotationError(describeBadgeError(error, "轮换起点读取失败"));
+    }
+  }
+  function tierAtSelectionOf(accountId) {
+    const row = (Array.isArray(value?.accounts) ? value.accounts : []).find((r) => r?.accountId === accountId || r?.id === accountId);
+    const packages = row?.balance?.packages;
+    if (!Array.isArray(packages)) return void 0;
+    const unit = packages.find((pkg) => pkg && pkg.unit)?.unit;
+    if (unit === QUOTA_UNIT) return void 0;
+    const split = splitCreditsByExpiry(packages, value?.windowDays, Date.now(), value?.imminentDays);
+    if (split === null || split === void 0) return void 0;
+    const tier = backendOrderTier(split, true);
+    if (tier === CREDIT_ORDER_TIER.imminent) return "imminent";
+    if (tier === CREDIT_ORDER_TIER.expiring) return "expiring";
+    if (tier === CREDIT_ORDER_TIER.permanent) return "permanent";
+    return void 0;
+  }
+  async function onPickRotation(positionText) {
+    if (typeof writeRotation !== "function") return;
+    if (typeof sessionId !== "string" || sessionId.length === 0) return;
+    setRotationBusy(true);
+    setRotationError("");
+    try {
+      const position = positionText === "" ? null : Number(positionText);
+      const pickedAccount = position === null ? void 0 : (rotationState?.accounts ?? []).find((a) => a?.position === position);
+      const tierAtSelection = pickedAccount === void 0 ? void 0 : tierAtSelectionOf(pickedAccount.id);
+      await writeRotation(provider, sessionId, position, tierAtSelection);
+      await loadRotation();
+    } catch (error) {
+      setRotationError(describeBadgeError(error, "轮换起点保存失败"));
+      await loadRotation();
+    } finally {
+      setRotationBusy(false);
+    }
+  }
+  function reasonOf(account) {
+    if (account.policyBlocked === true) return "policy-blocked";
+    if (account.rateLimited === true) return "rate-limited";
+    if (rotationState?.locked === true) {
+      const expiring = expiringOf(account.id);
+      if (expiring === 0) return "no-expiring";
+    }
+    return null;
+  }
+  function expiringOf(accountId) {
+    const rows = value?.accounts;
+    if (!Array.isArray(rows)) return void 0;
+    const row = rows.find((r) => r?.accountId === accountId || r?.id === accountId);
+    if (row === void 0) return void 0;
+    const packages = row?.balance?.packages;
+    if (!Array.isArray(packages)) return void 0;
+    const split = splitCreditsByExpiry(packages, value?.windowDays, void 0, value?.imminentDays);
+    if (split == null) return void 0;
+    return split.expiring;
+  }
+  function reasonSuffix(reason) {
+    switch (reason) {
+      case "policy-blocked":
+        return "（账号受限）";
+      case "rate-limited":
+        return "（本模型限流）";
+      /**
+       * ⚠️ 2026-11-18 语义澄清：「无临时积分」→ **「无短临积分」**。
+       *
+       * 判据是 `expiring === 0`，而 `expiring` 是 **`imminent + shortTerm` 的派生和**
+       * （已逐场景验证：有短无临 ⇒ expiring>0；有临无短 ⇒ expiring>0）。
+       * ⇒ 该码真正表达的是「**短期和临期都没有**」，旧文案「无临时积分」会让用户
+       *    误以为「只要没有临期就算不可用」—— 而实际上「无短期」或「无临期」
+       *    单独出现时账号完全可用（用户 2026-11-18 亲自指出这一点）。
+       *
+       * ⚠️ 因此**不需要**再拆出「无短期积分」「无临期积分」两个码：
+       *    那两种情况下账号是可用的，不该标灰。
+       */
+      case "no-expiring":
+        return "（无短临积分）";
+      default:
+        return "";
+    }
+  }
+  function accountOptionLabel(account, reason) {
+    return `位次 ${account.position} · ${account.nickname}${reason === null ? "" : reasonSuffix(reason)}`;
+  }
+  function accountRowParts(account, reason) {
+    return {
+      position: String(account.position),
+      name: `${account.nickname}${reason === null ? "" : reasonSuffix(reason)}`
+    };
+  }
+  function renderRotation() {
+    if (!supportsRotation(provider)) return null;
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      return React11.createElement("div", { key: "rotation", className: "dim-jh-badgeRotation" }, [
+        React11.createElement("span", { key: "l", className: "dim-jh-badgeRotationLabel" }, "轮换起点"),
+        React11.createElement("span", { key: "e", className: "dim-jh-badgeNote" }, "本会话未拿到会话标识，暂不可用")
+      ]);
+    }
+    if (rotationError !== "") {
+      return React11.createElement("div", { key: "rotation", className: "dim-jh-badgeRotation" }, [
+        React11.createElement("span", { key: "l", className: "dim-jh-badgeRotationLabel" }, "轮换起点"),
+        React11.createElement("span", { key: "e", className: "dim-jh-badgeFail" }, rotationError)
+      ]);
+    }
+    if (rotationState === null) {
+      return React11.createElement("div", { key: "rotation", className: "dim-jh-badgeRotation" }, [
+        React11.createElement("span", { key: "l", className: "dim-jh-badgeRotationLabel" }, "轮换起点"),
+        React11.createElement("span", { key: "e", className: "dim-jh-badgeRotationHint" }, "读取中…")
+      ]);
+    }
+    const accounts = rotationState.accounts;
+    if (accounts.length === 0) {
+      return React11.createElement("div", { key: "rotation", className: "dim-jh-badgeRotation" }, [
+        React11.createElement("span", { key: "l", className: "dim-jh-badgeRotationLabel" }, "轮换起点"),
+        React11.createElement("span", { key: "e", className: "dim-jh-badgeNote" }, "该渠道还没有账号")
+      ]);
+    }
+    const selected = rotationState.selectedPosition === null || rotationState.selectedPosition === void 0 ? "" : String(rotationState.selectedPosition);
+    const options = [
+      React11.createElement("option", { key: "__default__", value: "" }, "默认. 不指定，保持默认"),
+      ...accounts.map((account) => {
+        const reason = reasonOf(account);
+        const positionValue = String(account.position);
+        return React11.createElement("option", {
+          key: account.id,
+          value: positionValue,
+          // ⚠️ 禁用项仍要能被 `select` 显示为当前值（若用户之前选过、而它现在不可用）
+          //    ⇒ 只有「当前未选中它」时才禁用，否则选中值会显示成空白。
+          disabled: reason !== null && positionValue !== selected,
+          // ⚠️ 可用时挂 accountId（用户要求 id 只在 tooltip 里），
+          //    不可用时挂原因（那个信息更有用）。
+          title: reason === null ? account.id : ROTATION_REASON_TEXT[reason]
+        }, accountOptionLabel(account, reason));
+      })
+    ];
+    const currentPosition = Number(selected);
+    const currentAccount = Number.isInteger(currentPosition) && currentPosition >= 1 ? accounts[currentPosition - 1] : void 0;
+    const currentReason = currentAccount === void 0 ? null : reasonOf(currentAccount);
+    const creditRowTierOf = (accountId) => {
+      const row = (Array.isArray(value?.accounts) ? value.accounts : []).find((r) => r?.accountId === accountId || r?.id === accountId);
+      const packages = row?.balance?.packages;
+      if (!Array.isArray(packages)) return null;
+      const unit = packages.find((pkg) => pkg && pkg.unit)?.unit;
+      if (unit === QUOTA_UNIT) return null;
+      return backendOrderTier(
+        splitCreditsByExpiry(packages, value?.windowDays, Date.now(), value?.imminentDays),
+        value?.locked !== true
+      );
+    };
+    const startTier = currentAccount === void 0 || currentReason !== null ? null : creditRowTierOf(currentAccount.id);
+    const startHint = rotationStartHint(startTier);
+    const tierShiftHint = rotationTierShiftHint(rotationState.tierAtSelection, startTier);
+    return React11.createElement("div", { key: "rotation", className: "dim-jh-badgeRotation" }, [
+      React11.createElement("span", {
+        key: "l",
+        className: "dim-jh-badgeRotationLabel",
+        // 完整说明挂在**标签**上：`<select>` 的 `title` 在下拉展开时浏览器不显示，
+        // 而标签不参与下拉 ⇒ 随时可悬停。
+        title: ROTATION_TIP_LABEL
+      }, "轮换起点"),
+      /**
+       * `ⓘ` 图标 —— 用户 2026-11-11 要求「加 tooltip 说明作用」。
+       *
+       * ⚠️ 为什么除了标签还要它：标签文字很短，鼠标要精准停在四个字上才出提示；
+       * 图标是**独立可悬停目标**，且不参与 `<select>` 的下拉展开。
+       * ⚠️ 刻意**不加 `onClick`** —— 点了没反应比没有图标更困惑（本仓记过这条）。
+       * `role="img"` + `aria-label` 让读屏也能拿到说明。
+       */
+      React11.createElement("span", {
+        key: "info",
+        className: "dim-jh-badgeRotationInfo",
+        role: "img",
+        "aria-label": ROTATION_TIP_LABEL,
+        title: ROTATION_TIP_LABEL
+      }, "ⓘ"),
+      React11.createElement("select", {
+        key: "sel",
+        className: "dim-jh-badgeSelect",
+        value: selected,
+        disabled: rotationBusy === true,
+        "aria-label": "轮换起点",
+        title: ROTATION_TIP_SELECT,
+        onChange: (event) => {
+          void onPickRotation(event.target.value);
+        }
+      }, options),
+      rotationState.stale ? React11.createElement("span", { key: "stale", className: "dim-jh-badgeFail" }, "已失效，请重选") : null,
+      currentReason === null || rotationState.stale ? null : React11.createElement(
+        "div",
+        { key: "hint", className: "dim-jh-badgeNote" },
+        `账号当前不可用${reasonSuffix(currentReason)}，已自动从下一个开始`
+      ),
+      /**
+       * ★★ **起点档位提示**（S2 语义的配套说明）。
+       *
+       * 只在起点是**非临期档**且该号可用时渲染 —— 临期档不改变任何策略，无需提示。
+       *
+       * ⚠️⚠️ **有 `tierShiftHint` 时必须压制它**（2026-11-21 真实缺陷修复）。
+       *
+       * ## 缺陷（用户截图实测）
+       *
+       * 用户报障：「怎么有两行提示呢？」
+       *
+       * 两条提示**同时渲染**，而且**互相矛盾**：
+       *
+       * | 行 | 文案 | 含义 |
+       * |---|---|---|
+       * | 1 | 「起点是「短期」档：**先烧它的**短期积分」 | 先烧起点自己的 |
+       * | 2 | 「已交回轮换队列：**先按档位轮流消耗其他账号**」 | 先烧别人的 |
+       *
+       * ⇒ 一句让先烧它、另一句让先烧别人，**直接冲突**。
+       *
+       * ## 根因
+       *
+       * 本段注释早就写着「与下面的降档提示**互斥渲染**（同时出现会自相矛盾）」
+       * —— **注释写对了，代码没实现**：两处是**独立的 `=== null` 判断**，
+       * 没有任何交叉条件。
+       *
+       * 触发条件（用户截图）：起点选定时的档位是「临期」，
+       * 现在只剩「短期」⇒ 两个函数都返回非 null。
+       *
+       * ## 修法
+       *
+       * `tierShiftHint !== null` 时**不渲染** `startHint`。
+       * 语义上这也是对的：降档后「起点是什么档」已无意义 ——
+       * 起点已经**不再优先**了，此时唯一该说的是「它为什么不再优先」。
+       *
+       * ⚠️ 依赖 `tierShiftHint` 的声明顺序（它在下方 `=== null` 之前已求值）——
+       *    两者都是**同步纯函数**，顺序无副作用。
+       */
+      startHint === null || tierShiftHint !== null ? null : React11.createElement("div", {
+        key: "tierHint",
+        className: "dim-jh-badgeRotationTierHint"
+      }, startHint),
+      /**
+       * ★ **S6 降档提示**：起点那一档烧完了 ⇒ 已交回队列。
+       *
+       * ⚠️ 与上面的「起点是 X 档」提示**互斥**（上面的条件已压制它）——
+       * 后者讲选定时的影响，前者讲降档后的事实，同时出现会自相矛盾。
+       *
+       * ⚠️ **只显示一行**（2026-11-21 用户要求「不要两行，太占用空间」）：
+       * 行内只保留三个关键事实（哪档用完 / 现剩哪档 / 已交回队列），
+       * 完整规则移进 `title`（悬停可见）。
+       */
+      tierShiftHint === null ? null : React11.createElement("div", {
+        key: "tierShiftHint",
+        className: "dim-jh-badgeRotationTierHint",
+        // tooltip 补充完整规则（用户要求「有必要的地方加 tooltip」）
+        title: "轮换起点规则：起点还持有选定那一档积分时，先烧它的；那一档用完后自动交回轮换队列 —— 按档位优先（临期→短期→永久）从起点往后轮流消耗其他账号，绕一圈后才再轮到它。"
+      }, tierShiftHint),
+      rotationError === "" ? null : React11.createElement("span", { key: "err", className: "dim-jh-badgeFail" }, rotationError)
+    ]);
+  }
   function renderPreference() {
-    return React8.createElement("div", {
+    return React11.createElement("div", {
       key: "pref",
       className: "dim-jh-badgePref",
       // ⚠️ 三档的差别必须写清：auto 与 credits 在**有订阅时**表现不同
       //（auto 会回落，credits 不回落到订阅）—— 只说「优先显示哪个」会让人以为两档一样。
       title: "显示偏好：「自动」= 优先显示一共能用的余额（没有余额读数才显示订阅窗口/套餐）；「优先订阅」= 只看窗口与套餐；「只看积分」= 强制只显示余额，也是套餐判定不准时的兜底"
     }, [
-      ...BADGE_PREFERENCES.map((item) => React8.createElement("button", {
+      ...BADGE_PREFERENCES.map((item) => React11.createElement("button", {
         key: item,
         type: "button",
         className: "dim-jh-badgePrefBtn",
@@ -16708,7 +22153,18 @@ function UsageBadgeActive(props) {
           void onPickPreference(item);
         }
       }, BADGE_PREFERENCE_LABELS[item])),
-      prefError === "" ? null : React8.createElement("span", { key: "err", className: "dim-jh-badgeFail" }, prefError)
+      prefError === "" ? null : React11.createElement("span", { key: "err", className: "dim-jh-badgeFail" }, prefError)
+    ]);
+  }
+  function renderToolbar() {
+    const rotation = renderRotation();
+    const pref = renderPreference();
+    if (rotation === null && pref === null) return null;
+    return React11.createElement("div", { key: "toolbar", className: "dim-jh-badgeToolbar" }, [
+      // 轮换：外层这层 span 负责「吃掉中间空间」，内层仍是原来的黄框
+      React11.createElement("span", { key: "rot", className: "dim-jh-badgeToolbarRot" }, rotation),
+      // 页签：贴最右，不参与 flex 增长
+      React11.createElement("span", { key: "pref", className: "dim-jh-badgeToolbarPref" }, pref)
     ]);
   }
   function renderSubscription() {
@@ -16718,47 +22174,47 @@ function UsageBadgeActive(props) {
       const rows = Array.isArray(subscription.accounts) ? subscription.accounts : [];
       const account = rows.find((row) => row?.ok === true) ?? rows[0];
       const windows = account === void 0 ? [] : quotaWindowsOf(account.windows ?? []);
-      return React8.createElement("div", { key: "sub", className: "dim-jh-badgeSection" }, [
-        React8.createElement("div", { key: "title", className: "dim-jh-badgeSectionTitle" }, "订阅额度"),
-        ...windows.length === 0 ? [React8.createElement(
+      return React11.createElement("div", { key: "sub", className: "dim-jh-badgeSection" }, [
+        React11.createElement("div", { key: "title", className: "dim-jh-badgeSectionTitle" }, "订阅额度"),
+        ...windows.length === 0 ? [React11.createElement(
           "div",
           { key: "empty", className: "dim-jh-badgeNote" },
           account?.ok === true ? "该账号没有额度窗口" : account?.error || "订阅额度不可用"
-        )] : [React8.createElement(
+        )] : [React11.createElement(
           "div",
           { key: "wins", className: "dim-jh-badgeWins" },
           windows.map(([type, windowLabel, win]) => {
             const percent = quotaPercentValue(win?.percentUsed);
             const left = quotaResetsIn(win?.resetsAt);
-            return React8.createElement("div", { key: type, className: "dim-jh-badgeWin" }, [
-              React8.createElement("span", { key: "l", className: "dim-jh-badgeWinLabel" }, windowLabel),
-              React8.createElement(
+            return React11.createElement("div", { key: type, className: "dim-jh-badgeWin" }, [
+              React11.createElement("span", { key: "l", className: "dim-jh-badgeWinLabel" }, windowLabel),
+              React11.createElement(
                 "div",
                 { key: "bar", className: "dim-jh-quotaBar" },
-                React8.createElement("div", {
+                React11.createElement("div", {
                   key: "fill",
                   className: "dim-jh-quotaBarFill",
                   "data-tone": quotaTone(percent),
                   style: { width: `${percent}%` }
                 })
               ),
-              React8.createElement("span", { key: "v", className: "dim-jh-badgeValue" }, formatQuotaPercent(percent)),
-              left === "" ? null : React8.createElement("span", { key: "r", className: "dim-jh-badgeWinReset", title: left }, left)
+              React11.createElement("span", { key: "v", className: "dim-jh-badgeValue" }, formatQuotaPercent(percent)),
+              left === "" ? null : React11.createElement("span", { key: "r", className: "dim-jh-badgeWinReset", title: left }, left)
             ]);
           })
         )]
       ]);
     }
     const groups = view.planGroups;
-    return React8.createElement("div", { key: "sub", className: "dim-jh-badgeSection" }, [
-      React8.createElement("div", { key: "title", className: "dim-jh-badgeSectionTitle" }, "订阅套餐"),
-      ...groups.length === 0 ? [React8.createElement("div", { key: "empty", className: "dim-jh-badgeNote" }, "没有可用的套餐包")] : groups.map((group) => React8.createElement("div", {
+    return React11.createElement("div", { key: "sub", className: "dim-jh-badgeSection" }, [
+      React11.createElement("div", { key: "title", className: "dim-jh-badgeSectionTitle" }, "订阅套餐"),
+      ...groups.length === 0 ? [React11.createElement("div", { key: "empty", className: "dim-jh-badgeNote" }, "没有可用的套餐包")] : groups.map((group) => React11.createElement("div", {
         key: `${group.name}\0${group.unit}`,
         className: "dim-jh-badgeRow"
       }, [
-        React8.createElement("div", { key: "head", className: "dim-jh-badgeRowHead" }, [
-          React8.createElement("span", { key: "l", className: "dim-jh-badgeRowName", title: group.name }, group.name),
-          React8.createElement(
+        React11.createElement("div", { key: "head", className: "dim-jh-badgeRowHead" }, [
+          React11.createElement("span", { key: "l", className: "dim-jh-badgeRowName", title: group.name }, group.name),
+          React11.createElement(
             "span",
             { key: "v", className: "dim-jh-badgeValue" },
             // ⚠️ 数值与单位之间**不留空格**（`100.00M / 200.00MToken`）：
@@ -16771,7 +22227,7 @@ function UsageBadgeActive(props) {
             `${formatUnits(group.remaining, group.unit) ?? "?"}${group.totalKnown === false ? "" : ` / ${formatUnits(group.total, group.unit) ?? "?"}`}${group.label}`
           )
         ]),
-        React8.createElement(
+        React11.createElement(
           "div",
           { key: "note", className: "dim-jh-badgeRowNote" },
           [
@@ -16785,54 +22241,176 @@ function UsageBadgeActive(props) {
   function renderCredits() {
     const accounts = value?.accounts ?? [];
     const windowDays = value?.windowDays;
-    const quotaGroup = view.groups.find((group) => group.unit === QUOTA_UNIT);
-    const sum = quotaGroup !== void 0 ? (quotaGroup.quotaLines ?? []).join(" · ") : view.groups.map((group) => `${formatUnits(group.total, group.unit) ?? "?"}${group.label}`).join(" · ");
-    const { shown, hidden } = orderCreditRows(accounts, {
-      limit: CREDITS_COLLAPSED_LIMIT,
-      expanded: creditsExpanded
+    const imminentDays = value?.imminentDays;
+    const availableCreditsTotal = sumAvailableCredits(accounts, {
+      locked: value?.locked,
+      windowDays: value?.windowDays,
+      imminentDays: value?.imminentDays
     });
-    return React8.createElement("div", { key: "credits", className: "dim-jh-badgeSection" }, [
+    const quotaGroup = view.groups.find((group) => group.unit === QUOTA_UNIT);
+    const availableGroup = view.groups.find((group) => group.unit !== QUOTA_UNIT);
+    const availableText = availableCreditsTotal === null || availableGroup === void 0 ? null : formatUnits(availableCreditsTotal, availableGroup.unit);
+    const sum = quotaGroup !== void 0 ? (quotaGroup.quotaLines ?? []).join(" · ") : view.groups.map((group) => `${formatUnits(group.total, group.unit) ?? "?"}${group.label}`).join(" · ");
+    const rowMetaOf = (row) => rotationState?.accounts?.find((a) => a.id === row.accountId) ?? null;
+    const { shown, hidden } = orderCreditRows(accounts, creditOrderOptionsOf({
+      limit: CREDITS_COLLAPSED_LIMIT,
+      expanded: creditsExpanded,
+      strictManualOrder,
+      locked: value?.locked === true,
+      windowDays,
+      imminentDays,
+      now: Date.now(),
+      rotationState
+    }));
+    return React11.createElement("div", { key: "credits", className: "dim-jh-badgeSection" }, [
       // 合计放进节标题右侧，省掉一整行
-      React8.createElement("div", { key: "title", className: "dim-jh-badgeSectionTitle" }, [
-        // ⚠️ 节标题的单位标签走**纯函数**（`creditSectionLabel`），不在这里写三元：
-        //   原写法是 `quotaGroup === undefined ? '积分' : unitLabel(...)` —— 那个
-        //   兜底分支把 **ZCode 的 token** 冒充成了积分（真实缺陷，2026-10-05 复审
-        //   PR !56 时发现），渲染成「积分 … 94.54MToken」自相矛盾的一屏。
-        //   判据收进 `badge-model.js` 是为了能被单测锁死（组件里没法测 —— 本仓库
-        //   node_modules 没有 react）。
-        React8.createElement("span", { key: "l" }, creditSectionLabel(view.groups)),
-        accounts.length === 0 || sum === "" ? null : React8.createElement(
+      React11.createElement("div", { key: "title", className: "dim-jh-badgeSectionTitle" }, [
+        /**
+         * ★ 左侧改为**账号总数**（用户 2026-11-18 要求）：
+         *   「左侧为：帐号总数：7个，右侧为合计xx积分」
+         *
+         * 原左侧是单位标签（「积分」/「Token」）。现在：
+         * - **有账号** ⇒ 左「帐号总数：7 个」，右「合计 39575.71 积分」
+         * - **无账号** ⇒ 退回单位标签（此时「帐号总数：0 个」是噪音，
+         *   空态文案已经在下一行说清了）
+         *
+         * ⚠️ 计数用 `view.accountCount`（= 读到的 + 读取失败的）：
+         *    某次读取失败**不该**让「帐号总数」变小 —— 否则用户会以为账号被删了。
+         *    失败数由图例/脚注单独说明，两者不混。
+         * ⚠️ 合计仍用 `creditSectionLabel` 判单位（ZCode 是 token，不能冒充积分）：
+         *    原写法 `quotaGroup === undefined ? '积分' : ...` 曾把 token 渲染成
+         *    「积分 … 94.54MToken」自相矛盾的一屏（2026-10-05 真实缺陷）。
+         */
+        accounts.length === 0 ? React11.createElement("span", { key: "l" }, creditSectionLabel(view.groups)) : React11.createElement("span", { key: "l", className: "dim-jh-badgeCountLine" }, [
+          React11.createElement("span", { key: "cnt" }, `帐号总数：${view.accountCount} 个`),
+          /**
+           * ★★ **当前排序说明**（用户 2026-11-18 要求：
+           * 「在弹窗中的帐号总数：7个后面加一个当前排序的说明，
+           *  同时使用tooltip展示更加详细的解释」）。
+           *
+           * 三种状态与后端选号机制一一对应：
+           * | 条件 | 标签 | 色调 |
+           * |---|---|---|
+           * | 严格手动顺序 | 手动顺序 | 警示黄（临期优先失效）|
+           * | 设了轮换起点 | 起点优先 | 品牌蓝 |
+           * | 默认 | 临期优先 | 中性灰 |
+           *
+           * ⚠️ 标签必须**如实反映当前口径**：列表顺序现在 = 真实选号顺序，
+           *    用户据此判断「下一发用谁」；标签说谎会让该判断失真。
+           */
+          React11.createElement("span", {
+            key: "order",
+            className: "dim-jh-badgeSortHint",
+            "data-order": strictManualOrder ? "manual" : rotationState?.selected == null ? "tier" : "start",
+            title: describeCreditOrder({
+              strictManualOrder,
+              hasRotationStart: rotationState?.selected != null,
+              locked: value?.locked === true,
+              windowDays,
+              imminentDays,
+              // ⚠️ 配额类渠道（`quotaGroup` 非空）没有积分到期分档 ⇒ 标签与
+              //    tooltip 都不能讲三档（否则是假话，审计 P2-2）。
+              hasTiered: quotaGroup === void 0
+            })
+          }, creditOrderLabel({
+            strictManualOrder,
+            hasRotationStart: rotationState?.selected != null,
+            hasTiered: quotaGroup === void 0
+          }))
+        ]),
+        accounts.length === 0 || sum === "" ? null : React11.createElement(
           "span",
-          { key: "sum", className: "dim-jh-badgeSectionSum" },
-          // ⚠️ 「合计」二字只对**可累加的余额**成立。配额窗口是并行百分比，
-          //   没有「一共」的语义（上游也没给过那个数），故配额下只给逐窗口读数。
-          //   token / 积分都是余额口径，加「合计」无误。
-          quotaGroup === void 0 ? `合计 ${sum}` : sum
+          {
+            key: "sum",
+            className: "dim-jh-badgeSectionSum",
+            title: availableText === null ? quotaGroup === void 0 ? "本渠道所有账号的可累加余额合计" : sum : [
+              `可用 ${availableText}积分 / 总 ${sum}`,
+              "可用 = 短期 + 临期（锁定永久积分模式下只会消耗这两档）",
+              "不含：永久、长期、已过期",
+              "未锁定时可用即等于总计，故不单独显示"
+            ].join("\n")
+          },
+          availableText === null ? quotaGroup === void 0 ? `合计 ${sum}` : sum : [
+            React11.createElement(
+              "span",
+              { key: "av", className: "dim-jh-badgeSumAvail" },
+              `可用 ${availableText}积分`
+            ),
+            React11.createElement("span", { key: "sl", className: "dim-jh-badgeSumSlash" }, " / "),
+            React11.createElement("span", { key: "tot" }, `总 ${sum}`)
+          ]
         )
       ]),
-      ...accounts.length === 0 ? [React8.createElement(
+      ...accounts.length === 0 ? [React11.createElement(
         "div",
         { key: "empty", className: "dim-jh-badgeNote" },
         value?.disabledCount > 0 ? "该渠道的账号全部已停用" : "该渠道还没有账号（可在 Jet Hub 设置页添加）"
-      )] : shown.map((row) => React8.createElement("div", { key: row.accountId, className: "dim-jh-badgeRow" }, [
-        React8.createElement("div", { key: "head", className: "dim-jh-badgeRowHead" }, [
-          React8.createElement("span", {
-            key: "l",
-            className: "dim-jh-badgeRowName",
-            title: row.nickname || row.accountId
-          }, row.nickname || row.accountId),
-          React8.createElement("span", {
+      )] : shown.map((row) => {
+        const splitNote = row.balance === null ? null : renderSplitNote(splitParts(row.balance, windowDays, provider, imminentDays));
+        const meta = rowMetaOf(row);
+        const reason = meta === null ? null : reasonOf(meta);
+        const rowParts = meta === null ? null : accountRowParts(meta, reason);
+        const disabled = reason !== null;
+        return React11.createElement("div", {
+          key: row.accountId,
+          className: "dim-jh-badgeRow dim-jh-badgeRowInline"
+        }, [
+          // ① 合并列：位次 + 账号名 + 原因后缀（**与下拉框同款格式**）
+          React11.createElement("span", {
+            key: "id",
+            className: "dim-jh-badgeColId",
+            "data-disabled": disabled ? "true" : "false",
+            // 完整信息进 tooltip（名字超长被截断时靠它读全文）
+            title: rowParts === null ? "该账号已不在账号池中" : `位次 ${rowParts.position}：默认顺序里的第 ${rowParts.position} 位 · ${rowParts.name}`
+          }, rowParts === null ? row.nickname || row.accountId : `位次 ${rowParts.position} · ${rowParts.name}`),
+          /**
+           * ⚠️ 名字与读数之间**必须有一个分隔符**（2026-11-18 真机报障）：
+           * 两者都是 `display: inline`，仅靠 CSS 的 `margin-left: 8px` 在
+           * 中文字体下仍会读成「134****59 7464.50」黏成一串。
+           * ⇒ 补一个中点，与三档之间的分隔符同款（视觉一致）。
+           */
+          React11.createElement("span", {
+            key: "l-sep",
+            className: "dim-jh-badgeNoteSep"
+          }, "·"),
+          React11.createElement("span", {
             key: "v",
             className: "dim-jh-badgeValue",
             "data-tone": row.balance === null ? "warn" : "ok",
-            title: row.error || void 0
-          }, row.balance === null ? row.error || "查询失败" : balanceLine(row.balance))
-        ]),
-        // 分桶/资源包说明：小字**逐段带色**（永久绿 / 长期黄 / 临期红 + 倒计时），
-        // 存在时才占一行。用户 2026-10-12 明确要求三档分色。
-        row.balance === null ? null : renderSplitNote(splitParts(row.balance, windowDays, provider))
-      ])),
-      hidden === 0 ? null : React8.createElement("button", {
+            /**
+             * ★ 总积分的 tooltip（用户 2026-11-18：「总也要加上 tooltip 提示」）。
+             *
+             * 内容与其它段同款（一句话 + 细节），说明「这是该账号的总额」：
+             * - 正常：`总积分 7564.5（含长期/短期/临期，不含已过期）`
+             * - 查询失败：原样给错误原因（不给「总积分」前缀，因为读不到）
+             *
+             * ⚠️ 金额用**同一份 textContent**（totalCreditsText），不要另起一份口径 ——
+             *    两处各算一次必然漂移（本仓反复记录过的缺陷形态）。
+             */
+            title: row.balance === null ? row.error || "查询失败" : (() => {
+              const total = totalCreditsText(row.balance);
+              return total === null ? balanceLine(row.balance) : `总积分 ${total}（含长期/短期/临期，不含已过期）`;
+            })()
+            /**
+             * ⚠️ 余额加「总」前缀（用户 2026-11-18）：「把总积分写成总xx，类似长和短的
+             *    表达，统一一点」。⇒ 与后面「长1600 · 短1400 · 临4464.5」同一套表达。
+             * ⚠️ 查询失败时**不加前缀**（`总查询失败` 说不通），原样显示原因。
+             */
+          }, row.balance === null ? row.error || "查询失败" : (() => {
+            const total = totalCreditsText(row.balance);
+            return total === null ? balanceLine(row.balance) : `总${total}`;
+          })()),
+          /**
+           * ★ **总与长之间必须有点号**（用户 2026-11-18：「总跟长之间也要加点号分隔」）。
+           *
+           * ⚠️ 这个点号是**条件渲染**的：查不到余额时 splitNote 为 null，
+           *    此时不能留一个孤零零的点和后面空无一物 ⇒ 一起不渲染。
+           */
+          splitNote === null ? null : React11.createElement("span", { key: "v-sep", className: "dim-jh-badgeNoteSep" }, "·"),
+          splitNote === null ? null : React11.createElement("span", { key: "note-inline", className: "dim-jh-badgeNoteInlineWrap" }, splitNote)
+        ]);
+      }),
+      hidden === 0 ? null : React11.createElement("button", {
         key: "more",
         type: "button",
         className: "dim-jh-badgeMore",
@@ -16843,41 +22421,73 @@ function UsageBadgeActive(props) {
   }
   function renderNote(text) {
     if (typeof text !== "string" || text.length === 0) return null;
-    return React8.createElement("div", { key: "note", className: "dim-jh-badgeRowNote" }, text);
+    return React11.createElement("div", { key: "note", className: "dim-jh-badgeRowNote" }, text);
   }
   function renderSplitNote(parts) {
     if (!Array.isArray(parts) || parts.length === 0) return null;
     const children = [];
+    const SHORT_PREFIX = { longTerm: "长", shortTerm: "短", expiring: "临" };
     parts.forEach((part, index) => {
-      if (index > 0) children.push(React8.createElement("span", { key: `sep-${part.key}`, className: "dim-jh-badgeNoteSep" }, " · "));
-      children.push(React8.createElement("span", {
+      if (index > 0) {
+        children.push(React11.createElement("span", {
+          key: `sep-${part.key}`,
+          className: "dim-jh-badgeNoteSep"
+        }, "·"));
+      }
+      const isImminent = part.key === "expiring";
+      const prefix = SHORT_PREFIX[part.key];
+      const amountText = formatAmountShort(part.amount);
+      const text = prefix === void 0 || amountText === "" ? part.text : `${prefix}${amountText}`;
+      let tip;
+      if (isImminent) {
+        const total = formatAmountShort(part.amount);
+        const earliest = formatAmountShort(part.earliestAmount);
+        const leftCn = formatLeftCn(part.earliestIn);
+        const lines = [`临期 ${total} 积分`];
+        if (earliest !== "" && leftCn !== "") {
+          lines.push(`其中 ${earliest} 积分最早 ${leftCn}后到期`);
+        }
+        lines.push("最优先消耗，再不用就作废");
+        tip = lines.join("\n");
+      } else if (prefix !== void 0) {
+        const total = formatAmountShort(part.amount);
+        const fullName = part.key === "longTerm" ? "长期" : "短期";
+        const lines = [`${fullName} ${total} 积分`];
+        const dateText = part.earliestAt !== void 0 ? formatMonthDay(part.earliestAt, Date.now()) : null;
+        const daysLeft = Number.isFinite(part.earliestIn) ? Math.max(1, Math.ceil(part.earliestIn / 864e5)) : null;
+        if (dateText !== null && daysLeft !== null) {
+          lines.push(`最早 ${dateText} 到期（还有 ${daysLeft} 天）`);
+        } else if (part.countdown !== void 0) {
+          lines.push(part.countdown);
+        }
+        lines.push(part.key === "longTerm" ? "不着急，最后才用" : "临期用完后优先消耗");
+        tip = lines.join("\n");
+      }
+      const compactLeft = isImminent ? formatCompactLeft(part.earliestIn) : "";
+      const earliestText = isImminent ? formatAmountShort(part.earliestAmount) : "";
+      const earliestIsPartial = isImminent && isEarliestPartial(part.amount, part.earliestAmount);
+      const hasBracket = isImminent && compactLeft !== "" && (earliestIsPartial ? earliestText !== "" : true);
+      const bracketText = earliestIsPartial ? `${earliestText} ${compactLeft}` : compactLeft;
+      children.push(React11.createElement("span", {
         key: part.key,
         className: "dim-jh-badgeNotePart",
         "data-tone": part.tone,
-        // ⚠️⚠️ **不得无条件追加「后」**（2026-10-21 合并审计发现，!135 引入的回归）。
-        //
-        // `expirySplitParts` 的 `countdown` 已从「裸时长」改为「**可能是完整短语**」：
-        // 倒计时只覆盖其中一批时它是 `其中 500 于 6 天 0 小时后到期`。旧代码在这里
-        // 无条件拼 `后` ⇒ 实测得到残句：
-        //   `最早作废：其中 500 于 6 天 0 小时后到期后`
-        // （!135 只改了生产者、没同步这个消费者；本处此前**零用例**，变异实测全绿。）
-        //
-        // ⇒ 直接用它，两种形态都自洽：
-        //   `最早作废：6 天 0 小时`                    ← 倒计时覆盖全部临期时
-        //   `最早作废：其中 500 于 6 天 0 小时后到期`  ← 只覆盖其中一批时
-        // ⚠️ **不要**在这里按「短语/时长」分支 —— 那是在消费方复制生产者才知道的
-        //   形态知识，必然再次漂移（本仓头号缺陷形态）。
-        ...part.countdown === void 0 ? {} : { title: `最早作废：${part.countdown}` }
-      }, part.countdown === void 0 ? part.text : `${part.text}（${part.countdown}）`));
+        ...tip === void 0 ? {} : { title: tip }
+      }, hasBracket ? `${text}（${bracketText}）` : text));
     });
-    return React8.createElement("div", { key: "note", className: "dim-jh-badgeRowNote" }, children);
+    return React11.createElement("div", {
+      key: "note",
+      className: "dim-jh-badgeRowNote dim-jh-badgeRowNoteInline",
+      // 整行兜底：窄屏截断后仍能悬停读到全文（各段自己的 tooltip 优先）。
+      title: parts.map((p2) => p2.text).join(" · ")
+    }, children);
   }
   function renderClaim() {
     const canClaimCurrent = supportsDailyCheckin(provider);
     const allBusy = claiming === "all";
-    return React8.createElement("div", { key: "claim", className: "dim-jh-badgeSection dim-jh-badgeClaim" }, [
-      React8.createElement("div", { key: "row", className: "dim-jh-badgeClaimRow" }, [
-        canClaimCurrent ? React8.createElement("button", {
+    return React11.createElement("div", { key: "claim", className: "dim-jh-badgeSection dim-jh-badgeClaim" }, [
+      React11.createElement("div", { key: "row", className: "dim-jh-badgeClaimRow" }, [
+        canClaimCurrent ? React11.createElement("button", {
           key: "cur",
           type: "button",
           className: "dim-jh-badgeAction",
@@ -16892,7 +22502,7 @@ function UsageBadgeActive(props) {
             void onClaim();
           }
         }, claiming === "current" ? "领取中…" : "签到（本渠道）") : null,
-        React8.createElement("button", {
+        React11.createElement("button", {
           key: "all",
           type: "button",
           className: "dim-jh-badgeAction",
@@ -16904,7 +22514,7 @@ function UsageBadgeActive(props) {
           // —— 硬编码必然腐坏，改成 `checkinProviders().length` 现算（该函数本文件已 import）。
           // 2026-11-01 三审（本分支）：自动签到的语义已从「每天首次启动」改成「每天两个时段」，
           // 文案必须跟着改，否则与面板「下次执行：21:00」自相矛盾。
-          title: `串行签到全部支持签到的渠道（${checkinProviders().length} 个；WorkBuddy 国际版 / Cline / Raccoon 后端没有签到接口）${auto?.enabled === true ? "；自动签到已开启，每天按设定时刻自动执行" : ""}`,
+          title: `串行签到全部支持签到的渠道（${checkinProviders().length} 个；Cline 后端没有签到接口）${auto?.enabled === true ? "；自动签到已开启，每天按设定时刻自动执行" : ""}`,
           onClick: () => {
             void onClaimAll();
           }
@@ -16915,22 +22525,23 @@ function UsageBadgeActive(props) {
        *
        * ⚠️ 用户 2026-10-02 报障：「单渠道签到哪里去了」—— 他在 Cline 上打开弹窗只看到
        * 「全部渠道签到」，以为按钮丢了。真相是能力表里 `dailyCheckin: false`
-       * （WorkBuddy 国际版 / Cline / Raccoon 后端没有签到接口，Raccoon 的每日积分由
-       * 服务端自动发放）。少了这一句，用户只能靠猜。
+       * （Cline 后端没有签到接口）。少了这一句，用户只能靠猜。
+       * ⚠️ WorkBuddy 国际版（PR #87，签到端点与国内版逐字同形）与 Raccoon
+       * （PR #88，办公端 `setting_info` 结算）均已加入可签到名单 —— 别按旧注释去猜。
        */
-      canClaimCurrent ? null : React8.createElement(
+      canClaimCurrent ? null : React11.createElement(
         "div",
         { key: "nocount", className: "dim-jh-badgeNote" },
         "该渠道没有签到接口，签到请用「全部渠道签到」"
       ),
-      claimNotice === null ? null : React8.createElement("div", {
+      claimNotice === null ? null : React11.createElement("div", {
         key: "notice",
         className: "dim-jh-badgeNotice",
         "data-tone": claimNotice.tone
       }, claimNotice.text),
       // 「需要用户操作」的提示单独列出（后端显式字段 actionRequired），
       // 混进计数行会被读漏，而它的价值就在于被看到。
-      ...(claimNotice?.notes || []).map((message, index) => React8.createElement("div", {
+      ...(claimNotice?.notes || []).map((message, index) => React11.createElement("div", {
         key: `note-${index}`,
         className: "dim-jh-badgeNotice",
         "data-tone": "warn"
@@ -16944,12 +22555,12 @@ function UsageBadgeActive(props) {
     const running = auto.running === true;
     if (!running && channels.length === 0) return null;
     const stamp = running ? "" : formatUpdatedAt(auto.lastAt);
-    return React8.createElement("div", { key: "autostatus", className: "dim-jh-badgeAutoStatus" }, [
+    return React11.createElement("div", { key: "autostatus", className: "dim-jh-badgeAutoStatus" }, [
       // 小关闭按钮在**文字上方**（用户：「在文字上方放个小按钮，点击直接关闭」）。
-      React8.createElement(
+      React11.createElement(
         "div",
         { key: "closerow", className: "dim-jh-badgeAutoCloseRow" },
-        React8.createElement("button", {
+        React11.createElement("button", {
           key: "close",
           type: "button",
           className: "dim-jh-badgeAutoClose",
@@ -16960,29 +22571,36 @@ function UsageBadgeActive(props) {
           }
         }, "×")
       ),
-      React8.createElement(
+      React11.createElement(
         "div",
         { key: "head", className: "dim-jh-badgeAutoStatusHead" },
         running ? "自动签到 · 进行中…" : `自动签到${stamp === "" ? "" : ` · ${stamp}`}：${auto.lastResult}`
       ),
-      channels.length === 0 ? null : React8.createElement(
+      channels.length === 0 ? null : React11.createElement(
         "div",
         { key: "channels", className: "dim-jh-badgeAutoChannels" },
-        channels.map((entry2, index) => React8.createElement("span", {
+        channels.map((entry2, index) => React11.createElement("span", {
           key: `${entry2.provider}-${index}`,
           className: "dim-jh-badgeAutoChannel"
         }, `${providerLabel2(entry2.provider)} ${entry2.text}`))
       )
     ]);
   }
-  function renderFoot() {
+  function renderCreditsFoot() {
     const parts = [];
     if (value?.disabledCount > 0) parts.push(`另有 ${value.disabledCount} 个账号已停用，未计入`);
     if (view.failedCount > 0) parts.push(view.incompleteNote === "" ? `${view.failedCount} 个账号读取失败` : view.incompleteNote);
     if (failed && snapshot !== null) parts.push("本次刷新失败，显示的是上一次读数");
     if (parts.length === 0) return null;
-    return React8.createElement("div", { key: "foot", className: "dim-jh-badgeFoot" }, parts.join(" · "));
+    return React11.createElement("div", { key: "foot", className: "dim-jh-badgeFoot" }, parts.join(" · "));
   }
+}
+function totalCreditsText(balance) {
+  const packages = balance.packages || [];
+  const unit = packages.find((pkg) => pkg && pkg.unit)?.unit;
+  if (unit === QUOTA_UNIT) return null;
+  if (unit === "token") return formatUnits(balance.total, unit) ?? "0";
+  return formatAmountShort(balance.total) === "" ? "0" : formatAmountShort(balance.total);
 }
 function balanceLine(balance) {
   const packages = balance.packages || [];
@@ -16992,7 +22610,7 @@ function balanceLine(balance) {
   const text = formatUnits(balance.total, unit) ?? "0";
   return `${text}${unitLabel(unit)}`;
 }
-function splitParts(balance, windowDays, provider) {
+function splitParts(balance, windowDays, provider, imminentDays) {
   const packages = balance.packages || [];
   const unit = packages.find((pkg) => pkg && pkg.unit)?.unit;
   if (unit === QUOTA_UNIT) {
@@ -17008,7 +22626,12 @@ function splitParts(balance, windowDays, provider) {
   const poolText = formatPoolSplitLine(packages, format, provider === "loomy" ? "永久" : "长期");
   if (poolText !== null) return [{ key: "pool", text: poolText, tone: "muted" }];
   const now = Date.now();
-  const parts = expirySplitParts(splitCreditsByExpiry(packages, windowDays, now), format, now);
+  const parts = expirySplitParts(
+    splitCreditsByExpiry(packages, windowDays, now, imminentDays),
+    format,
+    now,
+    expiryDateHints(packages, windowDays, now, imminentDays)
+  );
   const exclusive = exclusivePoolRemainingOf(packages);
   if (exclusive > 0) {
     parts.push({ key: "exclusive", text: `另有 ${format(exclusive)} 专属（不计入）`, tone: "muted" });
@@ -17040,10 +22663,10 @@ function summarizeClaim(result) {
 }
 
 // plugin-src/client/panel-entry.js
-var React10 = __toESM(require("react"), 1);
+var React13 = __toESM(require("react"), 1);
 
 // plugin-src/client/error-boundary.js
-var React9 = __toESM(require("react"), 1);
+var React12 = __toESM(require("react"), 1);
 var NO_ERROR = Symbol("jet-hub:no-error");
 function describeThrown(error) {
   try {
@@ -17060,7 +22683,7 @@ function describeThrown(error) {
 }
 function withErrorBoundary(Inner, options) {
   const label = options !== null && typeof options === "object" && typeof options.label === "string" && options.label.length > 0 ? options.label : "这个面板";
-  class PanelErrorBoundary extends React9.Component {
+  class PanelErrorBoundary extends React12.Component {
     constructor(props) {
       super(props);
       this.state = { error: NO_ERROR };
@@ -17073,9 +22696,9 @@ function withErrorBoundary(Inner, options) {
     }
     render() {
       const error = this.state.error;
-      if (error === NO_ERROR) return React9.createElement(Inner, this.props);
+      if (error === NO_ERROR) return React12.createElement(Inner, this.props);
       const message = describeThrown(error);
-      return React9.createElement(
+      return React12.createElement(
         "div",
         {
           className: "dim-jh-probeNotice",
@@ -17083,8 +22706,8 @@ function withErrorBoundary(Inner, options) {
           role: "alert",
           style: { margin: "16px" }
         },
-        React9.createElement("div", null, `${label}渲染失败，已拦住 —— 其余页面仍可正常使用，不必重启。`),
-        React9.createElement("div", { style: { marginTop: "6px", fontFamily: "monospace", fontSize: "12px" } }, message),
+        React12.createElement("div", null, `${label}渲染失败，已拦住 —— 其余页面仍可正常使用，不必重启。`),
+        React12.createElement("div", { style: { marginTop: "6px", fontFamily: "monospace", fontSize: "12px" } }, message),
         // ⚠️ **必须给出可自我恢复的出路**（2026-10-25 审计 A3-2）。
         //
         // 本 fallback 是**粘性**的：没有 `key`、也没有 `componentDidUpdate`
@@ -17097,23 +22720,23 @@ function withErrorBoundary(Inner, options) {
         //
         // ⇒ 两件事：①给一个**就地重试**（`setState` 回 `NO_ERROR`，子树随即重挂载，
         // 比让用户摸索「关掉再打开」快得多）；②把那条路径**写出来**当兜底。
-        React9.createElement(
+        React12.createElement(
           "div",
           { style: { marginTop: "8px" } },
-          React9.createElement("button", {
+          React12.createElement("button", {
             type: "button",
             className: "dim-jh-btn",
             onClick: () => {
               this.setState({ error: NO_ERROR });
             }
           }, "重试"),
-          React9.createElement(
+          React12.createElement(
             "span",
             { style: { marginLeft: "8px", opacity: 0.75 } },
             "也可以关掉这一节再重新打开（或切到别的页面再切回来）来恢复。"
           )
         ),
-        React9.createElement(
+        React12.createElement(
           "div",
           { style: { marginTop: "6px" } },
           "这是插件的缺陷，不是你操作错了。把上面这行报错连同「当时点了什么」一起反馈即可。"
@@ -17133,14 +22756,14 @@ var JET_HUB_SIDEBAR_ORDER = 20;
 var PANEL_ENTRY_READ_TIMEOUT_MS = 5e3;
 var PANEL_ENTRY_READ_ATTEMPTS = 3;
 var PANEL_ENTRY_RETRY_DELAY_MS = 200;
-function delay(ms) {
+function delay2(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 var entry = null;
-var readFailed = false;
-var inflight = null;
-var writeSeq = 0;
-var listeners = /* @__PURE__ */ new Set();
+var readFailed2 = false;
+var inflight2 = null;
+var writeSeq2 = 0;
+var listeners2 = /* @__PURE__ */ new Set();
 function normalize(raw) {
   return typeof raw === "string" && VALID_ENTRIES.includes(raw) ? raw : null;
 }
@@ -17154,19 +22777,19 @@ function panelEntryShowsSettings() {
   return entry === "settings";
 }
 function panelEntryReadFailed() {
-  return readFailed;
+  return readFailed2;
 }
 function subscribePanelEntry(listener) {
-  listeners.add(listener);
+  listeners2.add(listener);
   return () => {
-    listeners.delete(listener);
+    listeners2.delete(listener);
   };
 }
-function publish(nextEntry, nextFailed) {
-  if (entry === nextEntry && readFailed === nextFailed) return;
+function publish2(nextEntry, nextFailed) {
+  if (entry === nextEntry && readFailed2 === nextFailed) return;
   entry = nextEntry;
-  readFailed = nextFailed;
-  for (const listener of [...listeners]) {
+  readFailed2 = nextFailed;
+  for (const listener of [...listeners2]) {
     try {
       listener();
     } catch (caught) {
@@ -17174,7 +22797,7 @@ function publish(nextEntry, nextFailed) {
     }
   }
 }
-function readSignal() {
+function readSignal2() {
   if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
     return AbortSignal.timeout(PANEL_ENTRY_READ_TIMEOUT_MS);
   }
@@ -17188,39 +22811,39 @@ function readSignal() {
   return controller.signal;
 }
 function loadPanelEntry(rpcCall) {
-  if (inflight !== null) return inflight;
-  const seqAtStart = writeSeq;
+  if (inflight2 !== null) return inflight2;
+  const seqAtStart = writeSeq2;
   const task = (async () => {
     let lastError;
     for (let attempt = 1; attempt <= PANEL_ENTRY_READ_ATTEMPTS; attempt += 1) {
       try {
-        const result = await rpcCall("panelEntry.get", {}, readSignal());
-        if (writeSeq !== seqAtStart) return entry ?? FALLBACK_ENTRY;
+        const result = await rpcCall("panelEntry.get", {}, readSignal2());
+        if (writeSeq2 !== seqAtStart) return entry ?? FALLBACK_ENTRY;
         const next = normalize(result?.entry);
         if (next !== null) {
-          publish(next, false);
+          publish2(next, false);
         } else {
-          publish(entry ?? FALLBACK_ENTRY, true);
+          publish2(entry ?? FALLBACK_ENTRY, true);
         }
         return entry ?? FALLBACK_ENTRY;
       } catch (caught) {
         lastError = caught;
-        if (writeSeq !== seqAtStart) return entry ?? FALLBACK_ENTRY;
+        if (writeSeq2 !== seqAtStart) return entry ?? FALLBACK_ENTRY;
         if (attempt >= PANEL_ENTRY_READ_ATTEMPTS) break;
-        await delay(PANEL_ENTRY_RETRY_DELAY_MS * attempt);
-        if (writeSeq !== seqAtStart) return entry ?? FALLBACK_ENTRY;
+        await delay2(PANEL_ENTRY_RETRY_DELAY_MS * attempt);
+        if (writeSeq2 !== seqAtStart) return entry ?? FALLBACK_ENTRY;
       }
     }
     console.warn(
       `[jet-hub] 读取面板入口偏好失败，按仅侧栏处理（已重试 ${PANEL_ENTRY_READ_ATTEMPTS - 1} 次）`,
       lastError
     );
-    if (writeSeq === seqAtStart) publish(entry ?? FALLBACK_ENTRY, true);
+    if (writeSeq2 === seqAtStart) publish2(entry ?? FALLBACK_ENTRY, true);
     return entry ?? FALLBACK_ENTRY;
   })();
-  inflight = task;
+  inflight2 = task;
   const clear = () => {
-    if (inflight === task) inflight = null;
+    if (inflight2 === task) inflight2 = null;
   };
   void task.then(clear, clear);
   return task;
@@ -17231,8 +22854,8 @@ async function setPanelEntry(rpcCall, next) {
   if (confirmed === null) {
     throw new Error("面板入口偏好没有返回合法 entry");
   }
-  writeSeq += 1;
-  publish(confirmed, false);
+  writeSeq2 += 1;
+  publish2(confirmed, false);
   return confirmed;
 }
 
@@ -17241,7 +22864,7 @@ var JetHubPageForSettings = withErrorBoundary(JetHubPage, { label: "Jet Hub 设�
 var JetHubPageForMain = withErrorBoundary(JetHubPage, { label: "Jet Hub 面板" });
 function JetHubSidebarIcon({ size }) {
   const px = typeof size === "number" && size > 0 ? size : 16;
-  return React10.createElement(
+  return React13.createElement(
     "svg",
     {
       width: px,
@@ -17251,21 +22874,21 @@ function JetHubSidebarIcon({ size }) {
       xmlns: "http://www.w3.org/2000/svg",
       "aria-hidden": "true"
     },
-    React10.createElement("path", {
+    React13.createElement("path", {
       d: "M8 1.7 13.5 4.85v6.3L8 14.3 2.5 11.15v-6.3z",
       stroke: "currentColor",
       strokeWidth: 1.35,
       strokeLinejoin: "round"
     }),
-    React10.createElement("circle", { cx: 8, cy: 8, r: 1.7, fill: "currentColor" })
+    React13.createElement("circle", { cx: 8, cy: 8, r: 1.7, fill: "currentColor" })
   );
 }
 function JetHubMainPanel({ rpcCall }) {
   if (typeof rpcCall !== "function") return null;
-  return React10.createElement(
+  return React13.createElement(
     "div",
     { className: "dim-jh-panelHost", "data-plugin": "dsh-providers-hub" },
-    React10.createElement(JetHubPageForMain, { rpcCall })
+    React13.createElement(JetHubPageForMain, { rpcCall })
   );
 }
 function registerJetHubPanelEntries(ctx, rpcCall) {
@@ -17361,8 +22984,65 @@ function registerJetHubPanelEntries(ctx, rpcCall) {
   });
 }
 
+// plugin-src/client/ledger-tab.js
+var React14 = __toESM(require("react"), 1);
+var LEDGER_TAB_ID = "dsh-providers-hub/ledger";
+var LEDGER_TAB_KIND = "jet-hub-ledger";
+var LEDGER_TAB_ORDER = 40;
+var GUIDE_TITLE = "JetHub 插件 Token 用量";
+var GUIDE_DESCRIPTION = "按渠道 / 供应商 / 账号 / 模型统计本机 token 消耗";
+var TAB_TITLE = "Token 用量";
+var LedgerTabBody = withErrorBoundary(
+  function LedgerTabBody2({ rpcCall }) {
+    if (typeof rpcCall !== "function") return null;
+    return React14.createElement(__tokenLedgerPanelForTest, { rpcCall, chrome: "pane" });
+  },
+  { label: "Token 用量侧栏页" }
+);
+function registerJetHubLedgerTab(ctx, rpcCall) {
+  if (ctx === null || typeof ctx !== "object" || typeof ctx.inject !== "function") return void 0;
+  return ctx.inject(["sidebarRightTabs"], (scoped) => {
+    const registry = scoped?.sidebarRightTabs;
+    if (registry === void 0 || registry === null || typeof registry.register !== "function") return;
+    const stops = [];
+    stops.push(registry.register({
+      id: LEDGER_TAB_ID,
+      kind: LEDGER_TAB_KIND,
+      /**
+       * `extension` 而非 `builtin`：本插件是第三方，`builtin` 是宿主自带类型的带宽。
+       * 同带宽的两个类型撞 `kind` 时会直接抛错，`extension` 才是正常入口。
+       */
+      priority: "extension",
+      /**
+       * 切走再切回**不重新挂载** —— 账本读取是异步的（`usage.tokenLedger` +
+       * `usage.tokenLedgerHistory` 两发），不保活会让每次切标签都白拉一遍，
+       * 用户还会看到一瞬「正在读取 Token 用量…」。
+       */
+      keepMounted: true,
+      title: () => TAB_TITLE,
+      guide: [{
+        id: "open",
+        order: LEDGER_TAB_ORDER,
+        title: () => GUIDE_TITLE,
+        description: () => GUIDE_DESCRIPTION
+      }]
+    }));
+    stops.push(ctx.slots.inject("sidebar.right.pane.tab", () => ctx.slots.register({
+      name: "sidebar.right.pane.tab",
+      // ⚠️ 必须是 `definition.id`（`LEDGER_TAB_ID`），不是 `kind` —— 见文件头第 2 条。
+      key: LEDGER_TAB_ID,
+      inject: () => ({ rpcCall })
+    }, LedgerTabBody)));
+    return () => {
+      for (const stop of stops.reverse()) {
+        if (typeof stop === "function") stop();
+      }
+    };
+  });
+}
+
 // plugin-src/client/settings-card.js
-var React11 = __toESM(require("react"), 1);
+var React15 = __toESM(require("react"), 1);
 var import_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 var OPTIONS = [
   { id: "sidebar", label: "仅侧栏" },
@@ -17376,17 +23056,17 @@ function currentEntry() {
   return panelEntry() ?? "sidebar";
 }
 function JetHubPanelEntryCard({ rpcCall }) {
-  const [entry2, setEntry] = React11.useState(currentEntry);
-  const [open, setOpen] = React11.useState(false);
-  const [busy, setBusy] = React11.useState(false);
-  const [readFailed2, setReadFailed] = React11.useState(() => panelEntryReadFailed());
-  const [writeFailed, setWriteFailed] = React11.useState(false);
-  const busyRef = React11.useRef(false);
-  React11.useEffect(() => subscribePanelEntry(() => {
+  const [entry2, setEntry] = React15.useState(currentEntry);
+  const [open, setOpen] = React15.useState(false);
+  const [busy, setBusy] = React15.useState(false);
+  const [readFailed3, setReadFailed] = React15.useState(() => panelEntryReadFailed());
+  const [writeFailed, setWriteFailed] = React15.useState(false);
+  const busyRef = React15.useRef(false);
+  React15.useEffect(() => subscribePanelEntry(() => {
     setEntry(currentEntry());
     setReadFailed(panelEntryReadFailed());
   }), []);
-  React11.useEffect(() => {
+  React15.useEffect(() => {
     if (typeof rpcCall !== "function") return;
     void loadPanelEntry(rpcCall).then(() => {
       setEntry(currentEntry());
@@ -17394,7 +23074,7 @@ function JetHubPanelEntryCard({ rpcCall }) {
     });
   }, [rpcCall]);
   const selectedLabel = OPTIONS.find((option) => option.id === entry2)?.label ?? OPTIONS[0].label;
-  const choose = React11.useCallback(async (next) => {
+  const choose = React15.useCallback(async (next) => {
     if (typeof rpcCall !== "function") return;
     if (busyRef.current) return;
     busyRef.current = true;
@@ -17411,24 +23091,24 @@ function JetHubPanelEntryCard({ rpcCall }) {
       setBusy(false);
     }
   }, [rpcCall]);
-  return React11.createElement(
+  return React15.createElement(
     "div",
     { className: "dim-jh-cardStack" },
-    React11.createElement(
+    React15.createElement(
       "div",
       { className: "dim-jh-cardRow" },
-      React11.createElement(
+      React15.createElement(
         "div",
         { className: "dim-jh-cardRowText" },
-        React11.createElement("div", { className: "dim-jh-cardTitle" }, CARD_TITLE),
-        React11.createElement(
+        React15.createElement("div", { className: "dim-jh-cardTitle" }, CARD_TITLE),
+        React15.createElement(
           "div",
           { className: "dim-jh-cardDesc" },
           // 两种失败各有各的说法：读失败说「读到的是默认值」，写失败说「刚才那次没存上」。
-          writeFailed ? CARD_DESC_WRITE_FAILED : readFailed2 ? CARD_DESC_READ_FAILED : CARD_DESC
+          writeFailed ? CARD_DESC_WRITE_FAILED : readFailed3 ? CARD_DESC_READ_FAILED : CARD_DESC
         )
       ),
-      React11.createElement(import_dsh_client_ui_primitives.Menu, {
+      React15.createElement(import_dsh_client_ui_primitives.Menu, {
         open,
         onClose: () => setOpen(false),
         items: OPTIONS.map((option) => ({ id: option.id, label: option.label })),
@@ -17441,7 +23121,7 @@ function JetHubPanelEntryCard({ rpcCall }) {
         // ⚠️ **必须开**：卡片在插件页的滚动 detail 列里，就地展开的列表会被
         //    overflow 裁剪（两个参考实现都踩过并留了这条注释）。
         portal: true,
-        anchor: React11.createElement(
+        anchor: React15.createElement(
           "button",
           {
             type: "button",
@@ -17452,11 +23132,355 @@ function JetHubPanelEntryCard({ rpcCall }) {
             onClick: () => setOpen((value) => !value)
           },
           selectedLabel,
-          React11.createElement(import_dsh_client_ui_primitives.IconChevronDownOutlineRegular, { className: "dim-jh-cardChevron" })
+          React15.createElement(import_dsh_client_ui_primitives.IconChevronDownOutlineRegular, { className: "dim-jh-cardChevron" })
         )
       })
     )
   );
+}
+
+// plugin-src/client/model-label.js
+var React16 = __toESM(require("react"), 1);
+
+// src/model-promotions.ts
+function clockMinute(value, role) {
+  if (typeof value !== "string") return void 0;
+  const match = /^(\d{1,2}):(\d{2})$/u.exec(value.trim());
+  if (match === null) return void 0;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return void 0;
+  if (minute > 59 || hour > 24) return void 0;
+  if (hour === 24) return role === "end" && minute === 0 ? 24 * 60 : void 0;
+  return hour * 60 + minute;
+}
+var MAX_ZONE_FORMATTERS = 16;
+var minuteFormatters = /* @__PURE__ */ new Map();
+function cachedFormatter(cache, zone, build) {
+  const hit = cache.get(zone);
+  if (hit !== void 0) return hit;
+  const formatter = build();
+  if (cache.size < MAX_ZONE_FORMATTERS) cache.set(zone, formatter);
+  return formatter;
+}
+var ISO_WEEKDAY_BY_ABBR = {
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+  Sun: 7
+};
+function zonedClock(nowMs, timeZone) {
+  const zone = timeZone === void 0 || timeZone === "" ? "UTC" : timeZone;
+  try {
+    const parts = cachedFormatter(minuteFormatters, zone, () => new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    })).formatToParts(new Date(nowMs));
+    const read = (type) => {
+      const item = parts.find((part) => part.type === type)?.value;
+      if (item === void 0) return void 0;
+      const value = Number(item);
+      return Number.isFinite(value) ? value : void 0;
+    };
+    const hour = read("hour");
+    const minute = read("minute");
+    const weekdayAbbr = parts.find((part) => part.type === "weekday")?.value;
+    const isoWeekday = weekdayAbbr === void 0 ? void 0 : ISO_WEEKDAY_BY_ABBR[weekdayAbbr];
+    if (hour === void 0 || minute === void 0 || isoWeekday === void 0) return void 0;
+    return { minuteOfDay: hour % 24 * 60 + minute, isoWeekday };
+  } catch {
+    return void 0;
+  }
+}
+function withinDailyWindows(windows, clock) {
+  return windows.some((window2) => {
+    if (window2.weekdays !== void 0) {
+      if (!Array.isArray(window2.weekdays)) return false;
+      const days = window2.weekdays.filter(
+        (day) => typeof day === "number" && Number.isInteger(day) && day >= 1 && day <= 7
+      );
+      if (days.length === 0) return false;
+      if (!days.includes(clock.isoWeekday)) return false;
+    }
+    const nowMinutes = clock.minuteOfDay;
+    const start = clockMinute(window2.start, "start");
+    const end = clockMinute(window2.end, "end");
+    if (start === void 0 || end === void 0) return false;
+    if (start === end) return false;
+    if (end > start) return nowMinutes >= start && nowMinutes < end;
+    return nowMinutes >= start || nowMinutes < end;
+  });
+}
+function promotionWithinAbsoluteWindow(promotion, nowMs = Date.now()) {
+  const schedule = promotion.schedule;
+  if (schedule === void 0) return true;
+  if (schedule.validFrom !== void 0) {
+    if (typeof schedule.validFrom !== "number" || !Number.isFinite(schedule.validFrom)) return false;
+    if (nowMs < schedule.validFrom) return false;
+  }
+  if (schedule.validUntil !== void 0) {
+    if (typeof schedule.validUntil !== "number" || !Number.isFinite(schedule.validUntil)) return false;
+    if (nowMs >= schedule.validUntil) return false;
+  }
+  return true;
+}
+function promotionWithinDailyWindow(promotion, nowMs = Date.now()) {
+  const schedule = promotion.schedule;
+  if (schedule === void 0) return true;
+  if (schedule.dailyUnusable === true) return false;
+  if (schedule.daily === void 0 || schedule.daily.length === 0) return true;
+  const clock = zonedClock(nowMs, schedule.timezone);
+  if (clock === void 0) return false;
+  return withinDailyWindows(schedule.daily, clock);
+}
+function promotionActiveAt(promotion, nowMs = Date.now()) {
+  return promotionWithinAbsoluteWindow(promotion, nowMs) && promotionWithinDailyWindow(promotion, nowMs);
+}
+function promotionRunningAt(promotion, nowMs = Date.now()) {
+  if (promotion.timeDeclared) return promotionActiveAt(promotion, nowMs);
+  return promotion.schedule?.snapshotActive === true;
+}
+function promotionStandingAt(promotion, nowMs = Date.now()) {
+  if (promotion.badge.display === "activeOnly") return false;
+  if (!promotion.standingEligible) return false;
+  if (promotion.schedule?.dailyUnusable === true) return false;
+  return promotionWithinAbsoluteWindow(promotion, nowMs);
+}
+function sortPromotions(promotions) {
+  return [...promotions].sort((a, b) => b.priority - a.priority || (a.source === b.source ? 0 : a.source === "promotion" ? -1 : 1));
+}
+function selectPromotionAt(promotions, nowMs = Date.now()) {
+  if (promotions === void 0 || promotions.length === 0) return void 0;
+  const sorted = sortPromotions(promotions);
+  const running = sorted.find((promotion) => promotionRunningAt(promotion, nowMs));
+  if (running !== void 0) return running;
+  return sorted.find((promotion) => promotionStandingAt(promotion, nowMs));
+}
+function promotionBadgeColor(promotion) {
+  const color = promotion.badge.color;
+  if (color === void 0) return void 0;
+  return /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/iu.test(color) ? color : void 0;
+}
+var PROMOTION_EDGE_HORIZON_MS = 365 * 24 * 36e5;
+
+// src/promotion-tooltip.ts
+function promotionReaderLanguage() {
+  if (typeof navigator === "undefined") return "";
+  return navigator.language ?? "";
+}
+function readerIsEnglish(language) {
+  return (language ?? "").toLowerCase().startsWith("en");
+}
+function pickCopy(copy, english) {
+  if (copy === void 0) return void 0;
+  const first = english ? copy.en : copy.zh;
+  return first ?? (english ? copy.zh : copy.en);
+}
+function formatPromotionDay(ms, language, timeZone) {
+  try {
+    return new Intl.DateTimeFormat(language === "" ? void 0 : language, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      ...timeZone === void 0 ? {} : { timeZone }
+    }).format(new Date(ms));
+  } catch {
+    return new Date(ms).toISOString().slice(0, 10);
+  }
+}
+function promotionLifetimeText(promotion, language) {
+  const schedule = promotion.schedule;
+  if (schedule === void 0) return void 0;
+  const zone = schedule.timezone;
+  const from = schedule.validFrom === void 0 ? void 0 : formatPromotionDay(schedule.validFrom, language, zone);
+  const to = schedule.validUntil === void 0 ? void 0 : formatPromotionDay(schedule.validUntil - 1, language, zone);
+  if (from === void 0 && to === void 0) return void 0;
+  if (from === void 0) return `– ${to ?? ""}`;
+  if (to === void 0) return `${from} –`;
+  return `${from} – ${to}`;
+}
+function promotionHoursText(promotion) {
+  const schedule = promotion.schedule;
+  if (schedule === void 0 || schedule.dailyUnusable === true) return void 0;
+  const daily = schedule.daily;
+  if (daily === void 0 || daily.length === 0) return void 0;
+  const windows = daily.map((window2) => `${window2.start}–${window2.end}`).join(", ");
+  const zone = schedule.timezone;
+  return zone === void 0 ? windows : `${windows} (${zone})`;
+}
+function promotionTooltip(promotion, language = promotionReaderLanguage()) {
+  const parts = [];
+  const copy = pickCopy(promotion.hover, readerIsEnglish(language));
+  if (copy !== void 0 && copy.length > 0) parts.push(copy);
+  const lifetime = promotionLifetimeText(promotion, language);
+  if (lifetime !== void 0) parts.push(lifetime);
+  const hours = promotionHoursText(promotion);
+  if (hours !== void 0) parts.push(hours);
+  return parts.join(" · ");
+}
+function promotionBadgeLabel(promotion, language = promotionReaderLanguage()) {
+  const badge = promotion.badge;
+  if (readerIsEnglish(language) && badge.labelEn !== void 0) return badge.labelEn;
+  return badge.label;
+}
+function promotionChipColor(promotion) {
+  return promotionBadgeColor(promotion);
+}
+
+// plugin-src/client/model-label.js
+var MODEL_LABEL_PRIORITY = -200;
+var CANDIDATES_CACHE_MS = 6e4;
+var CLOCK_TICK_MS = 6e4;
+var candidatesSnapshot = null;
+var candidatesAt = 0;
+var candidatesInflight = null;
+var boundRpcCall = null;
+var listeners3 = /* @__PURE__ */ new Set();
+var tickTimer = null;
+function notify() {
+  for (const fn of [...listeners3]) {
+    try {
+      fn();
+    } catch {
+    }
+  }
+}
+function subscribeTick(listener) {
+  listeners3.add(listener);
+  if (tickTimer === null) {
+    tickTimer = setInterval(() => {
+      if (boundRpcCall !== null) void loadCandidates(boundRpcCall);
+      notify();
+    }, CLOCK_TICK_MS);
+    if (typeof tickTimer.unref === "function") tickTimer.unref();
+  }
+  return () => {
+    listeners3.delete(listener);
+    if (listeners3.size === 0 && tickTimer !== null) {
+      clearInterval(tickTimer);
+      tickTimer = null;
+    }
+  };
+}
+async function loadCandidates(rpcCall) {
+  if (candidatesSnapshot !== null && Date.now() - candidatesAt < CANDIDATES_CACHE_MS) {
+    return candidatesSnapshot;
+  }
+  if (candidatesInflight !== null) return candidatesInflight;
+  const run = async () => {
+    try {
+      const value = await rpcCall("promotion.candidates", {});
+      const providers = value !== null && typeof value === "object" ? value.providers : void 0;
+      if (providers === null || typeof providers !== "object") return candidatesSnapshot;
+      candidatesSnapshot = providers;
+      candidatesAt = Date.now();
+      notify();
+      return candidatesSnapshot;
+    } catch {
+      return candidatesSnapshot;
+    }
+  };
+  candidatesInflight = run().finally(() => {
+    candidatesInflight = null;
+  });
+  return candidatesInflight;
+}
+function resolveHostBadgeText(text, languageOverride) {
+  if (typeof text === "string") return text;
+  if (text === null || typeof text !== "object") return void 0;
+  const language = (languageOverride ?? promotionReaderLanguage()).toLowerCase();
+  const table = text;
+  if (language !== "" && !language.startsWith("en")) {
+    const native = table[language];
+    if (typeof native === "string" && native.length > 0) return native;
+    const zh = table.zh;
+    if (typeof zh === "string" && zh.length > 0) return zh;
+  }
+  const en = table.en;
+  if (typeof en === "string" && en.length > 0) return en;
+  return void 0;
+}
+var HOST_TONES = Object.freeze(["neutral", "info", "success", "warning"]);
+function hostBadgeToneOf(tone) {
+  return HOST_TONES.indexOf(String(tone)) >= 0 ? String(tone) : "neutral";
+}
+function ModelLabel(props) {
+  const provider = props.provider;
+  const model = props.model;
+  const rpcCall = props.rpcCall;
+  const [, setTick] = React16.useState(0);
+  React16.useEffect(() => subscribeTick(() => setTick((n) => n + 1)), []);
+  React16.useEffect(() => {
+    if (typeof rpcCall === "function") void loadCandidates(rpcCall);
+  }, [rpcCall]);
+  const language = promotionReaderLanguage();
+  const providerId = provider !== null && typeof provider === "object" ? String(provider.id ?? "") : "";
+  const modelId = model !== null && typeof model === "object" ? model.id : void 0;
+  const rows = candidatesSnapshot !== null && typeof candidatesSnapshot === "object" ? candidatesSnapshot[providerId] : void 0;
+  const list = Array.isArray(rows) ? rows.filter((row) => row !== null && typeof row === "object" && row.modelId === modelId) : [];
+  const weOwnThisRow = list.length > 0;
+  const selected = selectPromotionAt(list.map((row) => row.promotion), Date.now());
+  if (selected !== void 0) {
+    const label = promotionBadgeLabel(selected, language);
+    const tooltip = promotionTooltip(selected, language);
+    const color = promotionChipColor(selected);
+    return React16.createElement(
+      "span",
+      { className: "dim-jh-modelLabel" },
+      React16.createElement("span", { className: "dim-jh-modelLabelName" }, String(model.name ?? "")),
+      React16.createElement("span", {
+        className: "dim-jh-modelPromoChip",
+        "data-tone": "upstream",
+        ...tooltip.length > 0 ? { title: tooltip } : {},
+        ...color === void 0 ? {} : { style: { color, borderColor: color } }
+      }, label)
+    );
+  }
+  const badge = weOwnThisRow || model === null || typeof model !== "object" ? void 0 : model.badge;
+  const hostText = badge === null || typeof badge !== "object" ? void 0 : resolveHostBadgeText(badge.text);
+  if (hostText === void 0) return React16.createElement("span", null, String(model.name ?? ""));
+  return React16.createElement("span", { className: "dim-jh-modelLabel" }, ...orderBadgeParts(
+    props.placement,
+    React16.createElement("span", { className: "dim-jh-modelLabelName" }, String(model.name ?? "")),
+    React16.createElement("span", { className: "dim-jh-modelPromoChip", "data-tone": hostBadgeToneOf(badge.tone), title: hostText }, hostText)
+  ));
+}
+function orderBadgeParts(placement, nameNode, chipNode) {
+  return placement === "trigger" ? [chipNode, nameNode] : [nameNode, chipNode];
+}
+function registerModelLabelSlot(ctx, rpcCall) {
+  const refuse = (error) => {
+    try {
+      ctx.logger.warn(`[jet-hub] 模型名槽位注册失败（宿主与其余功能不受影响）: ${String(error)}`);
+    } catch {
+    }
+  };
+  boundRpcCall = typeof rpcCall === "function" ? rpcCall : null;
+  try {
+    return ctx.slots.inject("conversation.input.model.label", () => {
+      void loadCandidates(rpcCall);
+      try {
+        return ctx.slots.register({
+          name: "conversation.input.model.label",
+          priority: MODEL_LABEL_PRIORITY,
+          inject: () => ({ rpcCall })
+        }, ModelLabel);
+      } catch (error) {
+        refuse(error);
+        return () => {
+        };
+      }
+    });
+  } catch (error) {
+    refuse(error);
+    return void 0;
+  }
 }
 
 // plugin-src/client/index.js
@@ -17470,8 +23494,11 @@ function apply(ctx) {
     const raw = await callManagementRpc(ctx.connection, JET_HUB_RPC_CHANNEL, endpoint, payload, signal);
     return unwrapRpcResult(raw);
   };
+  ctx.effect(() => installRateLimitResumeUi({ rpcCall }), "jet-hub: 限流续跑按钮");
   ctx.effect(() => startCarrierContribution({ rpcCall }), "jet-hub: zcode 内部载体贡献循环");
   registerJetHubPanelEntries(ctx, rpcCall);
+  registerJetHubLedgerTab(ctx, rpcCall);
+  registerModelLabelSlot(ctx, rpcCall);
   ctx.slots.inject("plugins.bundle.config", () => ctx.slots.register({
     name: "plugins.bundle.config",
     key: "dsh-providers-hub",
@@ -17520,6 +23547,34 @@ function apply(ctx) {
         };
       },
       providerLabel,
+      /**
+       * 当前**会话** id —— 「轮换起点」的作用域键。
+       *
+       * ⚠️⚠️ **必须用宿主在 `inject(sessionId)` 里给的这个**：宿主 dispatch 时
+       * 会把同一个 id 作为 `GenerateOptions.sessionId` 传给适配器，而选号层正是
+       * 按它查偏好。插件自己编一个 ⇒ 键对不上 ⇒ **选了永远不生效且零报错**。
+       */
+      sessionId,
+      /** 「轮换起点」读取（打开面板时调一次）。`modelId` 用于判「逐模型限流」。 */
+      readRotation: (provider, sid, modelId) => rpcCall("account.getRotation", { provider, sessionId: sid, modelId }),
+      /**
+       * 「轮换起点」写入；`position === null` = 恢复默认起点。
+       *
+       * ⚠️ 传**位次**（1-based），不是 accountId —— 用户 2026-11-10 要求「跟随位次」：
+       *    选「位次 1」后去管理界面拖拽，回来仍是「位次 1」= 新的第 1 个号。
+       *
+       * ★ `tierAtSelection`（S6，2026-11-20）：**选定那一刻该账号的积分档位**。
+       *   服务端靠它判断「起点那一档是否已烧完」——不同则交出首位。
+       *   `undefined` = 算不出（无余额读数 / 恢复默认）⇒ 服务端回落 S5。
+       *   ⚠️ 不能省略：省了之后服务端永远拿不到快照，S6 对**所有新选择**
+       *   都静默不生效，而用户只会觉得「重选了起点还是先烧自己的短期」。
+       */
+      writeRotation: (provider, sid, position, tierAtSelection) => rpcCall("account.setRotation", {
+        provider,
+        sessionId: sid,
+        position,
+        ...typeof tierAtSelection === "string" ? { tierAtSelection } : {}
+      }),
       readBadge: (provider, options) => rpcCall("usage.badge", { provider, ...options }),
       /**
        * 聚合 provider「上次**实际**转发成功的渠道」（P3）。
@@ -17529,6 +23584,23 @@ function apply(ctx) {
        * ⚠️ 返回 `{ provider: null }` 表示无历史 ⇒ 徽标**不渲染**。
        */
       readActiveProvider: (canonicalId) => rpcCall("aggregate.activeProvider", canonicalId === void 0 ? {} : { canonicalId }),
+      /**
+       * 「这个供应商被用户关闭了吗」（Gitee issue IKWS0A）。
+       *
+       * ⚠️ **必须注入**：`usage-badge.js` 的门控用 `props.readProviderClosed`，
+       *    拿不到函数时它**故意**退化成「未关闭」（止损判据读不到时宁可多显示）。
+       *    所以漏了这一行 ⇒ 修复**静默失效**，而徽标看起来一切正常。
+       *
+       * ⚠️ 走 `provider.closed` 而不是 `provider.status`：后者要为每家算
+       *    `total`/`disabled`，内部有 `fullCatalogIds`（自述最长 2000ms），
+       *    而本查询每 5 秒一次（`ACTIVE_PROVIDER_POLL_MS`）。
+       *    新端点是纯内存同步读，零 IO 零上游。
+       *
+       * ⚠️ 客户端拿到的是 `{ closed: Record<string, boolean> }` ⇒ 这里**就地**
+       *    折算成布尔，别把「查表」的责任漏给上层（否则每个调用点都要写一遍
+       *    `?.closed?.[id] === true`，本仓库已有「一语义两处写法」的多次事故）。
+       */
+      readProviderClosed: (provider) => rpcCall("provider.closed", { providers: [provider] }).then((value) => value?.closed?.[provider] === true),
       // ⚠️ **这里曾有一个 `readExpiryOrder` prop，已删除**（真实死代码，审计实测指出）：
       //    它在 `c12b3ab` 上就已**零消费者** —— `AggregatePanel` 自己直接
       //    `rpcCall('aggregate.expiryOrder', {})`（`jet-hub.js`），从不经过本 prop。
@@ -17536,7 +23608,7 @@ function apply(ctx) {
       //    ⚠️ 端点本身仍在（`aggregate.expiryOrder`）—— 删的只是这个没人用的转发 prop。
       writePreference: (preference) => rpcCall("usage.badgePreference", { preference }),
       // 自动签到开关（全局一个，不分渠道）：宿主在「打开」时会立刻跑一轮。
-      setAutoCheckin: (enabled) => rpcCall("usage.autoCheckin", { enabled }),
+      setAutoCheckin: (enabled2) => rpcCall("usage.autoCheckin", { enabled: enabled2 }),
       // 关闭那行**常驻**的自动签到状态文字（只关当前这一轮，下一轮会重新出现）。
       dismissAutoCheckin: () => rpcCall("usage.autoCheckin", { dismiss: true }),
       // 一键领取：每日签到 + （buddy / workbuddy 的）成长中心任务。
@@ -17545,7 +23617,34 @@ function apply(ctx) {
       // 的执行体（宿主 auto-checkin 的 claim 回调）。成长一轮单账号 90～270s、
       // 全串行，默认开启等于每次开机自动打几十个上游请求。
       // budgetMs 缺省由宿主取 10 分钟；传 0 或负数表示不限时。
-      claimCredits: (provider, runTasks, budgetMs) => rpcCall("credits.claimAll", { provider, runTasks, budgetMs })
+      claimCredits: (provider, runTasks, budgetMs) => rpcCall("credits.claimAll", { provider, runTasks, budgetMs }),
+      /**
+       * ★ 读「严格手动顺序」开关（2026-11-18 加）。
+       *
+       * ## 为什么弹窗需要它
+       *
+       * 用户要求「弹窗列表按后端选号机制排序」。而后端有**两种**排序策略：
+       *
+       * | 策略 | 条件 | 顺序 |
+       * |---|---|---|
+       * | 档位序 | `strictManualOrder === false` | 临期 → 短期 → 永久 → 不可用 |
+       * | 手动序 | `strictManualOrder === true` | 按用户拖拽序（档位仅判可用性）|
+       *
+       * ⇒ 弹窗必须知道这个开关，否则严格模式下**列表顺序与真实选号不一致**
+       *（用户看到列表第一个，实际请求却发给第三个）。
+       *
+       * ⚠️ 这是**次要状态**：读不到就按 `false`（默认档位序）走，不报错、不阻渲染
+       * —— 与设置页 `loadStrictManualOrder` 同一取向（那次也刻意不摊成红条）。
+       * ⚠️ 宿主侧该端点是**纯内存读**（零网络），可以随徽标每轮刷新一起取。
+       */
+      readStrictManualOrder: async (provider) => {
+        try {
+          const res = await rpcCall("strictManualOrder.getEnabled", { provider });
+          return res?.enabled === true;
+        } catch {
+          return false;
+        }
+      }
     })
   }, UsageBadgeGuarded));
 }

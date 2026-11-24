@@ -323,7 +323,14 @@ outcome) {
         if (outcome !== undefined)
             outcome.configOk = config.ok;
         const merged = mergeRemoteModels(scoped, config.models);
-        return config.promotions.size === 0 ? merged : applyPromotions(merged, config.promotions);
+        // ⚠️⚠️ 两条腿都要从 config 那份**补到** scoped 条目上（issue #101 的徽标腿
+        // 与既有折扣价腿**同一个成因**）：scoped 端点不下发活动数组（实测其响应里
+        // discount / promo 出现 0 次），而 mergeRemoteModels 对同 id **以 scoped 为准**
+        // ⇒ 徽标永远挂不上（正是「促销永远对不上、IDE 免费我们还显示 0.29」那条
+        // 用户报障的形状，只是这次丢的是徽标而不是价格）。
+        const withRates = config.promotions.size === 0 ? merged : applyPromotions(merged, config.promotions);
+        const candidates = promotionCandidatesFromModels(config.models);
+        return candidates.size === 0 ? withRates : applyPromotionCandidates(withRates, candidates);
     }
     // 第二优先：/v3/config（结果同样是 data.models / data.agents 结构）
     const url = `${product.endpoint}${CONFIG_PATH}`;
@@ -386,6 +393,32 @@ async function requestConfig(headers, fetcher, signal, product) {
     catch {
         return empty;
     }
+}
+/**
+ * 从**已解析的** config 模型里取「id → 活动候选」（徽标腿）。
+ *
+ * ⚠️ 刻意**不**在这里重打一份 `parseTencentPromotions`：`promos` 已由
+ * `parseModelsFromConfig` 挂在条目上（那里是唯一的活动解析点）。同一个 schema
+ * 写两套判据必然漂移 —— 本仓的反复出缺陷形态。
+ * 顺带保证「被挂上候选的条目」与「被并入列表的条目」是同一份过滤结果
+ * （非促销条目、`enabled: false`、无 badge 的都在解析层丢掉了）。
+ */
+function promotionCandidatesFromModels(models) {
+    const byId = new Map();
+    for (const model of models) {
+        if (model.promos !== undefined && model.promos.length > 0)
+            byId.set(model.id, model.promos);
+    }
+    return byId;
+}
+/** 把活动候选并入模型列表（只补 `promos`，其余字段不动）。 */
+function applyPromotionCandidates(models, candidates) {
+    return models.map((model) => {
+        if (model.promos !== undefined)
+            return model;
+        const promos = candidates.get(model.id);
+        return promos === undefined ? model : { ...model, promos };
+    });
 }
 /** 把促销表并入模型列表（只补 `discountedCreditsRate`，其余字段不动）。 */
 function applyPromotions(models, promotions) {

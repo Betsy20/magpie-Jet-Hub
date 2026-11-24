@@ -86,6 +86,86 @@ export type ModelscopeCredentialProvider = () => Promise<{
  */
 export declare function parseModelscopeCatalog(body: unknown): ModelscopeCatalogEntry[];
 /**
+ * **已下线但仍留在远端目录里的模型 id** —— 一律不进目录。
+ *
+ * ## 为什么需要这份名单
+ *
+ * 魔搭的 `/v1/models` 会**继续列出已经没人服务的模型**：调用它们时上游回
+ * `HTTP 400 {"message":"Model id : <id> , has no provider supported"}`。
+ * 这类 id 若照原样进目录，后果有三层：
+ *
+ * 1. 用户在选择器里看得到、选中后必然失败（400，且与本程序无关）；
+ * 2. 它们会进 `aggregate` 的候选表（每个渠道的 `listModels` 都会被拿去归组）
+ *    ⇒ 聚合把请求轮换到死链上；
+ * 3. 面板「模型黑名单」里也列着它们，用户只能逐条手动关。
+ *
+ * ## 收录口径（严格，宁缺勿滥）
+ *
+ * **只收上游明确回 `has no provider supported` 的 id** —— 那一条是「该模型没有任何
+ * 可用服务方」，属于**模型已下线**，与账号权限无关。
+ *
+ * ⚠️⚠️ **这条阳性信号是以 HTTP 502 到达的**（不是 400、更不是 404）：本仓的网关
+ * 把上游那条 400 包成了 `502 + JSON body`。见 `canonical-models.ts` 的实测表里
+ * `modelscope/…/DeepSeek-V4.1-Flash  ❌502 ← 上游 400 Model id : …, has no provider supported`。
+ * 于是**不能**按「排除 5xx」的直觉办事 —— `502 + JSON body` 是**唯一阳性证据**，
+ * 而 `502 + HTML 网关超时` 才是不可用信号，两者必须区分。
+ * ⚠️ 下列形态**一律不收**（都不是"下线"的证据）：
+ * - `401 / 403`（授权令牌无效、无权访问）⇒ 换账号或申请权限即可，模型还活着；
+ * - `404 invalid_model ... or you do not have access` ⇒ 存在性/权限不可区分；
+ * - 超时、429、`invalid_parameter`（例如要求 `tools` 参数）⇒ 临时或用法问题。
+ *
+ * ## 实测记录（2026-11-16）
+ *
+ * 逐个 id 真发 `POST /v1/chat/completions`（`max_tokens: 4`）扫了远端目录的
+ * **全部 38 条**：存活 15、本名单 8、403/401 授权类 7、404 4、用法错误 3、超时 1。
+ *
+ * 复核方法（换成自己的网关地址与 key）：
+ *
+ * ```bash
+ * curl -s -H "Authorization: Bearer $KEY" http://127.0.0.1:8080/v1/models \
+ *   | jq -r '.data[].id' | grep '^modelscope/' \
+ *   | while read -r id; do
+ *       code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $KEY" \
+ *         -H 'Content-Type: application/json' \
+ *         -d "{\"model\":\"$id\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":4}" \
+ *         http://127.0.0.1:8080/v1/chat/completions)
+ *       [ "$code" = 200 ] || echo "$code $id"
+ *     done
+ * ```
+ *
+ * ## 官方口径（2026-11-16 检索确认）
+ *
+ * 魔搭**没有**「模型下线」的全局公告页，说明分散在两处：
+ *
+ * 1. **每个模型页的「反馈」区** —— 官方会就具体模型回「已下架对该模型的推理服务」
+ *    （例：`Qwen/Qwen3-Coder-480B-A35B-Instruct` 的反馈 issue，报障者据此关闭工单）；
+ * 2. **API-Inference 的定位** —— 它**只覆盖一部分模型**的在线推理，不是「魔搭上托管
+ *    的模型都能调」，且「可用模型列表会变」（社区踩坑记录与官方文档同义）。
+ *    报错文案 `has no provider supported` 的含义就是「该 model id 在平台上没有供给方」。
+ *
+ * ⚠️⚠️ 但该文案**不区分**「永久下架」与「provider 暂未就绪」：`MiniMax/MiniMax-M2.7`
+ * 的反馈区里，社区总结的是「provider 未开通（虽然模型列表里有）」—— 同一条文案。
+ *    故本名单是**带日期的快照**，不是「永久黑名单」：某条重新上线后删掉对应行即可，
+ *    不要据此推断「这个模型从此不存在」。
+ *
+ * ⚠️ 本名单是**静态**的：魔搭把某个 id 重新上线后，这里不会自动放行。
+ *    上游如果哪天恢复某个模型（例如又有服务方接单），把它从本名单删掉即可 ——
+ *    `tests/unit/modelscope-fallback.spec.ts` 的「已下线名单」用例会提示改这里。
+ *
+ * ⚠️⚠️ **恢复需要发版**：本名单是编译期常量，`dropRetired` 同时作用于**远端**与
+ *    **兜底表**两条路径 ⇒ 某模型重新上线后它不仅不出现在兜底表里，**连远端目录也会
+ *    被滤掉**。没有任何运行时开关、环境变量或 UI 入口能恢复它 —— 只能改代码 + 发版。
+ *    （另一条恢复途径是 dead-model 的 30 天 TTL，但那条只管**运行时阳性证据**，
+ *    管不到本名单；见 `dead-model-store.ts`。）
+ *
+ * ## 匹配语义
+ *
+ * 这里的每一条会**同时**以两种形态参与比较（见 `MODELSCOPE_RETIRED_MODEL_KEYS`）：
+ * ① 逐字 id；② `normalizeModelKey(id)` 归一化后的键。所以上游下发
+ * `DEEPSEEK-AI/DEEPSEEK-V4-PRO` / `…:free` / `deepseek-ai//…` 这些变体也会被剔。
+ */
+export declare const MODELSCOPE_RETIRED_MODEL_IDS: ReadonlySet<string>;
+/**
  * 拉取远端目录，失败回退静态兜底。
  *
  * @param ttlMs 命中内存缓存的窗口；测试传 0 强制每次都拉。
@@ -208,6 +288,15 @@ export declare class ModelscopeAdapter extends LlmAdapter {
         id: string;
         name: string;
     }[];
+    /**
+     * 兜底表 → 目录条目（**已剔除已下线 id**）。
+     *
+     * ⚠️ 兜底表本身**保留**那些已下线的 id：它同时是「远端目录快照」的证据
+     * （`modelscope-fallback.spec.ts` 有一条用例逐 id 对齐远端清单），
+     * 也是 `findModelscopeFallback` 做能力前缀继承的依据 —— 删表会同时丢掉这两件事。
+     * 故「下线」只在这一层过滤，表不动。
+     */
+    private fallbackEntries;
     /**
      * 同步取「已缓存的远端目录」；没有缓存则返回 undefined。
      *

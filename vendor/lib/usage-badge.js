@@ -117,11 +117,29 @@ export function createUsageBadge(deps) {
         if (!balances.ok)
             throw new BadgeRpcFailure(balances.error);
         const accounts = balances.value.accounts;
+        /** 锁定态三来源：主路径 `balances.value.locked` → 兜底 `deps.readLocked` → 不写该字段。 */
+        const locked = balances.value.locked ?? deps.readLocked?.(provider);
         const snapshot = {
             at: now(),
             accounts,
             disabledCount: pool.length - enabledIds.length,
             ...balances.value.windowDays === undefined ? {} : { windowDays: balances.value.windowDays },
+            // ⚠️ 与 `windowDays` 成对透传：只带一半会让徽标的临期段恒 0（见字段注释）。
+            ...balances.value.imminentDays === undefined ? {} : { imminentDays: balances.value.imminentDays },
+            /**
+             * ⚠️ 2026-11-18：与 windowDays/imminentDays 同批透传（客户端用它决定
+             *    是否显示「可用/总」）。
+             *
+             * 取值优先级：
+             * 1. `balances.value.locked` —— `collectBalances` 已在统一出口补上
+             *    （见 `jet-hub-rpc.ts` 的 `collectBalances` 包装），**这是主路径**；
+             * 2. `deps.readLocked` —— 兜底（万一 collectBalances 的实现没带）；
+             * 3. 都没有 ⇒ 不写该字段 ⇒ 前端按「未锁定」处理（向后兼容）。
+             */
+            // ⚠️ 只求值一次（2026-11-18 正向审计 P3-d）：原写法在判据与赋值里各调一次
+            //    `deps.readLocked?.(provider)`，两次之间用户在面板里改了开关就会
+            //    判据说「有值」而赋值拿到 `undefined` ⇒ 写出 `{ locked: undefined }`。
+            ...(locked === undefined ? {} : { locked }),
         };
         // ⚠️ `subscriptionOf` 的第二个参数是 `ReadonlySet`（它按 id 判「这条余额行
         //    属不属于启用账号」）—— 上面为了传 `accountIds` 用的是数组，这里再包一次。
@@ -196,6 +214,8 @@ export function createUsageBadge(deps) {
                     accounts: snapshot.accounts,
                     disabledCount: snapshot.disabledCount,
                     ...snapshot.windowDays === undefined ? {} : { windowDays: snapshot.windowDays },
+                    ...snapshot.imminentDays === undefined ? {} : { imminentDays: snapshot.imminentDays },
+                    ...snapshot.locked === undefined ? {} : { locked: snapshot.locked },
                     ...snapshot.subscription === undefined ? {} : { subscription: snapshot.subscription },
                     // 偏好**不进缓存**：它是用户随时可改的展示设置，缓存住会让「刚改完
                     // 没生效」看起来像 bug（快照本身可能还是两分钟前的）。

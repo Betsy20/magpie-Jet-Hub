@@ -36,6 +36,7 @@
  * 工具结果必须包成 `role:'user'` 里的 `tool_result` 块（不是独立的 `tool` 角色）。
  */
 import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm';
+import { readCacheTokenCount } from './cache-token-count.js';
 import { createDsmlMarkerNormalizer, fixDsmlMarkers, readWithIdleTimeout } from './sse.js';
 /** 把 JSON 字符串安全解析成对象（Anthropic 要对象，不要字符串）。 */
 export function parseToolArguments(raw) {
@@ -452,7 +453,7 @@ export async function* consumeAnthropicSse(body, options) {
          * 它们**不计入** `inputTokens`，否则缓存命中率会显示偏大
          * （Anthropic 的 `input_tokens` 本身就只含未命中部分）。
          */
-        cacheReadTokens = num(u.cache_read_input_tokens) ?? cacheReadTokens;
+        cacheReadTokens = readCacheTokenCount(u.cache_read_input_tokens) ?? cacheReadTokens;
         cacheWriteTokens = num(u.cache_creation_input_tokens) ?? cacheWriteTokens;
     };
     const ensureBlock = (index, kind) => {

@@ -10,7 +10,7 @@
  *
  * magpie 宿主 `servers(mod)` 会取模块导出的**每一个函数**，`auths()` 再按
  * `hooks.auth.provider` 建映射 —— 所以一个插件包导出 N 个插件工厂，就能注册
- * N 个 provider id。本文件对本体里**除两个路由组之外**的 29 个 provider 各生成一个工厂。
+ * N 个 provider id。本文件对本体里**除 `aggregate` 路由组之外**的 32 个 provider 各生成一个工厂。
  *
  * ## 架构
  *
@@ -19,7 +19,7 @@
  *   ├─ provider `jet-hub-codearts`   ┐
  *   ├─ provider `jet-hub-workbuddy`  │  N 个 provider，各自一个 id
  *   ├─ provider `jet-hub-qoder`      ├─ 全部共用同一个容器实例
- *   └─ …（29 个）                     ┘
+ *   └─ …（32 个）                     ┘
  *        └─ auth.loader().fetch → JetHubContainer（内嵌 cordis + 本体 lib/index.js）
  *             └─ 直连本体 llm：ctx.llm.stream()（src/llm-bridge.mjs）
  *                  └─ 各 provider 的真实上游
@@ -29,8 +29,8 @@
  * `ctx.llm` 的 HTTP 外壳。插件在本进程里直接握着 `ctx.llm`，所以
  * `container.forward()` 在进程内就完成了整件事 —— 不占端口、不需要 apiKey。
  *
- * ⚠️ 容器**必须模块级共享**：29 个插件工厂各自 new 一个容器的话，会拉起 29 个
- * cordis（29 份账号池 + 29 份模型目录），冷启动直接炸。
+ * ⚠️ 容器**必须模块级共享**：32 个插件工厂各自 new 一个容器的话，会拉起 32 个
+ * cordis（32 份账号池 + 32 份模型目录），冷启动直接炸。
  *
  * ## 凭据从哪来
  *
@@ -133,6 +133,8 @@ export const DISPLAY_NAME = 'Jet Hub'
  */
 export const DSH_PROVIDERS = [
   'accio',
+  'agnescode',
+  'agnescodeintl',
   'astudio',
   'autoclaw',
   'autoclawintl',
@@ -141,6 +143,7 @@ export const DSH_PROVIDERS = [
   'cline',
   'codearts',
   'codely',
+  'doubao',
   'gemini',
   'lobsterai',
   'loomy',
@@ -169,6 +172,11 @@ export const DSH_PROVIDERS = [
  */
 const NAMES = {
   accio: 'Accio (阿里)',
+  // 2026-11-24 上游新增（AgnesCode，国内站 / 国际版两个独立账号体系）。
+  // 上游 `label` / `displayName` 只有英文名，这里原样沿用；两站的区分照
+  // `magicrewintl` 的写法加「（国际版）」。
+  agnescode: 'AgnesCode',
+  agnescodeintl: 'AgnesCode (国际版)',
   astudio: 'AStudio (讯飞)',
   autoclaw: 'AutoClaw (智谱)',
   autoclawintl: 'AutoClaw (国际版)',
@@ -177,6 +185,8 @@ const NAMES = {
   cline: 'Cline (开源)',
   codearts: 'CodeArts (华为云)',
   codely: 'Codely (Unity 团结引擎)',
+  // 2026-11-24 上游新增（豆包，字节跳动）。上游 `label` / `displayName` 都是「豆包 (字节)」。
+  doubao: '豆包 (字节)',
   gemini: 'Gemini Code Assist (谷歌)',
   lobsterai: 'LobsterAI (有道)',
   loomy: 'Loomy (讯飞)',
@@ -253,10 +263,21 @@ const FALLBACK_MODELS = {
   'codely/codely-flash': { name: 'Codely · Flash' },
   'magicrew/deepseek-v4.1-flash': { name: 'Magicrew · DeepSeek V4.1 Flash' },
   'magicrewintl/deepseek-v4.1-flash': { name: 'MagiCrew 国际 · DeepSeek V4.1 Flash' },
-  // 2026-11-09 上游新增（腾讯 Marvis）。上游**没有**模型目录端点（9 条候选全 404），
-  // 目录只能静态兜底，且只有 `main-auto` 一个槽位（服务端自动路由）。真实模型 id
-  // （`deepseek-v4-1-flash-261017`）不能直传 —— 上游回 400「无效模型id」。
-  'marvis/main-auto': { name: 'Marvis · Auto' },
+  // 2026-11-24 上游新增（豆包，字节跳动）。`DOUBAO_FALLBACK_MODELS`（`doubao-adapter.ts:77`）
+  // 是 2026-11-22 从 `brief_list` 真机抓的快照，key 就是上游的短数字/短横线 id
+  // （`0` = 快速、`9` = 2.1 Auto、`5` = 2.1 Pro …）。取 `9`（Auto 档）与
+  // `marvis/main-auto` 同一取舍：面板上先有**一条能发**的，别把全表摊开。
+  //
+  // ⚠ 条数口径：实数是 **15 条**（5 条短 id + 10 条 32 位 hex）。上游自己的 JSDoc
+  // 写「14 条」是错的，但 `vendor/` 是构建产物、不在 `PATCH_SHA256` 补丁列表里
+  // （`scripts/verify-vendor.mjs` 要求逐字节一致），改了会让「1321 个一致」变红。
+  // 所以这里只能存真实数字，不去动 vendor 里那行注释。
+  //
+  // ⚠ 同一批新增的 AgnesCode（`agnescode` / `agnescodeintl`）**故意不给**兜底：
+  // 上游的 `AGNESCODE_FALLBACK_MODELS` 是空数组（`agnescode-product.ts:163`，两站同表），
+  // 目录完全靠远端 `/v2/models` 拉 —— 给一条静态 id 会让「未登录时看到的目录」和
+  // 「登录后拉到的目录」对不上，比空着更误导。
+  'doubao/9': { name: '豆包 · 2.1 Auto' },
   'qiniu/qwen3-max': { name: 'Qiniu · Qwen3 Max' },
   // 2026-11-04 上游新增三家。百智云目录走远端（45 条）+ 内置兜底；MonkeyCode
   // 两站的网关 `GET /v1/models` 恒 405，目录**只能是**内置常量，故这里的 id
@@ -494,7 +515,7 @@ function modelEntry(id, def, meta, price) {
 
 // ---- 共享容器与模型缓存 -------------------------------------------------------
 
-/** 模块级单例：29 个 provider 共用同一个容器。 */
+/** 模块级单例：32 个 provider 共用同一个容器。 */
 let shared = null
 
 /**
@@ -546,7 +567,7 @@ function containerFor(options, log) {
 }
 
 /**
- * 把 29 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
+ * 把 32 家的账号池汇总成一个数组（`[{provider, id, nickname, enabled}]`）。
  *
  * 给 `syncAuthQuietly()` 用：它要的是「全量账号」，而 `account.list` 必须按
  * provider 逐家问。失败一律当「这家没有账号」——未登录的渠道本来就该失败，
@@ -1011,7 +1032,7 @@ function creditsTable() {
  *
  * 为什么要在插件侧也判一次：magpie 的签到开关**只看插件有没有声明 `auth.checkin`**
  * （宿主 `host.js` 的 `checkin: typeof a.auth.checkin === "function"`，Go 侧
- * `Provider.Checkin` 再决定 Settings 里显不显示）。给 29 家都声明，就等于给
+ * `Provider.Checkin` 再决定 Settings 里显不显示）。给 32 家都声明，就等于给
  * 「后端根本没有签到接口」的 9 家也画了一个开关 —— 用户点了只能看到失败，
  * 而那是**能力缺失**，不是故障（2026-11-01 用户报「部分供应商签到失败」的根因）。
  *
@@ -2552,13 +2573,13 @@ function writeCache(log) {
  * `allModels === undefined || fullModels === undefined || stale`，而**干净机器上
  * 没有磁盘缓存**（`readCache()` 返回 `{}`）⇒ 前两项恒为真，每次调用都新起一条
  * `refreshInBackground()`。而 magpie 宿主 `providers()` 是
- * `Promise.all([...auths()].map(row))` —— 29 家**并行**各调一次 `provider.models()`，
- * `config` 钩子另外 29 次串行 ⇒ 冷启动最多 **58 条**刷新链同时跑。次生故障：
+ * `Promise.all([...auths()].map(row))` —— 32 家**并行**各调一次 `provider.models()`，
+ * `config` 钩子另外 32 次串行 ⇒ 冷启动最多 **64 条**刷新链同时跑。次生故障：
  *   ① `container._absorbModels()` 的 `this.modelMeta.clear()` 与
  *      `refreshFullCatalog()` 的 `set()` 并发互清 ⇒ 能力声明（上下文窗口 / 图片 /
  *      推理档位）随机丢；
  *   ② 上千次 `rpc('model.list')` 打满容器；
- *   ③ 58 次**同步**写盘（`writeCache()` 里是 `writeFileSync`）；
+ *   ③ 64 次**同步**写盘（`writeCache()` 里是 `writeFileSync`）；
  *   ④ 20 秒超时到点，magpie 拿到的是空列表 —— 而**没有任何错误**。
  * 用户看到的就是「新装的插件第一次打开 magpie，模型列表是空的」。`tests/` 里
  * `refreshInBackground|currentAll` 零命中，这条路径此前完全没有守护。
@@ -2576,7 +2597,7 @@ let refreshing = false
  * **永不 settle** —— `container.start()` / `refreshModels()` 最终都落到
  * `route.fetch(req)`（`src/container.mjs:726`），那条路径**没有 AbortSignal、
  * 没有超时**。上游一次卡住，`refreshing` 就永久 `true`：
- *   ① 29 家 `provider.models()` 全部永久只返回磁盘旧目录；
+ *   ① 32 家 `provider.models()` 全部永久只返回磁盘旧目录；
  *   ② `writeCache()` 永不执行 ⇒ 新装机器**永远**写不出第一份缓存；
  *   ③ 用户唯一的自救（重启 magpie）之后仍会再撞一次。
  * PR 自己的注释写「失败也要能重试，否则一次网络抖动就把后台刷新永久卡死」——
@@ -4409,5 +4430,5 @@ function marvisCodeOf(pasted) {
   return ''
 }
 
-/** 全部 29 个工厂（`index.mjs` 逐个具名导出）。 */
+/** 全部 32 个工厂（`index.mjs` 逐个具名导出）。 */
 export const PLUGINS = DSH_PROVIDERS.map((p) => [idOf(p), makePlugin(p)])

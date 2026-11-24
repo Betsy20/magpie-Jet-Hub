@@ -9,12 +9,19 @@
  *           account.test / account.reset / account.resetAll / login.poll /
  *           credits.status / credits.claimAll / credits.balances /
  *           model.list / model.setDisabled /
+ *           promotion.candidates（★ 全部渠道的未决活动候选，供模型选择器那行的
+ *           悬停；`single` 槽的占位者一次取全，见该 case 的三条判据）/
  *           captcha.demand / captcha.carrierUrl / captcha.contribute（内部载体，
  *           载体页见 src/zcode-carrier-page.ts 与 src/captcha-carrier-server.ts）/
  *           backup.export / backup.import / backup.status /
  *           nativeSearch.getEnabled / nativeSearch.setEnabled /
+ *           loginPreferences.getEnabled / loginPreferences.setEnabled（新建账号
+ *           时是否自动打开浏览器授权页；关闭后改为复制链接）/
  *           sessionBalance.getEnabled / sessionBalance.setEnabled /
  *           panelEntry.get / panelEntry.set /
+ *           resume.getState / resume.setArmed / resume.setEnabled /
+ *           resume.fireNow / resume.forget（限流中断后的「解禁再继续」，
+ *           状态在 `src/rate-limit-resume.ts` 的模块级单例上）/
  * 另有一条 GET 路由 `/api/jet-hub/captcha-carrier`：渲染内部载体的载体页
  * （⚠ 手工诊断用；guest 加载不到它，见该路由注释里的主进程取证）。
  */
@@ -28,6 +35,7 @@ import type { LobsteraiAuth } from './lobsterai-auth.js';
 import type { QoderAuth } from './qoder-auth.js';
 import type { TraeAuth } from './trae-auth.js';
 import type { ClineAuth } from './cline-auth.js';
+import type { PromotionCandidateRow } from './promotion-tooltip.js';
 import type { LoomyAuth } from './loomy-auth.js';
 import type { RaccoonAuth } from './raccoon-auth.js';
 import type { ZcodeAuth } from './zcode-auth.js';
@@ -43,6 +51,7 @@ import type { AutoclawAuth } from './autoclaw-auth.js';
 import type { ModelscopeAuth } from './modelscope-auth.js';
 import type { QiniuAuth } from './qiniu-auth.js';
 import type { MonkeycodeAuth } from './monkeycode-auth.js';
+import type { AgnescodeAuth } from './agnescode-auth.js';
 import { type AstudioAuth } from './astudio-auth.js';
 import { type MagicrewAuth } from './magicrew-auth.js';
 import { type MarvisAuth } from './marvis-auth.js';
@@ -51,27 +60,6 @@ import type { BuddyCredential } from './buddy.js';
 import { type CheckinStatus, type ClaimOutcome, type CreditBalance } from './credits.js';
 import { type BuddyProduct } from './product.js';
 import { collectBuddyGrowth } from './buddy-growth.js';
-/**
- * ⚠️ **`collectBuddyGrowth` 已搬到 `src/buddy-growth.ts`**（2026-10-08 Task 4），
- * 并在此**原样再导出**以保持既有调用点与用例的 import 路径不变。
- *
- * 搬家的理由（不是洁癖）：它是 `credits.afterClaim` 的实现，而 `afterClaim`
- * 由 `src/provider-credits.ts` 的能力表提供。留在本文件会让那张表必须 import
- * 本文件 ⇒ `provider-credits.ts ⇄ jet-hub-rpc.ts` **循环 import**（本文件已经
- * import 前者）。搬到 `buddy-growth.ts` 后依赖是单向的：
- * `jet-hub-rpc.ts` → `provider-credits.ts` → `buddy-growth.ts`。
- *
- * ⚠️ **本再导出是过渡形态**，不是接口：新代码应直接从 `buddy-growth.js` 取。
- * 它由 `tests/unit/buddy-growth.spec.ts` 的 import 覆盖（唯一的生产消费者是
- * `src/provider-credits.ts`，它**直接从 `buddy-growth.js` 取**，不经过本文件）。
- *
- * ⚠️ **2026-10-08 修正（Task 4 复审 Finding 1）**：本 import 原先还捎带了一个
- * 成长引擎的**死 import**（本文件零调用），本条注释一度把它写成「本文件与成长
- * 引擎的接缝」—— 那会让「谁调用成长引擎」这个问题在本文件里得到一个**假答案**。
- * 现已删除该名字，并改正本注释：本文件**不持有**任何成长引擎入口，成长任务的
- * 唯一生产入口是 `provider-credits.ts` 的 `afterClaim`（由 `credits.claimAll`
- * 消费）。别再回到这里找。
- */
 export { collectBuddyGrowth };
 import type { BaizhiAuth } from './baizhi-auth.js';
 import type { ProviderAccountEntry, RpcCreditsStatusResponse, RpcCreditsClaimAllResponse, RpcBuddyGrowthAccountResult, RpcCreditsClaimSummary, RpcCreditsBalanceExtra, RpcCreditsBalancesResponse, CatalogHealth } from './types.js';
@@ -334,7 +322,12 @@ export interface CreditsEndpointDeps<TCredential = BuddyCredential, TProduct = B
      * - **永不抛**：抽奖是不可逆写操作且会因「今日已参与 / 窗口外 / 无资格」失败，
      *   那些都**不是**签到失败（本仓库有两轮「登录成功却因记账失败被报成失败」事故史）。
      *
-     * ⚠️ 只有 trae 注入；其余 provider 不传 ⇒ 行为逐字不变。
+     * ⚠️ 目前有两家注入：`trae`（抽奖）与 `workbuddy` 国际版（活跃上报）。
+     * ⚠️ **第四参 `outcome` 是必需的**（PR #87 审计 P1-1/P1-2）：接线层要是只映射
+     * 前三个参数，实现里两种结局（`inactive` / `failed`）与两种执行
+     * （`claimed` / `already-claimed`）行为会**逐字相同** —— 领取失败照样产生
+     * 用户可见副作用（在人家账号里建会话），而且日志零字，结构上查不出来。
+     * 其余 provider 不传 ⇒ 行为逐字不变。
      */
     afterClaimNote?: (credential: TCredential, product: TProduct, entry: ProviderAccountEntry, outcome: ClaimOutcome) => Promise<string | undefined>;
     /** 查询积分余额；默认使用真实的 fetchCreditBalance。 */
@@ -493,6 +486,53 @@ export declare const MAX_CREDITS_STATUS_CONCURRENCY = 8;
  *    这条在初版注释里没写，是审计点出来的语义空隙。
  */
 export declare function resolveCreditsStatusConcurrency(raw: unknown, accountCount: number): number;
+/**
+ * ★★★ **校验「子代理专属模型 + 思考强度」是否真实可用**（2026-11-24）。
+ *
+ * ## 为什么必须是**导出的纯函数**（上游原话）
+ *
+ * > 「`subagent/model-validation` 的用例是**纯源码文本**，`if (false)` 注入仍 6/6 绿。」
+ *
+ * 我第一版把这段校验写在 `credits.window.set` 的 `case` 体里，用例只能在源码里
+ * 找字符串 —— 而 `if (false && …)` 短路后**字面量仍在**，断言照样绿。
+ *
+ * ⇒ 抽成本函数后，用例可以**直接调用**它并断言返回值。
+ *
+ * ## 校验三条（判据与 `credits.window.models` 下拉框**同源**）
+ *
+ * | 判据 | 来源 |
+ * |---|---|
+ * | 模型存在且**已启用** | `listEnabledModelIds()`（= `llm.listModels` − 黑名单）|
+ * | 思考档位属于该模型 | `listEffortsOf(model)` |
+ *
+ * ## ⚠️ 两条刻意的宽容（**不是漏洞**）
+ *
+ * | 情况 | 行为 | 理由 |
+ * |---|---|---|
+ * | 目录读不到（离线 / 适配器未就绪）| **跳过**存在性校验 | 宁可接受一个可能过期的 id，也不要让离线环境完全无法保存 |
+ * | 模型**没声明档位**（`efforts` 为空）| **跳过**档位校验 | 那种模型配 `reasoningEffort` 本来就不会被用（`select()` 忽略）|
+ *
+ * ⚠️ 注意「跳过」的表示是 **`undefined`**，不是 `[]` ——
+ *    `[]` 会让 `includes()` 恒 false ⇒ **离线时所有保存都被拒**（我第一版就写错过）。
+ *
+ * @returns `undefined` = 通过；字符串 = 拒绝原因（调用方回 `bad-request`）
+ */
+export declare function validateSubagentModelChoice(input: {
+    /** 用户配置的模型 id（调用方已保证是非空字符串）。 */
+    readonly model: string;
+    /** 用户配置的思考档位（可选）。 */
+    readonly reasoningEffort?: string;
+    /**
+     * 该渠道**已启用**的模型 id 列表。
+     * `undefined` = 目录读不到 ⇒ 跳过存在性校验。
+     */
+    readonly listEnabledModelIds: () => Promise<readonly string[] | undefined>;
+    /**
+     * 某模型的合法思考档位 id 列表。
+     * `undefined` = 解析失败 ⇒ 跳过档位校验。
+     */
+    readonly listEffortsOf: (modelId: string) => Promise<readonly string[] | undefined>;
+}): Promise<string | undefined>;
 /**
  * 逐账号收集签到状态（**有限并发**，默认 3；见函数体内 `concurrency` 的说明）。
  *
@@ -738,6 +778,26 @@ export interface JetHubAuths {
      *    恒「未登录」而上游其实只需一次 refresh，且日志零字 —— issue IKKHL5）。
      */
     readonly marvis: MarvisAuth;
+    /**
+     * AgnesCode 国内站（`agnescode`，2026-11-19）—— **本 fork 独有**。
+     *
+     * ⚠️ 凭据是**本机桌面客户端登录态**（`%APPDATA%\AgnesCode`，Chromium
+     *    `os_crypt` + DPAPI），不是可粘贴的 Key ⇒ 本家的 `account.create`
+     *    走「导入本机会话」分支（与 AStudio 同族）。
+     * ⚠️ **没有** refresh 端点 ⇒ 与 monkeycode / qiniu 同格：刻意**不进**
+     *    `SELF_HEAL_REFRESHABLE_PROVIDERS`，而是在 `SELF_HEAL_EXEMPT` 里登记理由。
+     */
+    readonly agnescode: AgnescodeAuth;
+    /**
+     * AgnesCode 国际站（`agnescodeintl`）—— 与国内站是**两套独立账号体系**
+     *（`*.agnes-ai.cn` / `*.agnes-ai.com`），实现完全共用、只差 `product`。
+     *
+     * ⚠️ 与 `agnescode` 是**同一个类的两个实例** ⇒ `probeById` /
+     *    `WRITES_RATE_LIMIT_PROVIDERS` / ref 前缀表 / 积分表 / registry 数组 /
+     *    本接口每处都要两站到位，漏一处静默失效
+     *（minimax / monkeycode 都复发过同一形态）。
+     */
+    readonly agnescodeintl: AgnescodeAuth;
 }
 /**
  * 按 provider id 取 auth 实例。
@@ -807,6 +867,27 @@ export interface ModelCatalogSource {
         name: string;
         isFree?: boolean;
     }[];
+    /**
+     * ★ 本家目录里的**未决**活动候选（方案 A 的悬停出口）。
+     *
+     * ## 为什么必须有它
+     *
+     * 宿主徽标契约只有 `{ text, tone }`（实测 dsh-llm 0.2.2-rc.3：badge 的白名单只
+     * 写出这两格，`hover` / `tooltip` / `title` 在该文件里各 0 次命中），而上游那句
+     * 活动说明与有效期是**另一个字段**。于是 `conversation.input.model.label` 的
+     * 占位者要画悬停，只能自己拿到候选表。
+     *
+     * ⚠️ 交出去的是**未决候选**（`ModelPromotion` 原样），不是挑好的徽标：把徽标
+     * 在装配时刻定死并缓存正是 issue #101 要修的形态。渲染侧每次读自己的时钟。
+     *
+     * ⚠️ **同步、零网络**：读的是已落缓存的目录（与 `listAllModels()` 同一约束,
+     * 面板/选择器渲染路径会调它）。
+     *
+     * ⚠️ **可选成员**：只有目录里真的带活动数组的家实现（buddy 系 + qoder 系）。
+     * 其余家不实现 ⇒ 该 provider 不出现在结果里，客户端因此**回落到宿主自己的
+     * 徽标数据面**（`props.model.badge`），行为与加这条判据之前一致。
+     */
+    promotionCandidates?(): readonly PromotionCandidateRow[];
     /**
      * 「我这份 `listAllModels()` **确认**来自远端完整读取」的适配器自报钩子。
      *

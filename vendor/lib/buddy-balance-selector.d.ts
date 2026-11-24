@@ -39,7 +39,7 @@ import type { BuddyCredential } from './buddy.js';
 import type { BuddyProduct } from './product.js';
 import { type CreditBalance } from './credits.js';
 import { type BuddyAccountBalance, type BuddyBalanceTier, type BuddyCreditSplit, type BuddyTierOptions } from './buddy-balance-rank.js';
-/** 余额缓存 TTL（毫秒），与 Loomy 同值。 */
+import type { CreditWindowSetting, RotationStartTier } from './jet-hub-store.js';
 export declare const BUDDY_BALANCE_CACHE_TTL_MS = 60000;
 /**
  * **失败**结果的缓存 TTL（毫秒）—— 比成功短一个数量级。
@@ -245,6 +245,25 @@ export type BuddySelectionDeps<TProduct = BuddyProduct, TCredential = BuddyCrede
     /** 「临时积分」窗口覆盖（测试用）。 */
     windowMs?: number;
     /**
+     * 「临期」窗口覆盖（测试用）。
+     *
+     * ⚠️ 与 `windowMs` **同款**：每次现算、绝不缓存。
+     * 生效值由 {@link resolveImminentWindowMs} 钳制（恒 ≤ `windowMs`），
+     * 故调用方无需自己保证两个窗口的嵌套关系。
+     */
+    imminentWindowMs?: number;
+    /**
+     * ★ **读取本渠道的分档窗口设置**（2026-11-19 加，per-provider 窗口）。
+     *
+     * 注入 `AccountPool.creditWindow`。返回 `undefined` = 未设置 ⇒ 回落环境变量/默认。
+     *
+     * ⚠️ **每次现读**（`resolveCreditWindow` 每次调用都问一遍）：
+     * 用户在弹窗里保存后必须立刻生效。实现方**不得**缓存返回值。
+     * ⚠️ 未注入时（单测替身 / 旧装配层）视为「无 per-provider 设置」⇒
+     * 行为与改动前**逐字节一致**（这是本功能的唯一回归面）。
+     */
+    readCreditWindow?: (provider: string) => CreditWindowSetting | undefined;
+    /**
      * **带原因**的余额查询（可选，传了就优先用它）。
      *
      * 见 {@link BalanceQueryDetail} 的长注释：`fetchBalance` 的 `null` 把四种
@@ -284,10 +303,67 @@ export declare class BuddyBalanceSelector<TProduct = BuddyProduct, TCredential =
     /**
      * 当前生效的「临时积分」窗口（毫秒）。
      *
-     * ⚠️ **每次调用都重新解析环境变量**，不能缓存：窗口可被用户随时改，
+     * ⚠️ **每次调用都重新解析**，不能缓存：窗口可被用户随时改，
      * 而提示文案与选号判据必须取同一个值 —— 缓存会让两者在不同时刻分裂。
+     *
+     * ⚠️⚠️ **2026-11-19 起改为 per-provider**：取值走 `resolveCreditWindow`
+     * （全仓唯一取值点），优先级 = 本渠道设置 > 环境变量 > 内置默认。
+     * 这样用户在面板弹窗里保存后**立刻**对后续请求生效
+     *（不需要重启 / 重选模型 / 切会话）。
+     *
+     * ⚠️ `deps.windowMs` 仍是**显式覆盖的逃生门**（单测与特殊渠道用）：
+     * 它一旦注入就**完全绕开** per-provider 逻辑 —— 这是刻意的，
+     * 否则单测无法把窗口固定成确定值。
+     * ⚠️ **绝不能**把 per-provider 的值写进 `deps.windowMs`：
+     * 那是构造期字段，写进去就永久固定，保存后不再生效。
      */
     private windowMs;
+    /**
+     * 当前生效的**完整窗口解析结果**（天 + 来源 + 是否钳制）。
+     *
+     * ⚠️ 与 {@link windowMs} / {@link imminentWindowMs} 共用同一份解析，
+     * 避免「毫秒版」与「天数版」两次调用时环境变量被中途改掉而分裂
+     *（`resolveCreditWindow` 内部会读两次 env，但都发生在同一次调用内）。
+     */
+    private resolvedWindow;
+    /**
+     * 当前生效的「临期」窗口（毫秒），**恒 ≤ `windowMs`**。
+     *
+     * ⚠️ 同样**每次调用都重新解析**（理由见 `windowMs()` 上方）：
+     * 一笔「5 天 + 30 秒」的余额，半分钟后就成了临期 ——
+     * 缓存这个值会让选号继续按「短期」处理一笔马上要作废的积分。
+     *
+     * ## ⚠️⚠️ 三层取值（2026-11-20 修真实缺陷）
+     *
+     * ```
+     * deps.imminentWindowMs（单测/特殊渠道的显式覆盖，最高优先）
+     *   > 本渠道设置的 imminentDays（resolveCreditWindow 已算好并钳制）
+     *   > 环境变量 / 内置默认（resolveImminentWindowMs 的回落层）
+     * ```
+     *
+     * ## 缺陷本体（用户 2026-11-20 报障「设了窗口但选号没用上临期」）
+     *
+     * 原实现是：
+     * ```ts
+     * return resolveImminentWindowMs(windowMs, this.deps.imminentWindowMs)
+     * ```
+     * —— **只认 `deps` 覆盖**，而 `resolveImminentWindowMs` 在第二参为
+     * `undefined` 时回落到 `buddyImminentWindowMs()`（**全局环境变量/默认 5 天**）。
+     *
+     * 于是 per-provider 改造时：
+     * - `windowMs()` 取到了本渠道设置 ✅
+     * - `imminentWindowMs()` **完全没读本渠道设置** ❌
+     *
+     * ⇒ 用户设「临期 30 / 短期 60」后，20 天后到期的积分被判成**短期**
+     *   （临期段恒为空 ⇒ `imminentBalance = 0` ⇒ `tier` 永远到不了 0）
+     *   ⇒ 选号**永远不优先烧临期积分**，而面板三档分色却按新窗口显示
+     *   —— 正是本仓红线「一文件两套同义判据」的又一次复发。
+     *
+     * ⚠️ 注意「更宽 vs 更窄」两种方向都会错：
+     * - 设置比默认**宽**（30 > 5）：该算临期的算成短期 ⇒ 不优先烧；
+     * - 设置比默认**窄**（1 < 5）：不该算临期的算成临期 ⇒ 提前烧掉长期积分。
+     */
+    private imminentWindowMs;
     /**
      * 查一个账号的余额分类（**缓存原料、每次现算**）。
      *
@@ -305,6 +381,30 @@ export declare class BuddyBalanceSelector<TProduct = BuddyProduct, TCredential =
      * `BUDDY_BALANCE_ERROR_CACHE_TTL_MS`）：把一次抖动缓存满 60 秒，会让
      * 「查不到」伪装成「额度用尽」整整一分钟。
      */
+    /**
+     * ★★★ **从缓存读某账号当前的档位**（2026-11-24，上游审计 P1-3 的修复）。
+     *
+     * ## 为什么要它
+     *
+     * `credential-resolver.ts` 的 `sameTierAsMainStart()` 需要「主代理起点在哪个档」
+     * 才能把子代理的错开限制在**同一档位内**（用户要求「档次优先不变」）。
+     *
+     * ⚠️ **上游审计实测：全仓零实现** ⇒ 那个函数恒走 `typeof !== 'function'` 的
+     * 降级分支 ⇒ 退化为「全量账号」⇒ 子代理可能**先烧永久积分**（违背档次优先）。
+     *
+     * ## ⚠️ 只读缓存，绝不发起网络请求
+     *
+     * 选号路径**不能**因为查档位而多打一次上游（那会把每一发请求的延迟翻倍）。
+     * 缓存没有 / 已过期 ⇒ 返回 `undefined`，由调用方降级（它已支持）。
+     *
+     * ⚠️ 「过期」的判据与 `balanceOf` 的**长 TTL** 一致（成功 60s / 失败 5s）：
+     * 缓存里的原料本身是好的，只是可能旧了 —— 但「档位」这种粗粒度判断
+     * 60 秒内变化极小，且 `splitBuddyCreditsByExpiry` 会用**当前时刻**重算，
+     * 所以旧原料也能给出正确的「相对档位」。
+     *
+     * @returns 0=临期 / 1=短期 / 2=永久 / 3=不可用；无缓存或读失败 ⇒ `undefined`
+     */
+    cachedTierOf(account: BuddyCandidateAccount, allowPermanent: boolean): number | undefined;
     balanceOf(account: BuddyCandidateAccount): Promise<BuddyAccountBalanceEntry>;
     /**
      * 把原料按**当前时刻**分成两桶并定档。
@@ -353,6 +453,20 @@ export declare class BuddyBalanceSelector<TProduct = BuddyProduct, TCredential =
  */
 export interface BuddySelectorLike {
     select(candidates: readonly BuddyCandidateAccount[], options?: BuddyTierOptions): Promise<BuddySelectionResult>;
+    /**
+     * ★★★ **从缓存读某账号当前档位**（2026-11-24，可选能力）。
+     *
+     * 供 `credential-resolver` 的 `sameTierAsMainStart()` 用 —— 它要把子代理的
+     * 错开**限制在主代理起点所在的同一档位内**（用户要求「档次优先不变」）。
+     *
+     * ⚠️ **可选**：单测替身不实现 ⇒ `sameTierAsMainStart` 退化为「全量账号」
+     *（它已支持该降级）。**真实 `BuddyBalanceSelector` 必实现**。
+     *
+     * ⚠️ **只读缓存**，绝不发起网络请求（选号路径不能多打一次上游）。
+     *
+     * @returns 0=临期 / 1=短期 / 2=永久 / 3=不可用；无缓存 ⇒ `undefined`
+     */
+    cachedTierOf?(account: BuddyCandidateAccount, allowPermanent: boolean): number | undefined;
 }
 /**
  * 选号 + 取凭据的完整编排（供 `src/index.ts` 的 buddy 系 provider 调用）。
@@ -402,6 +516,70 @@ export declare function pickBuddyAccount<TCredential = BuddyCredential>(selector
      * 共用一条通道 —— 将来谁给 `tierOptions` 换形状都会连带改掉选号策略。
      */
     strictManualOrder?: boolean;
+    /**
+     * 「轮换起点」：本会话指定的起始账号 id（`undefined` = 默认起点）。
+     *
+     * 与 {@link BuddyTierOptions.rotationStartId} 同义 —— 本字段只是把它从
+     * resolver 透传到 `selector.select()` 的**通道**，判据仍只有一处
+     * （`rotateFromPreferred`）。
+     */
+    rotationStartId?: string;
+    /**
+     * 「轮换起点的定位基准」：**全量启用账号**的 id 列表（池序、不过滤封禁/限流）。
+     *
+     * 与 {@link BuddyTierOptions.enabledAccountIds} 同义 —— 本字段只是把它从
+     * resolver 透传到 `selector.select()` 的**通道**，判据仍只有一处
+     * （`rotateFromPreferred`）。
+     *
+     * ⚠️ 存在的理由（PR #59 正向审计 P1-a）：起点账号被封禁 / 被目标模型限流时
+     * 它**不在候选集里**，只按 `ranked.findIndex(id)` 会静默回落默认第一个号。
+     */
+    enabledAccountIds?: readonly string[];
+    /**
+     * ★★★ **起点选定那一刻的档位快照**（S6，2026-11-20 加；2026-11-23 补透传）。
+     *
+     * 与 {@link BuddyTierOptions.rotationStartTier} 同义 —— 本字段只是把它从
+     * resolver / 接线层透传到 `selector.select()` 的**通道**，
+     * 判据仍在 `rotateFromPreferred` 一处。
+     *
+     * ## ⚠️⚠️ 这个字段曾经**整条链路断在这里**（真实缺陷）
+     *
+     * `credential-resolver.ts` 一直在传它、`rotateFromPreferred` 一直在读它，
+     * **唯独中间的 `pickBuddyAccount` 没声明也没透传** ⇒
+     * `rotateFromPreferred` 永远拿到 `undefined` ⇒
+     * `tierStillHeld` 恒 `false` ⇒ 永远走「起点已降档 ⇒ 交出首位」分支
+     * ⇒ **「起点烧完临期后自动换人」这个机制从未生效**。
+     *
+     * ⚠️ **`tsc` 为什么没拦住**：调用方用的是展开语法
+     * `...(cond ? {} : { rotationStartTier })`，而 TS 的 excess-property 检查
+     * 只作用于**直接的对象字面量**，展开的对象不受检 ⇒「传了类型上没有的字段」
+     * 不报错、「中间层没声明」也不报错，整条链路无声断掉。
+     *
+     * ⚠️ **既有测试为什么没拦住**：`rotation-s6.spec.ts` 是**直接调用**
+     * `rotateFromPreferred`（自造 options）⇒ 证明了「收到 tier 时行为正确」，
+     * 但证明不了「这一层真的把它送过去了」。
+     * 跨层守卫在 `tests/unit/rotation-start-tier-passthrough.spec.ts`。
+     */
+    rotationStartTier?: RotationStartTier;
+    /**
+     * ★★★ **起点绝对第一（无视档位变化）**（2026-11-24）。
+     *
+     * 与 `BuddyTierOptions.pinnedFirst` 同义 —— 本字段只是把它从 resolver
+     * 透传到 `selector.select()` 的**通道**，判据仍在 `rotateFromPreferred` 一处。
+     *
+     * ## ⚠️⚠️ **这个字段曾经整条链路断在这里**（真实缺陷，上游审计实测）
+     *
+     * `credential-resolver.ts` 一直在传、`rotateFromPreferred` 一直在读，
+     * **唯独中间的 `pickBuddyAccount` 没声明也没透传** ⇒
+     * `rotateFromPreferred` 永远拿到 `undefined` ⇒ `pinnedHeld` 恒 `false`
+     * ⇒ 子代理的「固定帐号 / 拉起时定死」**完全不生效**，
+     * 且**零报错**（展开语法 `...(cond ? { pinnedFirst } : {})` 绕过了
+     * TS 的 excess-property 检查）。
+     *
+     * ⚠️ 与 #148 的 `rotationStartTier` 被静默丢弃是**同型缺陷**（同一个函数、
+     * 同一种失败方式）—— 那次也是靠端到端用例才发现的。
+     */
+    pinnedFirst?: boolean;
 }): Promise<{
     kind: 'account';
     account: BuddyCandidateAccount;

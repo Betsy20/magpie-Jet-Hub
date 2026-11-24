@@ -4,15 +4,23 @@
  * ## 本文件只干三件事（协议判据一律来自 `astudio.ts`，不在此重复）
  *
  * 1. **发请求**：`POST {maasBaseUrl}{chatPath}`
- *    （实测 = `https://maas-api.cn-huabei-1.xf-yun.com/v1/chat/completions`）。
- *    请求体**一律**交给 {@link buildAstudioChatRequest}，本文件绝不自己拼 body ——
- *    那函数已把三条实测取舍固化在纯函数层（裸 slug、空值省键、`stream_options.include_usage`），
- *    在这里再拼一遍就是第二处实现，必然漂移。
- * 2. **解析流**：复用仓库共享件 {@link consumeOpenAiSse}（`reasoning_content` 独立成块、
- *    `tool_calls` 按 index 合并、`finish_reason` 映射、**HTTP 200 + SSE 内嵌错误帧**归为
- *    `LlmError`）。本家实测是**标准 OpenAI 增量**，故不需要「累积全文→增量 diff」；
- *    但仍套一层 {@link astudioWrapIncremental} 作**防御**（幂等透传，上游哪天改形态不至于把
- *    正文拼成三份）。
+ *    （实测 = `https://astronstudio-api-volces-prod.xf-yun.com/model-gateway/v1/responses`
+ *    —— **Responses 协议**，⚠️ **不是** Chat Completions；同一基址的
+ *    `/chat/completions` 恒 404，详见 `astudio-product.ts` 的基址注释）。
+ *    请求体**一律**交给 {@link buildAstudioResponsesRequest}，本文件绝不自己拼 body ——
+ *    那函数已把实测取舍固化在纯函数层（裸 slug、`instructions`、扁平 tools、
+ *    `max_output_tokens`、`reasoning.effort`、空值省键）。
+ * 2. **解析流**：先把上游 Responses 事件翻译成 chat 帧
+ *    （{@link astudioResponsesToChatSse}），再交给仓库共享件 {@link consumeOpenAiSse}
+ *    （`reasoning_content` 独立成块、`tool_calls` 按 index 合并、`finish_reason` 映射、
+ *    **HTTP 200 + SSE 内嵌错误帧**归为 `LlmError`）。⚠️ 翻译层只做**形状**，语义守卫
+ *    只有一份；为新协议另写一个消费器会让两套判据分叉。
+ *    ⚠️⚠️ **绝不套** {@link astudioWrapIncremental}：它的语义是「同一 Id 累积全文 ⇒
+ *    只发差量」，而翻译器产出的是**真增量**（协议里每个 delta 就是本帧新增文本）。
+ *    套上去会把「本帧恰好是已发全文的前缀」当成重复**静默丢弃** —— 实测
+ *    `["a","a","a","b"] ⇒ "ab"`、`["The","The"," weather"] ⇒ "The weather"`
+ *    （重复词/重复代码行在模型输出里很常见）。旧 chat 通路同样套过它，但那条
+ *    通路因 404 从未跑过流量，所以缺陷一直没暴露。
  * 3. **凭据**：全部经 `astudio-auth.ts` 注入（磁盘快路径 + 401 触发的权威重取）。
  *    本文件**不读磁盘、不拼 Cookie、不自己发凭据请求**。
  *
@@ -44,7 +52,7 @@ import { broadcastCatalogChanged } from './catalog-broadcast.js';
 import { registerAdapterIdempotent } from './llm-register-compat.js';
 import { consumeOpenAiSse, isTransportError, serializeMessages, } from './openai-compat.js';
 import { ASTUDIO } from './astudio-product.js';
-import { astudioBareSlugOf, astudioCatalogToFallback, astudioChatHeaders, astudioAuthRetryPlan, astudioEffortForRequest, astudioReasoningOf, astudioStreamErrorCode, astudioStreamErrorMessage, astudioVisibleModels, astudioWrapIncremental, buildAstudioChatRequest, classifyAstudioError, } from './astudio.js';
+import { astudioBareSlugOf, astudioCatalogToFallback, astudioChatHeaders, astudioAuthRetryPlan, astudioEffortForRequest, astudioReasoningOf, astudioResponsesToChatSse, astudioStreamErrorCode, astudioStreamErrorMessage, astudioVisibleModels, buildAstudioResponsesRequest, classifyAstudioError, } from './astudio.js';
 import { AstudioRefreshTokenExpiredError, isAstudioTerminalRefreshError, } from './astudio-auth.js';
 /** 本适配器拥有的 provider 路由名（= `ASTUDIO.id`，纯小写无连字符）。 */
 export const PROVIDER = 'astudio';
@@ -74,7 +82,7 @@ function chunkTimeoutMsFor(product) {
     const raw = Number(process.env.DSH_ASTUDIO_CHUNK_TIMEOUT_MS);
     return Number.isFinite(raw) && raw > 0 ? raw : product.chunkTimeoutMs;
 }
-/** AStudio 适配器：Chat Completions 通道（实测上游原生兼容 OpenAI）。 */
+/** AStudio 适配器：**Responses** 协议通道（2026-11-16 真机实测；同基址的 `/chat/completions` 恒 404）。 */
 export class AstudioAdapter extends LlmAdapter {
     options;
     product;
@@ -264,6 +272,16 @@ export class AstudioAdapter extends LlmAdapter {
                 // ⚠️ **只在成功时**记时刻（失败不写）：否则一次网络抖动会把 TTL 上界
                 //    刷新掉，下轮还要等满 20 分钟才发现上游其实没恢复。
                 this.catalogAt = this.nowImpl();
+                /**
+                 * ★ **落盘（SWR 写盘那一半）** —— 2026-11-21。
+                 *
+                 * ⚠️ 本家**只有一个目录来源**，且上面已经排除 `visible.length === 0`
+                 * ⇒「走到这里」即拿到非空目录 ⇒ `complete = got`
+                 *（与 `RemoteCatalogGate` 对裸布尔的归一化口径一致）。
+                 *
+                 * ⚠️ 用 `syncCatalogEntries()`：它读刚赋好的 `this.remoteModels`。
+                 */
+                this.catalog.rememberForDisk?.(this.syncCatalogEntries());
                 this.options.onCatalogLoaded?.();
                 return converted;
             }
@@ -329,12 +347,19 @@ export class AstudioAdapter extends LlmAdapter {
     }
     // ── 推理 ──
     /**
-     * 一次推理（**只发 `stream:true`**：harness 要的是 `StreamChunk`，而本家流式是标准
-     * OpenAI 增量 + `[DONE]`，末 chunk 带 usage —— 实测 `stream_options.include_usage`
-     * 不带时流里没有 usage 帧，计费与统计双缺，故该键由 `buildAstudioChatRequest` 恒补）。
+     * 一次推理（**只发 `stream:true`**：harness 要的是 `StreamChunk`）。
+     *
+     * 本家是 **Responses** 协议（`POST {base}/responses`），不是 Chat Completions：
+     * 上游吐的是 `response.output_text.delta` 这类事件，由 {@link astudioResponsesToChatSse}
+     * 翻译成 chat 帧后再交给共享消费器。
+     *
+     * ⚠️ 这里**没有** `stream_options.include_usage`（Responses 协议没这个字段）：
+     * usage 由翻译器从 `response.completed` / `response.incomplete` 的
+     * `response.usage` 转成 chat 口径的 `usage` 帧（`input_tokens_details.cached_tokens`
+     * 要从 `prompt_tokens` 里扣出来单列），见 `astudio-responses.spec.ts`。
      */
     async *stream(options) {
-        const credential = await this.resolveCredentialImpl();
+        const credential = await this.resolveCredentialImpl(options.model, options.sessionId);
         if (credential === undefined || credential.access_token.length === 0) {
             throw new LlmError('astudio: 没有可用凭据；请在 AStudio 客户端登录后重试（本 provider 读磁盘 userdata\\astron-session.json）', 'MISSING_CREDENTIAL');
         }
@@ -364,18 +389,18 @@ export class AstudioAdapter extends LlmAdapter {
             // 用户付了 `max` 的钱却在 UI 上看到「未思考」，事后无从归因。
             this.warnImpl(`[astudio] 丢弃思考档位 ${decision.dropped}：${decision.reason ?? ''}`);
         }
-        const body = buildAstudioChatRequest({
+        const body = buildAstudioResponsesRequest({
             model: options.model,
             messages,
             ...options.system !== undefined ? { system: options.system } : {},
+            // ⚠️ Responses 的 tools 是**扁平**形态（`{type:'function',name,…}`）；
+            //    chat 的 `{type:'function',function:{…}}` 嵌套在这里会被上游当未知条目。
             ...options.tools !== undefined && options.tools.length > 0
                 ? { tools: options.tools.map((tool) => ({
                         type: 'function',
-                        function: {
-                            name: tool.name,
-                            ...tool.description.length > 0 ? { description: tool.description } : {},
-                            ...tool.parameters === undefined ? {} : { parameters: tool.parameters },
-                        },
+                        name: tool.name,
+                        ...tool.description.length > 0 ? { description: tool.description } : {},
+                        ...tool.parameters === undefined ? {} : { parameters: tool.parameters },
                     })) }
                 : {},
             ...options.temperature !== undefined ? { temperature: options.temperature } : {},
@@ -440,7 +465,11 @@ export class AstudioAdapter extends LlmAdapter {
         // `consumeOpenAiSse` 负责**（它把这种帧归成 `LlmError` 抛出）；这里的 `onFrame`
         // 只是**旁路观测**（回调抛错会被吞，绝不能把一次正常推理打死），用于把本家
         // 信封码记进告警，便于归因。
-        yield* consumeOpenAiSse(astudioWrapIncremental(response), { ...options.signal !== undefined ? { signal: options.signal } : {} }, {
+        // ⚠️ 本家是 **Responses** 协议：先把上游事件流翻译成 chat 帧
+        // （{@link astudioResponsesToChatSse}），再交给共享消费器 —— 语义守卫只有一份。
+        yield* consumeOpenAiSse(
+        // 翻译器已保证真增量 ⇒ 不能再套累积差量包装器（见文件头第 2 条）。
+        astudioResponsesToChatSse(response), { ...options.signal !== undefined ? { signal: options.signal } : {} }, {
             label: 'astudio',
             firstTokenTimeoutMs: firstTokenTimeoutMs(this.product),
             chunkTimeoutMs: chunkTimeoutMsFor(this.product),

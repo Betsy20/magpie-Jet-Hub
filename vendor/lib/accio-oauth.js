@@ -33,6 +33,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { ACCIO, ACCIO_REQUEST_TIMEOUT_MS, ACCIO_TOKEN_EXCHANGE_PATH, ACCIO_REFRESH_PATH, } from './accio-product.js';
 import { accioExpiresAtMs } from './accio.js';
+import { autoOpenBrowserEnabled } from './login-preferences.js';
 /**
  * 生成 PKCE 对。
  *
@@ -79,6 +80,12 @@ export function buildAccioAuthUrl(options) {
  * 打开失败不影响流程：调用方会把 URL 显示给用户手动打开。
  */
 export function openBrowser(url) {
+    // ★ 与 `login.ts` 的 `openBrowser` 同一条闸门（2026-11-23，默认开）：
+    //   关闭「新建账号时自动打开浏览器授权页」后不 spawn，只把地址写进日志。
+    if (!autoOpenBrowserEnabled()) {
+        console.info('[jet-hub] 已关闭「自动打开浏览器」，请手动打开 Accio 登录地址:', url);
+        return;
+    }
     try {
         if (process.platform === 'win32') {
             execFile('rundll32.exe', ['url.dll,FileProtocolHandler', url], () => { });

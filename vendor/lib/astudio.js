@@ -7,8 +7,13 @@
  * 1. **信封**：控制面（模型目录、`bot/models/configs`）是 `{code, message, data}`，
  *    ⚠️ **HTTP 200 但 `code !== 0` 也是失败**（本仓库反复踩过的「成功但没内容」格）；
  *    推理面是 OpenAI 裸体，错误形态是 `{"error":{code,message,type}}`。
- * 2. **鉴权头**：`Authorization: Bearer <modelBearerToken>`，可选
- *    `X-Account-Id` / `clientType` / `studioVersion`（实测三者**都不带也能 200**）。
+ * 2. **鉴权头**：推理面 `Authorization: Bearer <modelBearerToken>`、控制面 `Cookie`；
+ *    `X-Account-Id` / `clientType` / `studioVersion` 三者对**推理**是可选的
+ *    （实测都不带也 200），但 ⚠️⚠️ **对签到面不是**：`GET …/client-popups/pending`
+ *    不带 `clientType`+`studioVersion` 会回 `code 11001001`
+ *    `客户端平台、版本或构建号无效`（2026-11-16 实测）；`points/balance` 则对版本
+ *    完全不敏感（3.5.2 / 3.6.4 / 不带三档响应逐字节相同）。⇒ **版本头只能从签到面
+ *    删，不能从推理面「统一」掉**。
  *    ⚠️ **没有** bkn / DJB2 之类的现算签名（`astudioCookieHeader` 是纯字符串拼接）。
  * 3. **凭据失效的唯一触发点是上游 HTTP 401**：磁盘上**没有任何 TTL / expiresAt**，
  *    所以本地**无法**预判到期 —— 见 {@link astudioCredentialExpiresAtMs}。
@@ -18,6 +23,7 @@
  *    按最大档跑 ⇒ 档位必须**只声明远端下发的集合**（{@link astudioReasoningOf}）。
  */
 import { createHash } from 'node:crypto';
+import { readCacheTokenCount } from './cache-token-count.js';
 import { maskLobsteraiPhoneTail } from './lobsterai.js';
 import { ASTUDIO_SESSION_DEAD_CODES, } from './astudio-product.js';
 // ── 凭据读取与变更检测 ──
@@ -325,6 +331,15 @@ const ASTUDIO_WIRE_CODES = new Map([
     ['model_not_found', 'model-not-found'],
     ['invalid_api_key', 'auth'],
     ['apikey_not_found', 'auth'],
+    // ⚠️ **账号级授权缺失，不是凭据失效**（2026-11-17 真机）：
+    // `no_valid_authorization` 的原文是 "the account lacks an active order, has insufficient
+    // quota, or the order is invalid" —— 凭据本身完全有效，是**订单**没了。
+    // 不登记它们会被下面的 `status === 401 || status === 403` 兜成 `auth`，后果是两条：
+    // ① 客户端把 message 换成「API 密钥无效」（唯一能指路的原文消失，用户会去反复重登）；
+    // ② 流式同一条件走 `openai-compat` 的 `data.error` 分支归 `SERVER` ⇒ 白重试 5 次。
+    // 同一份报文两条裁决这件事本身就是缺陷 —— 两家都归 `permission-denied`。
+    ['no_valid_authorization', 'permission-denied'],
+    ['permission_error', 'permission-denied'],
     ['insufficient_quota', 'quota'],
     ['quota_exceeded', 'quota'],
     ['rate_limit_exceeded', 'rate-limit'],
@@ -419,6 +434,12 @@ function describeAstudioError(kind, status, detail) {
             return { kind, llmCode: 'PERMISSION_DENIED', message: `astudio: 上游没有该模型的推理路由。常见原因是把 acode 内核的内部别名（builtin/<base64>）当成 model 发了上来 —— 上游只认裸 slug${suffix}` };
         case 'quota':
             return { kind, llmCode: 'QUOTA_EXCEEDED', message: `astudio: 账号额度不足${suffix}` };
+        case 'permission-denied':
+            // `403 no_valid_authorization` = **账号级**订单/额度问题，凭据是有效的。
+            // 归 `PERMISSION_DENIED` 的三个理由与 `model-not-found` 同款：
+            // ① 客户端不替换它（保住「订单缺失」这句原文）② `dead-model-store` 的
+            // IGNORED_CODES 收它 ③ 不在 DEFAULT_RETRYABLE_CODES ⇒ 不白退避。
+            return { kind, llmCode: 'PERMISSION_DENIED', message: `astudio: 账号无权使用该模型（订单缺失 / 额度不足 / 订单失效，需在 AStudio 侧开通后再试）${suffix}` };
         case 'rate-limit':
             return { kind, llmCode: 'RATE_LIMITED', message: `astudio: 上游限流${suffix}` };
         case 'context-window':
@@ -915,51 +936,423 @@ export function astudioEffortForRequest(requested, declared) {
     };
 }
 /**
- * 构造 `POST {maasBaseUrl}/chat/completions` 的请求体。
+ * 把 chat 形状的消息序列转成 Responses 的 `input[]` 条目。
  *
- * 三条实测驱动的取舍：
- * 1. **`model` 用裸 slug**：`builtin/<base64>` 形态会 502 `model_not_found`（fact 380），
- *    这里再兜一次 {@link astudioBareSlugOf} —— 目录将来若下发别名形态也不会翻车。
- * 2. **不发就省键**（`temperature` / `max_tokens` / `stop` / `reasoning_effort`）：
- *    写 `null` 会被火山网关当成显式空值（部分字段直接 400），省略才是「用服务端默认」。
- * 3. `stream` **恒带**，且流式时带 `stream_options.include_usage`（实测末 chunk
- *    只有这样才能拿到 usage；不带时流里没有 usage 帧，计费与统计双缺）。
+ * 覆盖四种（实测全部 200，见 `astudio-responses.spec.ts` 的对照）：
+ * - `user` → `{role:'user', content:[{type:'input_text'}…]}`
+ * - `assistant` 正文 → `{role:'assistant', content:[{type:'output_text'}]}`；
+ *   其 `tool_calls` → 紧随其后的 `{type:'function_call', call_id, name, arguments}`
+ * - `tool` 结果 → `{type:'function_call_output', call_id, output}`
+ * - `system` → 由调用方收进 `instructions`（**不**进 `input`）
  *
- * ⚠️ `system` 折成第一条 `role:'system'` 消息而不是顶层字段：OpenAI Chat
- * Completions 没有顶层 `system`，而本仓库的 `serializeMessages` 已经会把 harness
- * 消息里的 system 排好序，这里只补适配器**额外**拿到的 one-shot system。
+ * ⚠️ 历史里的 `reasoning_content` **不回传**：Responses 的 `input` 没有这一格，
+ * 硬塞会被上游当未知字段忽略/拒绝（实测只接受规定的条目类型）。
  */
-export function buildAstudioChatRequest(input) {
-    const messages = [];
-    if (typeof input.system === 'string' && input.system.length > 0) {
-        messages.push({ role: 'system', content: input.system });
-    }
-    for (const message of input.messages) {
+export function astudioResponsesInputItems(messages) {
+    const items = [];
+    const instructions = [];
+    /**
+     * 已产出的 `function_call` 的 `call_id` 集合 —— `function_call_output` **只在这些 id
+     * 上产出**。
+     *
+     * ⚠️ 这是本仓 Issue IKLRIK 逐字记过的形态：剔掉调用（空名字）却照发配对的工具结果，
+     * 会留下**无对应 `function_call` 的孤儿 `function_call_output`**。真机实测孤儿**不会
+     * 400**（2026-11-17：孤儿 id 与空 `call_id` 都回 200）⇒ 后果不是报错，而是**历史与
+     * 调用链静默不一致**（重放时模型看到一个从未发生过的工具结果）—— 比 400 更难查。
+     * 网关侧（`src/openai-compat.ts`）的 `resolveToolPairing` 对同一份数据是「剔除并继续」，
+     * 这里必须同口径。
+     */
+    const keepCallIds = new Set();
+    for (const message of messages) {
         if (typeof message !== 'object' || message === null)
             continue;
-        messages.push(message);
+        const role = typeof message.role === 'string' ? message.role : '';
+        if (role === 'system') {
+            const text = astudioResponsesText(message.content);
+            // 纯空白（`'   '`）不算系统提示词：真机实测它会原样下发成 `instructions: "   "`。
+            if (text.trim().length > 0)
+                instructions.push(text);
+            continue;
+        }
+        if (role === 'assistant') {
+            const text = astudioResponsesText(message.content);
+            if (text.length > 0) {
+                items.push({ role: 'assistant', content: [{ type: 'output_text', text }] });
+            }
+            const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+            for (const call of calls) {
+                if (typeof call !== 'object' || call === null)
+                    continue;
+                const record = call;
+                const fn = typeof record.function === 'object' && record.function !== null
+                    ? record.function
+                    : undefined;
+                const name = typeof fn?.name === 'string' ? fn.name : '';
+                if (name.length === 0)
+                    continue; // 空名字调用必须剔除（下游会执行成 unknown tool ""）
+                const callId = typeof record.id === 'string' ? record.id : '';
+                keepCallIds.add(callId);
+                items.push({
+                    type: 'function_call',
+                    call_id: callId,
+                    name,
+                    arguments: typeof fn?.arguments === 'string' ? fn.arguments : '',
+                });
+            }
+            continue;
+        }
+        if (role === 'tool') {
+            const callId = typeof message.tool_call_id === 'string' ? message.tool_call_id : '';
+            // 配对剔除：调用被剔掉（或 id 缺失）时**不留孤儿**，与网关侧 `resolveToolPairing` 同口径。
+            if (!keepCallIds.has(callId))
+                continue;
+            items.push({
+                type: 'function_call_output',
+                call_id: callId,
+                output: astudioResponsesText(message.content),
+            });
+            continue;
+        }
+        // 其余（user 及未知角色）按 user 处理：harness 只会有 user。
+        const parts = astudioResponsesUserParts(message.content);
+        if (parts.length > 0)
+            items.push({ role: 'user', content: parts });
     }
+    return { items, instructions };
+}
+/** 从 chat `content`（字符串或部件数组）取纯文本。 */
+function astudioResponsesText(content) {
+    if (typeof content === 'string')
+        return content;
+    if (!Array.isArray(content))
+        return '';
+    return content
+        .filter((part) => typeof part === 'object' && part !== null)
+        .filter((part) => part.type === 'text')
+        .map((part) => (typeof part.text === 'string' ? part.text : ''))
+        .join('');
+}
+/**
+ * user 消息的部件 → Responses 部件。
+ *
+ * ⚠️ 图片按 `input_image` 映射（Responses 的形态），但**未真机验证**：本家目录
+ * 7 个模型的 `input_modalities` 全是 `['text']`，harness 对声明 text-only 的模型
+ * 本来就会把图替换成占位文字，这条路径实际到不了上游。**不要据此声称支持识图。**
+ */
+function astudioResponsesUserParts(content) {
+    if (typeof content === 'string') {
+        return content.length > 0 ? [{ type: 'input_text', text: content }] : [];
+    }
+    if (!Array.isArray(content))
+        return [];
+    const parts = [];
+    for (const part of content) {
+        if (typeof part !== 'object' || part === null)
+            continue;
+        const record = part;
+        if (record.type === 'text' && typeof record.text === 'string' && record.text.length > 0) {
+            parts.push({ type: 'input_text', text: record.text });
+            continue;
+        }
+        if (record.type === 'image_url') {
+            const image = record.image_url;
+            const url = typeof image === 'string'
+                ? image
+                : (typeof image === 'object' && image !== null && typeof image.url === 'string'
+                    ? String(image.url)
+                    : '');
+            if (url.length > 0)
+                parts.push({ type: 'input_image', image_url: url });
+        }
+    }
+    return parts;
+}
+/**
+ * 构造 `POST {base}/responses` 的请求体。
+ *
+ * ⚠️ 三条与 chat 版**刻意不同**的取舍：
+ * 1. **`model` 再兜一次裸 slug**：`builtin/<base64>` 实测 404 `model_not_found`；
+ * 2. **不发就省键**（`temperature` / `max_output_tokens` / `stop` / `reasoning`）：
+ *    上游对 `null` 的容忍度未验证，省略才是「用默认」；
+ * 3. ⚠️⚠️ **`none` 必须显式发出去，不能改写成「省略该键」**（2026-11-16 实测）：
+ *    对 `spark-x2.6`，**省略 `reasoning` ⇒ 思考照开**（`reasoning_tokens=49`），
+ *    而 `{effort:'none'}` ⇒ `reasoning_tokens=0`、只出一个 `message` 条目。
+ *    ⇒ 「省略」与「关闭」**不等价**：把 `none` 省掉，等于用户选了「关闭思考」
+ *    却照付思考的 token（本仓库明令禁止的静默失效）。
+ */
+export function buildAstudioResponsesRequest(input) {
+    const source = [];
+    if (typeof input.system === 'string' && input.system.length > 0) {
+        source.push({ role: 'system', content: input.system });
+    }
+    for (const message of input.messages)
+        source.push(message);
+    const { items, instructions } = astudioResponsesInputItems(source);
     const body = {
         model: astudioBareSlugOf(input.model),
-        messages,
+        input: items,
         stream: input.stream,
     };
-    if (input.stream === true)
-        body.stream_options = { include_usage: true };
     if (typeof input.user === 'string' && input.user.length > 0)
         body.user = input.user;
+    if (instructions.length > 0)
+        body.instructions = instructions.join('\n\n');
     if (input.tools !== undefined && input.tools.length > 0)
         body.tools = input.tools;
     if (input.temperature !== undefined)
         body.temperature = input.temperature;
-    if (input.maxTokens !== undefined)
-        body.max_tokens = input.maxTokens;
+    // ⚠️ 只有**正数**才下发：`max_output_tokens: 0` 实测 ⇒ 上游 200 + `response.failed`
+    // /`invalid_prompt` ⇒ 下游归 `SERVER` ⇒ 白重试 5 次（确定性失败）。
+    if (input.maxTokens !== undefined && input.maxTokens > 0)
+        body.max_output_tokens = input.maxTokens;
     if (input.stop !== undefined && input.stop.length > 0)
         body.stop = input.stop;
     if (typeof input.reasoningEffort === 'string' && input.reasoningEffort.length > 0) {
-        body.reasoning_effort = input.reasoningEffort;
+        body.reasoning = { effort: input.reasoningEffort };
     }
     return body;
+}
+/**
+ * 把 Responses 的 SSE **翻译**成 Chat Completions 的 SSE，复用既有消费器。
+ *
+ * ## 为什么是「翻译」而不是另写一个消费器
+ *
+ * `consumeOpenAiSse` 里已累积了 1000 行实测驱动的守卫（思考/正文死循环检测、
+ * 空白思考抑制、空名字工具调用剔除、usage 口径、finish 归类）。为新协议再写
+ * 一份等价实现 ⇒ 两套判据必然分叉（本仓库明令禁止的失效形态）。
+ * 故这里只做**形状翻译**，语义全部留给那一个消费器。
+ *
+ * ## 逐条映射（左 = 实测上游事件，右 = 产出的 chat 帧）
+ *
+ * - `reasoning_summary_text.delta` → `delta.reasoning_content`
+ * - `output_text.delta` → `delta.content`
+ * - `output_item.added`(`type:'function_call'`) → `delta.tool_calls[{index,id,name,arguments:''}]`
+ * - `function_call_arguments.delta` → `delta.tool_calls[{index, function:{arguments}}]`
+ * - `completed` / `incomplete` → 末帧（带 usage）+ `finish_reason` + `[DONE]`
+ * - `error` 事件 / `type:'error'` 数据 → `data: {"error":{…}}`（由消费器归类）
+ *
+ * ⚠️ `finish_reason` 取值：有工具调用 ⇒ `tool_calls`；`status==='incomplete'`
+ * （实测 = 撞输出上限，`reasoning_tokens` 也吃预算）⇒ `length`；其余 `stop`。
+ */
+export function astudioResponsesToChatSse(response) {
+    if (response.body === null || response.body === undefined)
+        return response;
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+    /** `output_index` → 工具槽位（0..n）。⚠️ delta 事件的 `item_id` 是空串，只能用 output_index。 */
+    const toolSlots = new Map();
+    /** 已为该槽位发过多少参数字节，用于 `.done` 只补差量。 */
+    const argsSent = new Map();
+    let toolCount = 0;
+    let sawToolCall = false;
+    let finished = false;
+    /** 未知 `output_index` 的告警只打一次（否则每个 delta 刷一行）。 */
+    let warnedUnknownSlot = false;
+    let usage;
+    let buffer = '';
+    let currentEvent = '';
+    const frame = (payload) => `data: ${JSON.stringify(payload)}\n\n`;
+    const chunk = (delta, finishReason = null) => ({
+        object: 'chat.completion.chunk',
+        choices: [{ index: 0, delta, finish_reason: finishReason }],
+    });
+    const handleEvent = (event, data, controller) => {
+        if (finished)
+            return;
+        if (data.trim().length === 0)
+            return;
+        let parsed;
+        try {
+            parsed = JSON.parse(data);
+        }
+        catch {
+            return;
+        }
+        const type = typeof parsed.type === 'string' ? parsed.type : event;
+        if (type === 'error' || event === 'error' || type === 'response.failed') {
+            finished = true;
+            const raw = (typeof parsed.error === 'object' && parsed.error !== null
+                ? parsed.error
+                : parsed.response?.error) ?? parsed;
+            controller.enqueue(encoder.encode(frame({ error: raw })));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            return;
+        }
+        if (type === 'response.reasoning_summary_text.delta') {
+            const delta = typeof parsed.delta === 'string' ? parsed.delta : '';
+            if (delta.length > 0)
+                controller.enqueue(encoder.encode(frame(chunk({ reasoning_content: delta }))));
+            return;
+        }
+        if (type === 'response.output_text.delta') {
+            const delta = typeof parsed.delta === 'string' ? parsed.delta : '';
+            if (delta.length > 0)
+                controller.enqueue(encoder.encode(frame(chunk({ content: delta }))));
+            return;
+        }
+        if (type === 'response.output_item.added') {
+            const item = typeof parsed.item === 'object' && parsed.item !== null
+                ? parsed.item
+                : undefined;
+            if (item?.type === 'function_call') {
+                const outputIndex = typeof parsed.output_index === 'number' ? parsed.output_index : undefined;
+                const slot = toolCount++;
+                // 只在 `output_index` 真的给到时登记映射 —— 缺失就不登记，让后续 delta
+                // 走「未知槽位 ⇒ 丢弃」那条路，而不是统统并到 0 号槽。
+                if (outputIndex !== undefined)
+                    toolSlots.set(outputIndex, slot);
+                argsSent.set(slot, 0);
+                sawToolCall = true;
+                controller.enqueue(encoder.encode(frame(chunk({
+                    tool_calls: [{
+                            index: slot,
+                            // `call_id` 才是可回传的 id（`item.id` 也一致，但语义上以 call_id 为准）。
+                            id: typeof item.call_id === 'string' && item.call_id.length > 0
+                                ? item.call_id
+                                : (typeof item.id === 'string' ? item.id : ''),
+                            type: 'function',
+                            function: {
+                                name: typeof item.name === 'string' ? item.name : '',
+                                arguments: '',
+                            },
+                        }],
+                }))));
+            }
+            return;
+        }
+        if (type === 'response.function_call_arguments.delta') {
+            // ⚠️ **未知 `output_index` 必须丢弃，不能 `?? 0`**（fail-closed）。
+            // 落 0 号槽的后果：两个并行工具的参数会被拼进同一个槽位 ⇒ arguments 变成
+            // 非法 JSON 或把 B 的参数发给 A，**且上游零报错**（最难查的一种）。
+            // 协议里该字段必带（实测 4 帧 `function_call_arguments.*` 全部带
+            // `output_index` 与 `item_id`）⇒ 这里是纯防御，结构可达、零实测。
+            if (typeof parsed.output_index !== 'number') {
+                if (!warnedUnknownSlot) {
+                    warnedUnknownSlot = true;
+                    // 只告警一次，且**不含工具参数内容**（那才是敏感数据）。
+                    console.warn('[astudio] function_call_arguments 缺少 output_index，已丢弃该帧（防止并行工具参数串台）');
+                }
+                return;
+            }
+            const slot = toolSlots.get(parsed.output_index);
+            if (slot === undefined)
+                return;
+            const delta = typeof parsed.delta === 'string' ? parsed.delta : '';
+            if (delta.length === 0)
+                return;
+            argsSent.set(slot, (argsSent.get(slot) ?? 0) + delta.length);
+            controller.enqueue(encoder.encode(frame(chunk({
+                tool_calls: [{ index: slot, function: { arguments: delta } }],
+            }))));
+            return;
+        }
+        if (type === 'response.function_call_arguments.done') {
+            // 实测 `.done` 带完整 `arguments`；若上游没发 delta（只发 done），这里补全量。
+            // 与 delta 同款 fail-closed：未知 `output_index`（或还没见过对应的
+            // `output_item.added`）一律丢弃 —— 尤其**不能**落 0 号槽。
+            if (typeof parsed.output_index !== 'number')
+                return;
+            const slot = toolSlots.get(parsed.output_index);
+            if (slot === undefined)
+                return;
+            const full = typeof parsed.arguments === 'string' ? parsed.arguments : '';
+            const sent = argsSent.get(slot) ?? 0;
+            if (full.length > sent) {
+                const rest = full.slice(sent);
+                argsSent.set(slot, full.length);
+                controller.enqueue(encoder.encode(frame(chunk({
+                    tool_calls: [{ index: slot, function: { arguments: rest } }],
+                }))));
+            }
+            return;
+        }
+        if (type === 'response.completed' || type === 'response.incomplete') {
+            finished = true;
+            const payload = typeof parsed.response === 'object' && parsed.response !== null
+                ? parsed.response
+                : {};
+            const rawUsage = typeof payload.usage === 'object' && payload.usage !== null
+                ? payload.usage
+                : undefined;
+            if (rawUsage !== undefined) {
+                const inputTokens = typeof rawUsage.input_tokens === 'number' ? rawUsage.input_tokens : 0;
+                const outputTokens = typeof rawUsage.output_tokens === 'number' ? rawUsage.output_tokens : 0;
+                const details = typeof rawUsage.input_tokens_details === 'object' && rawUsage.input_tokens_details !== null
+                    ? rawUsage.input_tokens_details
+                    : undefined;
+                const outputDetails = typeof rawUsage.output_tokens_details === 'object' && rawUsage.output_tokens_details !== null
+                    ? rawUsage.output_tokens_details
+                    : undefined;
+                const cachedTokens = rawUsage.cache_read_reported === false ? undefined : readCacheTokenCount(details?.cached_tokens);
+                const reasoningTokens = typeof outputDetails?.reasoning_tokens === 'number'
+                    ? outputDetails.reasoning_tokens
+                    : 0;
+                usage = {
+                    prompt_tokens: inputTokens,
+                    completion_tokens: outputTokens,
+                    total_tokens: typeof rawUsage.total_tokens === 'number'
+                        ? rawUsage.total_tokens
+                        : inputTokens + outputTokens,
+                    ...cachedTokens !== undefined ? { prompt_tokens_details: { cached_tokens: cachedTokens } } : {},
+                    ...reasoningTokens > 0 ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } } : {},
+                };
+            }
+            const status = typeof payload.status === 'string' ? payload.status : '';
+            const finishReason = sawToolCall ? 'tool_calls' : (type === 'response.incomplete' || status === 'incomplete' ? 'length' : 'stop');
+            const last = chunk({}, finishReason);
+            if (usage !== undefined)
+                last.usage = usage;
+            controller.enqueue(encoder.encode(frame(last)));
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        }
+    };
+    const transform = new TransformStream({
+        transform(bytes, controller) {
+            buffer += decoder.decode(bytes, { stream: true });
+            let newline = buffer.indexOf('\n');
+            while (newline >= 0) {
+                const line = buffer.slice(0, newline).replace(/\r$/, '');
+                buffer = buffer.slice(newline + 1);
+                newline = buffer.indexOf('\n');
+                if (line.length === 0) {
+                    currentEvent = '';
+                    continue;
+                }
+                if (line.startsWith('event:')) {
+                    currentEvent = line.slice('event:'.length).trim();
+                    continue;
+                }
+                if (line.startsWith('data:'))
+                    handleEvent(currentEvent, line.slice('data:'.length).trim(), controller);
+            }
+        },
+        flush(controller) {
+            const rest = buffer.replace(/\r$/, '').trim();
+            if (rest.startsWith('data:'))
+                handleEvent(currentEvent, rest.slice('data:'.length).trim(), controller);
+            // ⚠️⚠️ 上游断流（一整个终态事件都没收到）时**什么都不要补**。
+            //
+            // 共享消费器 `consumeOpenAiSse` 的截断判据是
+            // `truncatedStream = finishReason === undefined && !streamEnded`，
+            // 而 `data: [DONE]` 本身就会把 `streamEnded` 置真 ⇒ 这里补帧会让该判据
+            // **永不触发**，半截正文被当成完整回答上报（静默截断）。
+            // 实测：`fixtures/long.sse`（真实抓包，正文 234 字）只喂前 50% 字节 ⇒
+            // 旧代码输出 120 字 + `{kind:'stop'}` + 零错误；不补 ⇒ 消费器判 `max-tokens`，
+            // 与 PR 之前（chat 直传）同款。
+            //
+            // 注意 `if (!finished)` 这个分支**曾经存在**且被用例全绿掩盖（把它改成
+            // `if (false)` 时 15/15 全绿）—— 现在由 `tests/unit/astudio-responses.spec.ts`
+            // 的「断流」用例钉住。
+        },
+    });
+    const headers = new Headers(response.headers);
+    if (!headers.has('content-type'))
+        headers.set('Content-Type', 'text/event-stream');
+    return new Response(response.body.pipeThrough(transform), {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+    });
 }
 // ── 目录合并（远端 ?? 兜底） ──
 /**

@@ -45,13 +45,13 @@
  *
  * 「哪些渠道能签到」的权威是客户端的 `credits-capabilities.js`（12 个渠道逐项
  * 登记）。在本模块再抄一份必然漂移（本仓库已有「两份名单漂移」的真实缺陷）。
- * 故判据交给 `credits.claimAll` 自己：cline / raccoon / **workbuddy** 三条分支
+ * 故判据交给 `credits.claimAll` 自己：当前只有 `cline` 这一条分支
  * **不发任何上游请求**就返回「不支持每日签到」，本模块把这类错误计为**跳过**，
  * 既不算失败也不重试。
  *
- * ⚠️ 其中 **workbuddy 的那条守卫是本功能先补上的**：此前它会落到 buddy 产品
- * 分支、真去发必然失败的签到请求（客户端从不调用它，是因为能力表写着 false，
- * 所以这个洞一直没被触发）。补上之后，「调用即判定」这条规则才真正安全。
+ * ⚠️ **workbuddy 已于 2026-11-15 退出这一组**：国际版其实**有**签到端点（与国内版
+ * 逐字同形），此前那条「不支持」的守卫是误判，现已改为真发领取 + 活跃上报
+ * （见 `workbuddy-intl-activity.ts` 与 `docs/agent-notes/providers-workbuddy-intl-checkin.md`）。
  *
  * ## ⚠️「调用即判定」管不到的一类：签到**有代价**的渠道
  *
@@ -66,6 +66,24 @@ import { QODER_BILLING_UTC_OFFSET_MS } from './model-queue.js';
 import { resolveJetHubHome } from './jet-hub-store.js';
 import { formatClaimGains } from './credits.js';
 import { descriptorOf } from './provider-registry.js';
+/**
+ * ★★★ **签到「有代价」的渠道**：失败后**不得**在本时段重试。
+ *
+ * 「有代价」= 一次尝试的代价远超一次普通 HTTP：
+ * - `zcode`：起浏览器 + 消耗**阿里云 captcha 设备级配额**（150 次/小时）；
+ * - `doubao`：起 headless Chromium（**本机 CPU/内存**，单次失败地板实测 30.1 秒）。
+ *
+ * ⚠️⚠️ **为什么需要这个独立集合**（PR #142 的真实缺陷，2026-11-23 主理修复）：
+ * 原先「有代价」直接判 `isAutoCheckinExcluded(provider)` —— 一个字段承重两个
+ * **方向相反**的语义（「默认进不进链」 vs 「失败要不要重试」）。
+ * PR #142 为了让豆包默认进链把它置 `false`，顺手把「失败不重试」也关掉了
+ * ⇒ 一次失败、甚至一次 `inactive`（「今天没活动」**正常态**）后，
+ * 下一轮又 claim ⇒ 又起 N 个浏览器（纯豆包池 30 分钟封顶 ⇒ N=10 最多 **480 次/天**）。
+ *
+ * ⇒ 现在：`autoCheckinExcluded` 只回答「默认进不进链」；
+ *   本集合回答「失败要不要重试」。两者**独立**。
+ */
+const COSTLY_CHECKIN_PROVIDERS = new Set(['zcode', 'doubao']);
 /** 独立文档的文件名（与 state.json / ui-preferences.json 同目录）。 */
 export const AUTO_CHECKIN_FILE = 'auto-checkin.json';
 const SCHEMA = 'dsh-codearts-auth/auto-checkin/v1';
@@ -171,6 +189,15 @@ export function sanitizeAutoCheckin(raw) {
         // 「默认保持打开状态」相反。`'false'` / `0` 这些非布尔值一律按打开处理 ——
         // 它们不是用户点出来的值。
         enabled: record.enabled !== false,
+        ...(record.modelscopeEnabled === false ? { modelscopeEnabled: false } : {}),
+        // ⚠️ **只有显式 `true` 才算打开**（默认关，见 `AutoCheckinDoc.zcodeEnabled`）：
+        // 判据与上一格正好相反，不是笔误。`'true'` / `1` 这些「不是用户点出来的值」
+        // 一律按关闭处理 —— 这一格打开会让宿主拉起浏览器，宁可保守。
+        ...(record.zcodeEnabled === true ? { zcodeEnabled: true } : {}),
+        // ⚠️ 豆包那格是**三态**（见 `AutoCheckinDoc.doubaoEnabled`）：`true` / `false`
+        // 都落盘（缺席才表示「没表态」），故判据是 `typeof === 'boolean'`。
+        // `'false'` / `0` 这些「不是用户点出来的值」一律丢弃 = 跟随 registry。
+        ...(typeof record.doubaoEnabled === 'boolean' ? { doubaoEnabled: record.doubaoEnabled } : {}),
         times: sanitizeTimes(record.times),
         jitterMinutes: sanitizeJitter(record.jitterMinutes),
         lastDate: typeof record.lastDate === 'string' && DATE_RE.test(record.lastDate) ? record.lastDate : '',
@@ -495,6 +522,9 @@ class FileAutoCheckinStore {
         writeFileSync(tmp, JSON.stringify({
             schema: SCHEMA,
             enabled: doc.enabled,
+            modelscopeEnabled: doc.modelscopeEnabled,
+            zcodeEnabled: doc.zcodeEnabled,
+            doubaoEnabled: doc.doubaoEnabled,
             times: doc.times,
             jitterMinutes: doc.jitterMinutes,
             lastDate: doc.lastDate,
@@ -522,8 +552,15 @@ function emptyTotals() {
     return { providers: 0, claimed: 0, totalCredit: 0, totalByUnit: { token: 0, credit: 0 }, alreadyClaimed: 0, inactive: 0, failed: 0, coversToday: 0, skipped: 0, errors: 0 };
 }
 /**
- * 「不支持每日签到」的判据：`credits.claimAll` 对 cline / raccoon / workbuddy
- * 返回的**显式**错误文案（这三条分支都不发上游请求）。
+ * 「不支持每日签到」的判据：`credits.claimAll` 对**没有签到实现**的渠道返回的
+ * **显式**错误文案（这一条分支不发上游请求）。
+ *
+ * ⚠️ 这张名单**一直在缩小**，别把历史结论当成契约：
+ *   - `raccoon` 曾在这里（判据是「每日积分无端点」）—— 2026-11-15 被真实账号
+ *     推翻并接通了签到（办公端 `GET /api/web/office/v3/setting_info` 结算）⇒ **已移出**；
+ *   - `workbuddy` 国际版也曾在这里（判据是「内核只有 `get-dosage-notify`」）——
+ *     同一天查清签到端点是前端直接调的、与国内版逐字同形 ⇒ **已移出**（PR #87）。
+ *   两家移出后只剩 `cline`：对整个 sidecar 做字符串扫描都没有 checkin / campaign 端点。
  *
  * ⚠️ 兜底认 `unsupported provider`：那是 `productById` 找不到产品时的文案，
  * 语义同样是「这个渠道没有可用的签到实现」，计成失败只会制造假警报。
@@ -558,6 +595,10 @@ export function isUnsupportedCheckin(message) {
  *   一旦 zcode 的 claim 分支又开始调 `mintCaptcha`，而本表没登记，用例会红）。
  * - 用户仍可在面板里**手动**点 zcode 的「一键领取积分」—— 那是有意行为，
  *   浏览器弹出来是用户自己能理解的交互。
+ * - 2026-11-20 追加：面板上另有一个**默认关闭**的 opt-in 开关
+ *   （{@link isAutoCheckinOptedIn}）。它**不改这张表**，只在
+ *   `performRun` 那一格放行时多问一句「用户是否明确点过开」—— registry 仍是
+ *   「谁有代价」的唯一真相源，本表的反向守护用例照旧有效。
  */
 export function isAutoCheckinExcluded(provider) {
     // ⚠️ 2026-10-08 改：判据从**硬编码** `provider === ZCODE.id` 改为查
@@ -565,6 +606,38 @@ export function isAutoCheckinExcluded(provider) {
     //    **行为完全不变**（宿主侧另有一份副本），是「唯一真相源」名不副实的一处。
     //    ⚠️ 用 `=== true` 而不是 truthy：该字段可选，省略 = 不排除。
     return descriptorOf(provider)?.autoCheckinExcluded === true;
+}
+/**
+ * 用户是否**明确点过「开」**，允许某个「有代价」的渠道参加自动签到。
+ *
+ * ## 为什么放行判据单独成一个函数
+ *
+ * 排除表（{@link isAutoCheckinExcluded}）记的是客观事实「这家签到要起浏览器」，
+ * 而「用户同意不同意」是主观授权，两者不能揉进同一个判据 —— 揉进去之后
+ * `provider-registry.spec.ts` / `provider-registry-consumers.spec.ts` 那几条
+ * 「排除表 == registry 名单」的锚点就再也锁不住 registry 了。故
+ * `performRun` 里是「**先查排除表，再问有没有 opt-in**」两格。
+ *
+ * ⚠️ 判据是 `=== true`（缺席 / 脏数据 = 不放行），与 `enabled` 那格相反：
+ *    放行的代价由用户的设备级 captcha 配额与浏览器进程树支付，宁可保守。
+ * ⚠️ 目前只有 `zcode` 有这一格；新增「有代价」渠道时要在这里加一条，
+ *    并在 `AutoCheckinDoc` 上补对应的 opt-in 字段。
+ */
+export function isAutoCheckinOptedIn(provider, doc) {
+    return provider === 'zcode' && doc.zcodeEnabled === true;
+}
+/**
+ * 豆包这一轮该不该参加自动签到（三态，见 `AutoCheckinDoc.doubaoEnabled`）。
+ *
+ * ⚠️ 缺席 ⇒ 跟随 registry；`true` / `false` ⇒ 用户的明确表态说了算。
+ * ⚠️ 本函数**只认豆包**，但把 `provider === 'doubao'` 的守卫留在调用方
+ *    （`performRun` 的豆包分支）—— 免得将来有人拿它当「任意渠道的通用判据」，
+ *    那会跳过 modelscope / zcode 各自的专用格。
+ */
+export function doubaoCheckinEnabled(doc) {
+    if (typeof doc.doubaoEnabled === 'boolean')
+        return doc.doubaoEnabled;
+    return isAutoCheckinExcluded('doubao') === false;
 }
 /** 把一轮结果拼成一句中文摘要（给状态灯提示与日志用）。 */
 export function describeRun(totals) {
@@ -744,6 +817,15 @@ export function createAutoCheckin(deps) {
             channels: doc.channels.map((entry) => ({ ...entry })),
             // 面板据它决定要不要渲染那行常驻状态文字
             dismissed: doc.lastAt > 0 && doc.dismissedRunAt === doc.lastAt,
+            /**
+             * ★ 豆包那格开关的**生效值**（2026-11-22 用户需求：「面板里面加个豆包
+             * 自动签到的开关」）。客户端直接拿它渲染勾选态，**不要**自己再算一遍
+             * registry 默认值（那会变成第二份真相源）。
+             *
+             * ⚠️ 宿主是**旧代码**时本字段缺席：客户端必须按「不渲染这个开关」处理，
+             * 不能当成 `false`（那会让用户看到「开关关着」而其实豆包正在自动跑）。
+             */
+            doubaoCheckinEnabled: doubaoCheckinEnabled(doc),
         };
     }
     async function performRun() {
@@ -788,6 +870,17 @@ export function createAutoCheckin(deps) {
          */
         const unretryable = new Set();
         /**
+         * 本轮**真的尝试过、且失败**的「有代价」渠道（opt-in 放行的 zcode）。
+         *
+         * 单独记一份，因为「不该重试」在这里有两层含义：
+         * - `unretryable` 让它不拖住整轮水位线；
+         * - 本集合让它**自己的逐渠道水位线**推进到本时段（见下面两处 `providerSlots`），
+         *   否则退避重试会把它再打一遍 —— 而它每次尝试都是一棵浏览器进程树 + 一枚
+         *   **设备级** captcha（阿里云按设备限流 150 次/小时，纯 zcode 池在本分支会
+         *   一路退避到 30 分钟一轮 ⇒ 一天最多 48 次）。
+         */
+        const costlyFailed = new Set();
+        /**
          * 逐渠道水位线的**当前有效值**：只保留池里还存在的渠道。
          *
          * ⚠️ 为什么会残留（2026-11-01 第二轮审计 P3）：渠道被删 / 改名后，键还留在文档里；
@@ -814,7 +907,64 @@ export function createAutoCheckin(deps) {
             // ⚠️ 排除表先于**任何**上游请求生效（见 isAutoCheckinExcluded 的说明）：
             // zcode 的代价发生在**调用期间**（拉起浏览器产 captcha），事后再判断已经
             // 太晚 —— 必须在调 `claim` 之前就把它摘掉。
-            if (isAutoCheckinExcluded(provider)) {
+            // 唯一的放行途径是面板上那个**默认关闭**的 opt-in 开关（见
+            // {@link isAutoCheckinOptedIn}）；`costly` 留着给下面的失败分支复用。
+            if (provider === 'modelscope' && doc.modelscopeEnabled === false) {
+                totals.skipped += 1;
+                channels.push({ provider, text: '自动签到已关闭' });
+                unretryable.add(provider);
+                continue;
+            }
+            // ★ 2026-11-22 豆包**逐渠道开关**（用户需求：「面板里面加个豆包自动签到的开关」）：
+            //   与上面两格不同，它是**三态**——`doubaoEnabled` 有值时以用户的表态为准，
+            //   缺席才跟随 registry（见 {@link doubaoCheckinEnabled}）。
+            //   文案沿用魔搭那句「自动签到已关闭」：对用户来说两者都是「我关的」，
+            //   而「需手动签到」只用于 registry 认定的「有代价」渠道。
+            if (provider === 'doubao' && !doubaoCheckinEnabled(doc)) {
+                totals.skipped += 1;
+                channels.push({ provider, text: '自动签到已关闭' });
+                unretryable.add(provider);
+                continue;
+            }
+            /**
+             * ★★★ **两个判据必须分开**（PR #142 的真实缺陷，2026-11-23 主理修复）。
+             *
+             * ## 原来是一格
+             *
+             * ```ts
+             * const costly = isAutoCheckinExcluded(provider)   // ← 一个字段承重两个语义
+             * ```
+             *
+             * `autoCheckinExcluded` 同时被用来回答两个**方向相反**的问题：
+             * - 「**默认要不要进链**」——排除表说是的渠道要用户 opt-in 才跑；
+             * - 「**失败后要不要重试**」——有代价的渠道失败后不得重试。
+             *
+             * ## 为什么 #142 会把它打坏
+             *
+             * #142 为了让豆包**默认进链**，把 `doubao` 的 `autoCheckinExcluded` 置 `false`。
+             * 于是上面第二个问题也被顺手回答了「不用重试个屁」 —— `costly` **恒为 false**，
+             * 三条失败腿（`throw` / `!result.ok` / `inactive`）**全部失效**。
+             *
+             * 实测后果（对抗审计）：一次失败、甚至一次 **`inactive`**（「今天没活动」这种
+             * **正常态**）之后，下一轮**又 claim** ⇒ 又起 N 个浏览器；
+             * 纯豆包池 30 分钟封顶 ⇒ **N=10 时最多 480 次/天**。
+             * 同一路径下 zcode 是**零请求**（它有 opt-in 拦截）。
+             * 豆包烧的是**本机 CPU/内存**，比 zcode 烧配额更该被限制。
+             *
+             * ## 修法
+             *
+             * 把「有代价」这个事实**独立成判据**：判「该渠道的签到是不是要起浏览器 /
+             * 烧第三方设备配额」，而不是「它在不在排除表里」。
+             * `autoCheckinExcluded` 从此**只**回答「默认进不进链」。
+             */
+            const costly = isAutoCheckinExcluded(provider) || COSTLY_CHECKIN_PROVIDERS.has(provider);
+            /** 「默认不进链」——只剩这一层语义（与上面的 `costly` 刻意分开）。 */
+            const excluded = isAutoCheckinExcluded(provider);
+            // ⚠️ 豆包被 registry 登记成「有代价」时，用户显式点开（`doubaoEnabled === true`）
+            //    也要能放行 —— 否则那个开关在「豆包还没进默认链」的版本上就是个死开关。
+            const optedIn = isAutoCheckinOptedIn(provider, doc)
+                || (provider === 'doubao' && doc.doubaoEnabled === true);
+            if (excluded && !optedIn) {
                 totals.skipped += 1;
                 channels.push({ provider, text: '需手动签到' });
                 unretryable.add(provider);
@@ -827,6 +977,13 @@ export function createAutoCheckin(deps) {
             catch (error) {
                 totals.errors += 1;
                 channels.push({ provider, text: '出错' });
+                // ⚠️ 有代价的渠道（opt-in 放行进来的 zcode）失败后**不在本时段重试**：
+                // 一次尝试 = 一棵浏览器进程树 + 一枚**设备级** captcha（阿里云按设备限流
+                // 150 次/小时），退避重试会把配额烧穿。宁可这个时段不领，下个时段再来。
+                if (costly) {
+                    unretryable.add(provider);
+                    costlyFailed.add(provider);
+                }
                 deps.warn?.(`[jet-hub] 自动签到：${provider} 调用异常: ${String(error)}`);
                 continue;
             }
@@ -840,6 +997,11 @@ export function createAutoCheckin(deps) {
                 }
                 totals.errors += 1;
                 channels.push({ provider, text: '出错' });
+                // 同上：有代价的渠道不在本时段重试（理由见 `catch` 分支的注释）。
+                if (costly) {
+                    unretryable.add(provider);
+                    costlyFailed.add(provider);
+                }
                 deps.warn?.(`[jet-hub] 自动签到：${provider} 失败: ${message || '未知错误'}`);
                 continue;
             }
@@ -865,8 +1027,35 @@ export function createAutoCheckin(deps) {
             const coversToday = summary.coversToday ?? (summary.claimed + summary.alreadyClaimed);
             totals.coversToday += coversToday;
             channels.push({ provider, text: describeChannel(summary) });
-            if (coversToday > 0)
+            if (coversToday > 0) {
                 proven.add(provider);
+            }
+            else if (costly) {
+                /**
+                 * ⚠️⚠️ **`ok: true` 但有代价渠道照样可能是「完全失败」**（2026-11-21 正向审计 P1）。
+                 *
+                 * 本分支上方两条失败腿（`throw` 与 `!result.ok`）都加了 `costlyFailed`，
+                 * 但**zcode 的真实失败形态是第三条腿**：HTTP 成功、`ok: true`，而逐 plan
+                 * 的 `failed` 里写着 `3007`（captcha 被拒）/ `3012`（风控）。
+                 *
+                 * 此时 `coversToday === 0`（`computeClaimSummary` 的 `coversToday` 只计
+                 * claimed / already-claimed）⇒ provider 不进 `proven` ⇒ 被当 `lagging`
+                 * **反复补领**。而 zcode 的单渠道池**没有 3 小时窗口**，09:00→21:00 约
+                 * **33 次**退避 ⇒ 每天约 **66 次** × 每次一棵 **headful** 浏览器
+                 *（`--headless` 过不了 captcha）+ 1~2 枚**设备级** captcha（上游 150/小时），
+                 * 且 `3012` 还有 30min → 24h → 停用的冷却惩罚。
+                 *
+                 * ⇒ 判据与另两条腿**逐字同构**：只要「有代价 + 今天什么都没证明」，
+                 *   就记进 `costlyFailed`（写逐渠道水位线 ⇒ 本时段不再重试）。
+                 *
+                 * ⚠️ 为什么用 `coversToday === 0` 而不是 `summary.failed > 0`：
+                 * 一次调用可能「部分成功」（领到 1 个 plan、另 1 个失败），那种情况
+                 * `coversToday > 0` 已经进 `proven`，不该再压制 —— 压制会让用户少领。
+                 * 判据必须读**记账口径**（`coversToday`），不是**错误计数**（`failed`）。
+                 */
+                unretryable.add(provider);
+                costlyFailed.add(provider);
+            }
         }
         if (providers.length === 0) {
             // 一个渠道都没有：没有可领的东西，也不该推进水位线（用户随时可能加账号）。
@@ -896,8 +1085,20 @@ export function createAutoCheckin(deps) {
             //   在这里直接 return，`lastResult` / `channels` 停在几天前那一轮 ⇒ 凭据全过期
             //   时面板永远显示「上次：昨天的成功」，用户看不到「今天一直在失败」。
             dueFailures += 1;
+            // ★ 有代价的渠道失败 ⇒ 把**它自己**的逐渠道水位线推到本时段，整轮水位线照旧
+            //   不推进。退避重试是为「凭据没续上 / 网络不通」这类**可恢复**失败准备的，
+            //   而 zcode 每重试一次就是一棵浏览器进程树 + 一枚设备级 captcha（按设备限流
+            //   150 次/小时）：纯 zcode 池不记这一格，会一路退避到 30 分钟一轮 ⇒ 一天最多
+            //   48 次白烧配额。代价是「本轮 zcode 的偶发失败要等下个时段」，认了。
+            const hasCostlyFailure = targetSlot !== '' && costlyFailed.size > 0;
+            const costlySlots = { ...doc.providerSlots };
+            if (hasCostlyFailure) {
+                for (const provider of costlyFailed)
+                    costlySlots[provider] = targetSlot;
+            }
             doc = {
                 ...doc,
+                ...(hasCostlyFailure ? { providerSlots: costlySlots } : {}),
                 lastResult: `${describeRun(totals)}（本轮未计入今日，稍后重试）`,
                 lastAt: now(),
                 channels,
@@ -918,6 +1119,13 @@ export function createAutoCheckin(deps) {
             const value = proven.has(provider) ? targetSlot : (prunedSlots[provider] ?? '');
             if (value !== '')
                 nextProviderSlots[provider] = value;
+        }
+        // ★ 有代价的渠道本轮失败 ⇒ 也记到本时段。`unretryable` 只是让它不拖住
+        //   `pendingSlot`，**拦不住重试本身**（补领时按 `providerSlots` 跳过），
+        //   不记这一格它就会在退避窗口内被反复拉起浏览器（理由见上面 `costlyFailed`）。
+        if (targetSlot !== '') {
+            for (const provider of costlyFailed)
+                nextProviderSlots[provider] = targetSlot;
         }
         // ★ 待补 = 「有渠道证明了今天，但这个渠道还没有，且它**有可能**领到」。
         //   设计上不该重试的（排除表 / 无签到接口）不算待补，否则它们会拖住水位线。
@@ -1101,6 +1309,37 @@ export function createAutoCheckin(deps) {
     }
     return {
         state,
+        modelscopeEnabled: () => doc.modelscopeEnabled !== false,
+        async setModelscopeEnabled(enabled) {
+            const next = { ...doc };
+            if (enabled)
+                delete next.modelscopeEnabled;
+            else
+                next.modelscopeEnabled = false;
+            await deps.store.save(next);
+            doc = next;
+        },
+        zcodeEnabled: () => doc.zcodeEnabled === true,
+        async setZcodeEnabled(enabled) {
+            // ⚠️ 落盘形态与 modelscope **相反**：开 = 写 `true`，关 = **删键**
+            //（这一格默认关，缺席就是关；落 `false` 会让「没设置过」与「特意关掉」同形）。
+            const next = { ...doc };
+            if (enabled)
+                next.zcodeEnabled = true;
+            else
+                delete next.zcodeEnabled;
+            await deps.store.save(next);
+            doc = next;
+        },
+        doubaoEnabled: () => doubaoCheckinEnabled(doc),
+        async setDoubaoEnabled(enabled) {
+            // ⚠️ 三态：**两个值都落盘**（见 `AutoCheckinDoc.doubaoEnabled`）——
+            //    删键等于抹掉用户的表态、退回「跟随 registry」，面板下次打开又会显示
+            //    成「没设置过」，与本仓库「设置没生效看起来像保存成功」是同一类坑。
+            const next = { ...doc, doubaoEnabled: enabled };
+            await deps.store.save(next);
+            doc = next;
+        },
         async setEnabled(enabled) {
             doc = { ...doc, enabled };
             await deps.store.save(doc);

@@ -471,9 +471,30 @@ function errorMessage(error) {
         return 'unknown error';
     }
 }
-/** 传输级错误判定（网络抖动，归可重试的 `TRANSPORT`）。 */
+/**
+ * 传输级错误判定（网络抖动，归可重试的 `TRANSPORT`）。
+ *
+ * ⚠️⚠️ **已分类的 `LlmError` 一律不算传输错误**：它上面的 `code` 是权威分类，
+ * 按 message 子串二次判会把它**改写掉**。本条是**实测驱动的**（PR #76 返工）：
+ * `send()` 现在会把网关拒绝页的**服务端原文**拼进 message（诊断用），
+ * 而 WAF 页里出现 `terminated` / `fetch failed` / `socket hang up` 这类字样很常见
+ * （它们本来是「连接被中断」的描述）⇒ **无本条守卫时**，一个 403 网关拒绝
+ * 会被重包成**可重试的** `TRANSPORT`，白重试 5 次。实测（探针 `__probe76b`）：
+ *
+ * | 网关拒绝页原文 | 加守卫前 | 加守卫后 |
+ * |---|---|---|
+ * | `<html>账号已被封禁</html>` | `PERMISSION_DENIED` | `PERMISSION_DENIED` |
+ * | `<html>connection terminated by WAF</html>` | **`TRANSPORT`**（白重试） | `PERMISSION_DENIED` |
+ * | `<html>fetch failed: forbidden</html>` | **`TRANSPORT`**（白重试） | `PERMISSION_DENIED` |
+ *
+ * 与 `src/buddy-adapter.ts` / `src/codely-adapter.ts` / `src/gemini-adapter.ts` 里
+ * `if (error instanceof LlmError) throw error` 同口径：**先让已分类的错误出去**。
+ */
 function isTransportError(error) {
     if (!(error instanceof Error))
+        return false;
+    // ⚠️ 只判 `fetchImpl` 抛出的**原生**错误（TypeError / UND_ERR_* / 系统错误）。
+    if (error instanceof LlmError)
         return false;
     const message = error.message.toLowerCase();
     if (error.name.startsWith('UND_ERR_'))
@@ -540,6 +561,41 @@ export function shouldRotateAccioAccount(code) {
 export function recordsAccioRateLimit(code) {
     const cls = accioFailureClassOf(code);
     return cls === 'quota' || cls === 'rate';
+}
+/**
+ * 判「这个 `content-type` 是不是网关的 HTML 拒绝页」。
+ *
+ * ⚠⚠ **判据必须同时做三件事**，少一件就让拒绝页逃进「凭据失效」那一格（实测证实）：
+ * 1. `split(';', 1)[0]` —— 上游实际下发的是 `text/html; charset=UTF-8`；
+ * 2. `.trim()` —— 分号前有空格的写法也存在（`text/html ; charset=x`）；
+ * 3. `.toLowerCase()` —— 上游也会发 `TEXT/HTML` 大写形态。
+ *
+ * ⚠ 这一格与 `assertEventStream()` 里那一格是**同一张拒绝页的两种形态**
+ * （前者 HTTP 403，后者网关包成 200）。两处对「什么算 HTML 页」
+ * 必须定义一致，否则会出现「200 被认出、同一张页 403 却认不出」的荒唐分裂
+ * （本仓库首条红线：同一语义两套判据）。
+ */
+export function mediaTypeOf(contentType) {
+    if (typeof contentType !== 'string')
+        return '';
+    return contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+}
+/**
+ * 判「这个 `content-type` 是不是网关的 HTML 拒绝页」。
+ *
+ * ⚠️ 判据必须走 `mediaTypeOf()`（不得在这里另写一份 `split/trim/lower`）。
+ * 实测逐格（`reports/pr76-independent-check.md` 的 12 格矩阵）：
+ * `TEXT/HTML`、`text/html ; charset=x`、`text/html;charset=UTF-8` 三种写法
+ * **少任一步归一就逃逸**到「凭据失效」那一格，并白烧一次一次性
+ * `refresh_token`。
+ *
+ * ⚠ 这一格与 `assertEventStream()` 里那一格是**同一张拒绝页的两种形态**
+ * （前者 HTTP 403，后者网关包成 200），两处**必须共用 `mediaTypeOf()`**
+ * —— 同一语义两套判据是本仓库首条红线
+ * （`assertEventStream()` 自己的 JSDoc 就写着「判据必须只有一份」）。
+ */
+export function isHtmlDenialMediaType(contentType) {
+    return mediaTypeOf(contentType) === 'text/html';
 }
 /** 从错误体里抠出可读 detail（**逐字保留服务端原文**，不吞）。 */
 function errorDetail(body) {
@@ -1146,6 +1202,17 @@ export class AccioAdapter extends LlmAdapter {
             // ⚠️ **只在成功赋值后**记时刻：失败/空结果不写，否则一次抖动会把上界
             //    刷新掉、下轮还要等满 20 分钟才发现上游没恢复。
             this.catalogAt = this.options.now?.() ?? Date.now();
+            /**
+       * ★ **落盘（SWR 写盘那一半）** —— 2026-11-20，与 `buddy-adapter` 同款。
+       *
+       * ⚠️ 本家**只有一个目录来源** ⇒ 「拿到非空目录」即 `complete`
+       *（与 `RemoteCatalogGate` 对裸布尔的归一化口径一致：`complete = got`）。
+       * 故不需要额外的完整性判据。
+       *
+       * ⚠️ 只写**非空**目录：空目录若覆盖磁盘上更好的旧缓存，下次启动会更差。
+       * 那一层由 `writeCatalogCache` 自己挡（`entries.length === 0` 直接返回 false）。
+       */
+            this.catalog.rememberForDisk?.(this.syncCatalogEntries());
             return true;
         });
     }
@@ -1372,10 +1439,10 @@ export class AccioAdapter extends LlmAdapter {
         const wireModel = accioModelCodeOf(sourceModels, options.model);
         // 2. 凭据（过期则先静默续期）。
         // ⚠️ 传 `options.model`：多账号池按它过滤限流账号（与 trae 同因）。
-        let credential = await this.options.resolveCredential(options.model);
+        let credential = await this.options.resolveCredential(options.model, options.sessionId);
         if (credential === undefined || isAccioExpired(credential)) {
             await this.options.refresh();
-            credential = await this.options.resolveCredential(options.model);
+            credential = await this.options.resolveCredential(options.model, options.sessionId);
         }
         if (credential === undefined || credential.access_token === '') {
             throw new LlmError('accio: no usable credential; log in first', 'MISSING_CREDENTIAL');
@@ -1397,13 +1464,21 @@ export class AccioAdapter extends LlmAdapter {
         if (currentAccountId !== '')
             reportLedgerAccount(this.product.id, currentAccountId);
         // 4. 会话命名的思考与预算决策（issue IKKVDH）。
-        // ⚠️ Accio **关不掉思考**（实测四类字段全部无效，见文件头第 3 条）⇒
-        // `declaredEfforts` 恒为空 ⇒ 走 `planSessionTitleThinking` 的**抬预算**分支
-        // （64 → 512），否则思考会把 64 token 吃满、正文零产出、标题静默失败。
+        // ⚠️ Accio **关不掉思考**（实测四类字段全部无效，见文件头第 3 条）—— 但那是说
+        // 「声明里没有 `off`/`none` 这一档」，**不是**「没有档位」。
+        // ⚠️⚠️ 这里原先硬编码 `declaredEfforts: []`，注释还写「恒为空」—— 那是 PR #70 之前
+        // 的口径：抬档前 `requestedEffort` 可能就是 `high`，512 预算够用。PR #70 把默认档
+        // 抬到 `max` 后，`weakest === undefined` ⇒ 标题请求原样发 `max` + 512 ⇒ 思考吃满、
+        // 正文零产出（issue IKKVDH 原形在 accio 上**复发**，2026-11-13 对抗审计 P2-①）。
+        // 修法 = 取**该模型真实声明**的档位：`thinkingOffEffortOf` 仍返回 `undefined`（没有
+        // 关闭档 ⇒ 不会被误判成「关得掉」），而 `weakestThinkingEffort` 能降到 `low`。
+        const declaredEfforts = this.catalogEntries()
+            .find((entry) => entry.id === options.model)
+            ?.reasoning?.efforts.map((effort) => String(effort.id)) ?? [];
         const titlePlan = planSessionTitleThinking({
             purpose: options.purpose,
             requestedEffort: options.reasoningEffort === undefined ? undefined : String(options.reasoningEffort),
-            declaredEfforts: [],
+            declaredEfforts,
             maxTokens: options.maxTokens,
         });
         // 5. 构造信封。
@@ -1551,7 +1626,7 @@ export class AccioAdapter extends LlmAdapter {
                 console.warn(`accio: 续期失败（不阻断本轮）：${errorMessage(error)}`);
                 return sent;
             }
-            const refreshed = await this.options.resolveCredential(options.model);
+            const refreshed = await this.options.resolveCredential(options.model, options.sessionId);
             if (refreshed === undefined || refreshed.access_token === '')
                 return sent;
             /**
@@ -1706,8 +1781,20 @@ export class AccioAdapter extends LlmAdapter {
          * 正常响应恒为 `text/event-stream`（实测）；而 body 文本的形态（脚本内容、
          * 域名、标记）都可能变 —— 判结构比判内容稳。
          *
-         * ⚠️ 归类 `SERVER`（**不重试**）：风控是**身份/环境**问题，原样重发只会
-         * 再被拦（与 `trae-adapter.ts` 的 4006 不重试同理）。
+         * ⚠️⚠️ 归类 `SERVER` 是**已登记的已知缺口**（PR #76 返工时核实，原注释的
+         * 「不重试」**与事实相反**）：`SERVER` 恰在宿主的
+         * `DEFAULT_RETRYABLE_CODES` 里（`EMPTY_RESPONSE / RATE_LIMIT / SERVER / TIMEOUT / TRANSPORT`，
+         * 见 `node_modules/@deepseek-ai/dsh-llm/lib/index.js:251-257`），所以「原样重发只会再被拦」
+         * 这条理由**并没有兑现** —— 实际会白重试 5 次，每次都再被 WAF 拦一遍。
+         *
+         * 正确码应是 `PERMISSION_DENIED`：与 `src/buddy-adapter.ts` 里「`AUTH` 会把 message
+         * 整个替换成『API 密钥无效』」那段论证、以及 `src/cline-adapter.ts` 的
+         * 地域限制分支同口径（那两处都不在可重试集合里）。
+         *
+         * ⚠️ 本 PR **刻意不改**：改它会把「200 + HTML 白重试 5 次」变成「立即失败」，
+         * 是**可观察行为变更**，需要独立的全量回归；且它会连带改变
+         * `shouldRotateAccioAccount('server')` 的换号语义（换号对网关拦截无效，但对
+         * 真实 5xx 有效）。已写入 `reports/pr76-audit.md` 的「未修」一节。
          *
          * ⚠️ **刻意抽成函数**：换号后取回的响应也要走同一格（换号后拿到风控页
          * 完全可能），而流内换号与 HTTP 换号是同一个循环里的两段 —— 判据必须
@@ -1715,7 +1802,8 @@ export class AccioAdapter extends LlmAdapter {
          */
         const assertEventStream = async (target) => {
             const contentType = target.headers.get('content-type') ?? '';
-            if (contentType.includes('text/event-stream'))
+            // ⚠️ 与 `isHtmlDenialMediaType()` 共用 `mediaTypeOf()`（实体对齐下面那一格）。
+            if (mediaTypeOf(contentType) === 'text/event-stream')
                 return;
             // ⚠️ 读 body 只为**把服务端原文带给用户/日志**（诊断用），失败不影响判据。
             const peek = await target.text().catch(() => '');
@@ -1840,12 +1928,24 @@ export class AccioAdapter extends LlmAdapter {
             ...credential.sgcookie === undefined ? {} : { sgcookie: credential.sgcookie },
         });
         try {
-            return await this.fetchImpl(url, {
+            const response = await this.fetchImpl(url, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(body),
                 signal: options.signal ?? AbortSignal.timeout(ACCIO_REQUEST_TIMEOUT_MS),
             });
+            // 网关返回 HTML 拒绝页时，停止本次请求，避免触发凭据续期或换号。
+            //
+            // ⚠ 读 body 只为把**服务端原文**带给用户/日志：WAF 页里常有
+            // 「账号已被封禁」「请求过于频繁」这类关键信息，只报状态码等于没说
+            // （与 `assertEventStream()` 的 `peek` 同口径）。body 读完已被释放，不需要再 `cancel()`。
+            if (response.status === 403 && isHtmlDenialMediaType(response.headers.get('content-type'))) {
+                const peek = await response.text().catch(() => '');
+                throw new LlmError('accio: 推理请求被网关拒绝（HTTP 403 + HTML 拒绝页）——'
+                    + '这是网关级拦截，续期与换号都不会改变结果。'
+                    + `${peek === '' ? '' : ` 服务端原文：${peek.slice(0, 200)}`}`, 'PERMISSION_DENIED', { status: response.status });
+            }
+            return response;
         }
         catch (error) {
             if (options.signal?.aborted)

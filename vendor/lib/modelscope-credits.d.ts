@@ -50,7 +50,7 @@
  * @module src/modelscope-credits.ts
  */
 import type { ModelscopeCredential } from './modelscope.js';
-import type { CreditBalance } from './credits.js';
+import { type CreditBalance } from './credits.js';
 import { type ModelscopeProduct } from './modelscope-product.js';
 /**
  * 拉取魔粒余额。

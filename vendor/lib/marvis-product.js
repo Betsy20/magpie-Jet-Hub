@@ -5,9 +5,12 @@
  *
  * 2026-11-09 在本机真实账号（QQ·Jet）上实测了 magpie-marvis 的整张槽位表：
  * 每一个槽位都能跑通推理（`hy3-preview-agent`、`claude-sonnet-4-6` 等），
- * 但**用户明确裁定只暴露 `main-auto`**——它由服务端自动路由到
- * `deepseek-v4-1-flash-261017`（响应体 `model` 字段可证），其余槽位属于
- * Marvis 自己的产品线，与本插件的「一个渠道 = 一个可预期模型」定位不符。
+ * 但**用户明确裁定只暴露一条**——其余槽位属于 Marvis 自己的产品线，
+ * 与本插件的「一个渠道 = 一个可预期模型」定位不符。
+ *
+ * 上行槽位 2026-11-14 由 `main-auto` 改为 `deepseek-v4-pro-external`（用户裁定）；
+ * 展示名仍是 `DeepSeek V4.1 Flash`。存量配置里的 `main-auto` / `0` / 真实模型 id
+ * 由 `normalizeMarvisModelId` 归一到新槽位，老会话不会失效。
  *
  * ⚠️ 因此本文件**不**是「上游目录的镜像」，而是**产品决策**：
  * 想加回别的槽位要先问清楚它是不是真模型（`claude-*` 那几个在本账号下
@@ -37,12 +40,19 @@ export const MARVIS = {
     defaultCredentialRef: 'MARVIS_ACCOUNT_DEFAULT',
 };
 /**
+ * 上行槽位 id。
+ *
+ * ⚠️ 这是**槽位名**（模型网关只认槽位名），不是真实模型 id ——
+ * 真实 id `deepseek-v4-1-flash-261017` 直传上游会 `400 4130001 无效模型id`。
+ * 2026-11-14 起目录唯一条目与「存量归一」的归一出点都是它。
+ */
+export const MARVIS_SLOT_ID = 'deepseek-v4-pro-external';
+/**
  * 唯一的目录条目。
  *
  * ⚠️ 显示名是**产品决策**（用户要求「映射被 ds v4.1 flash 的美化名字」），
  * 不是上游下发的名字 —— 上游只回真实模型 id `deepseek-v4-1-flash-261017`。
- */
-/**
+ *
  * ⚠️ **刻意不声明 `maxTokens`**（2026-11-09 评审 M4 的定案，不是遗漏）。
  *
  * magpie 的 `DEFAULT_OUTPUT = 32_000` 是**它自己**给 OpenAI SDK 用的默认值：
@@ -56,12 +66,13 @@ export const MARVIS = {
  */
 export const MARVIS_FALLBACK_MODELS = [
     {
-        id: 'main-auto',
+        id: MARVIS_SLOT_ID,
         name: 'DeepSeek V4.1 Flash',
         contextWindow: 1_000_000,
-        // 2026-11-09 实测：main-auto 收 `{type:'image_url',image_url:{url:'data:image/png;base64,…'}}`
-        // 并正确答出颜色 ⇒ 真能读图（与 codearts 的 `deepseek-v4.1-flash` 同款结论：
-        // **目录标的 false 不可信**，以 wire 实测为准）。
+        // 2026-11-14 实测：`deepseek-v4-pro-external` 收
+        // `{type:'image_url',image_url:{url:'data:image/png;base64,…'}}` 并正确答出颜色
+        // （reasoning 里描述了图片本身 ⇒ 真看到图，不是 200 + 静默忽略）。
+        // 与 main-auto 同款结论（**目录标的 false 不可信**，以 wire 实测为准）。
         supportsImage: true,
     },
 ];
@@ -75,7 +86,12 @@ export function findMarvisFallback(modelId) {
  * 的 `"0".."7"`），而响应体里的 **真实模型 id** 也常被用户直接粘进模型字段
  * ——两者都不是合法槽位。真实 id 直传上游会 400 `4130001 无效模型id`，
  * 但**静默替换成别的模型更糟**（用户以为在跟 A 说话，实际是 B）。
- * 故只归一**确知等价**的两种写法，其余原样交给上游判错。
+ * 故只归一**确知等价**的写法，其余原样交给上游判错。
+ *
+ * ⚠️ 2026-11-14 起槽位由 `main-auto` 切到 `deepseek-v4-pro-external`：
+ * 存量配置里的 `main-auto`（以及它的等价写法 `0` / 真实模型 id）**全部迁移**
+ * 到新槽位 —— 否则老会话会「目录未命中」静默退化成未知模型
+ * （text-only、无上下文、无图片能力，而且**不报错**）。
  */
 export function normalizeMarvisModelId(model) {
     const trimmed = model.trim();
@@ -83,12 +99,16 @@ export function normalizeMarvisModelId(model) {
     //    原样透传会目录未命中 ⇒ 静默退化成「未知模型」（text-only、无上下文、
     //    无图片能力），而且**不报错** —— 用户只会发现「图发不出去了」。
     const lower = trimmed.toLowerCase();
+    // 存量写法（main-auto 时代的持久化值）与新槽位等价，统一迁到新槽位。
     if (lower === '0')
-        return 'main-auto';
+        return MARVIS_SLOT_ID;
     if (lower === 'deepseek-v4-1-flash-261017')
-        return 'main-auto';
+        return MARVIS_SLOT_ID;
     if (lower === 'main-auto')
-        return 'main-auto';
+        return MARVIS_SLOT_ID;
+    // 新槽位自身也要大小写不敏感（否则手填大写会目录未命中）。
+    if (lower === MARVIS_SLOT_ID)
+        return MARVIS_SLOT_ID;
     return trimmed;
 }
 /** 从错误体里抽出人可读片段（禁止把整坨 JSON 抛给用户）。 */
@@ -125,6 +145,33 @@ function businessCodeOf(body) {
         // 非 JSON
     }
     return undefined;
+}
+/**
+ * 把 `marvis: HTTP 400 — {…}` 这类**包装过**的错误消息还原成上游原始响应体。
+ *
+ * ⚠️ 存在的理由：`streamVia()` 抛 `LlmError` 时把原文拼进了 message，而
+ * `classifyMarvisFailure()` 只能拿到 message —— 直接 `JSON.parse(message)`
+ * 必然失败（前缀 `marvis: HTTP …— ` 不是 JSON），业务码就丢了。
+ */
+export function marvisErrorBodyOf(message) {
+    const matched = /^marvis: HTTP \d{3} — ([\s\S]*)$/.exec(message);
+    return matched?.[1] ?? message;
+}
+/**
+ * 上游「参数类 400」里**瞬时抖动**的业务码（换号 / 重发能翻盘的那种）。
+ *
+ * ⚠️ 真机实证（2026-11-17）：同一个会话三次被
+ * `HTTP 400 {"code":3000101,"msg":"invalid parameter"}` 打断
+ * （09:39:56 / 09:44:00 / 09:49:28，都在前一步刚成功之后、约 1 秒即被拒），
+ * 事后**同一 body** 重放：11 个账号 11/11 全 200；同号连发 30 条 30/30 全 200。
+ * 即报文本身合法，这是上游侧的随机校验失败 —— 与「真的非法参数」在报文上
+ * 不可区分，只能靠「换号 + 重发」自救，绝不能像 `4130001` 那样一口咬死。
+ */
+const TRANSIENT_INVALID_PARAMETER_CODES = [3000101];
+/** 该错误是否属于「上游瞬时参数抖动」（值得换号重发）。 */
+export function isTransientMarvisInvalidParameter(message) {
+    const code = businessCodeOf(marvisErrorBodyOf(message));
+    return code !== undefined && TRANSIENT_INVALID_PARAMETER_CODES.includes(code);
 }
 /**
  * 把一次失败的 HTTP 响应归类为语义化错误。

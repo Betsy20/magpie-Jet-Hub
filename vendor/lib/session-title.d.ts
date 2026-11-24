@@ -144,8 +144,9 @@ export interface SessionTitleThinkingPlan {
  * 1. 非标题请求 → **逐字段原样返回**（保证普通对话零行为变化）；
  * 2. 标题请求且**关得掉**（模型声明了 `off`/`none` 档，或 `disableByOmission`
  *    为真）→ 下发「关闭思考」档、**预算不动**；
- * 3. 标题请求但**关不掉** → 保留原档位、把预算抬到
- *    {@link SESSION_TITLE_MIN_MAX_TOKENS}（只在原预算更小时抬，绝不调小）。
+ * 3. 标题请求但**关不掉** → 档位**降到最弱**的一档（2026-11-11 起；此前是
+ *    「保留原档位」），并把预算抬到 {@link SESSION_TITLE_MIN_MAX_TOKENS}
+ *    （只在原预算更小时抬，绝不调小）。
  *
  * @param input.purpose - `GenerateOptions.purpose`。
  * @param input.requestedEffort - 调用方给的档位（DSH 会把模型默认档注入这里）。

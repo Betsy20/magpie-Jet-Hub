@@ -102,7 +102,15 @@ function describeFailure(status, body) {
     }
     if (status === 429)
         return '请求过于频繁（HTTP 429），请稍后再试';
-    const text = body.trim().slice(0, 160);
+    /**
+     * ★★ **上游 body 必须先脱敏再截断**（正向审计 P1-1）。
+     *
+     * 这条是 `platformRequest` 的**唯一**错误出口 ⇒ 在它这里脱敏能一次覆盖
+     * 「领取 / 取题 / 换券」三处 HTTP 400 的 body，以及所有把它塞进
+     * `outcome.message` 与 `deps.warn` 的相邻分支（审计实测这些路径原先会
+     * 把凭据形态的值原样带到界面与日志）。
+     */
+    const text = redactBaizhiText(body).trim().slice(0, 160);
     return text.length > 0 ? `HTTP ${status}：${text}` : `HTTP ${status}`;
 }
 /** 解析平台返回的信封 `{code,message,data}`；`data` 缺失时返回原始对象。 */
@@ -112,6 +120,121 @@ function unwrapEnvelope(raw) {
     const record = raw;
     return 'data' in record ? record.data : raw;
 }
+/**
+ * **脱敏**一段上游报文，绝不回显凭据（本仓红线）。
+ *
+ * 判词来源：`src/qoder-web-usage.ts` 的「Cookie 是能登录官网的会话凭据：
+ * 绝不下发客户端、绝不写日志或错误消息」。这里把同一纪律用在**领取失败的回执**上：
+ * 报文来自上游，理论上不该含我们的凭据，但**「理论上」不能当作判据** ——
+ * 上游若把请求头回显进错误体（真实发生过的形态），我们就会把它带到用户界面上。
+ *
+ * 只做「模式脱敏」，不猜字段语义：宁可多打几个 `***`，也不让凭据漏出去。
+ */
+export function redactBaizhiText(text) {
+    /**
+     * ⚠️ **顺序与词表都有讲究**（2026-11-21 对抗审计实测 8/10 形态漏，全修在此）。
+     *
+     * ## 为什么 `Token` **不**在认证方案词表里
+     *
+     * 我把 `Token` 当认证方案加进去（想覆盖 `Token xxx`），结果**撞上字段名**：
+     * `token = FAKE` 被方案规则吃成 `token ***`，**值原样留在后面** —— 这是我
+     * 修 A③ 时引入的**新回归**（旧版反而能打码）。⇒ 方案只认 `Bearer|Basic|Digest`。
+     *
+     * ## 分隔符要认全角
+     *
+     * 中文报障常带全角 `＝`/`：`（`token＝FAKE`），只认 ASCII 会整条漏。
+     */
+    return text
+        // ① 认证方案 + 令牌（方案后可跟空白**或冒号** —— `Bearer: xxx` 也是常见写法）
+        .replace(/\b(Bearer|Basic|Digest)[:\s=]+[A-Za-z0-9._~+/=-]+/gi, '$1 ***')
+        // ② Cookie 专名（含全角分隔符）
+        .replace(/(?:baizhi_session|sl-session)\s*[=:：＝]\s*[^;,\s]+/gi, 'cookie=***')
+        /**
+         * ③ 通用键值：`key=v` / `key: v` / `"key":"v"` / 全角分隔 / **多值**。
+         *
+         * - 词表覆盖三类写法（`api_key` / `api-key` / `apikey`）与常见敏感键名，
+         *   并补审计点名的 `session_id` / `sid` / `client_secret` / `password`；
+         * - 值用 `[^"'}\s]+`（**含逗号**）⇒ `token=a,b` 的两段一起吃掉
+         *   （旧版只吃第一段，第二值漏；这是审计 D 组的实测格）；
+         * - 值遇 `"`/`'`/`}`/空白即停 ⇒ 不会跨 JSON 字段误吃。
+         */
+        .replace(/((?:x-)?api[-_]?key|secret[-_]?key|client[-_]?secret|session(?:[-_]?(?:id|cookie|key|token))?|access[-_]?token|refresh[-_]?token|authorization|password|passwd|cookie|token|secret|sid)["']?\s*[=:：＝]\s*["']?[^"'}\s]+/gi, '$1=***')
+        // ④ 裸 `sk-…`（上游 key 的常见前缀，不带任何字段名）
+        .replace(/\bsk-[A-Za-z0-9._-]{8,}/g, 'sk-***');
+}
+/**
+ * 从领取响应里取**允许公开**的失败原因（issue #123 第 3 项）。
+ *
+ * ## 为什么要做
+ *
+ * `claimed:false` 原先只判布尔、**上游整个响应体被丢掉** ⇒ 报障时没人知道
+ * 服务端到底说了什么（「需要图形验证」？账号级风控？IP 限流？），
+ * issue 里「服务端具体拒发条件尚未确认」就是这么来的。
+ *
+ * ## 什么算「允许公开」
+ *
+ * 只认**保守白名单键**：`code` / `error_code` / `reason` / `message` / `msg` / `detail`。
+ * 既不猜别的字段，也不把整个响应体 toString 出去（那会把 `data` 里可能存在的
+ * 账号信息一并带走）。取不到任何一项就返回 `undefined`，由调用方写「原因未知」。
+ *
+ * ⚠️ 结果**先脱敏再截断**（顺序不能反：先截断可能把 `token=abc…` 切成
+ * `token=ab`，脱敏正则就匹配不上了）。
+ *
+ * @param raw - `claimResult.data`（上游原始响应，可能带 `{data: …}` 信封）。
+ * @returns 形如 `code=40012；message=需要完成人机验证` 的单行文本；无可用字段时 `undefined`。
+ */
+export function publicClaimReason(raw) {
+    if (raw === null || typeof raw !== 'object')
+        return undefined;
+    const record = raw;
+    // 上游信封可能是 `{ data: {...} }`，也可能是直接对象。
+    const inner = record.data !== null && typeof record.data === 'object' && !Array.isArray(record.data)
+        ? record.data
+        : record;
+    /**
+     * ★ **外层信封的字段只在「信封本身是失败」时才取**（正向审计 P1-2）。
+     *
+     * 真实上游回 `{ code: 0, message: 'success', data: { claimed: false } }` ——
+     * 把外层 `message` 当原因会写出**「上游未发放（message=success）」**这种自相
+     * 矛盾的话。我第一版就是这个行为，而**测试 fixture 恰好省掉了顶层 `message`**
+     * ⇒ 用例是假绿（审计用真实信封形状打出来的）。
+     */
+    const outerCode = record.code;
+    const envelopeOk = outerCode === 0 || outerCode === '0';
+    const parts = [];
+    for (const key of ['code', 'error_code', 'reason', 'message', 'msg', 'detail']) {
+        const value = inner[key] ?? (envelopeOk ? undefined : record[key]);
+        if (typeof value !== 'string' && typeof value !== 'number')
+            continue;
+        /**
+         * ⚠️ **`code: 0` 是成功码，不是失败原因**。
+         * 本仓的领取响应是 `{ code: 0, data: { claimed: false } }` —— 直接把
+         * `code=0` 当原因会写出「上游未发放（code=0）」这种自相矛盾的话。
+         * 数字 0 与字符串 `'0'` 都跳过（上游两种都出现过）。
+         */
+        if (value === 0 || value === '0')
+            continue;
+        const text = String(value).trim();
+        if (text.length === 0)
+            continue;
+        parts.push(`${key}=${text}`);
+    }
+    if (parts.length === 0)
+        return undefined;
+    return redactBaizhiText(parts.join('；')).slice(0, MAX_PUBLIC_REASON_CHARS);
+}
+/**
+ * 失败文案里的**官网入口**（issue #123 第 5 项）。
+ *
+ * 报障者的实测：Jet Hub 领取失败后在官网点「每日领积分」会弹**图形验证**，
+ * 人工完成即到账 ⇒ 用户需要的不是「稍后重试」，而是「去哪验证」。
+ * 用 `platformBaseUrl + '/console/'` 拼，避免再写一份主机名字面量（会漂移）。
+ */
+function claimConsoleHint(product) {
+    return `请到官网 ${product.platformBaseUrl}/console/ 完成验证（如需图形验证）后刷新钱包`;
+}
+/** 公开原因的最大长度（够看清原因，又不至于把整段 HTML 塞进面板）。 */
+const MAX_PUBLIC_REASON_CHARS = 200;
 /** 安全读数字。 */
 function readNumber(source, key) {
     if (source === undefined)
@@ -572,18 +695,28 @@ export async function claimBaizhiDailyCheckin(credential, product = BAIZHI, deps
             if (after.ok && after.wallet.dailyClaimed) {
                 return { kind: 'already-claimed', message: '今天已经领取过每日积分' };
             }
+            /**
+             * ★ **把上游的拒发原因透出来**（issue #123 第 3 项）。
+             *
+             * 原先这里只判 `claimed` 布尔、响应体整个丢掉 ⇒ issue 里那句
+             * 「服务端具体拒发条件尚未确认」正是这么来的。现在按**保守白名单**
+             * （`code`/`reason`/`message`…）取一行，脱敏后截断，取不到就写「原因未知」。
+             */
+            const reason = publicClaimReason(claimResult.data);
+            const reasonText = reason === undefined ? '原因未知' : reason;
+            const hint = claimConsoleHint(product);
             if (!after.ok) {
                 // 复核本身失败 ⇒ 不能断言「未发放」；把不确定如实说出来，让用户刷新核对。
                 return {
                     kind: 'failed',
                     code: -1,
-                    message: `领取结果无法确认（复核钱包失败：${after.error}）—— 请刷新余额核对是否到账`,
+                    message: `领取结果无法确认（复核钱包失败：${after.error}）—— 上游回执：${reasonText}；${hint}`,
                 };
             }
             return {
                 kind: 'failed',
                 code: -1,
-                message: '领取接口返回 claimed=false，但钱包仍显示未领取 —— 上游未发放，请稍后重试',
+                message: `领取接口返回 claimed=false，但钱包仍显示未领取 —— 上游未发放（${reasonText}）；${hint}`,
             };
         }
         if (claimed === undefined) {

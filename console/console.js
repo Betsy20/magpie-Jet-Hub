@@ -310,7 +310,7 @@ function formatBaizhiPoolSplit(packages) {
  *    （那个函数 `:1007` 确实 `return results`，是**收集器**）包成
  *    `{ ok: true, value: { accounts: values, windowDays? } }`。
  *    ⚠️ 按裸数组取会让循环体 0 次执行 ⇒ 每张卡都显示「—」，
- *    而且**零测试覆盖**（29 个测试全绿也发现不了）。
+ *    而且**零测试覆盖**（38 个测试全绿也发现不了）。
  * 2. **`expiredTotal` 不是「临期」**：它是「**已经失效、不可用**」的额度
  *    （见 `credits.d.ts:331-336`），UI 该单独提示「另有 N 已失效」。
  *    「临期」是另一个字段 `expiringTotal` —— 「`total` 中即将到期的额度」
@@ -1118,7 +1118,7 @@ async function rotateFingerprint(accountId) {
   const v = await rpc('opencode.rotateFingerprint', { accountId })
   // ⚠ **不**在这里 `await loadAccounts()`（2026-11-11 审计发现）：
   //   ① 外层 `onAccAction` 已经统一重读过一遍 ⇒ 这里再读是**双倍** RPC，
-  //      而 `credits.balances` 要为**每个账号**发一次上游请求，29 家 × N 个账号；
+  //      而 `credits.balances` 要为**每个账号**发一次上游请求，32 家 × N 个账号；
   //   ② 更要命的是 `loadAccounts()` 开头的 `say('#accMsg', '读取中…')` 会立刻
   //      把这条「指纹代次 → N」覆盖掉 —— 它是用户点「换指纹」后**唯一**的结果
   //      反馈（卡片上那行「指纹代次」只是数字悄悄变了，用户不会注意到）。
@@ -1855,17 +1855,31 @@ async function loadSettings() {
     (value) => ({ ok: true, value }),
     (error) => ({ ok: false, value: {}, error: String(error?.message ?? error) }),
   )
-  const [ns, pe, xff, sb] = await Promise.all([
+  const [ns, pe, xff, sb, ao, rd, dk, mk, zk] = await Promise.all([
     grab('nativeSearch.getEnabled'),
     grab('panelEntry.get'),
     grab('minimax.getXff'),
     grab('sessionBalance.getEnabled'),
+    // 2026-11-24 上游新增的五个设置项。四个读端点返回的形状都是 `{ enabled }`：
+    // `loginPreferences.getEnabled` / `reasoningDefault.getEnabled` 是全局偏好文档，
+    // 三个 `*.autoCheckin` 省略 `enabled` 就是只读（给了非布尔会被上游拒绝，
+    // 所以这里只读、写入一律走 `saveSetting` 传真布尔）。
+    grab('loginPreferences.getEnabled'),
+    grab('reasoningDefault.getEnabled'),
+    grab('doubao.autoCheckin'),
+    grab('modelscope.autoCheckin'),
+    grab('zcode.autoCheckin'),
   ])
   $('#setSearch').checked = ns.value?.enabled === true
   $('#setSession').checked = sb.value?.enabled === true
+  $('#setAutoOpen').checked = ao.value?.enabled === true
+  $('#setReasoning').checked = rd.value?.enabled === true
+  $('#setDoubao').checked = dk.value?.enabled === true
+  $('#setModelScope').checked = mk.value?.enabled === true
+  $('#setZcode').checked = zk.value?.enabled === true
   if (pe.value?.entry) $('#setPanel').value = pe.value.entry
   $('#setXff').value = xff.value?.xff ?? ''
-  const failed = [ns, pe, xff, sb].filter((r) => !r.ok)
+  const failed = [ns, pe, xff, sb, ao, rd, dk, mk, zk].filter((r) => !r.ok)
   if (failed.length > 0) {
     say('#setMsg', `${failed.length} 项没读出来（${failed[0].error}），下面显示的可能不是真实状态`, 'err')
   } else {
@@ -1882,6 +1896,14 @@ async function saveSetting(what, value) {
     if (what === 'panel') await rpc('panelEntry.set', { entry: value })
     if (what === 'xff') await rpc('minimax.setXff', { xff: value })
     if (what === 'session') await rpc('sessionBalance.setEnabled', { enabled: value })
+    // 2026-11-24 上游新增的五个开关。两个全局偏好用 `setEnabled`，三个按家的签到
+    // 开关是同一个方法读写两用（传 `enabled` 即写），**写入不会立刻跑一轮** ——
+    // 上游明确「改的是下一轮参不参加」，所以这里也不假装触发领取。
+    if (what === 'autoOpen') await rpc('loginPreferences.setEnabled', { enabled: value })
+    if (what === 'reasoning') await rpc('reasoningDefault.setEnabled', { enabled: value })
+    if (what === 'doubao') await rpc('doubao.autoCheckin', { enabled: value })
+    if (what === 'modelscope') await rpc('modelscope.autoCheckin', { enabled: value })
+    if (what === 'zcode') await rpc('zcode.autoCheckin', { enabled: value })
     say('#setMsg', '已保存', 'ok')
   } catch (e) {
     // 落盘失败就把控件拨回**真实**状态（同 `saveStrictOrder` 的做法）——
@@ -2097,7 +2119,9 @@ function hueOf(id) {
  * 侧栏的供应商列表。点一家 = 切到它的账号池。
  *
  * 图标来自 `icons.js` 的 `window.PROVIDER_ICONS`（上游 `provider-icons.js` 的
- * 29 个 data URI）。没登记的那几家退回「首字 + 色相」，不是空白。
+ * data URI，**33 个键** —— 含不上侧栏的 `aggregate`，2026-11-24 新进的
+ * `doubao` / `agnescode` / `agnescodeintl` 三家也已补齐）。没登记的退回
+ * 「首字 + 色相」，不是空白 —— 将来再加渠道时兜底仍然有效。
  */
 function renderProviderList() {
   $('#providerList').innerHTML = orderedProviders()
@@ -2345,6 +2369,11 @@ async function boot() {
   $('#setPanel').addEventListener('change', (e) => saveSetting('panel', e.target.value))
   $('#setXff').addEventListener('change', (e) => saveSetting('xff', e.target.value.trim()))
   $('#setSession').addEventListener('change', (e) => saveSetting('session', e.target.checked))
+  $('#setAutoOpen').addEventListener('change', (e) => saveSetting('autoOpen', e.target.checked))
+  $('#setReasoning').addEventListener('change', (e) => saveSetting('reasoning', e.target.checked))
+  $('#setDoubao').addEventListener('change', (e) => saveSetting('doubao', e.target.checked))
+  $('#setModelScope').addEventListener('change', (e) => saveSetting('modelscope', e.target.checked))
+  $('#setZcode').addEventListener('change', (e) => saveSetting('zcode', e.target.checked))
   $('#capDemand').addEventListener('click', (e) => captchaAction(e.currentTarget, 'demand'))
   $('#capCarrier').addEventListener('click', (e) => captchaAction(e.currentTarget, 'carrier'))
   $('#capContribute').addEventListener('click', (e) => captchaAction(e.currentTarget, 'contribute'))

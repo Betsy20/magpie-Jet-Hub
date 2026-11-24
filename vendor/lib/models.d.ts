@@ -74,6 +74,20 @@ export interface RemoteModel {
      */
     contextWindow?: number;
     /**
+     * 模型介绍（上游 `model_desc` 原样，如
+     * `【限时体验】许愿式编程一键成真`）；取不到时为 `undefined`。
+     *
+     * ⚠️ **只透传、不加工**：上游把促销性质的文案（截图里那些 `【限时体验】…`）
+     * 直接烘焙在 `model_desc` 里，本插件**不**据此推断活动窗口（那需要时间字段，
+     * `model_desc` 一个都没有）。裁剪 / 改写同样禁止 —— 文案是上游的，
+     * 我们只负责别把它丢掉。
+     *
+     * ⚠️ 为什么不拼进 `name`：`name` 已经带 ` · x倍率`（见 `toCatalogEntry`），
+     * 再拼一句 60 字的介绍会撑爆选择器主行。宿主 `LlmModelInfo.description`
+     * 是它该去的地方（见 `catalogEntry` 与本字段的 2026-11-17 取证）。
+     */
+    description?: string;
+    /**
      * ⚠️⚠️ **刻意移除**（2026-10-30 第二轮审计 D-4 修）：AgentCenter 的
      * `max_tokens`（单次输出上限）**不再**进 `RemoteModel`。
      *
@@ -322,4 +336,21 @@ export declare function setBenefitMemoryCache(ids: string[] | undefined): void;
  * 一次。因此**没有静态表也不会卡死新模型**，只是首次多一轮往返。
  */
 export declare function isCodeArtsBenefitModelKnown(model: string): boolean;
+/**
+ * benefit（免费额度）模型 id 集合的**三态**读取（`undefined` = 未确认）。
+ *
+ * ## 为什么必须能区分「未确认」与「确认无」
+ *
+ * {@link isCodeArtsBenefitModelKnown} 对「未确认」与「确认无」都返回 `false` ——
+ * 那个二分对**要不要带头**是正确的默认（不带，靠自愈补头），但**不能**用来
+ * 给用户下判断。设置页要标「该模型需要福利包」时，若拿 `false` 当判据，
+ * 冷缓存（还没拉到远端目录）下**每一条模型都会被标上**，用户会以为全站模型
+ * 都不可用 —— 与 `dead-model-store.ts` 里「拿读不到反推已下架」是同一条禁令。
+ *
+ * ⇒ 展示层的判据必须是本函数（三态），门禁层才用二分的那两个。
+ *
+ * ⚠️ 两个函数**共用同一份内存/磁盘缓存**（本函数是唯一读取口），不得各读一份：
+ * 两套判据会在「刚拉完远端目录」的那一瞬间分叉。
+ */
+export declare function codeArtsBenefitModelIds(): readonly string[] | undefined;
 //# sourceMappingURL=models.d.ts.map

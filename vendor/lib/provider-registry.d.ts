@@ -47,15 +47,27 @@ export interface CreditsCapability {
      * 能否每日签到领取（决定是否渲染「一键领取积分」）。
      *
      * ⚠️ **省略 = false**，且「省略」是有语义的、不是偷懒 —— 它表示
-     * 「该渠道**没有可调用的签到端点**」。目前只有 `raccoon` 这样登记：
-     * 实测「每日 300 积分」是**服务端按日自动发放**的（账单
-     * `biz_type: 'daily_grant'`），根本没有签到接口可调；
+     * 「该渠道**没有可调用的签到端点**」。
+     *
+     * ⚠️⚠️ **本表当前唯一省略它的渠道是 `marvis`**（`credits: { balance: true }`，
+     * 见该条目）—— 它的理由是「令牌额度由服务端每日发放，没有手动领取动作」。
+     * 其余不支持的渠道都写了**显式** `dailyCheckin: false`（例如 `cline`），
+     * 支持的都是**显式** `dailyCheckin: true`（随实测变化，别在这里写死名单）。
+     *
+     * ⚠️ 这条注释曾经写错过（PR #88 初版说「`cline` / `workbuddy`（国际版）这样
+     * 登记」）—— 当时 `cline` 已是显式 `false`、`workbuddy` 已是显式 `true`，
+     * 三处文字零处与代码相符（对抗审计 F6）。写这类「谁是这样登记的」句子时，
+     * **必须回表逐个核**，别凭记忆。
+     *
      * 若强行写成 `dailyCheckin: false` 也能跑，但那样就**看不出作者是否想过**
-     *（「忘了登记」与「确认没有端点」会长得一模一样）。故这里**刻意允许省略**，
-     * 让 raccoon 那条的 `credits` 保持「缺失即缺失」。
+     *（「忘了登记」与「确认没有端点」会长得一模一样）。故这里**刻意允许省略**。
      *
      * ⚠️ 判据一律是 `=== true`（见客户端 `supportsDailyCheckin`），
      * 故 `undefined` 与 `false` 行为**完全一致**，省略不会引入任何功能差异。
+     *
+     * ⚠️⚠️ **不要照抄「某渠道没有签到端点」的历史结论**：raccoon 那条曾在
+     * 2026-11-15 被真实账号推翻（触发器在**办公端** `setting_info`，不在 points
+     * 前缀下）。判「有没有端点」必须按**协议面**逐个探，别只翻一个前缀就下结论。
      */
     readonly dailyCheckin?: boolean;
     /** 是否有**一次性**新手/登录奖励（Loomy 新手任务 / raccoon 登录奖励）。 */
@@ -69,7 +81,8 @@ export interface CreditsCapability {
  * ⚠️ **可选项的默认语义不统一，这是刻意的**（照搬既有各表的约定，见各字段注释）：
  * - `credits.balance` **必填**（无默认，强制想清楚）；
  * - `credits.dailyCheckin` **可省略，省略 = false** —— 但省略承载语义
- *   「该渠道没有可调用的签到端点」（目前只有 raccoon 如此，见该字段注释）；
+ *   「该渠道没有可调用的签到端点」（本表**唯一**省略它的是 `marvis`；
+ *   `cline` 是显式 `false`、支持签到的各家是显式 `true`，见该字段注释）；
  * - `rateLimit` 省略 = **true**（限流按钮是既有 UI，默认关闭会让新 provider
  *   凭空少按钮 —— 可见的功能回退）；
  * - `accountTest` / `permanentLock` / `creditPackages` / `autoCheckinExcluded`

@@ -86,6 +86,61 @@ export interface LobsteraiRemoteModel {
      * 而 buddy 是字符串 `"x0.05"`。不要共用解析函数。
      */
     costMultiplier?: number;
+    /**
+     * 限免活动**已声明**（`data.limitedFree`，不论此刻开不开）。
+     *
+     * ⚠️ 与 {@link limitedFreeActive} **不是同义词**（官方客户端 asar @32509033 /
+     * @32483752 分得很清）：本字段只决定「这条模型有活动」，客户端拿它配起止算
+     * 「下一次刷新时刻」；徽标画不画看的是 `limitedFreeActive`。
+     */
+    limitedFree?: boolean;
+    /** 限免**此刻生效**（`data.limitedFreeActive`，取目录那一刻的快照）。 */
+    limitedFreeActive?: boolean;
+    /**
+     * 限免起点（`data.limitedFreeStartAt` → epoch 毫秒）。
+     *
+     * ⚠️ 上游是**字符串**（客户端直接 `Date.parse` 它，@32483752）；本层折成毫秒，
+     * 下游不再二次解析。实测 2026-11-17 是 `null`（21/21 无活动），真实格式
+     * **尚未取证** ⇒ 只接受 `Date.parse` 能吃的字符串，数字/对象一律按「没给」。
+     */
+    limitedFreeStartMs?: number;
+    /** 限免终点（`data.limitedFreeEndAt` → epoch 毫秒；同上，格式未取证）。 */
+    limitedFreeEndMs?: number;
+    /**
+     * 上游**下发了**起止，但至少有一个读不懂（非空字符串以外的一切、或 `Date.parse`
+     * 出 NaN）。
+     *
+     * ⚠️ 必须与「没有起止」分开记：前者是「上游说了有窗口，我们不知道是几点」，
+     * 后者是「上游只说此刻免费」。合并的后果是**只解析到起点、终点读丢时窗口变成
+     * 无上界** —— 活动结束后徽标永远挂着，正是 issue #101 的红线方向
+     * （PR #104 的 fail-closed 判据也是为这一格立的）。
+     */
+    limitedFreeWindowUnreadable?: true;
+    /**
+     * **当前账号能否用这个模型**（`data.accessible`）。
+     *
+     * ⚠️ 这是**账号级**的事实，不是目录级：实测同一份目录里
+     * `qwen4-max` 对未订阅账号是 `false`，而官方客户端（已订阅账号）照常显示它、
+     * 也不画任何标记（用户截图 2026-11-17 佐证）⇒ **不得**据它把模型从目录里
+     * 隐藏（那会让「订阅后能多用什么」变成不可见，恰恰是促订阅的反面）。
+     */
+    accessible?: boolean;
+    /**
+     * 订阅专属标记（`data.subscriptionPriority`）。
+     *
+     * 与 {@link accessible} 同批下发，实测两者在 `subscriptionPriority:true` 的
+     * 条目上同时为 `accessible:false`（`qwen4-max` / `kimi-k3.1-pro-highspeed`）。
+     * 单独用它**不足以**判定不可用（订阅账号拿到的可能是 `accessible:true`
+     * + `subscriptionPriority:true`），故只用于给 `accessible:false` 挑原因文案。
+     */
+    subscriptionPriority?: boolean;
+    /**
+     * 不可用的原因原文（`data.restrictionHint`，如「该模型仅限有效订阅用户使用」）。
+     *
+     * ⚠️ 这是**整句营销文案**，直接塞进展示名会撑爆模型选择器 ⇒ 展示名只取
+     * 短标签（见 {@link restrictionLabelFor}），整句进 `description`。
+     */
+    restrictionHint?: string;
     /** 是否接受图片输入。 */
     supportsImage?: boolean;
     /** 是否支持思考（无 `thinkingConfig` 时无可选档位，仅作展示参考）。 */
@@ -154,7 +209,7 @@ export declare function buildLobsteraiModelsQuery(credential: LobsteraiCredentia
 export interface LobsteraiAdapterOptions {
     credentialRef: CredentialRef;
     /** 从凭据存储解析凭据。 */
-    resolveCredential: (modelId?: string) => Promise<LobsteraiCredential | undefined>;
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<LobsteraiCredential | undefined>;
     /** 静默续期凭据。 */
     refresh: () => Promise<void>;
     /** 动态拉取远端模型列表；失败时回退到 `product.fallbackModels`。 */
@@ -192,10 +247,13 @@ export interface LobsteraiAdapterOptions {
     /**
      * 时钟（注入以便单测推进目录 TTL；缺省 `Date.now`）。
      *
-     * ⚠️ 只用于**目录新鲜度**（`ensureRemoteModels` 的 `isCatalogFresh`），
-     *    不用于超时/退避计时 —— 那些仍走真实时钟。
-     *    ⚠️ **buddy 是例外**：它的 `catalogGate` 也吃这个时钟（冷却与
-     *    「距上次尝试 ≥10 秒」判定都走它），所以别把本行当成全仓库通用口径。
+     * 三个消费点（**同一个钟**，别只改一处）：① 目录新鲜度
+     * （`ensureRemoteModels` 的 `isCatalogFreshFor`）；② 限免徽标的「此刻」
+     * （`toCatalogEntry` 每条目读一次）；③ `nextPromotionEdgeAt` 的起算时刻。
+     *
+     * ⚠️ **不用于超时/退避计时** —— 那些仍走真实时钟（与 buddy 不同：它的
+     * `catalogGate` 也吃这个时钟，冷却与「距上次尝试 ≥10 秒」都算它）。
+     * ⚠️ ②③ 必须同源：两处各读真实时钟，单测里会给出两个「现在」。
      */
     now?: () => number;
     /**
@@ -239,6 +297,14 @@ export declare class LobsteraiAdapter extends LlmAdapter {
     private remoteMeta;
     /** 产品级兜底模型索引（`product.fallbackModels` 的 id → 条目）。 */
     private readonly fallbackIndex;
+    /**
+     * 限免活动候选表（id → 未决候选）。
+     *
+     * ⚠️ 存的是**未决候选**而不是「此刻的徽标」：徽标必须在 `toCatalogEntry`
+     * **现算**（issue #101 的装配时刻判据），否则宿主缓存一次目录读取之后，
+     * 活动结束的徽标会挂到进程退出为止。见 docs/agent-notes/promo-badge-issue-101.md。
+     */
+    private promotionIndex;
     constructor(options: LobsteraiAdapterOptions);
     /**
      * 描述本适配器拥有的 provider 路由。
@@ -339,6 +405,18 @@ export declare class LobsteraiAdapter extends LlmAdapter {
      *    `level`** —— 两者来源不同，是本家最容易搞错的地方（见 `reasoningFor`）。
      */
     private toCatalogEntry;
+    /**
+     * 候选表里下一个会改变徽标的时刻（epoch 毫秒），没有则 undefined。
+     *
+     * 供全局活动边界播报器排程（`src/index.ts` 的 `edgeSources`）。限免的起止是
+     * **绝对时刻**（上游给 ISO 字符串），客户端的做法正是「算最近边界 + `setTimeout`
+     * 重拉一次」（asar @32483752）。没有这条，活动一结束徽标最多再挂一个后台刷新
+     * 周期（20 分钟）—— 那是 issue #101 点名的「活动过期而用户仍按优惠期选择」。
+     *
+     * ⚠️ 时钟与 `toCatalogEntry` **同源**（同一个 `options.now`），否则单测里会出现
+     * 两个「现在」。⚠️ **零网络**：只读内存里的候选表。
+     */
+    nextPromotionEdgeAt(nowMs?: number): number | undefined;
     private loadCatalogEntries;
     /**
      * 同步视图（`listAllModels` 用）。
@@ -388,6 +466,22 @@ export declare class LobsteraiAdapter extends LlmAdapter {
      */
     private consumeSse;
 }
+/**
+ * 远端条目的「不可用」短标签（`undefined` = 当前账号可用）。
+ *
+ * 判据来源只有 `accessible === false` 这一格 —— **不解析 `restrictionHint` 的中文
+ * 文案**（那是营销文案，改一个字判据就失效）。原因文案的挑选才用
+ * `subscriptionPriority`：这样「订阅专享」与「其它不可用」不会混成一句话，
+ * 也不会对已订阅账号误报「需订阅」（那种账号拿到的是 `accessible:true`）。
+ *
+ * ⚠️ `subscriptionPriority === true ⇒ '需订阅'` 是**共现观察，不是独立取证**
+ * （PR #113 对抗审计 P1-1）：实测样本只有 21 条，其中 2 条受限模型恰好同时
+ * `subscriptionPriority:true`，而官方 asar 里没有这条映射。若上游该字段的真实
+ * 语义是「优先展示」而不是「订阅专享」，这句标签就整体错。当前保留，理由：
+ * ①只在 `accessible === false` 时才用到它（不会误标可用模型）；②`'不可用'`
+ * 兜底仍在。取证方式是把**已订阅**账号的同一份目录拿来对比这两个字段。
+ */
+export declare function restrictionLabelFor(model: LobsteraiRemoteModel): string | undefined;
 /**
  * 在 `ctx.llm` 上注册 LobsterAI provider 路由与适配器。
  *

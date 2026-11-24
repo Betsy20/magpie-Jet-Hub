@@ -1,0 +1,109 @@
+/**
+ * CodeArts 账号的**展示名**：从凭据里的 `refresh_token` 解出真实 IAM 用户名。
+ *
+ * ## 为什么需要它（真实缺陷）
+ *
+ * 面板上的 CodeArts 卡片只会显示 `codearts-xxxxxxxx`（池 id 的前 8 位十六进制），
+ * 多个账号排在一起**无法区分谁是谁** —— 用户报障原话：「登录的帐号获取不到用户名，
+ * 只显示一些 hash，区分不了帐号」。
+ *
+ * 根因不是「上游没下发名字」，而是**两处一起丢**：
+ *
+ * | 环节 | 事实 |
+ * |---|---|
+ * | 新式 IAM OAuth 的凭据组装（`oauth.ts` 的 `credentialFromTokenResponse`） | 只映射 `credentials.*` / `refresh_token` / PKCE / DPoP，**不含任何用户字段** |
+ * | 登录后写昵称（`jet-hub-rpc.ts` 的 codearts 分支） | `credential.user_name ?? id` ⇒ 新式凭据没有 `user_name` ⇒ **恒回落池 id** |
+ * | 静默续期（`service.ts` 的 `refreshCredential`） | 只原样保留**已存在**的 `domain_id`/`user_id`/`user_name` ⇒ 空的一直是空 |
+ *
+ * 而名字其实**一直在凭据里**：华为 STS 的 `refresh_token` 是 JWT，载荷带一个
+ * **内嵌 base64 JSON** 字段 `user_profile`：
+ *
+ * ```jsonc
+ * // refresh_token 的 payload（节选）
+ * { "exp": 1796232810, "type": "refreshToken",
+ *   "user_profile": "<base64 JSON>",
+ *   "client_id": "codearts-agent", "cnf": { "jkt": "…" } }
+ *
+ * // 解出来的 user_profile
+ * { "account_id": "01a19d50056f7354a3a13363256be613",
+ *   "account_name": "alice",
+ *   "principal_is_root_user": true,
+ *   "principal_urn": "iam::01a19d50…:user:alice" }
+ * ```
+ *
+ * ## 为什么走 JWT 而不是调接口（2026-11-12 实测排除）
+ *
+ * 名字**没有**任何可用的在线端点 —— 用真实未过期凭据逐个只读 GET：
+ *
+ * | 端点 | 结果 |
+ * |---|---|
+ * | `GET /snap-manager/v1/statistics/plugin` | 200，但报文键全集是 `metrics` / `model_metrics` / `start_date` / `end_date` / `package` / `show` / `is_teadmin` / `is_white_list` —— **零用户名字段** |
+ * | `GET /snap-manager/v1/user/info`、`/user/profile` | 404 `APIG.0101`（API 未发布） |
+ * | `GET /v1/user/info`、`opengw…/api/v1/user/info` | 404 `APIG.0101` |
+ * | `GET /v1/model/builtin` | 200，只有模型目录 |
+ * | IAM `v3.0/OS-USER/users` | **403**（临时 AK/SK + security_token 没有 IAM 读权限） |
+ *
+ * ⇒ 解 JWT 是唯一可行路径，而且**优于**任何网络方案：零请求、零额度、无地域/代理
+ * 依赖、无失败面，也不会像 userinfo 那样在凭据过期时静默退化成默认名。
+ *
+ * ## 三条纪律
+ *
+ * 1. **绝不编造**：解不出就返回 `undefined`（调用方回落池 id，与改动前逐字节一致），
+ *    绝不猜、绝不拿 `access_key_id` 之类的哈希当名字；
+ * 2. **纯函数、零 IO**：不读盘、不发请求、不碰 `ctx` —— 这样它才能在 RPC 热路径
+ *    （`account.list`）里逐账号调用，也才能被单测直接驱动；
+ * 3. **不打印 token**：本模块**不产生任何日志**；调用方即便要记，也只许记「解不出」
+ *    这个事实与账号 id，不得打印载荷片段。
+ */
+import type { CodeArtsCredential } from './types.js';
+/** 从凭据里解出的账号身份。 */
+export interface CodeArtsIdentity {
+    /**
+     * 展示用名字（IAM 用户名）。
+     *
+     * 子用户场景（`principal_urn` 末段与 `account_name` 不同）是
+     * `<子用户名>@<账号名>`；root 账号（本机 9 个实测全是）就是裸用户名。
+     *
+     * **取不到时不设该键** —— 与 `undefined` 语义相同，调用方一律不得编造。
+     */
+    name?: string;
+    /**
+     * IAM 账号 id（`user_profile.account_id`）。
+     *
+     * ⚠️ 这是本家**唯一**跨续期稳定的账号标识：`access_key_id` 是临时 AK、
+     * 每次续期都会变（`src/backup.ts` 的 `IDENTITY_FIELDS` 拿它当判重键是另一件事，
+     * 见那里的注释）。本模块**只解出来备用、不写任何地方**。
+     */
+    accountId?: string;
+}
+/** 凭据里本模块用得到的字段（只读、可只传一部分）。 */
+export type CodeArtsIdentitySource = Pick<CodeArtsCredential, 'refresh_token'> & {
+    /** 旧 ticket 流程写入的用户名；新式 OAuth 凭据没有这个字段。 */
+    user_name?: string;
+};
+/**
+ * 解出账号身份（名字 + IAM 账号 id）。
+ *
+ * 取值顺序（**固定，任一步失败即回退，绝不编造**）：
+ *
+ * 1. `refresh_token` → `user_profile` → `principal_urn` 末段（**最具体**：子用户时
+ *    这里是子用户名，而 `account_name` 是租户/账号名）；
+ * 2. 退 `user_profile.account_name`；
+ * 3. 两者都有且**不同** ⇒ 子用户走 `<urn 末段>@<account_name>`（消歧）；
+ *    相同或者 `principal_is_root_user === true`（主账号，名字唯一、无须消歧）
+ *    ⇒ 裸名，**不加任何后缀**（本机 9 个真实账号全走这一格，观感不变）；
+ * 4. 没有 `refresh_token` / 不是 JWT（老 ticket 凭据）⇒ 退凭据顶层 `user_name`；
+ * 5. 全无 ⇒ 返回空对象（`name` 不设键）。
+ *
+ * @param credential 已解析的凭据（或其子集）。
+ */
+export declare function codeartsIdentity(credential: CodeArtsIdentitySource | undefined): CodeArtsIdentity;
+/**
+ * 展示名的便捷出口（`codeartsIdentity().name`）。
+ *
+ * 单独导出是为了让调用点读起来就是「我要一个名字」，而不是
+ * `codeartsIdentity(c).name`（后者容易被误写成 `?? c.user_name ?? id` 那种
+ * 「解不出就编造」的链 —— 编造的正确落点是**调用方**回落池 id，不是本模块）。
+ */
+export declare function codeartsAccountName(credential: CodeArtsIdentitySource | undefined): string | undefined;
+//# sourceMappingURL=codearts-identity.d.ts.map

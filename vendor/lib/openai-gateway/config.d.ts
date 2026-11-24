@@ -107,6 +107,7 @@ export declare function isLoopbackHost(host: string): boolean;
  * 「这个开关此刻不生效」，否则又是一个「打开了却没反应」。
  */
 export declare function isGatewayHostFromEnv(env?: NodeJS.ProcessEnv): boolean;
+export declare function gatewayPublicUrl(env: Readonly<Record<string, string | undefined>>): string | null;
 /** {@link resolveGatewayConfig} 的可选项。 */
 export interface ResolveGatewayConfigOptions {
     /**

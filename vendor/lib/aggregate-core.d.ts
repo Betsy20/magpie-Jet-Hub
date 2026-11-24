@@ -154,4 +154,54 @@ export interface RankedCandidate {
  * （每次请求），原地排序会让顺序随调用次数漂移。
  */
 export declare function rankCandidates(candidates: readonly RankedCandidate[], manualRankOf?: (candidate: RankedCandidate) => number | undefined): RankedCandidate[];
+/**
+ * `auto` 每个渠道在第一轮里最多占的名额（见 {@link pickDiversified}）。
+ *
+ * ⚠️ **这是经验封面，不是实测最优**：没有生产数据能证明「2」比「1」或「3」更好。
+ * 取 2 而不是 1 的理由是「同一渠道的第二个模型偶尔能过（按模型记账的额度、单模型
+ * 降级）」，留一个备位；再多就会重现「名额被一家占满」。
+ * ⚠️ 它只是**上界**：真正生效的配额还会被 `limit` 再夹一次（见 `pickDiversified`
+ * 里的 `quota`），所以「每家最多 2 个」不成立时以那边为准。
+ */
+export declare const AUTO_PER_PROVIDER_FIRST_PASS = 2;
+/**
+ * 从已排序的候选里取前 `limit` 个，**第一轮每个渠道最多取 `min(perProvider, limit - 1)` 个**
+ * （配额还会按 `limit` 收紧，见下），名额有剩再按原序补齐。
+ *
+ * ## 为什么需要（真实故障，2026-11-14 NAS 生产日志）
+ *
+ * `aggregate/auto` 的池是所有渠道的所有模型，排序后只取前 `limit` 个尝试。未接入临期
+ * 折算的渠道（qoder）一律 `NEVER`、免费模型倍率最低 ⇒ **前 9 名全是 qoder**。qoder 的
+ * 账号整体排队（`10605`，9 个模型同一账号、同一 `retryAfterSeconds`）时，9 次切换全在
+ * qoder 内部打转，名额用完直接报错 —— 其它能用的渠道一个都没轮到：
+ * ```
+ * [aggregate] qoder（qfmodel）失败，切换下一个候选 … code=QUEUE
+ * [aggregate] qoder（gfmodel）失败，切换下一个候选 … code=QUEUE
+ * …（共 9 个，全是 qoder）… 最后一个 dmodel 失败后整轮报错
+ * ```
+ *
+ * ## 口径
+ *
+ * - **轮内保序**：第一轮与补齐轮**各自**都按 `ranked` 的原序取 —— 但整体**不是**
+ *   `ranked` 的子序列（补齐轮整体排在第一轮之后，见下一条）。所以「排序偏好不变」
+ *   只在**轮内**成立：第 3 名的同渠道候选会被第 4、5 名的别家候选插到前面。
+ *   ⚠️ 调用方若依赖「`targets` 整体是临期单调」，在 `auto` 分支上已不成立。
+ * - **总名额不变**：仍是 `limit`（渠道少时由补齐轮用回同渠道的其余候选）；
+ * - **补齐轮可能仍偏向一家**：名额必须填满，若某渠道可用模型远多于别家（例如 qoder 12 个、
+ *   别家各 1 个），补齐轮会把剩下的名额都给它 ⇒ 最终池仍可能 12/14 是同一家。这是**有意的**：
+ *   补齐轮的候选整体排在第一轮**之后**，别家在第 3、4 位就已经被试过了；要压「整池占比」
+ *   就得放弃「把名额填满」，那会让末位候选永远轮不到（本仓 issue 记录过的坑）。
+ * - **一家不许吃光**：`limit >= 2` 时一家最多 `limit - 1` 个（配额取
+ *   `perProvider` 与 `limit - 1` 的较小者）⇒ **永远给别家留一个名额**。
+ *   没有这一条时，`limit <= perProvider` 会**完全不分散** —— 而 `limit =
+ *   maxAttemptsFor(catalog)` 是「最长候选表的长度」，只登录两家的部署里它恰好是 2。
+ * - **纯函数**：不改传入数组；
+ * - **退化值**：`perProvider` 非有限或 `<= 0` ⇒ 第一轮一个都不取、全部进补齐轮
+ *   ⇒ 等价 `ranked.slice(0, limit)`（调用方显式关掉分散意图时就是这个效果）。
+ * - provider 按**原样字符串**比较：本仓 provider id 全小写，**不做大小写归一**
+ *   （归一了 `Qoder` 与 `qoder` 就成了两家，反而突破配额）。
+ */
+export declare function pickDiversified<T extends {
+    provider: string;
+}>(ranked: readonly T[], limit: number, perProvider?: number): T[];
 //# sourceMappingURL=aggregate-core.d.ts.map

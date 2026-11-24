@@ -121,8 +121,16 @@ export const PROVIDER_REGISTRY = Object.freeze([
         label: 'WorkBuddy (国际版)',
         displayName: 'WorkBuddy (国际版)',
         logoClass: 'workbuddy',
-        // ⚠️ 国际版后端**没有**签到接口（内核里只有 `get-dosage-notify` 用量通知）。
-        credits: { balance: true, dailyCheckin: false },
+        /**
+         * ⚠️ 2026-11-15 更正为 `dailyCheckin: true`。
+         *
+         * 原先写 `false` 的依据是「内核里没有 `checkin-*` 字面量」—— 但签到端点是
+         * **前端**直接调的，内核里从来不会有。国际版与国内版端点逐字同形，只是
+         * baseURL 不同（实证见 `docs/agent-notes/providers-workbuddy-intl-checkin.md`）。
+         * ⚠️ 这一格是**客户端「一键签到」按钮的开关**（客户端能力表从本表派生）：
+         * 置 `true` 才会渲染按钮，置 `false` 时后端能力再全也点不到。
+         */
+        credits: { balance: true, dailyCheckin: true },
         creditPackages: true,
         permanentLock: true,
         usesExpiryWindow: true,
@@ -275,11 +283,14 @@ export const PROVIDER_REGISTRY = Object.freeze([
         label: 'Raccoon (商汤)',
         displayName: 'Raccoon (商汤)',
         logoClass: 'raccoon',
-        // ⚠️ 不登记 `dailyCheckin`，且**这不是遗漏**：实测「每日 300 积分」是服务端
-        //    按日自动发放的（账单 `biz_type: 'daily_grant'`），**没有可调用的签到端点**。
-        //    登记它会让用户每次点击都必然失败。
+        // ⚠️ `dailyCheckin: true`（2026-11-15 真实账号复验后登记）。
+        //    旧注释「每日 300 由服务端自动发放、没有可调用的签到端点」是**误判** ——
+        //    那次只翻了 `/points/v1|v2`（`sign_in` / `check_in` / `daily` 确实全 404），
+        //    漏了**办公端**的 `GET /api/web/office/v3/setting_info`：带桌面端身份头
+        //    访问一次即按天幂等结算当日每日积分（3 个真实账号实测各 +300）。
+        //    实现在 `raccoon-credits.ts` 的 `claimRaccoonDailyCheckin`。
         //    `onboardingTasks` 是 3000 分的**幂等一次性**桌面端登录奖励。
-        credits: { balance: true, onboardingTasks: true },
+        credits: { balance: true, dailyCheckin: true, onboardingTasks: true },
         settingsNamespace: 'llm-raccoon',
         channel: true,
     },
@@ -725,11 +736,8 @@ export const PROVIDER_REGISTRY = Object.freeze([
         // ⚠️ **与 opencode 的关键差异**（别把两者当同一格）：opencode 的「余额」是
         // 本地派生的**通道可用性**（零网络）；魔搭是**云侧真读数**，走 `credits` 域的
         // `fetchBalanceDetailed`（三种失败的用户动作不同，故不用笼统的 `fetchBalance`）。
-        credits: { balance: true, dailyCheckin: false },
-        // ⚠️ 无签到：额度是**每日自动刷新**（每账号 250 魔粒、UTC+8 零点重置，
-        //    旗舰档每次扣 2），**没有「领取」动作、也没有签到 API**。
-        //    宿主侧 credits.claimAll 仍要显式回一句可读错误（见 jet-hub-rpc.ts），
-        //    否则自动签到会把它记成 **failed** 而不是 **inactive**。
+        // 魔粒由网页登录触发发放，渠道可单独退出全局自动签到。
+        credits: { balance: true, dailyCheckin: true },
         //
         // ⚠️⚠️ **登记 `rateLimit: false`（用户要求，2026-10-17）** —— 这**不是**能力缺失，
         //    是**产品取舍**，两者的区别必须留在注释里：
@@ -834,7 +842,11 @@ export const PROVIDER_REGISTRY = Object.freeze([
          *
          * 原注释写的是「推理已通但 `channel: true` 会点燃 9 个 spec / 11 条派生登记，先补齐再翻」。
          * ⚠️⚠️ 但那是**流程理由，不是产品理由** —— 2026-10-22 对抗审计指出：
-         * `channel` 在**生产代码里零个读取点**（全仓普查，唯一消费者是 tests/），
+         * `channel` 在**生产代码里零个读取点**（全仓普查，唯一消费者是 tests/）——
+         * ⚠️ **2026-11-15 起不再成立**：`src/jet-hub-rpc.ts` 的 `noModelLeg`
+         * （`provider.setEnabled` 关闭方向）读 `descriptorOf(provider)?.channel === false`，
+         * 这是**第一个生产读取点**。新增「自报非模型渠道」的 provider 时，那一腿会决定
+         * 它能否在目录为空时被关闭 ⇒ 别再按「没人读 channel」来推断影响面。
          * 而 `false` 造成两个**用户可见**缺口：
          * - 它的模型**永不进聚合目录与轮换候选**（`AGGREGATE_CHANNELS` 缺它）；
          * - `credits-balance-self-heal.spec.ts` 用 `d.channel && d.credits.balance` 派生期望集合
@@ -1001,14 +1013,125 @@ export const PROVIDER_REGISTRY = Object.freeze([
         channel: true,
     },
     {
+        // 豆包（Doubao，字节跳动，2026-10-29 接入签到结构）。
+        // ⚠️ 位置要求：排在 magicrew **之前** —— magicrew 有「倒数第二」的显式守卫
+        //   （用户明确指定它紧邻 aggregate），新渠道插在它前面才不破那条断言。
+        id: 'doubao',
+        label: '豆包 (字节)',
+        displayName: '豆包 (字节)',
+        logoClass: 'doubao',
+        // ⚠️ `dailyCheckin: true`（2026-11-03 **真机实测接通**）：`POST /alice/ug/campaign/landing/checkin`
+        //    返回 `checked_in:true, reward_amount:200, continuous_days:2, idempotent:true`。
+        //    签到带 `a_bogus` 签名（页面 `bdms.frontierSign` 生成）⇒ 走 CDP 页面会话，
+        //    实现在 `src/doubao-signin.ts` 的 `claimDoubaoDailyViaPage`。
+        // ⚠️⚠️ **`balance: true` 的语义是「本渠道进 credits 表」，不是「上游有余额」**
+        //   （2026-11-13 审计返工，PR #29 初版把两件事混成一件）：
+        //   这张表同时服务 `credits.claimAll`（签到）与 `credits.balances`（余额），
+        //   而 `credits-runtime-parity.spec.ts` 有两条硬不变式把「表里有哪些渠道」
+        //   绑在 `credits.balance === true` 上（`Object.keys(table) === 余额能力集`）。
+        //   豆包的**签到**必须走这张表（`claimDoubaoDailyCheckin`），故这里必须是 `true`。
+        //   ⚠️ 但上游**没有**积分余额概念（签到给的是「每日额度权益」，不是积分包；
+        //   `src/doubao-credits.ts:15-16` 逐字写明「无独立余额端点」）⇒ 余额那一腿
+        //   由 `credits.balances` 端点**短路成空列表**（见 `src/jet-hub-rpc.ts` 的
+        //   doubao 分支），绝不让一个注定为 `null` 的读数冒出去。
+        //   ⚠️ 为什么不能改 `false`：那会让 `createProviderCredits()` 少一条
+        //   ⇒ `credits.claimAll` 对豆包回 `unsupported provider: doubao` ⇒ 签到静默失效。
+        credits: { balance: true, dailyCheckin: true },
+        // ✅ **进每日自动链**（2026-11-22 变更，原为排除）：
+        //    签到的 `a_bogus` 签名确实要起一次 headless Chromium（`--headless=new`，
+        //    `src/doubao-signin.ts` 的 spawn 参数），但代价是**每账号每天一次、
+        //    单次几十秒**，与 zcode 那个「按设备烧阿里云 captcha 配额」不同源 ——
+        //    zcode 是拿第三方配额换积分，豆包只是本地起一个临时 profile 的浏览器。
+        //    默认开启的收益（每天自动 +200 额度）大于这点开销，故不再排除。
+        //    ⚠️ 想退出自动链的用户可把该渠道的账号**停用**（停用账号不参与选号与签到），
+        //    或把面板上的渠道开关关掉，无需改代码。
+        autoCheckinExcluded: false,
+        // ⚠️ `rateLimit: false` 必须显式写：本渠道当前没有适配器、不写
+        //    `modelRateLimits`、也不在 `probeById` 里 ⇒ 「重测 / 重置」点下去恒惰性
+        //   （与 magicrew / accio 旧格同因）。将来接推理链路时再翻正。
+        rateLimit: false,
+        // ⚠️ 不登记 accountTest / creditPackages / permanentLock / usesExpiryWindow
+        //    —— 全部省略 = false，与「上游未实测、不编造数据」的口径一致。
+        //
+        // ⚠️⚠️ **`channel: false`（与 codely 当年「UI 先行阶段」同型）**：签到已接通，
+        //    但本渠道**没有模型目录 / 适配器 / auth 服务**（纯签到渠道，无推理链路）。
+        //    `channel: true` 会点燃 `refresh-targets-derived.spec.ts` 的「channel ⇒ 必须有
+        //    modelAdapters 目录」守卫（报错「关闭 provider 后模型仍可选」），而 doubao 根本
+        //    没有目录可关。`credits` 的两个判据都独立于 `channel`：`dailyCheckin: true`
+        //    让签到入口照常出现（`checkinProviders()` 按 `supportsDailyCheckin` 过滤），
+        //    `balance: true` 让豆包进 credits 表（签到的 `claim` 走同一张表；余额那一腿
+        //    由端点短路成空列表，见上方 `credits` 那条）。
+        // ⚠️ 2026-11-22 更正：模型目录/适配器已接通（src/doubao-adapter.ts），
+        //    已进 modelAdapters 表 ⇒ 运行时 noModelLeg 门（channel===false AND
+        //    modelAdapters[provider]===undefined）不成立，模型腿照常读取、对话照常路由。
+        //    这里**刻意保持 false**：豆包凭据是 cookie（无 refresh 端点、无 auth 服务），
+        //    翻 true 会点燃「channel ⇒ 必须有 auth/聚合/续期」三张派生守卫（与 codely 当年
+        //    channel:false 但有目录的形态同型）。签到与余额两条腿独立于 channel。
+        channel: false,
+    },
+    {
+        /**
+         * AgnesCode 国内站（`agnescode`，2026-11-19）。
+         *
+         * ⚠️ 这家**不是** `api.agnes-ai.cn` 那个 OpenAI 兼容的 API 产品：
+         * 凭据是桌面客户端 `AgnesCode` 的本机会话（`%APPDATA%\AgnesCode` 的
+         * `code-auth-session.cn.v1`，Chromium os_crypt + DPAPI），推理打的是
+         * 会话里下发的 `bffPublicBaseUrl`（`api-agnes-code.agnes-ai.cn/v1`）。
+         * 因此它没有 API Key 可粘贴 —— 账号入口是「导入本机登录态」。
+         *
+         * ⚠️ 与 `monkeycode` / `monkeycodeintl` 同纪律：两站是**独立账号体系**，
+         * 模型目录按 provider 缓存 ⇒ 必须两个 id。实现完全共用
+         * （`AgnescodeAuth` / `AgnescodeAdapter`），只在 `product` 上分叉。
+         *
+         * ⚠️ **声明位置**：必须插在 `marvis` **之前**。
+         *    末尾三家的相邻关系是硬断言（`provider-registry.spec.ts`）：
+         *    `marvis` 紧邻 `magicrew`（差 1）、`magicrew` 紧邻 `magicrewintl`（差 1）、
+         *    `magicrewintl` 紧邻 `aggregate`（差 1）—— 插在任何一家之间都会把它们
+         *    各自的相邻断言挤坏。**新增 provider 一律插在 `marvis` 之前。**
+         *
+         * ⚠️ `credits.dailyCheckin` **不登记**：AgnesCode 没有签到接口（未取证到，
+         * 与 WorkBuddy 国际版「后端无签到」那次同型判据：没探到就不假装有）。
+         * ⚠️ `creditPackages` **不登记**：余额端点只给「限时 / 永久」两个标量桶，
+         * 没有逐包的到期日期 —— 登记会让卡片 hover 出现我们编的明细
+         * （与 monkeycode 拒绝 `creditPackages` 的理由逐字相同）。
+         * ⚠️ `permanentLock` / `usesExpiryWindow` **不登记**：那两个能力断言的本家
+         * 语义（按包分桶 + `splitBuddyCreditsByExpiry`）在这家并不存在。
+         * ⚠️ `rateLimit` **省略（= true）**：适配器确实会写 `modelRateLimits`
+         * （429 冷却），且 `probeById` 里有本家探针（拉一次目录，不消耗额度）。
+         */
+        id: 'agnescode',
+        label: 'AgnesCode',
+        displayName: 'AgnesCode',
+        logoClass: 'agnescode',
+        credits: { balance: true, dailyCheckin: false },
+        channel: true,
+    },
+    {
+        /**
+         * AgnesCode 国际版（`agnescodeintl`）。
+         *
+         * ⚠️ 与国内站**独立账号体系**（不同的 host 族与不同的桌面构建），
+         * 故必须是另一个 id。能力标记与国内站逐项一致 —— 两站共用一个
+         * `AgnescodeProduct` 形状与同一套实现，没有理由在能力上分叉。
+         */
+        id: 'agnescodeintl',
+        label: 'AgnesCode (国际版)',
+        displayName: 'AgnesCode (国际版)',
+        // ⚠️ 与国内站共用同一份图标资产（同一个产品的两套部署）。
+        logoClass: 'agnescode',
+        credits: { balance: true, dailyCheckin: false },
+        channel: true,
+    },
+    {
         // 腾讯 Marvis（2026-11-09 接入）。
         //
         // ## 为什么只有一条模型
-        // 上游**没有模型目录端点**（累计试过 9 条候选路径，全 404 / 400），模型列表
-        // 只能静态兜底。槽位里只有 `main-auto` 是用户要的（服务端自动路由），实测
-        // 落到 `deepseek-v4-1-flash-261017`；`deepseek-v4-pro-external` / `hy3-*` /
-        // `claude-*` / `gpt-5.4` / `hunyuan-*` 本账号无授权（400 无效模型 id）或
-        // 不在用户选择范围内 ⇒ **目录只列一条**。
+        // 上游**没有模型目录端点**（累计试过 10 条候选路径，全 404 / 400），模型列表
+        // 只能静态兜底。2026-11-14 用户裁定：只显示一条，**上行槽位切到
+        // `deepseek-v4-pro-external`**（此前是 `main-auto`，展示名仍是 `DeepSeek V4.1 Flash`）。
+        // 两者真实下行**同一个**模型 `deepseek-v4-1-flash-261017`（响应体 `model` 可证，
+        // 2026-11-14 探针 2/2 稳定）；`hy3-*` / `claude-*` / `gpt-5.4` / `hunyuan-*`
+        // 本账号无授权（400 无效模型 id）或不在用户选择范围内 ⇒ **目录只列一条**。
         // ⚠️ 真实模型 id（`deepseek-v4-1-flash-261017`）**不能直传**：上游回
         //    `400 {"code":4130001,"msg":"客户端AI业务错误: 无效模型id"}`，
         //    只有槽位名可作 `model` 上行 —— 归一逻辑见 `normalizeMarvisModelId`。
@@ -1216,8 +1339,8 @@ export function creditCapabilitiesOf() {
         out[d.id] = Object.freeze({
             balance: d.credits.balance,
             // ⚠️ `dailyCheckin` 也是**可省略**字段（见 `CreditsCapability` 的注释：
-            //    raccoon 刻意不登记它），故按本函数「缺失即缺失」的规则一并条件拷贝
-            //    —— 这样「raccoon 没有签到端点」这件事在派生表里也是**可见的缺失**，
+            //    cline / workbuddy 刻意不登记它），故按本函数「缺失即缺失」的规则一并
+            //    条件拷贝 —— 这样「该渠道没有签到端点」这件事在派生表里也是**可见的缺失**，
             //    而不是一个与 `false` 无法区分的 `undefined`。
             //    判据侧一律 `=== true`（`supportsDailyCheckin`），故行为不变。
             ...d.credits.dailyCheckin === undefined ? {} : { dailyCheckin: d.credits.dailyCheckin },

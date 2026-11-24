@@ -32,22 +32,71 @@
  * 「通知失败不能反噬已经落盘的开关」是同一条约定。
  */
 /**
- * 已排程待派发的 ctx 集合（同 tick 合并用）。
+ * 已排程待派发的 ctx 集合（**时间窗口**合并用）。
  *
  * 用 `WeakSet` 而非 `Set`：ctx 是长生命周期对象，且插件可能被卸载重建 ——
  * 不持有强引用，卸载后条目自然回收，不会把旧 ctx 永久留在集合里。
  */
 const pending = new WeakSet();
 /**
+ * ★★★ **广播合并窗口**（2026-11-20 真实启动卡顿修复）。
+ *
+ * ## 它修的是什么（实测）
+ *
+ * 探针抓到冷启动的 `listModels` 调用时间线（33 个 provider）：
+ *
+ * ```
+ * + 0s    11  ███
+ * + 1s   216  ███████████████████████████████████████████████████████
+ * +15s   208  ███████████████████████████████████████████████████████
+ * +31s   199  ███████████████████████████████████████████████████████
+ * +37s   104  █████████████████████████████████████████████████████
+ * ```
+ *
+ * 单 provider 被调 **16 次**，没账号的也被调 **14 次**。
+ *
+ * ## 根因：20+ 个适配器各自广播，宿主每次广播都重算**全部** provider
+ *
+ * 每个适配器在目录落地时都调 `onCatalogLoaded: () => broadcastCatalogChanged(ctx)`，
+ * 而宿主收到 `llm/adapters-updated` 后会对**每个** provider 重新
+ * `buildModelCatalog` → `await listModels()`。
+ *
+ * ⇒ `N 家目录先后落地` = `N 次广播` = `N × 33 次 listModels`。
+ *
+ * ## 为什么原来的 `queueMicrotask` 合并无效
+ *
+ * 它只在**同一个 tick** 内合并。而各家目录是**网络响应错开**落地的
+ *（几十毫秒到十几秒不等）⇒ 几乎每次都在不同 tick ⇒ 合并率接近 0。
+ *
+ * ## 改法：合并窗口
+ *
+ * 用一个 `setTimeout` 窗口（{@link CATALOG_BROADCAST_COALESCE_MS}）替代
+ * `queueMicrotask`：窗口内所有调用只派发**一次**。
+ *
+ * ⚠️ **为什么不更长**：窗口是「目录更新可见」的延迟上限。800ms 对用户
+ * 无感（面板刷新本来就有 120s 缓存），再长会让「刚加的模型不出现」被察觉。
+ *
+ * ⚠️ **`setTimeout` 必须 `unref()`**：否则它会持有事件循环、拖住进程退出
+ *（与 `index.ts` 里 `modelsDevTimer` 同款约定）。
+ */
+export const CATALOG_BROADCAST_COALESCE_MS = 800;
+/** 每个 ctx 当前的定时器（用于窗口内不重复排程）。 */
+const timers = new WeakMap();
+/**
  * 广播「模型目录可能已变化」。
  *
- * 幂等：同一 `ctx` 在本次派发完成前重复调用只排一次。
+ * 幂等：同一 `ctx` 在一个**合并窗口**内重复调用只派发一次。
+ *
+ * ⚠️ 语义变化（2026-11-20）：从「同 tick 合并」放宽到「同时窗合并」。
+ * 代价是派发最多晚 {@link CATALOG_BROADCAST_COALESCE_MS}；收益是冷启动
+ * 的 `listModels` 调用量降一个数量级（实测 8 家落地 → 1 次派发）。
  */
 export function broadcastCatalogChanged(ctx) {
     if (pending.has(ctx))
         return;
     pending.add(ctx);
-    queueMicrotask(() => {
+    const timer = setTimeout(() => {
+        timers.delete(ctx);
         try {
             ctx.emit('llm/adapters-updated');
         }
@@ -56,11 +105,13 @@ export function broadcastCatalogChanged(ctx) {
         }
         finally {
             // ⚠️ **必须在 emit 之后清**（不是之前）：emit 同步触发的监听器会重入
-            // `listModels` → 可能再次调到这里，那时若标记已清就会再排一个 microtask，
+            // `listModels` → 可能再次调到这里，那时若标记已清就会再排一轮，
             // 每次派发都翻一倍 —— 广播风暴。emit 期间保持标记即把这类重入合并掉。
             // 异步落地的新一轮（emit 返回之后才拿到目录）不受影响，照常广播。
             pending.delete(ctx);
         }
-    });
+    }, CATALOG_BROADCAST_COALESCE_MS);
+    timer.unref?.();
+    timers.set(ctx, timer);
 }
 //# sourceMappingURL=catalog-broadcast.js.map

@@ -36,6 +36,7 @@
 import { LlmError, ToolCallId } from '@deepseek-ai/dsh-llm';
 import { createBlankReasoningSuppressor, createReasoningLoopDetector, hasUsableToolName, classifyToolArguments, toolArgsInvalidBlocks, toolArgsInvalidIsSoleOutput, isProseTruncatedByStopString, isReasoningLoopGuardEnabled, isTruncatedArguments, normalizeToolArguments, readWithIdleTimeout, reasoningLoopFailure, resolveEmptyResponseReason, resolveToolPairing, splitThinkTaggedContent, stripBareThinkCloseTagIfEnabled, stripCourseLeakFromHistoryContent, stripCourseLeakIfEnabled, createDsmlMarkerNormalizer, fixDsmlMarkers, toolArgsInvalidFailure, } from './sse.js';
 import { DsmlContentExtractor } from './dsml.js';
+import { readCacheTokenCount } from './cache-token-count.js';
 import { normalizeHarnessMessages } from './message-shape.js';
 import { isBillingBusinessCode, looksLikeBillingError, parseQueueError, queueDelayMs } from './model-queue.js';
 /** 将消息内容载荷展平为纯文本字符串。 */
@@ -1082,18 +1083,17 @@ export async function* consumeOpenAiSse(response, options, config) {
                 if (data.usage) {
                     const promptTokens = data.usage.prompt_tokens ?? 0;
                     // 缓存命中字段有多处来源，取首个有值的。
-                    const cachedTokens = data.usage.prompt_tokens_details?.cached_tokens
-                        ?? data.usage.prompt_cache_hit_tokens
-                        ?? 0;
+                    const cachedTokens = readCacheTokenCount(data.usage.prompt_tokens_details?.cached_tokens)
+                        ?? readCacheTokenCount(data.usage.prompt_cache_hit_tokens);
                     const reasoningTokens = data.usage.completion_tokens_details?.reasoning_tokens;
                     yield {
                         type: 'usage',
                         usage: {
                             // inputTokens 只计**未命中缓存**的部分，命中部分单列
                             // cacheReadTokens，否则缓存命中率显示会偏大。
-                            inputTokens: cachedTokens > 0 ? promptTokens - cachedTokens : promptTokens,
+                            inputTokens: promptTokens - (cachedTokens ?? 0),
                             outputTokens: data.usage.completion_tokens ?? 0,
-                            ...cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {},
+                            ...cachedTokens !== undefined ? { cacheReadTokens: cachedTokens } : {},
                             ...reasoningTokens !== undefined && reasoningTokens > 0 ? { reasoningTokens } : {},
                         },
                     };

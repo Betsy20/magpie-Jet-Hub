@@ -17,7 +17,7 @@ import { Service, type Context } from '@deepseek-ai/cordis';
 import { type CredentialRef } from '@deepseek-ai/dsh-credentials';
 import { type TraeRemoteModel } from './trae.js';
 import { type TraeProduct } from './trae-product.js';
-import { type TraeLoginFlowOptions } from './trae-oauth.js';
+import { type ManualTraeCallbackSubmitResult, type TraeLoginFlowOptions } from './trae-oauth.js';
 import { AccountPool } from './account-pool.js';
 /**
  * TRAE 的默认凭据 ref。
@@ -123,6 +123,8 @@ export declare class TraeAuth extends Service {
         loginUrl: string;
         result: Promise<TraeLoginResult>;
         close: () => Promise<void>;
+        /** 手动提交回调链接（手机/另一台电脑完成授权后粘回来）。RPC 层直接转调。 */
+        submitManualCallback: (raw: unknown) => ManualTraeCallbackSubmitResult;
     }>;
     /**
      * 持久化一次登录结果。

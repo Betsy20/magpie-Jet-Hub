@@ -1,10 +1,11 @@
 {
   "name": "dsh-providers-hub",
-  "version": "0.2.1-rc.2",
+  "version": "0.2.1-rc.5",
   "description": "DeepSeek Harness plugin: one hub for AI coding providers — account login, multi-account pools, silent credential refresh, credit claiming, and a local OpenAI-compatible gateway",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
+  "icon": "./icon.svg",
   "exports": {
     ".": {
       "types": "./lib/types/index.d.ts",
@@ -17,7 +18,10 @@
   "files": [
     "lib",
     "locale/*.json",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "docs/DETAIL.md",
+    "docs/DETAIL.zh.md",
+    "icon.svg"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -30,6 +34,8 @@
     "typecheck:tests": "tsc -p tsconfig.tests.json",
     "pretest": "npm run typecheck:tests",
     "test": "vitest run",
+    "shot:label": "vitest run --config vitest.shot.config.ts",
+    "shot:label:measure": "node tools/measure-model-label.mjs",
     "test:e2e:login": "cross-env DSH_CODEARTS_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/login.e2e.spec.ts",
     "test:e2e:officeace": "cross-env DSH_OFFICEACE_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/officeace-incognito-login.e2e.spec.ts",
     "test:e2e:officeace-abandoned": "cross-env DSH_OFFICEACE_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/officeace-abandoned-login.e2e.spec.ts",
@@ -48,6 +54,7 @@
     "test:e2e:codearts": "cross-env DSH_CODEARTS_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/v4-models.e2e.spec.ts tests/e2e/v4-large-write.e2e.spec.ts tests/e2e/codearts-ua-probe.e2e.spec.ts",
     "test:e2e:codearts-credits": "cross-env DSH_CODEARTS_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/codearts-credits-probe.e2e.spec.ts",
     "test:e2e:codearts-claim": "cross-env DSH_CODEARTS_E2E=1 DSH_CODEARTS_CLAIM_E2E_CONFIRM=yes vitest run --config vitest.e2e.config.ts tests/e2e/codearts-claim-probe.e2e.spec.ts",
+    "test:e2e:codearts-model-desc": "cross-env DSH_CODEARTS_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/codearts-model-desc-probe.e2e.spec.ts",
     "test:e2e:workbuddy-claim": "cross-env DSH_WORKBUDDY_CLAIM_E2E=1 DSH_WORKBUDDY_CLAIM_E2E_CONFIRM=yes vitest run --config vitest.e2e.config.ts tests/e2e/workbuddy-claim-probe.e2e.spec.ts",
     "test:e2e:lobsterai": "cross-env DSH_LOBSTERAI_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/lobsterai-probe.e2e.spec.ts",
     "test:e2e:lobsterai-claim": "cross-env DSH_LOBSTERAI_E2E=1 DSH_LOBSTERAI_CLAIM_E2E_CONFIRM=yes vitest run --config vitest.e2e.config.ts tests/e2e/lobsterai-claim-probe.e2e.spec.ts",
@@ -71,6 +78,7 @@
     "test:e2e:opencode-account-chat": "cross-env DSH_OPENCODE_ACCOUNT_E2E=1 DSH_OPENCODE_ACCOUNT_E2E_CONFIRM=yes vitest run --config vitest.e2e.config.ts tests/e2e/opencode-account-probe.e2e.spec.ts",
     "test:e2e:cline-chat": "cross-env DSH_CLINE_CHAT_E2E=1 DSH_CLINE_CHAT_E2E_CONFIRM=yes vitest run --config vitest.e2e.config.ts tests/e2e/cline-chat-probe.e2e.spec.ts",
     "test:e2e:raccoon": "cross-env DSH_RACCOON_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/raccoon-probe.e2e.spec.ts",
+    "test:e2e:raccoon-authorize": "cross-env DSH_RACCOON_AUTHORIZE_E2E=1 DSH_RACCOON_AUTHORIZE_E2E_CONFIRM=yes vitest run --config vitest.e2e.config.ts tests/e2e/raccoon-authorize-probe.e2e.spec.ts",
     "test:e2e:raccoon-chat": "cross-env DSH_RACCOON_CHAT_E2E=1 DSH_RACCOON_CHAT_E2E_CONFIRM=yes vitest run --config vitest.e2e.config.ts tests/e2e/raccoon-chat-probe.e2e.spec.ts",
     "test:e2e:raccoon-tools": "cross-env DSH_RACCOON_TOOLS_E2E=1 DSH_RACCOON_TOOLS_E2E_CONFIRM=yes vitest run --config vitest.e2e.config.ts tests/e2e/raccoon-tools-probe.e2e.spec.ts",
     "test:e2e:minimax": "cross-env DSH_MINIMAX_E2E=1 vitest run --config vitest.e2e.config.ts tests/e2e/minimax-probe.e2e.spec.ts",
@@ -97,15 +105,16 @@
         "@deepseek-ai/dsh-client-connection",
         "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-model-selection",
-        "@deepseek-ai/dsh-client-ui-plugin-manager"
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
       ]
     }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-commands": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
-    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
-    "@deepseek-ai/dsh-llm": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
+    "@deepseek-ai/dsh-commands": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
     "@deepseek-ai/schemastery": "^3.18.4"
   },
   "dependencies": {
@@ -116,11 +125,11 @@
     "wreq-js": "^3.2.0"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/dsh-agent": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
-    "@deepseek-ai/dsh-commands": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
-    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
-    "@deepseek-ai/dsh-llm": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2",
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-agent": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-commands": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-credentials": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm": "^0.1.2-rc.1 || ^0.1.7-rc.2 || ^0.2.0-rc.1 || ^0.2.1-rc.2 || ^0.2.2-rc.1",
     "@deepseek-ai/schemastery": "^3.18.4",
     "@types/node": "^22.0.0",
     "cross-env": "^7.0.3",

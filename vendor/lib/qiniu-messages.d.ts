@@ -85,7 +85,10 @@ export interface QiniuPayloadInput {
  *
  * 契约细节（每条都对齐仓库既有适配器）：
  * - `stream` **恒 true**：本适配器只走 SSE 路径，没有非流式分支；
- * - `system` 只有非空才带（空串会被上游当成一条空 system 消息）；
+ * - `system` **不放顶层**：上游只从 `messages[]` 读系统提示词，顶层的 `system`
+ *   被静默忽略（2026-11-17 真机，GitHub #97；qiniu 本机无凭据、未实测，按同源
+ *   协议风险一并处理）⇒ 由 `foldSystemIntoMessages` 折成**第一条** `messages[]`
+ *   成员；空串/undefined 时原样不动；
  * - `max_tokens` **只放行安全正整数** —— 0 / 负数 / NaN 会让 DSH 侧抛
  *   `INVALID_MODEL_MAX_TOKENS`，把整轮对话搞崩（不是降级，是崩）；
  * - `tools` **恒带**（哪怕是空数组）：带工具的请求必须让上游看到 `tools`

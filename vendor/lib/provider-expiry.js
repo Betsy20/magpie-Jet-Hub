@@ -69,7 +69,12 @@ astudioExpiry,
 // ⚠️ MiniMax Code（中国版 / 国际版共用，2026-10-20 新增）
 minimaxExpiry, zcodeExpiry, 
 // ⚠️ MonkeyCode 国内站 / 国际站 + 百智云（本 fork 独有，2026-11-02 新增）
-monkeycodeExpiry, baizhiExpiry, } from './aggregate-expiry.js';
+monkeycodeExpiry, baizhiExpiry, 
+// ⚠️ AgnesCode（国内站 / 国际站共用，本 fork 独有，2026-11-19 新增）
+agnescodeExpiry, } from './aggregate-expiry.js';
+// ⚠️ AgnesCode（2026-11-19）：两站共用同一个折算原语，但**必须各传各的 product**
+//（账号池不互通、域名族不同）。
+import { AGNESCODE, AGNESCODE_INTL } from './agnescode-product.js';
 // ⚠️ Qoder（国际版 / 中国版，2026-10-20 新增）：与 minimax 同款 —— 两站共用
 //    同一套 `src/qoder*.ts` 实现，差异全在 `src/qoder-product.ts` 的
 //    `QODER` / `QODER_CN` 常量（域名 / client_id / 模型表）。
@@ -167,6 +172,30 @@ export function createProviderExpiry(deps = {}) {
         //    `marvisExpiry`）—— 漏任何一处都是**静默**的（聚合轮换列表里看不到它）。
         marvis: {
             credentialExpiry: (c, context) => marvisExpiry(c, MARVIS, context?.cachedBalance === undefined
+                ? undefined
+                : () => context.cachedBalance(context.accountId)),
+        },
+        // ⚠️ AgnesCode（两站，2026-11-19）：与 marvis **同格**（订阅池只有两个标量桶、
+        //    没有任何逐笔日期 ⇒ 有余额即 `NEVER`、烧光即 `UNUSABLE`）。
+        //    ⚠️ 三处必须同改（本表 + `WIRED_EXPIRY_PROVIDERS` + 折算原语
+        //    `agnescodeExpiry`）—— 漏任何一处都是**静默**的（聚合轮换列表里看不到它）。
+        //    ⚠️ `agnescodeintl` **必须传 `AGNESCODE_INTL`** —— 但要说清**为什么**，因为
+        //    2026-11-19 我实测证伪了原注释给出的那个理由：「传国内站会让国际账号的余额
+        //    请求打到错误 base」**不成立** —— `fetchAgnescodeBalance` 的 host 取的是
+        //    **凭据里的 `bff_base`**（`src/agnescode.ts:579`，那才是权威），`product`
+        //    在余额路径上**只贡献超时**。
+        //    ⇒ 真正会因传错站而坏的是**手工录入无 base** 的那条路径：
+        //    `parseAgnescodeCredential` 用 `product.fallbackBffBase` 补 base，国际站账号
+        //    手工录入时若传错站，会补成 `.cn` 的 base ⇒ 恒 401 ⇒ 折算恒 `UNUSABLE`。
+        //    守卫在 `tests/unit/expiry-runtime-parity.spec.ts` 的
+        //    「必须拿到 INTL 的 product」（行为判据：断真实调用里的实参）。
+        agnescode: {
+            credentialExpiry: (c, context) => agnescodeExpiry(c, AGNESCODE, context?.cachedBalance === undefined
+                ? undefined
+                : () => context.cachedBalance(context.accountId)),
+        },
+        agnescodeintl: {
+            credentialExpiry: (c, context) => agnescodeExpiry(c, AGNESCODE_INTL, context?.cachedBalance === undefined
                 ? undefined
                 : () => context.cachedBalance(context.accountId)),
         },

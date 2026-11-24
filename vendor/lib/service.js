@@ -1,6 +1,6 @@
 import { Service } from '@deepseek-ai/cordis';
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
-import { runLoginFlow, runOAuthFlow, startOAuthFlow } from './login.js';
+import { runLoginFlow, runOAuthFlow, startOAuthFlow, } from './login.js';
 import { RefreshTokenExpiredError, credentialFromTokenResponse, exchangeRefreshToken, keyPairFromStoredJwk, refreshTokenExpiresAt, } from './oauth.js';
 import { SerialQueue } from './serial-queue.js';
 import { refreshAccountWithReconcile, shouldRefreshNowWithRefreshExpiry, syncAccountExpiry, } from './expiry-sync.js';
@@ -175,7 +175,15 @@ export class CodeArtsAuth extends Service {
         // 与 startOAuthFlow 同理：结果可能早于调用方 await 而落定，
         // 先挂空处理器避免「未处理的拒绝」告警（错误仍会传给真正的消费者）。
         result.catch(() => { });
-        return { loginUrl: started.loginUrl, result, close: started.close };
+        // ⚠️ **必须透传**：RPC 层拿到的就是本方法的返回值，漏这一行会让
+        //    `account.submitCallback` 在生产上拿到 `undefined` —— 类型层不报错
+        //    （可选键），症状是「用户粘了合法链接，却被告知会话已失效」。
+        return {
+            loginUrl: started.loginUrl,
+            result,
+            close: started.close,
+            submitManualCallback: started.submitManualCallback,
+        };
     }
     /**
      * 持久化一次登录结果：写凭据、按需登记账号池。

@@ -20,12 +20,15 @@
  */
 import { LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import { createModelCatalog, isCatalogFresh, isCatalogFreshFor } from './model-catalog.js';
+import { ensureRaccoonSessionConfirmed } from './raccoon-iam-confirm.js';
 import { RemoteCatalogGate } from './remote-catalog-gate.js';
 import { broadcastCatalogChanged } from './catalog-broadcast.js';
+import { looksLikeUpstreamProviderError } from './upstream-error.js';
 import { isRaccoonExpired } from './raccoon.js';
 import { RACCOON, RACCOON_DEFAULT_EFFORT, RACCOON_EFFORT_NAMES, RACCOON_EFFORT_OFF, RACCOON_EFFORT_ON, RACCOON_REASONING_EFFORTS, } from './raccoon-product.js';
 import { projectRequestImage } from './image-budget.js';
 import { planSessionTitleThinking } from './session-title.js';
+import { nextPromotionEdgeMs, promotionBadgeFor, raccoonPromotionCandidate } from './model-promotions.js';
 import { registerAdapterIdempotent, } from './llm-register-compat.js';
 import { collectImages, consumeOpenAiSse, errorDetail, httpErrorCode, isTransportError, serializeMessages, } from './openai-compat.js';
 /** 本适配器注册的 provider 路由名（等价于 `RACCOON.id`）。 */
@@ -229,6 +232,22 @@ export function classifyRaccoonFailure(errorText, status) {
         return 'quota';
     if (status === 429)
         return 'rate';
+    /**
+     * ★ **上游网关 5xx**（2026-11-21 随 loomy issue #130 一并同构补齐）。
+     *
+     * loomy 侧有实测证据（单会话 51 次调用里 23 次网关 5xx：504 HTML 5 次 +
+     * 503 中文文案 18 次），raccoon 侧**本机没有 5xx 样本** —— 这一格是为守住
+     * 「`classifyLoomyFailure` 与 `classifyRaccoonFailure` **必须逐格同构**」
+     * 这条仓库红线（`loomy-adapter.spec.ts` 的「与 raccoon 对拍」用例逐条守着）
+     * 而**同步对齐**的，不是 raccoon 的独立发现。如实标注，别把它当成实测结论。
+     *
+     * 判据与 loomy **共用同一份实现** `src/upstream-error.ts`，且同样只多一道
+     * `status >= 500` 闸门（泛化会连 400 参数错一起收进来，白烧整池）。
+     * ⚠️ `upstream` **不写冷却** —— 见 {@link recordsRaccoonRateLimit}（只认
+     * `quota`/`rate`）：网关抖动不是「这个号坏了」。
+     */
+    if (status >= 500 && looksLikeUpstreamProviderError(errorText))
+        return 'upstream';
     return 'other';
 }
 /**
@@ -240,6 +259,20 @@ export function classifyRaccoonFailure(errorText, status) {
  */
 export function shouldRotateRaccoonAccount(errorText, status) {
     return classifyRaccoonFailure(errorText, status) !== 'other';
+}
+/**
+ * ★★ **是否值得「换下一个账号」** —— `upstream`（上游网关 5xx）**不换号**。
+ *
+ * 与 loomy 同款、同理由（2026-11-21 正向审计用数据推翻我第一版的「参与换号」）：
+ * 主形态 `该模型服务暂时不可用` 是**模型级**故障，换账号大概率无效；
+ * 而换号的代价是「最坏 N 发全量 prompt」，比「同一个号 + 宿主重试」更贵。
+ *
+ * ⚠️ raccoon 侧**本机零 5xx 实测样本** —— 这一格是为守住
+ * 「`classifyLoomyFailure` 与 `classifyRaccoonFailure` **逐格同构**」而同步的，
+ * 不是 raccoon 的独立发现（同 {@link RaccoonFailureClass} 里那句标注）。
+ */
+export function rotatesRaccoonAccount(cls) {
+    return cls !== 'other' && cls !== 'upstream';
 }
 /**
  * 499「客户端断开」口径的统一抛出：归 aborted 形态，而非普通错误。
@@ -399,6 +432,14 @@ export class RaccoonAdapter extends LlmAdapter {
         // ⚠️ 必须走夹子（issue IKS1L5）：兜底表/远端都可能声明 100_000，而上游硬校验
         // 1..65536 ⇒ 声明值会被 DSH 原样回传进每一轮请求，命中就整轮 400。
         const maxTokens = clampRaccoonMaxTokens(model.maxTokens ?? fallback?.maxTokens);
+        // ★ 徽标（issue #101）：上游的计费活动（`billing_status`/`billing_discounts`）。
+        // ⚠️ 时钟必须在**装配时刻**读（与目录新鲜度同一个注入时钟）：目录是 20 分钟一份的
+        // 快照，把徽标在解析时挑定并缓存正是 issue #101 要修的形态
+        // （「活动 11月22日结束，22 日之后还挂着一枚限时折扣」）。
+        // ⚠️ 窗口外**什么都不画**（`standingEligible: false`）：宿主徽标契约只有 text+tone，
+        // 没有悬停位去说「还没到点」。
+        const promotion = raccoonPromotionCandidate(model.promotion, model.id, 'Asia/Shanghai', this.promotionWarn);
+        const badge = promotionBadgeFor(promotion === undefined ? undefined : [promotion], this.nowMs());
         return {
             id: model.id,
             name: model.name,
@@ -412,8 +453,70 @@ export class RaccoonAdapter extends LlmAdapter {
             // 思考档位（两态：深度思考 / 关闭思考）。实测确证见 `raccoonReasoningInfo`。
             // ⚠️ 所有模型一致 —— `extra_body.thinking` 是 provider 级方言，与模型无关。
             reasoning: raccoonReasoningInfo(),
+            // ⚠️ 省略即「本家没有活动可画」（宿主据此回落到裸 name + 倍率）；不写空值。
+            ...badge === undefined ? {} : { badge },
         };
     }
+    /** 注入时钟（与目录 TTL 同一个 `options.now`，单测可推进）。 */
+    nowMs() {
+        return this.options.now?.() ?? Date.now();
+    }
+    /**
+     * ★ 本家目录里的**未决**活动候选（方案 A：选择器悬停的数据来源）。
+     *
+     * ⚠️ 与 buddy 家**刻意不同**的一处：本家远端条目里**本来就带** `billing_discounts`
+     * 的原料，故在线路径有候选；而兜底表是编译期快照（红线「静态表必然腐坏」），
+     * **不带**活动 ⇒ 离线路径返回空，与「上游没有活动」同形（与 buddy 一致）。
+     *
+     * ⚠️ 逐条走 `raccoonPromotionCandidate`（与 `toCatalogEntry` **同一个**构造函数），
+     * 不另写一份解析：同一 schema 两套判据是本仓的复发缺陷形态。
+     *
+     * ⚠️ 交出去的是**未决候选**：徽标在装配时刻挑定并缓存正是 issue #101 要修的形态；
+     * 悬停侧（`plugin-src/client/model-label.js`）每次渲染重读时钟。
+     */
+    promotionCandidates() {
+        const rows = [];
+        for (const model of this.remoteModels ?? []) {
+            const promotion = raccoonPromotionCandidate(model.promotion, model.id, 'Asia/Shanghai', this.promotionWarn);
+            if (promotion !== undefined)
+                rows.push({ modelId: model.id, promotion });
+        }
+        return rows;
+    }
+    /**
+     * ★ 本家的下一次活动边界（epoch ms），供 `promotion-edge-broadcast` 定时重算徽标。
+     *
+     * ⚠️⚠️ 不接这个 getter 的后果（2026-11-18 我实测）：raccoon 的 `start_at`/`end_at` 是
+     * 「绝对时刻窗口」，而目录缓存 20 分钟一轮 —— 边界时刻不触发重算 ⇒ 8:00 结束的活动
+     * 要在行上**多挂最长 20 分钟**，正是 issue #101 点名的那格（「活动过期而用户仍按优惠
+     * 期选择」）。同批接上这个 getter 的 lobsterai（PR #114）就是同型。
+     *
+     * ⚠️ **零网络**：只读 `remoteModels` 里已解析好的候选，不触发 `fetchRemoteModels`。
+     * 返回 `undefined` 是安全值 —— `nearestPromotionEdge` 逐源 try/catch、非有限数即跳过。
+     */
+    nextPromotionEdgeAt(nowMs = this.nowMs()) {
+        const rows = this.promotionCandidates();
+        if (rows.length === 0)
+            return undefined;
+        return nextPromotionEdgeMs(rows.map((row) => row.promotion), nowMs);
+    }
+    /**
+     * 徽标解析的日志出口（与 `options.warn` 同一个通道），**按消息去重**。
+     *
+     * ⚠️ 必须去重：本回调挂在 `toCatalogEntry` 上，对**目录里每一条**、每次 `listModels`
+     * 都跑；不去重就是「每次打开选择器 × 每个坏条目」一行。
+     * ⚠️ 上限 64 条：长期运行的进程不该攒出一张没人读的字典；封顶后不再播，
+     * 也不清空（宁可少一条日志，也不要一个会自己长大的内存）。
+     */
+    promotionWarned = new Set();
+    promotionWarn = (message) => {
+        if (this.promotionWarned.has(message))
+            return;
+        if (this.promotionWarned.size >= 64)
+            return;
+        this.promotionWarned.add(message);
+        this.options.warn?.(message);
+    };
     async loadCatalogEntries() {
         const all = await this.loadModels();
         return all.map((model) => this.toCatalogEntry(model, this.fallbackIndex.get(model.id)));
@@ -459,6 +562,16 @@ export class RaccoonAdapter extends LlmAdapter {
                 // ⚠️ **只在成功时**记时刻：失败不写，否则一次抖动会把上界刷新掉、
                 //    下轮还要等满 20 分钟才发现上游没恢复。
                 this.catalogAt = this.options.now?.() ?? Date.now();
+                /**
+                 * ★ **落盘（SWR 写盘那一半）** —— 2026-11-21。
+                 *
+                 * ⚠️ 本家**只有一个目录来源**（`fetchRemoteModels` 注入）⇒「拿到非空目录」
+                 * 即 `complete`（与 `RemoteCatalogGate` 对裸布尔的归一化口径一致）。
+                 *
+                 * ⚠️ 用 `syncCatalogEntries()` 而不是 `catalogEntries()`：后者是 async
+                 * 且内部会 `await ensureRemoteModels()` ⇒ 在此处调用会重入闸门。
+                 */
+                this.catalog.rememberForDisk?.(this.syncCatalogEntries());
                 return true;
             });
             if (this.remoteModels !== undefined
@@ -527,14 +640,29 @@ export class RaccoonAdapter extends LlmAdapter {
             }
         }
         // 1. 取凭据（过期则先续期）
-        let credential = await this.options.resolveCredential(options.model);
+        let credential = await this.options.resolveCredential(options.model, options.sessionId);
         if (credential === undefined || isRaccoonExpired(credential)) {
             await this.options.refresh();
-            credential = await this.options.resolveCredential(options.model);
+            credential = await this.options.resolveCredential(options.model, options.sessionId);
         }
         if (credential === undefined || credential.access_token.length === 0) {
             throw new LlmError('raccoon: no usable credential; log in first', 'MISSING_CREDENTIAL');
         }
+        /**
+         * ★★★ **IAM 业务会话确认**（issue #147，本入口最关键）。
+         *
+         * 2026-11-14 起扫码登录换回的是 **IAM 令牌**，它不能直接调业务 API ——
+         * 不先打 `POST /api/web/auth/v1/iam/confirm`，`chat/completions` 会回
+         * `400 {"code":200901,"message":"iam_confirm_required"}`，用户看到的是
+         * 「登录成功但**完全没法发消息**」。
+         *
+         * ⚠️ **忽略返回值**：确认失败时下面那次对话请求会拿到 `200901` + `details`，
+         *    那个错误比这里编的准（issue 报告里也是这么建议的）。
+         * ⚠️ 幂等：按 `access_token` 去重 ⇒ 轮换到新号 / 续期后 token 变化会自动重新确认，
+         *    而同一令牌只发一次。
+         * ⚠️ 放在**凭据解析之后**（不是之前）：它需要 `access_token`。
+         */
+        await ensureRaccoonSessionConfirmed(this.product, credential, this.options.fetchImpl ?? fetch, options.signal);
         /**
          * 当前请求实际使用的账号 id（请求级轮换的记账键）。
          *
@@ -645,11 +773,21 @@ export class RaccoonAdapter extends LlmAdapter {
         // 401/403 时续期一次并重试（raccoon 有 refresh_token 轮换）。
         if (response.status === 401 || response.status === 403) {
             await this.options.refresh();
-            const refreshed = await this.options.resolveCredential(options.model);
+            const refreshed = await this.options.resolveCredential(options.model, options.sessionId);
             if (refreshed === undefined || refreshed.access_token.length === 0) {
                 throw new LlmError('raccoon: credential expired and refresh failed', 'AUTH', { status: response.status });
             }
             credential = refreshed;
+            /**
+             * ★★★ **续期换了 token ⇒ 必须对新令牌重新确认**（2026-11-23，正向审计④）。
+             *
+             * 第一版只在 `stream()` 入口确认一次。但**续期会换 `access_token`**
+             *（`refresh_token` 轮换）⇒ 新令牌没确认过 ⇒ 接下来这次重发仍然 `200901`。
+             *
+             * ⚠️ 我的第一版 commit 写「含轮换到新号时的补确认」——**那句话对这个入口不实**，
+             *    审计实测：`iam/confirm` 只对 A 号发过，续期/换号后的 B 号**从未确认**。
+             */
+            await ensureRaccoonSessionConfirmed(this.product, credential, this.options.fetchImpl ?? fetch, options.signal);
             // ⚠️ **必须跟着重新反查账号 id**（PR !71 审计发现）：`resolveCredential`
             // 是「池优先」的（`src/index.ts` 的 raccoon 分支先 `getAvailableAccount`
             // 再回退单凭据 ref），而 `refresh()` 续期的是**默认单凭据 ref**。
@@ -699,7 +837,7 @@ export class RaccoonAdapter extends LlmAdapter {
              */
             let failureClass = classifyRaccoonFailure(errorText, status);
             const accountPool = this.options.accountPool;
-            if (accountPool && failureClass !== 'other') {
+            if (accountPool && rotatesRaccoonAccount(failureClass)) {
                 const tried = new Set();
                 if (activeAccountId)
                     tried.add(activeAccountId);
@@ -720,6 +858,8 @@ export class RaccoonAdapter extends LlmAdapter {
                         break;
                     tried.add(next.entry.id);
                     credential = next.credential;
+                    // ★ 换成**另一个账号** ⇒ 它的令牌从没确认过（见上一条同因）。
+                    await ensureRaccoonSessionConfirmed(this.product, credential, this.options.fetchImpl ?? fetch, options.signal);
                     activeAccountId = next.entry.id;
                     response = await send();
                     if (response.ok) {
@@ -743,7 +883,10 @@ export class RaccoonAdapter extends LlmAdapter {
                 }
                 throw new LlmError(`raccoon: 模型 ${options.model} 所有账号均不可用（${errorDetail(errorText)}）`, failureClass === 'rate' ? 'RATE_LIMIT'
                     : failureClass === 'auth' ? 'AUTH'
-                        : 'QUOTA_EXCEEDED', { status });
+                        // ⚠️ 上游故障用 UPSTREAM（不在宿主可重试集合里 ⇒ 不被白重试 5 次；
+                        //    也不是假原因 QUOTA_EXCEEDED）。详细理由见 loomy 同位置的注释。
+                        : failureClass === 'upstream' ? 'UPSTREAM'
+                            : 'QUOTA_EXCEEDED', { status });
             }
             throw abortLikeOrNormal(errorText, status);
         }

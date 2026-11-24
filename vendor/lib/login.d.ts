@@ -131,7 +131,69 @@ export declare function startOAuthCallbackServer(ticketId: string, pkce: PkcePai
     port: number;
     server: ReturnType<typeof createServer>;
     result: Promise<LoginFlowResult>;
+    receiver: OAuthCallbackReceiver;
 }>;
+/** 手动回调链接解析失败时统一使用的前缀（RPC 层原样展示，不再改写）。 */
+export declare const MANUAL_CALLBACK_FAIL_PREFIX = "\u56DE\u8C03\u94FE\u63A5\u65E0\u6CD5\u4F7F\u7528";
+/** 手动粘贴的回调链接解析结果。 */
+export type ManualCallbackParseResult = {
+    kind: 'code';
+    code: string;
+    port: number;
+} | {
+    kind: 'secret';
+    secret: string;
+} | {
+    kind: 'error';
+    code: ManualCallbackErrorCode;
+    message: string;
+};
+/** 解析失败的原因码（`message` 才是给用户看的文案）。 */
+export type ManualCallbackErrorCode = 'EMPTY' | 'NOT_A_URL' | 'NOT_LOOPBACK' | 'WRONG_PATH' | 'NO_PORT' | 'PORT_OUT_OF_RANGE' | 'NO_CODE';
+/**
+ * 解析用户在**另一台设备**上复制回来的 OAuth 回调链接 —— 纯函数。
+ *
+ * ## 为什么需要它
+ *
+ * portal 把授权跳转定向到宿主本机的 `http://127.0.0.1:<port>/oauth/callback?code=…`。
+ * 用户在手机上完成登录时，那个浏览器打不开宿主所在的 `127.0.0.1` ⇒ 跳转必然失败，
+ * 但地址栏里留下一条**完全合法**的回调链接。用户把它复制回来粘贴，
+ * 就能在本机完成原来只有浏览器才能完成的那一跳。
+ *
+ * ## 纪律
+ *
+ * 1. **纯函数**：结果只取决于入参，故每一种坏输入都能在单测里逐条断言。
+ * 2. **文案由这里给出**：调用方不得再各写一份同义判据。
+ * 3. 返回的 `port` 一律是**链接里那个**端口，绝不是「当前服务器」的端口 ——
+ *    `redirect_uri` 必须与授权时逐字一致。
+ *
+ * @param raw - 用户粘贴的原文（允许首尾空白、尖括号、引号包裹）。
+ */
+export declare function parseManualCallbackUrl(raw: unknown): ManualCallbackParseResult;
+/** 一轮 OAuth 回调的收码器（本地回调服务器与手动粘贴链接共用同一个实例）。 */
+export interface OAuthCallbackReceiver {
+    /** 这一轮的最终结果；成功后 resolve 凭据，失败后 reject。 */
+    result: Promise<LoginFlowResult>;
+    /**
+     * 用授权码换凭据。已被占用或端口不合法时返回 `undefined`（**不抛**）。
+     *
+     * @param port - `redirect_uri` 里的端口，必须与 portal 授权时那个一致。
+     */
+    acceptCode: (code: string, port: number) => Promise<boolean> | undefined;
+    /** 旧流程回退：用 secret 轮询 ticket 端点。已被占用或不合法时返回 `false`。 */
+    acceptSecret: (secret: string) => boolean;
+    /** 这一轮是否已经落定（成功或失败）。 */
+    isSettled: () => boolean;
+    /**
+     * 把这一轮标记为**已结算**（超时 / 外部取消）。
+     *
+     * ⚠️ 缺了它，超时之后收码器仍是「未落定」：`close()` 关掉了服务器，
+     * 但用户随后粘回来的链接仍会被 `acceptCode` 接受，返回一个**真值 promise**，
+     * 于是 `submitManualCallback` 回 `{ ok: true }` —— 而那一轮登录其实早已超时。
+     * 用户看到「提交成功」却永远等不到账号出现（PR #57 正向审计 P3-8）。
+     */
+    expire: () => void;
+}
 /**
  * 已启动但尚未完成的 OAuth 登录流程。
  *
@@ -150,6 +212,21 @@ export interface StartedOAuthFlow {
     result: Promise<LoginFlowResult>;
     /** 关闭回调服务器；**幂等**，可重复调用。 */
     close: () => Promise<void>;
+    /**
+     * 手动提交回调链接（另一台设备完成登录后，把地址栏整条链接粘回来）。
+     *
+     * ⚠️ 只解析 + 交给**同一轮**的收码器，不另写一套换取逻辑：
+     * 两处各写一份必然出现「一条能换、一条换不了」或「各换一次把 code 烧掉」。
+     * ⚠️ 失败**返回可读文案而不抛**：RPC 层原样回给前端，用户输入错误
+     * 不该让宿主进程异常退出。
+     */
+    submitManualCallback: (raw: unknown) => ManualCallbackSubmitResult;
+}
+/** `StartedOAuthFlow.submitManualCallback` 的结果。 */
+export interface ManualCallbackSubmitResult {
+    ok: boolean;
+    /** 失败时可直接展示给用户的原因。 */
+    message?: string;
 }
 /**
  * 启动 OAuth 登录流程并**立即返回**登录 URL（不打开浏览器、不等用户）。

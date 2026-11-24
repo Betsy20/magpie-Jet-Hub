@@ -26,6 +26,7 @@ import { AccountPool } from './account-pool.js';
 import { type RaccoonCredential } from './raccoon.js';
 import { type RaccoonProduct } from './raccoon-product.js';
 import { type ImageRequestTarget } from './image-budget.js';
+import type { PromotionCandidateRow } from './promotion-tooltip.js';
 /** 本适配器注册的 provider 路由名（等价于 `RACCOON.id`）。 */
 export declare const PROVIDER = "raccoon";
 /**
@@ -119,15 +120,16 @@ export declare function raccoonReasoningInfo(): {
     }>;
     defaultEffort: ReturnType<typeof ReasoningEffortId>;
 };
-/** 远端模型条目（已归一）。 */
-export interface RaccoonRemoteModel {
-    id: string;
-    /** **已规范化**的展示名（含倍率）。 */
-    name: string;
-    contextWindow: number;
-    maxTokens: number;
-    supportsImage: boolean;
-}
+/**
+ * 远端模型条目（已归一）。
+ *
+ * ⚠️ **单一来源**在 `src/raccoon-auth.ts`（归一发生在那里）。本文件此前**另立**了一份
+ * 同名同形接口 —— 两套声明放一起，只要有人给一侧加字段，另一侧就静默看不到
+ * （`promotion` 字段本次就是这么漏的：类型检查直接报「Property 不存在」，
+ * 因为 adapter 用的是自己那份）。故改为 re-export，不保留第二份。
+ */
+export type { RaccoonRemoteModel } from './raccoon-auth.js';
+import type { RaccoonRemoteModel } from './raccoon-auth.js';
 /**
  * 上游网关对 `max_tokens` 的**硬校验上限**（issue IKS1L5）。
  *
@@ -160,7 +162,7 @@ export interface RaccoonAdapterOptions {
     /** 单凭据回退 ref（无账号池时）。 */
     credentialRef: CredentialRef;
     /** 解析当前可用凭据。 */
-    resolveCredential: (modelId?: string) => Promise<RaccoonCredential | undefined>;
+    resolveCredential: (modelId?: string, sessionId?: string) => Promise<RaccoonCredential | undefined>;
     /** 凭据失效时的处理（raccoon 有 refresh 端点，会真续期）。 */
     refresh: () => Promise<void>;
     /** 拉取远端模型目录；失败时适配器回退兜底表。 */
@@ -210,6 +212,14 @@ export interface RaccoonAdapterOptions {
      * 缓存的**兜底表**会永久留在对话框里，远端目录真的落地也不重读。
      */
     onCatalogLoaded?: () => void;
+    /**
+     * 日志出口（诊断用），目前只被**活动徽标**使用。
+     *
+     * ⚠️ 为什么必须有：上游一旦改 `billing_discounts` 的日期格式，症状就是
+     * 「徽标消失、全仓零日志」—— 那正是 issue #101 里最难查的形态
+     * （`hostedModelPresentation` 的解析层吞掉异常，客户端只是不画）。
+     */
+    warn?(message: string): void;
 }
 /**
  * raccoon 的失败类别。**「要不要换号」与「要不要写冷却」是两件事**，
@@ -234,7 +244,7 @@ export interface RaccoonAdapterOptions {
  * 认证失败是**账号态**（凭据失效），不是「该模型冷却」；写标记会让池把无辜
  * 账号长期排除，且把网关侧故障放大成全池不可用。
  */
-export type RaccoonFailureClass = 'quota' | 'rate' | 'auth' | 'other';
+export type RaccoonFailureClass = 'quota' | 'rate' | 'auth' | 'upstream' | 'other';
 /**
  * 判定失败类别（文案 + 状态码双通道，与 `isRateLimited` 同构）。
  *
@@ -267,6 +277,18 @@ export declare function classifyRaccoonFailure(errorText: string, status: number
  * 换谁都会失败；按原错误抛，避免吞成「均不可用」。
  */
 export declare function shouldRotateRaccoonAccount(errorText: string, status: number): boolean;
+/**
+ * ★★ **是否值得「换下一个账号」** —— `upstream`（上游网关 5xx）**不换号**。
+ *
+ * 与 loomy 同款、同理由（2026-11-21 正向审计用数据推翻我第一版的「参与换号」）：
+ * 主形态 `该模型服务暂时不可用` 是**模型级**故障，换账号大概率无效；
+ * 而换号的代价是「最坏 N 发全量 prompt」，比「同一个号 + 宿主重试」更贵。
+ *
+ * ⚠️ raccoon 侧**本机零 5xx 实测样本** —— 这一格是为守住
+ * 「`classifyLoomyFailure` 与 `classifyRaccoonFailure` **逐格同构**」而同步的，
+ * 不是 raccoon 的独立发现（同 {@link RaccoonFailureClass} 里那句标注）。
+ */
+export declare function rotatesRaccoonAccount(cls: RaccoonFailureClass): boolean;
 /**
  * 该类别是否要写冷却标记。
  *
@@ -339,6 +361,44 @@ export declare class RaccoonAdapter extends LlmAdapter {
      * 骨架不认识它们（各家格式不同）。
      */
     private toCatalogEntry;
+    /** 注入时钟（与目录 TTL 同一个 `options.now`，单测可推进）。 */
+    private nowMs;
+    /**
+     * ★ 本家目录里的**未决**活动候选（方案 A：选择器悬停的数据来源）。
+     *
+     * ⚠️ 与 buddy 家**刻意不同**的一处：本家远端条目里**本来就带** `billing_discounts`
+     * 的原料，故在线路径有候选；而兜底表是编译期快照（红线「静态表必然腐坏」），
+     * **不带**活动 ⇒ 离线路径返回空，与「上游没有活动」同形（与 buddy 一致）。
+     *
+     * ⚠️ 逐条走 `raccoonPromotionCandidate`（与 `toCatalogEntry` **同一个**构造函数），
+     * 不另写一份解析：同一 schema 两套判据是本仓的复发缺陷形态。
+     *
+     * ⚠️ 交出去的是**未决候选**：徽标在装配时刻挑定并缓存正是 issue #101 要修的形态；
+     * 悬停侧（`plugin-src/client/model-label.js`）每次渲染重读时钟。
+     */
+    promotionCandidates(): readonly PromotionCandidateRow[];
+    /**
+     * ★ 本家的下一次活动边界（epoch ms），供 `promotion-edge-broadcast` 定时重算徽标。
+     *
+     * ⚠️⚠️ 不接这个 getter 的后果（2026-11-18 我实测）：raccoon 的 `start_at`/`end_at` 是
+     * 「绝对时刻窗口」，而目录缓存 20 分钟一轮 —— 边界时刻不触发重算 ⇒ 8:00 结束的活动
+     * 要在行上**多挂最长 20 分钟**，正是 issue #101 点名的那格（「活动过期而用户仍按优惠
+     * 期选择」）。同批接上这个 getter 的 lobsterai（PR #114）就是同型。
+     *
+     * ⚠️ **零网络**：只读 `remoteModels` 里已解析好的候选，不触发 `fetchRemoteModels`。
+     * 返回 `undefined` 是安全值 —— `nearestPromotionEdge` 逐源 try/catch、非有限数即跳过。
+     */
+    nextPromotionEdgeAt(nowMs?: number): number | undefined;
+    /**
+     * 徽标解析的日志出口（与 `options.warn` 同一个通道），**按消息去重**。
+     *
+     * ⚠️ 必须去重：本回调挂在 `toCatalogEntry` 上，对**目录里每一条**、每次 `listModels`
+     * 都跑；不去重就是「每次打开选择器 × 每个坏条目」一行。
+     * ⚠️ 上限 64 条：长期运行的进程不该攒出一张没人读的字典；封顶后不再播，
+     * 也不清空（宁可少一条日志，也不要一个会自己长大的内存）。
+     */
+    private readonly promotionWarned;
+    private readonly promotionWarn;
     private loadCatalogEntries;
     private syncCatalogEntries;
     /**

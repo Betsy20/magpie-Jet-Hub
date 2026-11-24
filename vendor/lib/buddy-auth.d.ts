@@ -7,9 +7,27 @@
 import { Service, type Context } from '@deepseek-ai/cordis';
 import { type CredentialRef } from '@deepseek-ai/dsh-credentials';
 import { type BuddyCatalogOutcome, type BuddyLoginFlowOptions } from './buddy-oauth.js';
-import type { BuddyRemoteModel } from './buddy.js';
+import type { BuddyCredential, BuddyRemoteModel } from './buddy.js';
 import { AccountPool } from './account-pool.js';
 import { type BuddyProduct } from './product.js';
+import { type ExpiryAccessors } from './expiry-sync.js';
+/**
+ * CodeBuddy 系凭据 → 账号池有效期的提取器。
+ *
+ * `BuddyAuth` 一个类服务两个产品（buddy / workbuddy），故 tag 取
+ * `this.product.id`，日志里能区分是哪个面板。
+ */
+/**
+ * ⚠️ **导出是刻意的**（2026-11-19，issue #124 正向审计 P1-1）。
+ *
+ * 审计实测：`issuedAtOf: credentialIssuedAtMs` 这一行删掉 ⇒ **15 条用例全绿，
+ * 而缺陷原样复发**。根因是当时 15 条里 12 条手传 `issuedAtMs` 直接测判据、
+ * 3 条只测 `jwtIssuedAtMs` 本身 —— **没有一条跨越「访问器 → 判据」这条缝**。
+ *
+ * ⇒ 导出本表，让用例能用**真实访问器**走一次 `refreshAccountWithReconcile`，
+ *    把接线本身钉住（见 `tests/unit/buddy-keepalive-refresh.spec.ts` 的接线段）。
+ */
+export declare const BUDDY_EXPIRY_ACCESSORS: ExpiryAccessors<BuddyCredential>;
 /**
  * CodeBuddy 的登录结果存储所用的凭据引用。
  *

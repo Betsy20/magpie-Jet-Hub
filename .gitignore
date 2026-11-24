@@ -50,3 +50,5 @@ scripts/deploy-*.sh
 !scripts/deploy-*.sh.example
 ops/
 deploy/
+# DSH 会话的临时文件（提交信息草稿等），不进仓库
+.agents/

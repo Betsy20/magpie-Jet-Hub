@@ -34,12 +34,18 @@
  *
  * | 档位 | 判据 | 含义 |
  * |---|---|---|
- * | 1 | `expiring > 0` | 有 **15 天内到期**的积分 —— 再不用就作废，优先消耗 |
- * | 2 | `permanent > 0` | 只剩「永久」积分（≥ 15 天后才到期） |
- * | 3 | 其余（含**查询失败**） | 无可用余额 |
+ * | 1 | `imminent > 0` | 有 **5 天内到期**的积分（临期）—— 再不用立刻作废，最优先 |
+ * | 2 | `expiring > 0` | 只剩 **5~15 天内到期**的积分（短期） |
+ * | 3 | `permanent > 0` | 只剩「永久」积分（≥ 15 天后才到期） |
+ * | 4 | 其余（含**查询失败**） | 无可用余额 |
+ *
+ * ⚠️ 三档判据是**嵌套**的：`临期 ⊂ 15 天内`，故 `expiring` 桶同时包含临期与短期，
+ * `imminent` 是它的子量。这样「锁定永久积分」的可用性判据（`expiring > 0`）不变。
  *
  * ⚠️ **档内保持传入顺序**（= 用户在 Jet Hub 拖拽的手动顺序），**不重排** ——
- * 与 `AccountPool.getAvailableAccount` 的既有语义一致。
+ * 与 `AccountPool.getAvailableAccount` 的既有语义一致。**临期档内同样如此**：
+ * 两笔都临期时，顺序完全由帐号顺序决定，不按"谁更急"二次排序
+ *（用户 2026-11-17 明确要求「原来是什么策略就使用什么策略」）。
  *
  * ⚠️ **查询失败归入最后一档**：宁可把请求发给能确认余额的号（与 Loomy 同规）。
  *
@@ -57,6 +63,38 @@ import { isExclusiveCreditPool } from './credits.js';
 export const BUDDY_EXPIRING_WINDOW_DAYS = 15;
 /** 由天数换算的毫秒窗口（导出供单测按同一口径构造时间戳）。 */
 export const BUDDY_EXPIRING_WINDOW_MS = BUDDY_EXPIRING_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+/**
+ * 「临期积分」的时间窗口：距扣费截止不足 **5 天**的积分算临期（最优先烧掉）。
+ * 用户 2026-11-17 定的判据。
+ *
+ * ## 它与 15 天那条是**嵌套**关系，不是并列
+ *
+ * ```
+ * 临期（< 5 天） ⊂ 短期（5 ~ 15 天） ⊂ 原「临时」（< 15 天）
+ * ```
+ *
+ * 引入它的原因（用户 2026-11-17 需求）：原先**只有一条线**，于是「14 天后到期」
+ * 与「3 天后到期」都算同一档 `expiring` ⇒ 排序时**全靠帐号顺序**决定先烧谁
+ * ⇒ 一个还有 14 天的号会长期霸占轮换，而 3 天后作废的积分**一分没用上**。
+ *
+ * ## ⚠️ 它是 `expiring` 的**子量**，不是第 4 个平级桶
+ *
+ * `expiring` 的语义（15 天内）**逐字节不变** —— 这是刻意的，因为
+ * `split.expiring > 0` 是「锁定永久积分」的可用性判据
+ *（`src/officeace-lock.ts:255`、`plugin-src/client/usage-badge.js` 的 `expiringOf()`），
+ * 改它的含义会让锁定态把一个「只有 3 天积分」的可用号误判成不可用。
+ * 与 `permanent` 承载 `unknownExpiry` 子量是同一手法（见 `src/credits.ts:289-310`）。
+ */
+export const BUDDY_IMMINENT_WINDOW_DAYS = 5;
+/** 由天数换算的毫秒窗口（导出供单测按同一口径构造时间戳）。 */
+export const BUDDY_IMMINENT_WINDOW_MS = BUDDY_IMMINENT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+/**
+ * 覆盖「临期」窗口的环境变量名。
+ *
+ * ⚠️ 与 15 天那条同理：不同渠道的发卡节奏差别极大，5 天对某家合适、对另一家过紧。
+ * 设成 `0` 可**关掉临期档**（退化成原来的两档）。
+ */
+export const DSH_BUDDY_IMMINENT_WINDOW_DAYS = 'DSH_BUDDY_IMMINENT_WINDOW_DAYS';
 /**
  * 覆盖窗口的环境变量名。
  *
@@ -99,14 +137,67 @@ export function buddyExpiringWindowDays(env = process.env) {
 export function buddyExpiringWindowMs(env = process.env) {
     return buddyExpiringWindowDays(env) * 24 * 60 * 60 * 1000;
 }
+/**
+ * 当前生效的「临期」窗口（天）。
+ *
+ * ⚠️ **解析纪律与 {@link buddyExpiringWindowDays} 逐条相同**：`0` 是**合法值**
+ * （表示「关掉临期档，退化成两档」），故**绝不能**写 `Number(raw) || 默认值` ——
+ * 那会把 `0` 静默换成 5。非法值（空 / 非数字 / 负数）回落到默认。
+ */
+export function buddyImminentWindowDays(env = process.env) {
+    const raw = env[DSH_BUDDY_IMMINENT_WINDOW_DAYS];
+    if (typeof raw !== 'string' || raw.trim().length === 0)
+        return BUDDY_IMMINENT_WINDOW_DAYS;
+    const parsed = Number(raw.trim());
+    if (!Number.isFinite(parsed) || parsed < 0)
+        return BUDDY_IMMINENT_WINDOW_DAYS;
+    return parsed;
+}
+/** 当前生效的临期窗口（毫秒）。 */
+export function buddyImminentWindowMs(env = process.env) {
+    return buddyImminentWindowDays(env) * 24 * 60 * 60 * 1000;
+}
+/**
+ * 生效的临期窗口（毫秒）—— **全仓唯一的钳制点**。
+ *
+ * ## 为什么要钳制
+ *
+ * 两个窗口是**嵌套**的（临期 ⊂ 15 天）。用户可分别用两个环境变量调它们，
+ * 于是出现「临期窗口比总窗口还大」时，分档表就自相矛盾了：
+ *
+ * | `DSH_BUDDY_EXPIRING_WINDOW_DAYS` | `DSH_BUDDY_IMMINENT_WINDOW_DAYS` | 不钳制的后果 |
+ * |---|---|---|
+ * | 15 | 20 | 「短期」档的判据 `5~15 天` 变成空区间 ⇒ 该档永远为 0（看着像缺陷） |
+ * | 3 | 5 | 「临期」判据 `>3 天 且 <5 天` 两处比较打架 ⇒ 必须钳到 3 |
+ *
+ * 钳制后语义始终自洽：**临期 ⊂ 总窗口**，最坏情况是「短期档消失」，
+ * 而那是用户显式把两个窗口调到相等/倒挂的**直接推论**，不是缺陷。
+ *
+ * ⚠️ 只在**这一处**钳制。调用方拿到的值已经是合法的 —— 别在别处再
+ * `Math.min` 一次，那会让「同一语义两套判据」重新出现（本仓首条红线）。
+ *
+ * @param windowMs - 总窗口（15 天，已按 env 解析）。
+ * @param imminentMs - 临期窗口候选值；省略时读环境变量。
+ * @returns 恒 `>= 0` 且 `<= windowMs`。
+ */
+export function resolveImminentWindowMs(windowMs, imminentMs) {
+    const raw = imminentMs ?? buddyImminentWindowMs();
+    // 总窗口本身若是脏值（NaN / 负），退化成默认，避免把临期窗口也污染成 NaN。
+    const total = Number.isFinite(windowMs) && windowMs >= 0 ? windowMs : BUDDY_EXPIRING_WINDOW_MS;
+    if (!Number.isFinite(raw) || raw < 0)
+        return Math.min(BUDDY_IMMINENT_WINDOW_MS, total);
+    return Math.min(raw, total);
+}
 /** 账号余额档位。数字越小越优先。 */
 export const BUDDY_BALANCE_TIER = Object.freeze({
-    /** 有 15 天内到期的积分 —— 优先消耗（再不用就作废）。 */
-    expiring: 0,
-    /** 只剩永久积分（≥ 15 天后到期）。 */
-    permanent: 1,
-    /** 无余额 / 查询失败。 */
-    none: 2,
+    /** 有 5 天内到期的积分（临期）—— 最优先消耗，否则直接作废。 */
+    imminent: 0,
+    /** 只剩 5~15 天内到期的积分（短期）—— 次优先。 */
+    expiring: 1,
+    /** 只剩永久积分（≥ 15 天后到期，或到期时间未知）—— 最后才用。 */
+    permanent: 2,
+    /** 无余额 / 查询失败 / 锁定态下只剩永久积分。 */
+    none: 3,
 });
 /**
  * 把一个账号的积分余额拆成「快到期」与「永久」两桶。
@@ -126,12 +217,38 @@ export const BUDDY_BALANCE_TIER = Object.freeze({
  * @param balance - `fetchCreditBalance` 的结果；`null`（查询失败）返回 `undefined`。
  * @param now - 当前时刻（毫秒），注入以便单测断言边界。
  * @param windowMs - 窗口，默认 {@link BUDDY_EXPIRING_WINDOW_MS}。
- * @returns 两桶合计；`balance` 为 null/undefined 时返回 `undefined`（= 查询失败）。
+ * @param imminentMs - 「临期」子窗口，默认 {@link BUDDY_IMMINENT_WINDOW_MS}。
+ *   ⚠️ 由调用方经 {@link resolveImminentWindowMs} 归一（保证 ≤ `windowMs`）
+ *   —— 这里给默认值只为既有调用点（含大量用例）不必改动。
+ * @returns 三桶合计（`expiring` 内含 `imminent` 子量）；`balance` 为 null/undefined
+ *   时返回 `undefined`（= 查询失败）。
  */
-export function splitBuddyCreditsByExpiry(balance, now = Date.now(), windowMs = BUDDY_EXPIRING_WINDOW_MS) {
+export function splitBuddyCreditsByExpiry(balance, now = Date.now(), windowMs = BUDDY_EXPIRING_WINDOW_MS, imminentMs = BUDDY_IMMINENT_WINDOW_MS) {
     if (balance === null || balance === undefined)
         return undefined;
+    /**
+     * ⚠️⚠️ **容器层也要挡**（2026-11-18 对抗审计 P2-③）。
+     *
+     * 元素层早有 `if (!pkg) continue`（2026-10-21 那次审计加的），但 `packages`
+     * 本身是 `{}` / 字符串 / `{ packages: {} }` 时 `for...of` 直接抛
+     * `TypeError: packages is not iterable`，而 `selector.classify` 没有 try/catch
+     * ⇒ **整条 `jet-hub/usage-badge` RPC 崩掉**（不是某个 provider 显示异常）。
+     *
+     * 客户端的 `splitCreditsByExpiry`（`plugin-src/client/credit-expiry.js:146`）
+     * 同输入返回 `null`（= 不适用）⇒ 修前是**前后端两套答案**。这里对齐成
+     * `undefined`（= 查询失败），与 `balance === null` 同义。
+     */
+    if (!Array.isArray(balance.packages))
+        return undefined;
     let expiring = 0;
+    /**
+     * `expiring` 的**子量**：其中距到期不足 `imminentMs` 的部分。
+     *
+     * ⚠️ 累加点与 `expiring` **在同一分支里成对发生**（见下方窗口比较）——
+     * 这是 `0 <= imminent <= expiring` 这条不变量的**唯一**保证方式。
+     * 若把它们写在两个 if 里，任何一次改动都可能让子量脱离母量。
+     */
+    let imminent = 0;
     let permanent = 0;
     let expired = 0;
     for (const pkg of balance.packages) {
@@ -284,12 +401,308 @@ export function splitBuddyCreditsByExpiry(balance, now = Date.now(), windowMs = 
             expired += remaining;
             continue;
         }
-        if (endMs - now < windowMs)
+        /**
+         * ⚠️⚠️ **临期判定必须与 `expiring` 累加在同一分支里成对发生**。
+         *
+         * `imminent` 是 `expiring` 的**子量**（`0 <= imminent <= expiring`）——
+         * 这是本文件最重要的一条不变式，也是「锁定永久积分」不会误判的前提。
+         * 若拆成两个独立 `if`（先把 `expiring` 累加、再单独判临期），
+         * 将来任何一次边界调整都可能让子量脱离母量（子量 > 母量）。
+         *
+         * 边界方向与 15 天那条**严格一致**：`<` 才是窗口内。
+         * ⇒ 正好 `imminentMs` 的那笔算**短期**，不算临期。
+         */
+        const left = endMs - now;
+        if (left < imminentMs) {
+            imminent += remaining;
+            expiring += remaining;
+            continue;
+        }
+        if (left < windowMs)
             expiring += remaining;
         else
             permanent += remaining;
     }
-    return { expiring, permanent, ...expired > 0 ? { expired } : {} };
+    /**
+     * ⚠️ `imminent` / `expired` 都只在 `> 0` 时出现 —— 与前端 `unknownExpiry` 同款约定：
+     * 多一个恒 0 的键会让所有「逐键 `toEqual`」的既有用例全线变红，且对 0 值毫无信息量。
+     */
+    return {
+        expiring,
+        permanent,
+        ...imminent > 0 ? { imminent } : {},
+        ...expired > 0 ? { expired } : {},
+    };
+}
+/**
+ * 「轮换起点」的**唯一实现**：把已排好序的候选从指定账号处绕一圈。
+ *
+ * ## 语义（用户 2026-11-10 需求）
+ *
+ * ```
+ * 策略顺序：A → B → C → D →（回到 A）
+ * 选 C 后： C → D → A → B →（回到 C）
+ * ```
+ *
+ * ⚠️ **只挪起点，不改任何策略**：
+ * - 档位判据照旧（临期优先仍然成立）；
+ * - 可用性过滤照旧（锁定永久积分时「只剩永久」仍不可用）；
+ * - 失败换号照旧（`tried` 循环在旋转后的数组上跑）。
+ *
+ * ## ⚠️ 起点落在「往后第一个可用项」
+ *
+ * 用户选的号**可能当前不可用**，分两种成因，**都必须循环到下一个可用**、
+ * 不能回落默认（用户明确要求）：
+ *
+ * 1. **在候选集里但档位不可用**（`none` 档）—— 向后扫时跳过；
+ * 2. **压根不在候选集里**（账号级封禁 / 目标模型限流，被 `candidatesOf` 滤掉）
+ *    —— 此时只按 `ranked.findIndex(id)` 会得到 `-1`，于是**静默回落默认第一个号**
+ *    （恰是用户想避开的）。PR #59 正向审计 P1-a 实测。
+ *
+ * 成因 2 的修法：调用方额外传 {@link BuddyTierOptions.enabledAccountIds}
+ * （**全量启用账号**的 id 列表，池序、不过滤封禁/限流）。本函数据它算出起点
+ * 的**池位次**，再从候选里取「池位次 ≥ 起点」的第一个 —— 候选是按策略序
+ * 排的，故那个就是「起点之后」的第一个候选。
+ *
+ * ## 三条不变量
+ *
+ * 1. **集合不变**：只旋转，不增删（长度与元素身份都不变）；
+ * 2. **保序**：起点之后 / 之前的各自保持原相对顺序；
+ * 3. **找不到就原样**：`rotationStartId` 指向的账号**已被删除**（不在
+ *    `enabledAccountIds` 里）⇒ 与未设置**逐字节相同**，不报错。
+ *    ⚠️ 与「起点被封禁/限流」**刻意区分**：后者账号还在，用户的选择仍有意义，
+ *    故循环到下一个可用；前者选择已无处可指，回落默认才是唯一合理语义。
+ *
+ * @param ranked - **已按策略排好序**的候选（⚠️ 必须排在旋转之前）
+ * @param options - 与排序同一份选项（需要 `allowPermanent` 判可用性，
+ *   可选 `enabledAccountIds` 定位「不在候选里的起点」）
+ * @returns **新数组**
+ */
+export function rotateFromPreferred(ranked, options = {}) {
+    const startId = options.rotationStartId;
+    if (startId === undefined || startId.length === 0)
+        return [...ranked];
+    const directIndex = ranked.findIndex((account) => account.id === startId);
+    const enabledAccountIds = options.enabledAccountIds ?? [];
+    let index = directIndex;
+    if (index < 0) {
+        // 成因 2：起点不在候选集里。先在全量启用账号里定位它的池位次。
+        const startPosition = enabledAccountIds.indexOf(startId);
+        // 不变量 3：账号已被删除 ⇒ 原样（= 默认起点）。
+        if (startPosition < 0)
+            return [...ranked];
+        // 候选按策略序排；「池位次 ≥ 起点」的第一个就是「起点之后」的第一个候选。
+        index = ranked.findIndex((account) => enabledAccountIds.indexOf(account.id) >= startPosition);
+        // 起点是最后一位、其后没有候选 ⇒ 绕回开头（循环语义）。
+        if (index < 0)
+            index = 0;
+    }
+    // ⚠️ 从 index 起**向后**找第一个可用项（step = 0 时先检查自己）。
+    let anchor = -1;
+    for (let step = 0; step < ranked.length; step += 1) {
+        const at = (index + step) % ranked.length;
+        if (buddyTierUsable(buddyBalanceTier(ranked[at], options))) {
+            anchor = at;
+            break;
+        }
+    }
+    // 全不可用 ⇒ 原样，交给上层报出真实原因（不要在这里抛）。
+    if (anchor < 0)
+        return [...ranked];
+    /**
+     * ★★★★ **S5 语义：起点**绝对第一** + 其余按档位优先 + 同档内循环**
+     * （用户 2026-11-18 三次定稿，最终版）。
+     *
+     * ## 迭代脉络（每一次都是真实报障驱动的）
+     *
+     * | 版本 | 规则 | 报障 |
+     * |---|---|---|
+     * | S3 | 整条数组循环 | ⚠️ 起点在永久档时永久排第一、**临期沉底**，白等到过期 |
+     * | S2 | 只把起点摘出来放最前（不循环）| ⚠️ 位次 7 被甩到最后 |
+     * | S4 | 起点档内循环，**更优先的档整档前置** | ⚠️ **起点被挤到第 2 位** |
+     * | **S5** | **起点绝对第一** + 其余档位优先 + 同档循环 | ✅ |
+     *
+     * ## 用户两次要求的原话（必须同时满足）
+     *
+     * 1. 「起点只提升自己，自己是什么档次就使用它的档次，
+     *     然后剩余全部按默认策略档位排列」 ⇒ **起点第一**
+     * 2. 「都是同一档次的情况下，肯定是按照循环来，
+     *     而不是现在这种只是把选号 6 提到第一，其他的不变」 ⇒ **同档循环**
+     *
+     * S4 把第 1 条实现错了：它让「更优先的档」压过起点。
+     * 用户实测（Qoder 7 个账号，起点=位次5 永久档、位次2 是临期）：
+     *
+     * ```
+     * S4 ⇒ 位2(临期) → 位5(起点) → 位6 → …    ❌ 起点不是第一
+     * S5 ⇒ 位5(起点) → 位2(临期) → 位6 → …    ✅
+     * ```
+     *
+     * ## 规则（三条，按优先级）
+     *
+     * 1. **起点绝对第一**（无论它是什么档）；
+     * 2. 其余账号按**档位优先序**：临期 → 短期 → 永久 → 不可用；
+     * 3. **起点所在档内**从起点之后继续循环（绕回该档首），其余档保持原序。
+     *
+     * ⚠️⚠️ **已知代价（用户明确接受）**：起点在「永久」档且池里存在临期账号时，
+     *    永久积分会先被烧掉 —— 这正是三档机制原本要避免的（临期会过期）。
+     *    弹窗的起点档位提示（`rotationStartHint`）已把该后果告知用户。
+     *    这里**不再替用户做「保护临期」的决定** —— 那是 S4 的错误。
+     *
+     * ## 三条不变量（S5 版）
+     *
+     * 1. **集合不变**：只重排，不增删；
+     * 2. **起点必在首位**：只要找到可用起点，`out[0].id === startId`；
+     * 3. **档内循环**：起点所在档内的相对顺序是「循环位移」，
+     *    其余档内相对顺序**逐字节不变**。
+     */
+    const startAccount = ranked[anchor];
+    const anchorTier = buddyBalanceTier(startAccount, options);
+    /** 分档边界用未锁定口径（`none` 档在锁定态可能是「只剩永久」，会混淆分组）。 */
+    const tierRankOf = (account) => buddyBalanceTier(account, { allowPermanent: true });
+    const anchorRank = tierRankOf(startAccount);
+    /**
+     * ★★★★ **S6：起点只在「还持有选定那一档」时占首位**（2026-11-20，第四次修订）。
+     *
+     * ## 它修的是什么（用户真实报障）
+     *
+     * > 「位次4 那个 4016 的帐号，本来是有临期积分的，然后我选用它作为轮换起点，
+     * >  消耗完临期积分后，它不会切换到下一个有临期积分的帐号也就是位次5，
+     * >  而是直接消耗了位次4 的短期积分」
+     *
+     * ## 根因
+     *
+     * `expiringBalance` 是**母量**（= 临期 + 短期），而 `buddyBalanceTier` 只看它：
+     *
+     * ```
+     * if (imminent > 0) → 临期(0)
+     * if (expiring > 0) → 短期(1)   ← 临期烧完、短期还在，落这里
+     * ```
+     *
+     * S5 规则是「起点绝对第一，只要可用」⇒ 起点临期烧完后落到「短期」档
+     * （**仍然可用**）⇒ 永远占第一位 ⇒ 继续烧自己的短期/永久。
+     *
+     * ## 判据（这是本版全部逻辑）
+     *
+     * ```
+     * 起点当前档位 == 用户选定它时的档位  ⇒  起点绝对第一（S5 行为）
+     * 不等（= 那一档已烧完，档位下降）    ⇒  交出首位，回到档位排序
+     * ```
+     *
+     * ⚠️ `tierAtSelection` 必须是**落盘的快照**，不能实时算 ——
+     *    实时算等于「当前 == 当前」，恒成立，bug 依旧（见 `RotationStartTier` 注释）。
+     *
+     * ## ⚠️ 2026-11-20 二改：不再有「无快照回落 S5」
+     *
+     * 用户决定「最彻底：清除已选的起点，回归默认」⇒ `sanitizePreferredRotation`
+     * 丢弃一切无档位的条目 ⇒ 只要走到本函数且存在起点，`rotationStartTier`
+     * **必然有值**。故这里不再写 `tierAtSelection === undefined || …` 那种回落 ——
+     * 那个回落会让老数据继续踩本 bug，正是要消除的行为。
+     */
+    const tierAtSelection = options.rotationStartTier;
+    const tierNow = (() => {
+        const rank = tierRankOf(startAccount);
+        if (rank === BUDDY_BALANCE_TIER.imminent)
+            return 'imminent';
+        if (rank === BUDDY_BALANCE_TIER.expiring)
+            return 'expiring';
+        if (rank === BUDDY_BALANCE_TIER.permanent)
+            return 'permanent';
+        return undefined;
+    })();
+    /**
+     * ⚠️ `tierAtSelection === undefined` 只可能来自**直接调用本函数的测试/内部代码**
+     *（生产链路由 `sanitizePreferredRotation` 保证有值）。那种情况按「档位已变」处理
+     * ⇒ 起点交出首位。**不回落 S5** —— 那会让缺陷复现。
+     */
+    const tierStillHeld = tierAtSelection !== undefined && tierNow === tierAtSelection;
+    /**
+     * ★★★ **`pinnedFirst`：无视档位变化的「绝对第一」**（2026-11-23）。
+     *
+     * 用户要求「子代理固定帐号」在这条路径上：
+     * > 「让它绝对第一，除非它不可用了……如果开了锁定永久，
+     * >   则它临期和短期都烧，烧没了才切帐号」
+     *
+     * ⇒ 与 S6 的差别只有一格：**不检查「档位是否变了」**。
+     * 只要起点号仍**可用**就恒排第一（烧完临期继续烧短期、再烧永久）。
+     *
+     * ⚠️ 「可用」判据**完全复用** `buddyTierUsable(buddyBalanceTier(...))`，
+     * 不另写一份 —— 否则「锁定永久时只剩永久算不算可用」这条会两处漂移
+     *（本仓红线：同一语义不得两套判据）。
+     *
+     * ⚠️ 不可用时**不在这里抛错**：`anchor` 已经是「从起点往后第一个可用」，
+     * 走既有的 S5 分支即可（那就是用户说的「烧没了才切帐号」）。
+     */
+    const pinnedHeld = options.pinnedFirst === true;
+    // 按档分组（保持组内原序）
+    const byRank = new Map();
+    for (const account of ranked) {
+        const rank = tierRankOf(account);
+        const group = byRank.get(rank);
+        if (group === undefined)
+            byRank.set(rank, [account]);
+        else
+            group.push(account);
+    }
+    /**
+     * ★ **S6 交出首位后的排序**：从起点开始按池序循环，再按档位稳定排序。
+     *
+     * 用户明确要求：「回归默认策略顺序不是指按照位次1来的默认，而是从轮换起点
+     * 开始的策略循环，本起点消耗完临期了，则切换到起点后的下一个符合默认策略的帐号」
+     *
+     * ⇒ 顺序 = `旋转到起点开头(池序)` → `按档位稳定排序`。
+     * 这样同档内是「从起点往后数」的循环，不是从位次 1 数。
+     *
+     * ⚠️ 需要**池序**（`enabledAccountIds`）。生产链路里只要配了起点就必然传入
+     * （见 `credential-resolver`）。单测替身没传时退化为「档内原序」——
+     * 那个降级**不会**影响本函数的正确性（只是循环原点不同），但会让测试与
+     * 生产行为不一致，故这里显式写明。
+     */
+    const rotatedByPoolOrder = (() => {
+        const poolIds = options.enabledAccountIds;
+        if (poolIds === undefined || poolIds.length === 0)
+            return [...ranked];
+        // 按池位次排序（不在池里的排最后，保持原相对序）
+        const posOf = (id) => {
+            const at = poolIds.indexOf(id);
+            return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+        };
+        const byPool = [...ranked].sort((a, b) => posOf(a.id) - posOf(b.id));
+        const startAt = byPool.findIndex((a) => a.id === startAccount.id);
+        if (startAt < 0)
+            return byPool;
+        return [...byPool.slice(startAt), ...byPool.slice(0, startAt)];
+    })();
+    if (!tierStillHeld && !pinnedHeld) {
+        /**
+         * 起点已降档 ⇒ 交出首位。
+         *
+         * ⚠️ `pinnedHeld` 时**不进本分支**：那是「固定帐号」语义，
+         * 要求无视档位变化恒排第一（见 `pinnedHeld` 的注释）。
+         *
+         * ⚠️ 排序必须**稳定**（`Array.prototype.sort` 在 ES2019+ 稳定），
+         * 且比较器只比档位、不掺下标 —— 这样同档内保持 `rotatedByPoolOrder`
+         * 的相对序（即「从起点往后数」的循环）。
+         */
+        return [...rotatedByPoolOrder].sort((a, b) => tierRankOf(a) - tierRankOf(b));
+    }
+    const result = [startAccount];
+    for (const rank of [...byRank.keys()].sort((a, b) => a - b)) {
+        const group = byRank.get(rank);
+        if (rank !== anchorRank) {
+            // 其他档：整档原样（组内已排除起点？不 —— 起点只在 anchorRank 组里）
+            result.push(...group);
+            continue;
+        }
+        // 起点所在档：从起点**之后**继续循环，再绕回该档首至起点之前
+        const posInTier = group.findIndex((a) => a.id === startAccount.id);
+        const ordered = posInTier >= 0
+            ? [...group.slice(posInTier + 1), ...group.slice(0, posInTier)]
+            : group;
+        result.push(...ordered);
+    }
+    // ⚠️ `anchorTier` 只为可读性保留（真正的分组边界用 tierRankOf，见上方说明）
+    void anchorTier;
+    return result;
 }
 /**
  * 判定单个账号的档位。
@@ -314,6 +727,13 @@ export function splitBuddyCreditsByExpiry(balance, now = Date.now(), windowMs = 
  * 只剩永久积分的账号直接落入 `none`（不可用），而不是降到 `permanent` 档。
  */
 export function buddyBalanceTier(balance, options = {}) {
+    /**
+     * ⚠️ 两个「会作废」的档**必须在 `allowPermanent === false` 之前判**：
+     * 临期与短期都在 15 天内 ⇒ 锁定时**仍可烧**。这保证「锁定永久积分」的
+     * 可用性判据与引入临期档**之前逐字节相同**（那是最不能回归的一格）。
+     */
+    if (positiveOrZero(balance.imminentBalance) > 0)
+        return BUDDY_BALANCE_TIER.imminent;
     if (positiveOrZero(balance.expiringBalance) > 0)
         return BUDDY_BALANCE_TIER.expiring;
     if (options.allowPermanent === false)
@@ -398,15 +818,37 @@ export function rankBuddyAccountsByManualOrder(accounts, options = {}) {
  *
  * ⚠️ 两个桶都为 0 时返回「无可用积分」而不是「临时 0 / 永久 0」——
  * 用户读后者需要自己推断，前者一眼可见。
+ *
+ * ⚠️ **有临期额度时必须把它单列**（`临期 X · 5 天内到期 Y · 永久 Z`）：
+ * 若只说「15 天内到期 Y」，「其中 X 会在 5 天内烧掉」这个最关键的决策信息
+ * 就丢了 —— 而这正是引入临期档的全部目的。
  */
-export function describeBuddyCreditSplit(split, windowDays = BUDDY_EXPIRING_WINDOW_DAYS) {
+export function describeBuddyCreditSplit(split, windowDays = BUDDY_EXPIRING_WINDOW_DAYS, imminentDays = BUDDY_IMMINENT_WINDOW_DAYS) {
     if (split === undefined)
         return '余额查询失败';
     const expiring = roundCreditsInline(split.expiring);
     const permanent = roundCreditsInline(split.permanent);
+    const imminent = roundCreditsInline(split.imminent ?? 0);
     if (expiring <= 0 && permanent <= 0)
         return '无可用积分';
-    return `${windowDays} 天内到期 ${expiring} · 永久 ${permanent}`;
+    /**
+     * ⚠️⚠️ `imminent` 是 `expiring` 的**子量** ⇒ 明细行里必须减掉它，否则三段相加会
+     * 大于合计（`临期 100 · 15 天内到期 350 · 永久 1000` 读起来是 1450，实际 1350）。
+     *
+     * 2026-11-18 正向审计 P3-a：上面这句注释一直这么写，但代码**没减**，而
+     * `tests/unit/buddy-balance-rank.spec.ts` 的用例把错的输出钉死了 ⇒ 注释与实现
+     * 互相矛盾、CI 全绿。修法是把实现改成注释说的样子（区间也随之收窄成
+     * `5~15 天内到期`，与 `plugin-src/client/credit-expiry.js` 的 `expiryBucketLabel`
+     * 同一口径）。
+     *
+     * 本函数**当前无生产调用点**（只在 spec 里）—— 保留是为了将来接回展示层时
+     * 不再犯同一个错；不删是因为删掉会丢掉「三段相加 = 合计」这条不变式的记录。
+     */
+    const imminentPart = imminent > 0 ? `临期 ${imminent} · ` : '';
+    const restDays = imminent > 0 ? `${imminentDays}~${windowDays}` : `${windowDays}`;
+    // `imminent > expiring` 是上游数据异常 ⇒ 用 `Math.max(0, …)` 兜底，不输出负数。
+    const rest = imminent > 0 ? Math.max(0, roundCreditsInline(split.expiring - imminent)) : expiring;
+    return `${imminentPart}${restDays} 天内到期 ${rest} · 永久 ${permanent}`;
 }
 /** 展示用规整：两位小数（服务端精确值带浮点尾数噪声）。 */
 function roundCreditsInline(value) {

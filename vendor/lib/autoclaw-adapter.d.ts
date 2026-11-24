@@ -10,7 +10,7 @@ import { type AutoclawProduct } from './autoclaw-product.js';
 import { type AutoclawCredential } from './autoclaw.js';
 export interface AutoclawAdapterOptions {
     /** 凭据获取函数。支持按模型选号。 */
-    resolveCredential?: (modelId?: string) => Promise<AutoclawCredential | undefined>;
+    resolveCredential?: (modelId?: string, sessionId?: string) => Promise<AutoclawCredential | undefined>;
     /** 凭据获取函数（旧兼容）。 */
     credentialProvider?: () => Promise<AutoclawCredential | undefined>;
     /** 探测凭据函数。 */

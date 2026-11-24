@@ -1,6 +1,30 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-/** 流水上限。500 条足够回溯近期活动，内存占用可忽略。 */
-export const TOKEN_LEDGER_LIMIT = 500;
+/**
+ * **明细列表**的上限（只限制 `snapshot.entries` 的长度）。
+ *
+ * ⚠️⚠️ **它不再限制累计**（2026-11-20 用户要求）。
+ *
+ * 历史：这个常量原名 `TOKEN_LEDGER_LIMIT`，同时承担两件事 ——
+ * ① `ledger` 数组的截断长度；② `entries` 的返回条数。
+ * 因为聚合树是**从 `ledger` 数组重建**的（见 {@link readTokenLedger} 的实现
+ * 说明），① 一旦截断，**汇总也被一起截断**（只统计最近 500 次）。
+ *
+ * 用户原话：「现在它是只统计最多最近 500 次数据，可以把它做成无限制吗？
+ * 就是一直统计，直到重启清空，下面列表详情就保留还是最近 500 次」
+ *
+ * ⇒ 现在两件事分开：
+ * - **累计（聚合树 + 全局小计）= 无上限**，进程存活期间一直累加，重启清空；
+ * - **明细列表 = 仍保留最近 500 条**（用户明确要求「详情保留 500」）。
+ */
+export const TOKEN_LEDGER_ENTRY_LIMIT = 500;
+/**
+ * @deprecated 用 {@link TOKEN_LEDGER_ENTRY_LIMIT}。
+ *
+ * 保留别名只为不打断既有引用（`tests/unit/token-ledger.spec.ts` 等）。
+ * ⚠️ **语义已变窄**：它现在**只**表示「明细列表条数上限」，
+ * **不再**是「累计上限」—— 累计已无上限。
+ */
+export const TOKEN_LEDGER_LIMIT = TOKEN_LEDGER_ENTRY_LIMIT;
 /**
  * TPS 计算的**最小解码时长**（毫秒）：短于此值 ⇒ 该笔不可测，不计入均值。
  *
@@ -86,6 +110,46 @@ function histogramSampleCount(histogram) {
 }
 /** 内存中的流水（最新在前）。 */
 let ledger = [];
+/**
+ * ★★ **增量聚合树**（2026-11-20 新增）：渠道 → provider → 账号 → 模型 → 累加行。
+ *
+ * ## 为什么需要它（上一版的错误）
+ *
+ * 上一版为了做「汇总无上限」，把 `ledger` 数组改成**不截断** ——
+ * 内存随请求数线性增长（5 万次/天 × 30 天 ≈ 300~450 MB）。用户明确指出：
+ *
+ * > 「这个不能解决，我现在的需求只是统计后的结果保留无限制，没必要每个请求
+ * >  都保留详情无限制呀，500 条上限后，采用结果量就行，基本无内存上涨的呀」
+ *
+ * ⇒ 正确形态：**明细留 500 条（有界），汇总走聚合（行数与请求数无关）**。
+ *
+ * ## 内存账（这是本设计成立的全部理由）
+ *
+ * | 对象 | 规模 | 是否随请求数增长 |
+ * |---|---|---|
+ * | `ledger`（明细）| 500 条封顶 | ❌ 不增长 |
+ * | `aggregateTree` / `aggregateTotals` | 渠道(2) × provider × 账号 × 模型 | ❌ 不增长 |
+ *
+ * 行数上限 = `2 × provider数 × 账号数 × 模型数`。实测规模下是**几千行**，
+ * 每行 ~200B + 稀疏直方图（192 桶上限）⇒ **几 MB 且恒定**。
+ *
+ * ## ⚠️⚠️ 一致性纪律（本设计唯一的风险）
+ *
+ * 模块头部曾明确拒绝「增量维护双写」（怕 `ledger` 与聚合树漂移）。现在接受
+ * 它是为了内存有界，代价必须用纪律换回来：
+ *
+ * 1. **唯一写入口** {@link accumulateRecord}：只在 `recordTokenUsage` 里调用，
+ *    一处同时更新 `aggregateTotals` 与 `aggregateTree`。别处**不许**碰它们。
+ * 2. **唯一清空入口** {@link resetTokenLedgerForTests}：两边同时归零。
+ * 3. 守卫：守恒用例断言「聚合树总请求数 == 累计写入次数」，删任一侧都变红。
+ */
+let aggregateTree = newAggregateTree();
+/** 全局小计（= 整棵树之和，但独立累加一次，避免读取时再遍历）。 */
+let aggregateTotals = emptyTotals();
+/** 新空聚合树。 */
+function newAggregateTree() {
+    return new Map();
+}
 /**
  * 「该 provider 最近一次解析出的账号」**兜底**注册表（第 2 期 · 账号维度）。
  *
@@ -334,6 +398,19 @@ function clampCount(value) {
     return Math.max(0, Math.trunc(n));
 }
 /**
+ * 可选计数：缺失 → `undefined`，坏值/负数 → `undefined`，其余截断。
+ *
+ * ⚠️ 与 `clampCount` 的「坏值 → 0」**刻意分开**：缓存读取量有三态
+ * （未上报 / 明确 0 / 正数），`clampCount(undefined)` 会把「未上报」变成
+ * 「明确 0」，两者就无法再区分（PR #122）。
+ */
+function readOptionalCount(value) {
+    if (value === undefined || value === null)
+        return undefined;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
+}
+/**
  * 记录一笔请求。
  *
  * ⚠️ **本函数绝不抛错**（见模块头）。字段全部截断/钳制，写满即淘汰最旧。
@@ -341,7 +418,7 @@ function clampCount(value) {
 export function recordTokenUsage(entry) {
     try {
         const usageReported = entry.usageReported === true;
-        const cacheRead = clampCount(entry.cacheReadTokens);
+        const cacheRead = readOptionalCount(entry.cacheReadTokens);
         const cacheWrite = clampCount(entry.cacheWriteTokens);
         const reasoning = clampCount(entry.reasoningTokens);
         // 账号：空串/缺失统一省略字段（「未归属」与「空账号」不伪造）。
@@ -378,9 +455,13 @@ export function recordTokenUsage(entry) {
             usageReported,
             inputTokens: clampCount(entry.inputTokens),
             outputTokens,
-            // ⚠️ 0 / 缺失一律**省略字段**而不是写 0：与接口注释一致，
-            // 「没有缓存命中」与「命中 0 个」无从区分时，缺省是更诚实的表示。
-            ...(cacheRead > 0 ? { cacheReadTokens: cacheRead } : {}),
+            // ⚠️ 缓存读取量有三态（PR #122）：`undefined` = 上游没上报（**省略字段**）、
+            // `0` = 明确没命中（**原样落盘**）、`> 0` = 命中量。
+            // 旧注释「『没有缓存命中』与『命中 0 个』无从区分所以一律省略」在 PR #122
+            // 之后已成假话 —— 上游现在能区分，落盘也得跟着分，否则面板与网关对外口径对不上。
+            // ⚠️ 下面 cacheWrite / reasoning 仍用 `> 0`：那两个字段没有这个区分需求，
+            // 别顺手统一（会扩大改动面，也无上游先例）。
+            ...(cacheRead !== undefined ? { cacheReadTokens: cacheRead } : {}),
             ...(cacheWrite > 0 ? { cacheWriteTokens: cacheWrite } : {}),
             ...(reasoning > 0 ? { reasoningTokens: reasoning } : {}),
             // 首字用时：0 = 无任何块（失败/秒回空）⇒ 省略（不可测 ≠ 0ms）。
@@ -392,8 +473,31 @@ export function recordTokenUsage(entry) {
                 : {}),
         });
         ledger.unshift(record);
-        if (ledger.length > TOKEN_LEDGER_LIMIT)
-            ledger.length = TOKEN_LEDGER_LIMIT;
+        /**
+         * ★★ **明细有界（500 条）+ 汇总全量（增量累加）**（2026-11-20 定稿）。
+         *
+         * 用户原话（纠正上一版）：
+         * > 「这个不能解决，我现在的需求只是统计后的结果保留无限制，没必要每个
+         * >  请求都保留详情无限制呀，500 条上限后，采用结果量就行，基本无内存上涨的呀」
+         *
+         * ⇒ 两件事分开：
+         * - **`ledger` 明细**：超过 {@link TOKEN_LEDGER_ENTRY_LIMIT} **立即截断**
+         *   ⇒ 内存恒定 ~125KB；
+         * - **汇总**：由 {@link accumulateRecord} 在下面**增量累加**进聚合树
+         *   ⇒ 范围是全量，但行数只取决于「渠道 × provider × 账号 × 模型」，
+         *   **与请求数无关**。
+         *
+         * ⚠️⚠️ **顺序不能反**：必须先 `accumulateRecord` 再截断 `ledger`
+         *（或两者互不影响，因为累加读的是 `record` 而非 `ledger`）。
+         * 但**绝不能**改成「从 ledger 重建汇总」——那样截断会连带砍掉汇总，
+         * 正是第一版的缺陷。
+         *
+         * ⚠️ 累加必须在本函数的 `try` 内：`record()` 的契约是**绝不抛错**
+         *（它在推理关键路径上），累加失败不能反噬推理。
+         */
+        accumulateRecord(record);
+        if (ledger.length > TOKEN_LEDGER_ENTRY_LIMIT)
+            ledger.length = TOKEN_LEDGER_ENTRY_LIMIT;
         // 每日聚合落盘（第 2 期）：后端内部自己节流与兜错，这里不再包 try ——
         // 挂载契约要求 append 绝不抛错（见 attachTokenLedgerStore 的说明）。
         try {
@@ -523,50 +627,105 @@ function addAggregateTotals(target, source) {
     target.tpsHistogram = mergeTpsHistograms(target.tpsHistogram, source.tpsHistogram);
 }
 /**
+ * ★★ **唯一的聚合写入口**：把一条记录累加进「全局小计 + 聚合树」。
+ *
+ * ⚠️⚠️ 这是本模块**唯一**允许修改 {@link aggregateTotals} / {@link aggregateTree}
+ * 的地方（除 {@link resetTokenLedgerForTests} 的清空）。别处写它们 = 两份数据
+ * 漂移 = 汇总与明细对不上，而这**不会有任何报错**。
+ *
+ * ## 为什么两处都要累加（而不是只累加树、读取时再汇总）
+ *
+ * 全局小计是「所有渠道之和」。若只在读取时遍历树算出来，每次读都要走一遍
+ * 全树（几千行）—— 那是可以的，但「全局」与「树」用**同一个累加器函数**
+ * 能保证口径绝对一致（同一个 `accumulate`），比「树之和」更不容易漂移
+ * （例如将来给某个渠道加过滤时，全局仍是不带过滤的原始值）。
+ *
+ * ⚠️ 成本：每条请求多一次 `accumulate` 调用（常数开销），换来读取是 O(行数)。
+ */
+function accumulateRecord(entry) {
+    accumulate(aggregateTotals, entry);
+    let providers = aggregateTree.get(entry.channel);
+    if (providers === undefined) {
+        providers = new Map();
+        aggregateTree.set(entry.channel, providers);
+    }
+    let accounts = providers.get(entry.provider);
+    if (accounts === undefined) {
+        accounts = new Map();
+        providers.set(entry.provider, accounts);
+    }
+    // ⚠️ 空账号统一落 `'-'` 桶（Map 键不能缺失）：它是**真实存在的分组**
+    // （「未归属」——凭据解析没回报的请求），不能并进任何一个账号。
+    const accountKey = entry.accountId !== undefined && entry.accountId.length > 0 ? entry.accountId : '-';
+    let models = accounts.get(accountKey);
+    if (models === undefined) {
+        models = new Map();
+        accounts.set(accountKey, models);
+    }
+    let row = models.get(entry.model);
+    if (row === undefined) {
+        row = emptyTotals();
+        models.set(entry.model, row);
+    }
+    accumulate(row, entry);
+}
+/**
  * 读取账本快照（聚合树 + 全局小计 + 最近明细）。
  *
  * 纯读取、不改状态；每次按需重建聚合树（见模块头「不为 O(n) 引入双写」）。
- * 聚合与明细都来自同一份 `ledger`，**天然同源**——不存在「树与小计各算一遍」
- * 的口径漂移。各级排序：渠道按 `direct → gateway`、provider/账号/模型按 token
+ * 各级排序：渠道按 `direct → gateway`、provider / 账号 / 模型按 token
  * 合计降序（谁烧得多谁在前）。
+ *
+ * ## ⚠️⚠️ 聚合范围 = **全部累计**，明细范围 = **最近 N 条**（2026-11-20 起）
+ *
+ * 这两个范围**刻意不同**：
+ *
+ * | 输出 | 覆盖范围 |
+ * |---|---|
+ * | `channels[]` / `totals` | **进程启动至今的全部请求**（无上限，重启清空）|
+ * | `entries[]` | 最近 {@link TOKEN_LEDGER_ENTRY_LIMIT} 条（用户要求保留 500）|
+ *
+ * 实现上：第一遍遍历**整个 `ledger` 数组**（不再被截断，见 `recordTokenUsage`
+ * 里的说明）⇒ 汇总是全量；第二遍 `entries` 用 `slice(0, limit)` 切最近 N 条。
+ *
+ * ⚠️ 因此**不能**从 `entries` 反推 `totals`（两者范围不同）。
+ * 客户端若做「按当前筛选项重算小计」这类事，必须用 `channels[]` 里的聚合行，
+ * 不能拿 `entries` 求和 —— 那会得出「只有最近 500 次」的旧口径。
+ * 既有用例里没有这种做法（客户端读 `totals` 而非求和 `entries`），但改
+ * 这里时必须检查。
+ *
+ * ⚠️ 性能：`ledger` 不再有上限 ⇒ 这个函数的复杂度是 **O(总请求数)**。
+ * 面板每次刷新都调用它。按 15 万条估算，一次重建约十几毫秒量级，
+ * 可接受；若将来条数涨到百万级，需要引入增量聚合（本模块头部明确拒绝过
+ * 双写，届时应连「模疑」一起重新设计，而不是只加缓存）。
  */
 export function readTokenLedger(options = {}) {
-    const limit = Math.max(0, Math.min(options.limit ?? TOKEN_LEDGER_LIMIT, TOKEN_LEDGER_LIMIT));
-    // ── 第一遍：逐条累加进四级聚合（全局小计顺路算出）──
-    // ⚠️ 各级小计都是 **AccumulatingTotals**（Σ/份数累加）—— 父级均值必须由
-    // 「全部样本的 Σ/份数」算出，若按「子级均值再平均」会在样本数不等时算错
-    //（3 笔 100ms 与 1 笔 200ms，先平均再平均得 150，正确值 125）。
-    const totals = emptyTotals();
-    /** channel → provider → account → model → 聚合行（累加形态） */
-    const channelMap = new Map();
-    for (const entry of ledger) {
-        accumulate(totals, entry);
-        let providers = channelMap.get(entry.channel);
-        if (providers === undefined) {
-            providers = new Map();
-            channelMap.set(entry.channel, providers);
-        }
-        let accounts = providers.get(entry.provider);
-        if (accounts === undefined) {
-            accounts = new Map();
-            providers.set(entry.provider, accounts);
-        }
-        // ⚠️ 空账号统一落 `'-'` 桶（Map 键不能缺失）：它是**真实存在的分组**
-        // （「未归属」——凭据解析没回报的请求），不能并进任何一个账号。
-        const accountKey = entry.accountId !== undefined && entry.accountId.length > 0 ? entry.accountId : '-';
-        let models = accounts.get(accountKey);
-        if (models === undefined) {
-            models = new Map();
-            accounts.set(accountKey, models);
-        }
-        let row = models.get(entry.model);
-        if (row === undefined) {
-            row = emptyTotals();
-            models.set(entry.model, row);
-        }
-        accumulate(row, entry);
-    }
-    // ── 第二遍：把 Map 树落成数组并逐级求小计（父级 = 子级之和，Σ/份数直加）──
+    const limit = Math.max(0, Math.min(options.limit ?? TOKEN_LEDGER_ENTRY_LIMIT, TOKEN_LEDGER_ENTRY_LIMIT));
+    /**
+     * ★★ **不再遍历 `ledger`**（2026-11-20 改）。
+     *
+     * ## 改前 vs 改后
+     *
+     * | | 改前（第一版）| 改后 |
+     * |---|---|---|
+     * | 汇总来源 | `for (const entry of ledger)` | {@link aggregateTree} |
+     * | 复杂度 | O(请求数) | **O(聚合行数)**（与请求数无关）|
+     * | `ledger` 上限 | 无 | **500**（明细专用）|
+     *
+     * ⚠️ 这样「汇总无上限」与「内存有界」可以同时成立：
+     * 请求数再多也只会增加 `aggregateTotals` 的数值，**不会增加行**。
+     *
+     * ⚠️ 汇总的**正确性依赖** {@link accumulateRecord} 是唯一写入口 —— 任何绕过
+     * 它直接改 `ledger` 的代码都会让「明细有这条、汇总没算」，且无报错。
+     * 守卫见 `tests/unit/token-ledger.spec.ts` 的守恒用例。
+     *
+     * ## ⚠️ 各级小计必须是 AccumulatingTotals（Σ/份数累加）
+     *
+     * 父级均值必须由「全部样本的 Σ/份数」算出，若按「子级均值再平均」会在
+     * 样本数不等时算错（3 笔 100ms 与 1 笔 200ms，先平均再平均得 150，正确值 125）。
+     */
+    const channelMap = aggregateTree;
+    // ── 把 Map 树落成数组并逐级求小计（父级 = 子级之和，Σ/份数直加）──
     // 收尾顺序：模型行 → 账号小计 → provider 小计 → 渠道小计 → 全局小计，
     // 每级在「把 Σ/份数交给父级之后」才 finalize（finalize 只做除法不改 Σ）。
     const channels = [...channelMap.entries()]
@@ -594,7 +753,12 @@ export function readTokenLedger(options = {}) {
     });
     return {
         channels,
-        totals: finalizeAverages(totals),
+        totals: finalizeAverages(aggregateTotals),
+        /**
+         * ⚠️ 明细来自 `ledger`（**另一份**有界数据，500 条封顶），
+         * 与上面的聚合树**范围不同**（聚合是全量累计）。
+         * 不要用 `entries` 求和去当汇总。
+         */
         entries: ledger.slice(0, limit),
     };
 }
@@ -606,6 +770,17 @@ export function readTokenLedger(options = {}) {
  */
 export function resetTokenLedgerForTests() {
     ledger = [];
+    /**
+     * ⚠️⚠️ **必须同时清空聚合树与全局小计**（2026-11-20）。
+     *
+     * 只清 `ledger` 会留下「明细空、汇总仍有数据」的幽灵状态 ——
+     * 单测之间互相污染，且症状是「清空后 totals 还是上一条用例的数据」，
+     * 极难归因（本仓记录过同型：状态没清干净导致偶发失败）。
+     *
+     * 现在是**两个**可变聚合对象（2026-11-20 起），漏一个就是上面那种幽灵。
+     */
+    aggregateTree = newAggregateTree();
+    aggregateTotals = emptyTotals();
 }
 /** 当前保留的流水条数（诊断用）。 */
 export function tokenLedgerSize() {

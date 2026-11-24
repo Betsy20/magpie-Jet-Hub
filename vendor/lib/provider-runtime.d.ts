@@ -490,7 +490,9 @@ export interface ProviderRuntime {
          * 那一个**槽（`stream()` 只调 `identitySlots()`，不读目录，且探测路径本就
          * 不传 `markLimited`）⇒ 由这一个 `entry` 就能投影出来，**无需**池。
          */
-        createProbeAdapter(refName: string, credential: unknown, entry?: ProviderAccountEntry): LlmAdapter;
+        createProbeAdapter(refName: string, credential: unknown, entry?: ProviderAccountEntry, options?: {
+            qoderTrafficGuardEnabled?: boolean;
+        }): LlmAdapter;
     };
 }
 /** 一个 provider 的积分能力实现（见 {@link ProviderRuntime.credits}）。 */
@@ -649,9 +651,21 @@ export interface ProviderCredits {
      * - **永不抛**：失败不得影响签到结果（本仓库有两轮「登录成功却因记账失败被报成
      *   失败」的事故史）。
      *
-     * ⚠️ 只有 trae 注入；其余 provider 不传 ⇒ 行为逐字不变。
+     * ⚠️ 只有 trae / workbuddy 注入；其余 provider 不传 ⇒ 行为逐字不变。
+     *
+     * ## ⚠️⚠️ 第四参 `outcome` 是**必须**的（PR #87 对抗审计 P1-1/P1-2）
+     *
+     * 收尾钩子的副作用**不是无条件的**：workbuddy 国际版的「活跃上报 + 网页会话」
+     * 会在**用户账号里留下真实会话**（标题 `Hi`）。原实现签名里没有 `outcome`，
+     * 于是 `provider-credits.ts` 只能写成 `(credential) => keep…(credential)` ——
+     * 四种结局（`claimed` / `already-claimed` / `inactive` / `failed`）**行为逐字
+     * 相同**，领取失败也照发。而 `inactive` 恰恰**不计** `coversToday`
+     * （`auto-checkin.ts`），于是「活动未开」的日子两个时段都会重跑 ⇒
+     * **可见副作用翻倍**（30 天 60 个会话）。
+     * ⇒ 副作用实现必须能看到 `outcome` 再决定做不做（workbuddy 只在
+     * `claimed` / `already-claimed` 上做）。
      */
-    afterClaimNote?(credential: unknown, entry: ProviderAccountEntry, call: ProviderCallContext): Promise<string | undefined>;
+    afterClaimNote?(credential: unknown, entry: ProviderAccountEntry, call: ProviderCallContext, outcome: ClaimOutcome): Promise<string | undefined>;
 }
 /**
  * 成长中心任务的**两个独立时间闸门**（见 {@link ProviderCredits.afterClaim}）。

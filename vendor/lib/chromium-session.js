@@ -756,9 +756,23 @@ export function browserCandidates(input = {}) {
     }
     return candidates;
 }
-/** 在候选链里挑第一个**存在**的绝对路径。 */
-export function findBrowserExecutable() {
-    for (const candidate of browserCandidates()) {
+/**
+ * 在候选链里挑第一个**存在**的绝对路径。
+ *
+ * ## ⚠️ 可选入参 `lookup`：让「跨平台兜底」本身可测（Gitee issue IKV5HC）
+ *
+ * 原签名不接受任何入参，于是**只能**用 `process.platform` 与本机 `existsSync`
+ * 跑 —— 在 Windows 开发机上「macOS 分支」永远走不到，这类「平台路径」缺陷
+ * 结构上不可能被 CI 发现（豆包 provider 就是这么漏的：它的候选链全是
+ * Windows 路径，而 macOS 用户点「新建账号」只会看到「未找到可执行文件」）。
+ *
+ * 入参与 {@link browserCandidates} **逐字段同义**（直接透传），因此
+ * `findBrowserExecutable()` 与 `findBrowserExecutable({ platform: 'darwin', … })`
+ * 的差别只在「用谁的环境」，判据仍只有这一处。
+ */
+export function findBrowserExecutable(lookup = {}) {
+    const exists = lookup.exists ?? existsSync;
+    for (const candidate of browserCandidates(lookup)) {
         try {
             /**
              * ⚠ 只接受**绝对路径**：空环境变量产生的相对路径会相对 CWD 解析，
@@ -766,7 +780,7 @@ export function findBrowserExecutable() {
              */
             if (candidate.length === 0 || !isAbsolute(candidate))
                 continue;
-            if (existsSync(candidate))
+            if (exists(candidate))
                 return candidate;
         }
         catch {

@@ -15,8 +15,11 @@
  *   POST /raccoon/sms/verify  → 提交验证码完成登录
  * ```
  *
- * 微信扫码的 `code` 由**宿主侧本地随机生成**（实测服务端接受任意自造 code
- * 并进入 `pending`），完全绕开那个收不到的自定义协议回调。
+ * 微信扫码的 `code` 由 **IAM 服务端签发**（`POST /api/iam/v1/auth/mp/qrcode`）。
+ *
+ * ⚠️ 2026-11-14 起**不能**再本地随机生成：旧端点
+ * `/api/web/auth/v1/login_with_qrcode_code` 已成僵尸（对任意字符串恒回
+ * `pending`、不再推进状态），新端点会直接拒发非签发 code（Gitee IKVA90）。
  *
  * ## 与其余 provider 的契约一致性
  *
@@ -32,17 +35,58 @@
  * - 手机号加密在宿主侧的 `/raccoon/sms/send` 里完成
  */
 import { createServer } from 'node:http';
-import { RACCOON_LOGIN_TIMEOUT_MS, } from './raccoon.js';
-import { buildQrImageUrl, generateQrCode, loginRaccoonWithSmsCode, pollRaccoonQrLogin, sendRaccoonSmsCode, } from './raccoon-oauth.js';
+import { RACCOON_LOGIN_TIMEOUT_MS, RACCOON_QR_POLL_INTERVAL_MS, } from './raccoon.js';
+import { exchangeRaccoonAuthorizationCode, openRaccoonAuthorizePage, startRaccoonAuthorizeReceiver, } from './raccoon-authorize.js';
+import { buildQrImageUrl, createRaccoonQrTicket, loginRaccoonWithSmsCode, pollRaccoonQrLogin, sendRaccoonSmsCode, } from './raccoon-oauth.js';
 import { RACCOON } from './raccoon-product.js';
 import { renderQrSvg } from './raccoon-qr.js';
+import { autoOpenBrowserEnabled as defaultAutoOpenBrowser } from './login-preferences.js';
 /** 本地登录页的路径。 */
 export const RACCOON_LOGIN_PAGE_PATHS = {
     login: '/raccoon/login',
     poll: '/raccoon/poll',
     smsSend: '/raccoon/sms/send',
     smsVerify: '/raccoon/sms/verify',
+    /** 申请一条 `/authorize` 链接（浏览器授权的**第一步**）。 */
+    authorizeStart: '/raccoon/authorize/start',
+    /** 查询这一轮授权的状态（第二步：等回调 / 换码结果）。 */
+    authorizeStatus: '/raccoon/authorize/status',
+    /** 取消这一轮等待。 */
+    authorizeCancel: '/raccoon/authorize/cancel',
 };
+/**
+ * 确保当前流程有一张可用票据（没有就签一张）。
+ *
+ * ⚠️ 签发失败**不抛**：登录页必须仍能渲染出来（短信 Tab 是可用的兜底），
+ * 只在二维码区域显示原因。若这里抛，用户连短信登录都进不去。
+ *
+ * ⚠️ 失败后**不缓存**（`ticket` 保持 `undefined`）⇒ 下一次轮询会重试签发，
+ * 网络抖动恢复后自动可用。
+ */
+async function ensureTicket(state, product, fetcher) {
+    if (state.ticket !== undefined)
+        return state.ticket;
+    // 已经有请求在飞 ⇒ 复用同一张票（并发两次调用只签一次）
+    if (state.ticketInflight !== undefined)
+        return state.ticketInflight;
+    const inflight = (async () => {
+        try {
+            const ticket = await createRaccoonQrTicket(product, fetcher);
+            state.ticket = ticket;
+            state.ticketError = undefined;
+            return ticket;
+        }
+        catch (error) {
+            state.ticketError = error instanceof Error ? error.message : String(error);
+            return undefined;
+        }
+        finally {
+            state.ticketInflight = undefined;
+        }
+    })();
+    state.ticketInflight = inflight;
+    return inflight;
+}
 /**
  * 启动登录流程。
  *
@@ -52,10 +96,11 @@ export const RACCOON_LOGIN_PAGE_PATHS = {
 export async function startRaccoonLoginFlow(options = {}) {
     const product = options.product ?? RACCOON;
     const fetcher = options.fetcher ?? fetch;
+    const openAuthorizePage = options.openAuthorizePage ?? openRaccoonAuthorizePage;
+    const autoOpenBrowser = options.autoOpenBrowser ?? defaultAutoOpenBrowser;
     const state = {
-        qrCode: generateQrCode(),
         phone: '',
-        lastExpiredAt: undefined,
+        authorizeStatus: 'idle',
     };
     let resolveResult;
     let rejectResult;
@@ -80,7 +125,15 @@ export async function startRaccoonLoginFlow(options = {}) {
         rejectResult(error);
     };
     const server = createServer((request, response) => {
-        void handleRequest(request, response, { state, product, fetcher, settleOk }).catch((error) => {
+        void handleRequest(request, response, {
+            state,
+            product,
+            fetcher,
+            settleOk,
+            settleErr,
+            openAuthorizePage,
+            autoOpenBrowser,
+        }).catch((error) => {
             try {
                 response
                     .writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
@@ -93,11 +146,31 @@ export async function startRaccoonLoginFlow(options = {}) {
     });
     const port = await listenOnRandomPort(server);
     const loginUrl = `http://127.0.0.1:${port}${RACCOON_LOGIN_PAGE_PATHS.login}`;
+    /**
+     * 关掉这一轮浏览器授权的接收端（**幂等**）。
+     *
+     * ⚠️⚠️⚠️ **这条是承重的**（真实安全缺陷，2026-11-17 修）：
+     * 授权码是一次性凭据，而一个**还开着**的回环接收端就是「凭据交换漏洞」——
+     * 本机任何进程都能往那个端口投递一枚 code，把凭据换成**它自己的**账号。
+     * 而 `state` 是**公开**的（在 URL 里、也在授权页的上下文里）⇒ 挡不住。
+     *
+     * ⚠️ **必须挂在「结果落定」上，而不是只挂在 `close()` 上**：
+     * 流程可以从**三条不同的路**落定 —— 授权换码成功 / 短信登录成功 / 扫码成功
+     * —— 而 `close()` **全仓无人调用**（`jet-hub-rpc.ts` 不调它）。
+     * 只挂在 `close()` 上 ⇒ 「授权等待中，用户改用短信登录成功」这条路
+     * **留着那个口子整整 5 分钟**（接收端自己的超时），
+     * 实测还能在流程结束后**真的**再换一次码。
+     */
+    const closeAuthorizeReceiver = () => {
+        state.authorizeReceiver?.cancel();
+        state.authorizeReceiver = undefined;
+    };
     let closed = false;
     const close = async () => {
         if (closed)
             return;
         closed = true;
+        closeAuthorizeReceiver();
         // 尚未落定则先 reject，避免调用方拿到一个永远悬挂的 promise。
         settleErr(new Error('raccoon: 登录流程已关闭'));
         await new Promise((resolve) => {
@@ -109,11 +182,16 @@ export async function startRaccoonLoginFlow(options = {}) {
         settleErr(new Error(`raccoon: 登录超时（${Math.round(timeoutMs / 1000)} 秒内未完成）`));
     }, timeoutMs);
     timer.unref?.();
-    // 结果落定即关服务器（含超时与失败路径）。
+    // 结果落定即关服务器 **并关掉回环接收端**（含超时与失败路径）。
+    //
+    // ⚠️⚠️ **关接收端必须和关本地页服务器在同一处**：它们是**两件**独立的事
+    // （本地页承载扫码/短信，回环承载授权回调），而**授权回调那条才是
+    // 凭据入口**。只关前者 ⇒ 授权那条的口子留着。
     void result
         .catch(() => { })
         .finally(() => {
         clearTimeout(timer);
+        closeAuthorizeReceiver();
         if (!closed) {
             closed = true;
             void new Promise((resolve) => {
@@ -123,17 +201,176 @@ export async function startRaccoonLoginFlow(options = {}) {
     });
     return { loginUrl, result, close };
 }
+/**
+ * 跑一轮「浏览器授权」，并把结果写进 `state`。
+ *
+ * ## 这轮的形状
+ *
+ * 1. 起一个回环接收端（**单飞**：已有在飞的那一轮就复用它）；
+ * 2. 拿到 `/authorize` URL ⇒ **宿主侧**用系统浏览器打开（页面自己不跳，
+ *    因为那会离开我们这个本地页）；
+ * 3. 等回调（授权码）⇒ 换码 ⇒ 落成凭据。
+ *
+ * ⚠️ **失败一律只报原因词**：换码的报文可能回显那枚授权码，而它是凭据。
+ *
+ * @param state - 流程状态（就地更新）。
+ * @param product - 产品配置。
+ * @param fetcher - 注入的 fetch。
+ * @param settleOk - 成功时的落定回调。
+ * @param settleErr - 失败时的落定回调（**必须**有：换码失败若不落定，
+ *   流程会永远悬挂 ⇒ 前端只会转圈到它自己的 5 分钟上限）。
+ * @param openAuthorizePage - 打开授权页的动作（注入点，单测不真开窗）。
+ * @param autoOpenBrowser - 「自动打开浏览器」闸门：返回 `false` 时不打开授权页，
+ *   只把 URL 交回页面（页面显示链接 + 复制按钮）。
+ * @returns 这一轮的结果：`url`（失败时为空串）、`opened`（**本次**是否真的打开了
+ *   浏览器）、`autoOpen`（开关取值 —— 页面据此决定提示文案）。
+ */
+async function runAuthorizeRound(state, product, fetcher, settleOk, settleErr, openAuthorizePage, autoOpenBrowser) {
+    // 开关只算一次：页面展示与是否开窗必须用**同一个值**，否则会出现
+    // 「宿主说没开、页面说开了」（本仓红线：同一语义不许两套判据）。
+    const autoOpen = autoOpenBrowser() !== false;
+    // 单飞：已经在飞 ⇒ 复用同一个接收端（**不再**占一个端口）。
+    if (state.authorizeReceiver !== undefined && state.authorizeStatus === 'waiting') {
+        // ⚠️ 本次**没有**新开窗 ⇒ `opened: false`（页面据此说「点下面链接」）。
+        return { url: state.authorizeReceiver.authorizeUrl, opened: false, autoOpen };
+    }
+    let receiver;
+    try {
+        receiver = await startRaccoonAuthorizeReceiver({
+            authorizationOrigin: product.apiBase,
+        });
+    }
+    catch (error) {
+        state.authorizeStatus = 'failed';
+        state.authorizeReason = 'bind';
+        return { url: '', opened: false, autoOpen };
+    }
+    if (receiver.authorizeUrl === '') {
+        // 端口没绑上 / 落在页面会拒收的范围外 ⇒ 没有 URL 可给用户。
+        // ⚠️ 这一支当前**结构上不可达**（实测：`state` 与端口都在
+        //   `startRaccoonAuthorizeReceiver` 里提前校验，非法即抛错、被上面的 catch 接走
+        //   —— 所以它永远不会带着空 URL 成功返回）。保留是为了两件事：①
+        //   `buildRaccoonAuthorizeUrl` 将来加新判据时这里就是第一条防线；②
+        //   「拿到空 URL 也绝不把死链给用户」这条契约本身值得写在代码里。
+        state.authorizeStatus = 'failed';
+        state.authorizeReason = 'bind';
+        receiver.cancel();
+        return { url: '', opened: false, autoOpen };
+    }
+    state.authorizeReceiver = receiver;
+    state.authorizeStatus = 'waiting';
+    state.authorizeReason = undefined;
+    // 后台等回调：授权码只在**这一条链**上流动（接收端 → 换码 → 凭据），
+    // 从不进入任何响应体或日志。
+    void receiver.result.then(async (settled) => {
+        if (!settled.ok || settled.code === undefined) {
+            // 超时 / 被取消 / 绑不上：报原因词，**不**带任何报文。
+            //
+            // ⚠️⚠️ **取消的那一支不能把状态改成 failed**：用户点了「取消等待」
+            //   ⇒ 状态就该是「已取消」，而 `cancel()` 会让接收端落定为
+            //   `closed` —— 这里若无条件写 `failed`，用户看到的是「失败」，
+            //   而他明明是自己取消的（且下面 cancel 端点已经把状态置成 idle）。
+            //   ⇒ 用 `authorizeStatus` 是否已被**取消**那一路改过来判断。
+            if (state.authorizeStatus === 'waiting') {
+                state.authorizeStatus = 'failed';
+                state.authorizeReason = settled.reason === 'timeout'
+                    ? 'timeout'
+                    : settled.reason === 'closed'
+                        ? 'canceled'
+                        : 'bind';
+            }
+            return;
+        }
+        const exchanged = await exchangeRaccoonAuthorizationCode(settled.code, {
+            product,
+            fetcher,
+        });
+        if (!exchanged.ok || exchanged.credential === undefined) {
+            state.authorizeStatus = 'failed';
+            state.authorizeReason = exchanged.reason ?? 'invalid_response';
+            // ⚠️⚠️ **必须让流程落定**（真实缺陷，2026-11-17 修）：
+            // 不落定 ⇒ `result` 永远悬挂 ⇒ `jet-hub-rpc.ts` 里的
+            // `raccoonStarted.result.then(...)` 永远不跑 ⇒ **占位账号条目永远
+            // 留着**、前端 `login.poll` 一直转圈到它自己的 5 分钟上限，而用户
+            // 早就看到了「授权码已失效」—— 两边的症状**不同形**（一个是「卡住」，
+            // 一个是「失败」），用户无从判断到底成没成。
+            //
+            // ⚠️ 失败原因**只报原因词**（换码的报文可能回显那枚授权码）。
+            settleErr(new Error(`raccoon: 浏览器授权未完成（${state.authorizeReason ?? '未知原因'}）`));
+            return;
+        }
+        state.authorizeStatus = 'authorized';
+        settleOk(exchanged.credential);
+    }).catch((error) => {
+        // ⚠️ **这一支是防御性兜底，正常走不到**：`exchangeRaccoonAuthorizationCode`
+        //   自己把**所有**异常都吃掉了（网络失败、JSON 解析失败都变成
+        //   `{ok:false, reason:'…'}`）⇒ 它**不抛**。
+        //   ⇒ 变异验证里「把这一支的 settleErr 去掉」**测不出差别**（实测无牙，
+        //   如实登记）—— 那不是这条判据没用，而是**这条分支不可达**。
+        //
+        //   它**仍然要留**：万一换码那段将来加了新的抛出点（而**不**是返回
+        //   `{ok:false}`），流程不能永远悬挂。
+        state.authorizeStatus = 'failed';
+        state.authorizeReason = 'network';
+        settleErr(new Error(`raccoon: 浏览器授权未完成（网络故障）：${error instanceof Error ? error.message : String(error)}`));
+    });
+    // ⚠️ **宿主侧**开浏览器，而不是让页面 `window.open`：
+    // 页面跳走就**离开了**我们这个本地页 ⇒ 换码成功后页面收不到「成功」，
+    // 用户看到的仍是「等待中」。宿主开 ⇒ 本地页始终活着，轮询能拿到终态。
+    //
+    // ★ 2026-11-23：「自动打开浏览器授权页」关闭时**不**在这里开窗 ——
+    //   把 URL 交回页面，由页面显示链接 + 复制按钮（页面自己的 `window.open`
+    //   只在用户点击链接时发生，属用户手势，不算「自动」）。
+    if (autoOpen)
+        openAuthorizePage(receiver.authorizeUrl);
+    return { url: receiver.authorizeUrl, opened: autoOpen, autoOpen };
+}
 /** 处理一次本地请求。 */
 async function handleRequest(request, response, deps) {
     const url = new URL(request.url ?? '/', `http://127.0.0.1:${request.socket.localPort ?? 0}`);
     const { state, product } = deps;
+    // ⚠️ **本机回环来源闸门**。这些端点只服务于「我们自己刚打开的那个页面」，但
+    //   **同源策略挡不住 DNS rebinding**：把 `evil.example` 解析到 127.0.0.1 之后，
+    //   浏览器就把它当成同源，攻击者页面遂能读到 `state`（接收端只有这一道边界）并
+    //   用顶层导航投递自造 code。按两条独立判据收窄：
+    //   - `Host` 必须是本机回环 authority（`loginUrl` 恒为 `http://127.0.0.1:<port>/…`）；
+    //   - 浏览器带的 `Sec-Fetch-Site` 只允许 `same-origin`（页面自己发的 fetch）与
+    //     `none`（用户在地址栏直接打开 `loginUrl`）。
+    //   两条都**只在信息可得时才判**（拿不到本地端口、或客户端不发 Sec-Fetch-* 头
+    //   ⇒ 放行）：非浏览器客户端与测试替身都不带这些头，fail-closed 会把整条登录链锁死。
+    const localPort = request.socket.localPort;
+    if (typeof localPort === 'number' && localPort > 0
+        && typeof request.headers.host === 'string'
+        && request.headers.host !== `127.0.0.1:${localPort}`) {
+        response.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ ok: false, message: '请求来源不是本机登录页' }));
+        return;
+    }
+    const fetchSite = request.headers['sec-fetch-site'];
+    if (typeof fetchSite === 'string' && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+        response.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify({ ok: false, message: '请求来源不是本机登录页' }));
+        return;
+    }
     if (url.pathname === RACCOON_LOGIN_PAGE_PATHS.login) {
+        const ticket = await ensureTicket(state, product, deps.fetcher);
+        state.qrDelivered = ticket !== undefined;
         response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        response.end(renderRaccoonLoginPage(product, state.qrCode));
+        response.end(renderRaccoonLoginPage(product, ticket, state.ticketError));
         return;
     }
     if (url.pathname === RACCOON_LOGIN_PAGE_PATHS.poll) {
-        const polled = await pollRaccoonQrLogin(product, state.qrCode, deps.fetcher);
+        const ticket = await ensureTicket(state, product, deps.fetcher);
+        // 连票据都没有（签发失败）⇒ 报 `pending` 让页面继续轮询重试，
+        // 同时把原因带回去，避免用户只看一个空白二维码框。
+        if (ticket === undefined) {
+            writeJson(response, {
+                status: 'pending',
+                ...state.ticketError !== undefined ? { message: state.ticketError } : {},
+            });
+            return;
+        }
+        const polled = await pollRaccoonQrLogin(product, ticket.code, deps.fetcher);
         if (polled.status === 'success' && polled.accessToken !== undefined) {
             const credential = {
                 access_token: polled.accessToken,
@@ -144,18 +381,59 @@ async function handleRequest(request, response, deps) {
             writeJson(response, { status: 'success' });
             return;
         }
-        if (polled.expiredAt !== undefined)
-            state.lastExpiredAt = polled.expiredAt;
-        // `canceled` 时换一个新 code，让页面上的二维码重新可用（否则用户卡死）。
-        if (polled.status === 'canceled') {
-            state.qrCode = generateQrCode();
+        // `canceled`（用户取消）与 `expired`（二维码过期/被消耗）都必须**重签**，
+        // 否则页面上的二维码永久不可用 —— 这正是「扫码后一直转圈」的另一个入口。
+        const needsRenewal = polled.status === 'canceled' || polled.status === 'expired';
+        let renewed;
+        if (needsRenewal) {
+            state.ticket = undefined;
+            renewed = await ensureTicket(state, product, deps.fetcher);
         }
+        // 页面何时需要一张新图：①本轮换过票据；②此前因为签发失败而**没拿到过**码
+        // （`/raccoon/login` 渲染的是兜底块，之后 `ensureTicket` 恢复成功）。
+        const needsQr = renewed !== undefined || state.qrDelivered !== true;
+        const qrSvg = needsQr ? renderQrSvg(buildQrImageUrl(product, renewed ?? ticket)) : undefined;
+        if (qrSvg !== undefined)
+            state.qrDelivered = true;
         writeJson(response, {
             status: polled.status,
             ...polled.expiredAt !== undefined ? { expiredAt: polled.expiredAt } : {},
-            // code 变化时把新二维码给页面（页面据此换图）
-            ...polled.status === 'canceled' ? { qr: renderQrSvg(buildQrImageUrl(product, state.qrCode)) } : {},
+            ...state.ticketError !== undefined ? { message: state.ticketError } : {},
+            // 换图/补图时把新二维码给页面（页面据此替换 `<svg>`）
+            ...qrSvg !== undefined ? { qr: qrSvg } : {},
         });
+        return;
+    }
+    if (url.pathname === RACCOON_LOGIN_PAGE_PATHS.authorizeStart) {
+        const round = await runAuthorizeRound(state, product, deps.fetcher, deps.settleOk, deps.settleErr, deps.openAuthorizePage, deps.autoOpenBrowser);
+        writeJson(response, {
+            ok: round.url !== '',
+            url: round.url,
+            // ★ 页面据此分流：`autoOpen === false` ⇒ 显示「已关闭自动打开，请复制链接」；
+            //   `opened === false`（含单飞复用）⇒ 说「浏览器没自动打开？点下面链接」。
+            opened: round.opened,
+            autoOpen: round.autoOpen,
+            status: state.authorizeStatus,
+            ...state.authorizeReason !== undefined ? { reason: state.authorizeReason } : {},
+        });
+        return;
+    }
+    if (url.pathname === RACCOON_LOGIN_PAGE_PATHS.authorizeStatus) {
+        writeJson(response, {
+            status: state.authorizeStatus,
+            ...state.authorizeReason !== undefined ? { reason: state.authorizeReason } : {},
+        });
+        return;
+    }
+    if (url.pathname === RACCOON_LOGIN_PAGE_PATHS.authorizeCancel) {
+        // ⚠️ **先把状态挪出 `waiting` 再 cancel**：接收端的落定回调只会在
+        //   状态仍是 `waiting` 时写 `failed`（见 `runAuthorizeRound` 的注释）——
+        //   用户是自己取消的，不该看到「失败」。
+        state.authorizeStatus = 'idle';
+        state.authorizeReason = undefined;
+        state.authorizeReceiver?.cancel();
+        state.authorizeReceiver = undefined;
+        writeJson(response, { ok: true });
         return;
     }
     if (url.pathname === RACCOON_LOGIN_PAGE_PATHS.smsSend && request.method === 'POST') {
@@ -259,6 +537,14 @@ function listenOnRandomPort(server) {
         });
     });
 }
+/** 把任意文本安全地嵌进 HTML（错误原因来自网络，必须转义）。 */
+function escapeHtmlText(text) {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
 /**
  * 渲染登录页 HTML。
  *
@@ -271,14 +557,20 @@ function listenOnRandomPort(server) {
  * - 每 2 秒轮询 `/raccoon/poll`（与官方客户端一致）
  * - 短信 Tab 加载阿里云滑块脚本，拿到 `captchaParam` 后提交
  *
- * @param qrCode 当前会话的扫码 code（宿主侧生成）。**注意**：本函数只是把它
- *   渲染成二维码 —— 页面拿不到 code 本身（它被编码进二维码图像里）。
+ * @param ticket 当前会话的**服务端签发**票据。**注意**：本函数只是把它渲染成
+ *   二维码 —— 页面拿不到 `qrcode_code` 本身（它被编码进二维码图像里）。
  *   这符合职责边界：页面不需要知道 code，只需要展示。
+ * @param error 申请票据失败的原因（有值时二维码区域改为可读错误 + 短信兜底提示）。
  */
-export function renderRaccoonLoginPage(product, qrCode) {
-    // 未传 code 时生成一个仅供渲染的占位（单测直接调本函数时用）。
-    const code = qrCode ?? generateQrCode();
-    const qrSvg = renderQrSvg(buildQrImageUrl(product, code), { size: 200 });
+export function renderRaccoonLoginPage(product, ticket, error) {
+    // ⚠️ 拿不到票据时**不能**退回本地随机 code（2026-11-14 起服务端只认自己签发的
+    // `qr-<uuidv7>`，本地随机码在新端点上恒回 401）—— 只能如实告诉用户「拿不到二维码」，
+    // 并引导到短信 Tab（那是可用兜底）。
+    const qrSvg = ticket !== undefined
+        ? renderQrSvg(buildQrImageUrl(product, ticket), { size: 200 })
+        : '<div class="qr-fallback">二维码获取失败'
+            + `<br><span>${escapeHtmlText(error ?? '未知原因')}</span>`
+            + '<br>可改用下方的「短信登录」</div>';
     return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -304,6 +596,10 @@ export function renderRaccoonLoginPage(product, qrCode) {
   .qr { width: 200px; height: 200px; display: block; margin: 0 auto; border: 1px solid #eceef1;
         border-radius: 8px; padding: 6px; box-sizing: content-box; background: #fff; }
   .qr svg { display: block; width: 100%; height: 100%; }
+  /* 拿不到票据（IAM 签发失败）时的兜底：不能只留一个空框，必须说明原因 */
+  .qr-fallback { display: flex; flex-direction: column; justify-content: center; align-items: center;
+                 width: 100%; height: 100%; font-size: 13px; color: #4e5969; line-height: 1.6; }
+  .qr-fallback span { font-size: 11px; color: #8a9099; word-break: break-all; padding: 0 8px; }
   .sub { font-size: 12px; color: #8a9099; margin: 10px 0 0; }
   .status { margin-top: 12px; font-size: 13px; color: #4e5969; min-height: 20px; }
   .status[data-tone="ok"] { color: #0f9d58; font-weight: 600; }
@@ -324,13 +620,40 @@ export function renderRaccoonLoginPage(product, qrCode) {
     <h1>登录 Raccoon Work</h1>
 
     <div class="tabs">
-      <button id="tabQr" data-active="1" type="button">微信扫码</button>
+      <button id="tabBrowser" data-active="1" type="button">浏览器登录</button>
+      <button id="tabQr" data-active="0" type="button">微信扫码</button>
       <button id="tabSms" data-active="0" type="button">短信登录</button>
     </div>
 
-    <div class="pane" id="paneQr" data-show="1">
+    <div class="pane" id="paneBrowser" data-show="1">
+      <!--
+        ⚠️ 这条 Tab 是**官方客户端自己的那条链**（/authorize 授权页 +
+        回环回调 + 换码），也是**现在唯一还活着的那条**：
+        扫码确认页 /login/mp 自 2026-11-04 起**全部 404**（实测，含微信
+        UA），而签发本身是成功的 ⇒ 扫码 Tab 必然走到 404 页。
+        授权页是**活的**，且用户可以在**网页里**用手机号或微信扫码登录
+        （那是页面自己的另一张二维码，与死掉的那张不是同一张）。
+      -->
+      <p class="sub">在浏览器里打开商汤小浣熊授权页，完成登录后自动完成</p>
+      <button class="primary" id="doAuthorize" type="button">打开授权页</button>
+      <p class="sub" id="authorizeLinkBox" style="display:none;">
+        <span id="authorizeLinkHint">浏览器没自动打开？</span><a id="authorizeLink" href="#" target="_blank" rel="noreferrer">点此打开授权页</a>
+        <button id="copyAuthorize" type="button" style="margin-left:8px;background:#334155;color:#f8fafc;border:1px solid #475569;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;">复制链接</button>
+      </p>
+      <button class="primary" id="cancelAuthorize" type="button" style="display:none;background:#4e5969;">取消等待</button>
+      <div class="status" id="authorizeStatus">未开始</div>
+    </div>
+
+    <div class="pane" id="paneQr" data-show="0">
       <div class="qr" id="qrBox">${qrSvg}</div>
       <p class="sub">打开微信扫一扫，扫描上方二维码</p>
+      <!--
+        ⚠️ 常驻两句提示（2026-11-14/15 实测官方二维码落地页
+        /login/mp 全部 404，含微信 UA，而签发本身是**成功**的
+        ⇒ 不会走到 .qr-fallback 那条分支。不常驻提示的话，用户扫进去
+        只看到一个 404 页，而界面上没有任何一句告诉他可以改用别的入口。
+      -->
+      <p class="sub">扫完打不开页面？改用上方「浏览器登录」或下方「短信登录」</p>
       <div class="status" id="qrStatus">等待扫码…</div>
     </div>
 
@@ -352,22 +675,37 @@ export function renderRaccoonLoginPage(product, qrCode) {
 <script>
 (function () {
   'use strict';
-  var POLL_INTERVAL_MS = 2000;
+  // 轮询间隔取服务端下发值（poll_interval，实测 2 秒）；签发失败时退回常量。
+  var POLL_INTERVAL_MS = ${String(ticket?.pollIntervalMs ?? RACCOON_QR_POLL_INTERVAL_MS)};
   var paths = ${JSON.stringify(RACCOON_LOGIN_PAGE_PATHS)};
 
   // ── Tab 切换 ──
+  // ⚠️ 三个 Tab（扫码 / 短信 / 浏览器）**共用一个** selectTab：
+  // 判据写成「哪个」而不是「两个布尔」—— 后者加第三个 Tab 时必然漏一处
+  // （本仓在别处已登记过「加一个维度忘了改另一处」的事故形态）。
   var tabQr = document.getElementById('tabQr');
   var tabSms = document.getElementById('tabSms');
+  var tabBrowser = document.getElementById('tabBrowser');
   var paneQr = document.getElementById('paneQr');
   var paneSms = document.getElementById('paneSms');
-  function selectTab(sms) {
-    tabQr.setAttribute('data-active', sms ? '0' : '1');
-    tabSms.setAttribute('data-active', sms ? '1' : '0');
-    paneQr.setAttribute('data-show', sms ? '0' : '1');
-    paneSms.setAttribute('data-show', sms ? '1' : '0');
+  var paneBrowser = document.getElementById('paneBrowser');
+  function selectTab(which) {
+    var active = { qr: false, sms: false, browser: false };
+    active[which] = true;
+    tabQr.setAttribute('data-active', active.qr ? '1' : '0');
+    tabSms.setAttribute('data-active', active.sms ? '1' : '0');
+    tabBrowser.setAttribute('data-active', active.browser ? '1' : '0');
+    paneQr.setAttribute('data-show', active.qr ? '1' : '0');
+    paneSms.setAttribute('data-show', active.sms ? '1' : '0');
+    paneBrowser.setAttribute('data-show', active.browser ? '1' : '0');
   }
-  tabQr.addEventListener('click', function () { selectTab(false); });
-  tabSms.addEventListener('click', function () { selectTab(true); });
+  tabQr.addEventListener('click', function () { selectTab('qr'); });
+  tabSms.addEventListener('click', function () { selectTab('sms'); });
+  tabBrowser.addEventListener('click', function () { selectTab('browser'); });
+  // ⚠️ **默认落在「浏览器登录」**：那才是现在唯一还活着的那条链
+  // （扫码确认页 /login/mp 自 11-04 起全 404）。默认停在扫码 Tab 上，
+  // 用户点开就看到一个**必然 404** 的二维码。
+  selectTab('browser');
 
   // ── 扫码轮询 ──
   var qrStatus = document.getElementById('qrStatus');
@@ -386,11 +724,17 @@ export function renderRaccoonLoginPage(product, qrCode) {
         return;
       }
       if (data.status === 'logging') { setQrStatus('已扫码，请在微信中确认…'); return; }
-      if (data.status === 'canceled') {
+      // ⚠️⚠️ “canceled”（用户取消）与 “expired”（过期/已被消耗）**都必须换图**。
+      // 服务端两条都重签并回填 data.qr；页面这边少一个分支的后果是：
+      // 后端换了新码，用户却盯着**已经失效的旧码**、状态还写着「等待扫码…」
+      // —— 零报错一直等到超时（IKVA90 的症状就是这么残留的）。
+      if (data.status === 'canceled' || data.status === 'expired') {
         if (data.qr) { qrBox.innerHTML = data.qr; }
         setQrStatus('二维码已刷新，请重新扫码');
         return;
       }
+      // 首次签发失败、之后恢复：服务端会顺带补一张，这里同样要换上。
+      if (data.qr) { qrBox.innerHTML = data.qr; }
       setQrStatus('等待扫码…');
     }).catch(function () {
       // 轮询偶发失败不打断（下一次继续）
@@ -398,6 +742,140 @@ export function renderRaccoonLoginPage(product, qrCode) {
   }
   pollTimer = setInterval(pollOnce, POLL_INTERVAL_MS);
   pollOnce();
+
+  // ── 浏览器登录（官方客户端自己的那条链：/authorize + 回环回调 + 换码）──
+  //
+  // ⚠️ 页面**自己**不跳走授权页：跳走就离开了我们这个本地页，换码成功后
+  // 页面收不到终态（用户看到的仍是「等待中」）。所以由**宿主侧**开浏览器，
+  // 页面只负责「点一下 → 轮询状态」。
+  var authorizeStatus = document.getElementById('authorizeStatus');
+  var authorizeBtn = document.getElementById('doAuthorize');
+  var authorizeCancelBtn = document.getElementById('cancelAuthorize');
+  var authorizeLinkBox = document.getElementById('authorizeLinkBox');
+  var authorizeLink = document.getElementById('authorizeLink');
+  var authorizeLinkHint = document.getElementById('authorizeLinkHint');
+  var copyAuthorizeBtn = document.getElementById('copyAuthorize');
+  var authorizeUrlValue = '';
+  var authorizePollTimer = null;
+  function setAuthorizeStatus(text, tone) {
+    authorizeStatus.textContent = text;
+    if (tone) { authorizeStatus.setAttribute('data-tone', tone); } else { authorizeStatus.removeAttribute('data-tone'); }
+  }
+  // 原因词 → 人话。⚠️ **只译封闭集里的词**：宿主那边报回来的是**原因词**
+  // （不是报文原文 —— 报文可能回显那枚一次性授权码）。
+  var AUTHORIZE_REASONS = {
+    code_not_found: '授权码已失效（过期或已使用）——请重新发起',
+    session_dead: '网页登录态已失效——请重新发起',
+    server_error: '授权服务暂不可用——请稍后重试',
+    network: '网络故障——请检查网络后重试',
+    invalid_response: '应答格式异常——请重新发起',
+    refresh_missing: '应答缺少续期令牌——请重新发起',
+    token_invalid: '令牌校验未通过——请重新发起',
+    bind: '本机回调端口未能监听——请重新发起',
+    timeout: '等待超时——请重新发起',
+    canceled: '已取消等待'
+  };
+  function authorizeReasonText(reason) {
+    if (typeof reason !== 'string' || reason === '') return '未知原因';
+    return Object.prototype.hasOwnProperty.call(AUTHORIZE_REASONS, reason)
+      ? AUTHORIZE_REASONS[reason]
+      : '未知原因';
+  }
+  function stopAuthorizePolling() {
+    if (authorizePollTimer) { clearInterval(authorizePollTimer); authorizePollTimer = null; }
+  }
+  function pollAuthorizeOnce() {
+    fetch(paths.authorizeStatus).then(function (r) { return r.json(); }).then(function (data) {
+      if (data.status === 'authorized') {
+        stopAuthorizePolling();
+        setAuthorizeStatus('登录成功，可以关闭此窗口了', 'ok');
+        setTimeout(function () { window.close(); }, 1200);
+        return;
+      }
+      if (data.status === 'failed') {
+        stopAuthorizePolling();
+        setAuthorizeStatus('浏览器授权未完成：' + authorizeReasonText(data.reason), 'err');
+        authorizeBtn.disabled = false;
+        authorizeCancelBtn.style.display = 'none';
+        return;
+      }
+      setAuthorizeStatus('等待浏览器授权…（完成后自动完成）');
+    }).catch(function () {
+      // ⚠️ **本地页服务器在登录落定的那一刻就关了**（既有契约：结果落定即关
+      //   服务器）⇒ 轮询失败**很可能**意味着「已经登录成功了」。
+      //   那时页面必须说一句话有意义的，而不是停在「等待中」让人以为卡住了。
+      //   （真正的成功信号来自 Jet Hub 那边的账号列表。）
+      stopAuthorizePolling();
+      setAuthorizeStatus('登录已完成（或页面已关闭）——请回到设置页确认账号是否已添加');
+    });
+  }
+  authorizeBtn.addEventListener('click', function () {
+    authorizeBtn.disabled = true;
+    setAuthorizeStatus('正在打开授权页…');
+    fetch(paths.authorizeStart).then(function (r) { return r.json(); }).then(function (data) {
+      if (!data.ok || !data.url) {
+        authorizeBtn.disabled = false;
+        setAuthorizeStatus('无法发起浏览器授权：' + authorizeReasonText(data.reason), 'err');
+        return;
+      }
+      // 兜底链接：宿主开浏览器失败（无桌面环境）或「自动打开浏览器」关闭时，
+      // 用户可以自己点 / 复制到别处打开。
+      authorizeUrlValue = data.url;
+      authorizeLink.setAttribute('href', data.url);
+      copyAuthorizeBtn.textContent = '复制链接';
+      if (data.autoOpen === false) {
+        authorizeLinkHint.textContent = '已关闭「自动打开浏览器」，请复制或在浏览器打开：';
+        setAuthorizeStatus('已关闭「自动打开浏览器」—— 请复制或点击下面的链接在浏览器打开');
+      } else {
+        authorizeLinkHint.textContent = '浏览器没自动打开？';
+        setAuthorizeStatus('等待浏览器授权…（完成后自动完成）');
+      }
+      authorizeLinkBox.style.display = 'block';
+      authorizeCancelBtn.style.display = 'block';
+      stopAuthorizePolling();
+      authorizePollTimer = setInterval(pollAuthorizeOnce, POLL_INTERVAL_MS);
+      pollAuthorizeOnce();
+    }).catch(function () {
+      authorizeBtn.disabled = false;
+      setAuthorizeStatus('无法发起浏览器授权：请检查本机网络后重试', 'err');
+    });
+  });
+  // ★ 「复制链接」：与 Jet Hub 面板里那个复制按钮同款语义（授权 URL 很长，
+  //   手工框选漏一个字符就会得到「授权失败」的假象）。
+  //   ⚠️ 页面是 127.0.0.1（安全上下文）⇒ navigator.clipboard 可用；
+  //   旧内核退到 execCommand('copy')，两者都失败时明说「请手动选中」。
+  //   ⚠️ 本段在模板字符串里：注释中**不能出现反引号**（会提前终止模板）。
+  function fallbackCopyAuthorize() {
+    var area = document.createElement('textarea');
+    area.value = authorizeUrlValue;
+    document.body.appendChild(area);
+    area.select();
+    area.setSelectionRange(0, authorizeUrlValue.length);
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(area);
+    return ok;
+  }
+  copyAuthorizeBtn.addEventListener('click', function () {
+    if (!authorizeUrlValue) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(authorizeUrlValue).then(function () {
+        copyAuthorizeBtn.textContent = '已复制 ✓';
+      }, function () {
+        copyAuthorizeBtn.textContent = fallbackCopyAuthorize() ? '已复制 ✓' : '复制失败，请手动选中';
+      });
+      return;
+    }
+    copyAuthorizeBtn.textContent = fallbackCopyAuthorize() ? '已复制 ✓' : '复制失败，请手动选中';
+  });
+  authorizeCancelBtn.addEventListener('click', function () {
+    stopAuthorizePolling();
+    fetch(paths.authorizeCancel).then(function (r) { return r.json(); }).catch(function () {});
+    authorizeBtn.disabled = false;
+    authorizeCancelBtn.style.display = 'none';
+    authorizeLinkBox.style.display = 'none';
+    setAuthorizeStatus('已取消等待');
+  });
 
   // ── 短信登录 ──
   var smsStatus = document.getElementById('smsStatus');

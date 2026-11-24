@@ -37,6 +37,8 @@
  * - 兜底表长什么样 —— 各家私有（`loadCatalog` 内部自己选）。
  */
 import { providerCatalogVisible } from './account-pool.js';
+// ★ 磁盘缓存（SWR）：见 `createModelCatalog` 里那段「为什么接在骨架层」的说明。
+import { readCatalogCache, writeCatalogCache } from './model-catalog-cache.js';
 /**
  * 模型目录的定期刷新周期（毫秒）—— **20 分钟**。
  *
@@ -294,6 +296,140 @@ export function isCatalogFreshFor(provider, at, now, ttlMs = CATALOG_REFRESH_INT
 export function createModelCatalog(deps, config) {
     const providerId = config.product.id;
     /**
+     * ★★★ **磁盘缓存的 SWR 接线**（2026-11-20，用户要求「重启后无感加载」）。
+     *
+     * ## 为什么接在这里而不是各家适配器里
+     *
+     * 目录加载分散在 **8 个适配器**的 `ensureRemoteModels` 里（accio / buddy /
+     * cline / codely / llm / lobsterai / qoder / trae），各有自己的私有形状与
+     * 多来源合并逻辑。逐个改 = 8 处重复实现 + 必然漂移（本仓库红线）。
+     *
+     * 而它们**最终都收敛到** `config.loadCatalog()` 这一个回调 ⇒ 在骨架层包一层，
+     * 8 个适配器**零改动**。
+     *
+     * ## SWR 的三步
+     *
+     * ```
+     * loadCatalog()
+     *   ├─ ① 磁盘有缓存 ⇒ **立即返回它**（标记「这是 stale」）
+     *   ├─ ② 后台拉远端（fire-and-forget，不阻塞 ①）
+     *   └─ ③ 远端成功 ⇒ 写盘 + 让下次调用读到新的
+     * ```
+     *
+     * ⚠️ **第 ③ 步的「无感替换」不靠本函数**：各适配器早在目录落地时调
+     * `onCatalogLoaded` → `broadcastCatalogChanged(ctx)` ⇒ 宿主重读 ⇒ 客户端刷新。
+     * 本函数只负责「先给旧值」和「把新值写盘」。
+     *
+     * ## ⚠️⚠️ 为什么后台刷新**不 await**
+     *
+     * 这一层的目的就是「不等网络」。若 `loadCatalog` 在返回缓存后仍等着远端，
+     * 首屏照样 2 秒 —— 那就白做了。
+     *
+     * ## ⚠️ 只写 `complete === true` 的目录
+     *
+     * 见 `model-catalog-cache.ts` 模块头的硬约束：残缺目录落盘会被固化，
+     * 下次启动读到它 ⇒ 缺失的模型**永久消失**。
+     *
+     * ⚠️ 但骨架层**拿不到 `complete`** —— 那是各适配器 `RemoteCatalogGate` 内部的
+     * 判据（`loadCatalog` 只返回 `CatalogEntry[]`）。
+     * ⇒ 本层用「**远端刷新成功后返回的条目数 > 缓存条目数**」这种启发式是**错的**
+     *（目录可能合法收缩）。
+     *
+     * ⇒ **真正的落盘判据留给适配器**：见 `rememberCatalogForDisk`。本层只负责
+     * 「读盘」与「把 flush 的时机交出去」，**不猜 `complete`**。
+     */
+    const diskCached = config.diskCache === false ? undefined : readCatalogCache(providerId);
+    /**
+     * 上次从**远端**（非缓存）拿到的目录。落盘时用它，避免把缓存又写回磁盘。
+     *
+     * ⚠️ 必须是 `undefined` 初始值：`undefined` = 「本次进程还没成功拉过」。
+     */
+    let freshFromRemote;
+    /**
+     * **给适配器用的落盘入口**：适配器在 `complete === true` 时调它。
+     *
+     * ⚠️ 与 `loadCatalog` 的包装**分开**，因为只有适配器知道 `complete`。
+     * 暴露在返回的 `ModelCatalog` 上（可选方法，未接线时零行为变化）。
+     */
+    function rememberCatalogForDisk(entries) {
+        freshFromRemote = entries;
+        // ⚠️ 写盘失败不抛（缓存是纯优化，不能影响功能）。
+        if (config.diskCache !== false)
+            writeCatalogCache(providerId, entries, true);
+    }
+    /**
+     * 原始 `loadCatalog`（各适配器的实现）。缓存层只包它，不改它。
+     */
+    const loadCatalogFromAdapter = config.loadCatalog;
+    /**
+     * 包装后的 `loadCatalog`：**先给磁盘缓存（若有），后台拉远端**。
+     *
+     * ⚠️ 首次调用时 `diskCached` 有值 ⇒ 立即返回并**发起后台刷新**；
+     * 之后的调用（进程内第二次起）应拿到适配器自己的内存缓存（各家
+     * `remoteModels` 已落地），本层**不再插手** —— 否则会覆盖掉适配器的
+     * 新鲜度判据（`isCatalogFresh`）。
+     *
+     * ⇒ 判据是「是否已经有过一次成功的远端读取」。
+     */
+    let backgroundStarted = false;
+    const loadCatalog = async () => {
+        // ① 已经有远端结果（本次进程内拉过）⇒ 完全交给适配器（它有 TTL 判据）。
+        if (freshFromRemote !== undefined)
+            return loadCatalogFromAdapter();
+        // ② 有磁盘缓存 ⇒ **立即返回它**，并把远端刷新甩到后台。
+        if (diskCached !== undefined) {
+            if (!backgroundStarted) {
+                backgroundStarted = true;
+                // ⚠️ **不 await**（见上方说明）。⚠️ 必须 `void` + `catch`：
+                //    后台任务的异常不得变成 unhandledRejection 把宿主进程带走。
+                void Promise.resolve()
+                    .then(() => loadCatalogFromAdapter())
+                    .then(() => {
+                    /**
+                     * ⚠️⚠️ **这里绝不能设 `freshFromRemote`**（对抗审计 P1-1，真缺陷）。
+                     *
+                     * 我原来写的是 `.then((entries) => { freshFromRemote = entries })` ——
+                     * 而 `loadCatalogFromAdapter()` 在**远端失败时不抛错、只回兜底表**
+                     * （cline 等多数家的真实失败形态）⇒ 兜底表被当成「远端成功」记下
+                     * ⇒ 后续调用 `if (freshFromRemote !== undefined) return loadCatalogFromAdapter()`
+                     * 直接把**磁盘里那份好缓存永久丢弃**。
+                     *
+                     * 实测：磁盘 2 条 ⇒ 首次返回 m1,m2 ⇒ 后台落地后再调只剩 m99（真机即 460→5）
+                     * ⇒ **本 PR 的主功能自我拆台**。
+                     *
+                     * 正确判据只有一处：**适配器调 `rememberCatalogForDisk`**
+                     * （它只在 `complete === true` 时调）——那里已经设了 `freshFromRemote`。
+                     * 后台刷新这一格**什么都不记**：成功的话适配器会自己认证；
+                     * 失败（回兜底）就保持 `undefined` ⇒ 继续用磁盘缓存。
+                     */
+                })
+                    .catch(() => {
+                    // 后台刷新失败**完全静默**：用户此刻看到的是磁盘缓存，功能正常。
+                    // 下次 `listModels` 会再试（`backgroundStarted` 已置位，但那只会
+                    // 影响本进程 —— 重启后重新开始，符合「缓存是加速不是状态」的定位）。
+                });
+            }
+            return diskCached;
+        }
+        // ③ 没有磁盘缓存 ⇒ 走原来的路径（远端 ?? 兜底表），完全不变。
+        const entries = await loadCatalogFromAdapter();
+        freshFromRemote = entries;
+        return entries;
+    };
+    // ⚠️ 用包装后的 `loadCatalog` 覆盖：下游（`listModels` / `resolveModel`）读的是
+    //    同一个 `config`，故必须**替换 config 上的那份**，而不是另建一个变量。
+    const effectiveConfig = { ...config, loadCatalog };
+    return createModelCatalogInner(deps, effectiveConfig, rememberCatalogForDisk);
+}
+/**
+ * 骨架的**真正实现**（由 {@link createModelCatalog} 在完成 SWR 包装后调用）。
+ *
+ * ⚠️ 拆成两个函数是为了让「缓存包装」与「骨架语义」互不干扰：本函数**完全不知道
+ * 磁盘缓存存在**，行为与加缓存前逐字相同。
+ */
+function createModelCatalogInner(deps, config, rememberCatalogForDisk) {
+    const providerId = config.product.id;
+    /**
      * `listAllModels()` 用的同步视图。
      *
      * ⚠️ 缓存的是 `loadCatalog()` 的**成功结果**，而**不是**「读到了远端」——
@@ -320,9 +456,21 @@ export function createModelCatalog(deps, config) {
             info.description = entry.description;
         if (entry.contextWindow !== undefined)
             info.contextWindow = entry.contextWindow;
+        // ⚠️ 同样「不写空值」：badge 缺席即「本家没有活动可画」，宿主因此走它自己的
+        // 回落分支（直接画 name）。写 `badge: undefined` 会让「未知」与「明确没有」
+        // 在宿主侧变成同一个键（见 CatalogEntry.badge 的说明）。
+        if (entry.badge !== undefined)
+            info.badge = entry.badge;
         return info;
     }
     return {
+        /**
+         * ★ **落盘入口**（适配器在 `complete === true` 时调）。
+         *
+         * ⚠️ 直接透传给缓存包装层（`createModelCatalog` 的那个闭包），
+         * 本层不碰磁盘 —— 它「完全不知道磁盘缓存存在」，行为与加缓存前逐字相同。
+         */
+        rememberForDisk: rememberCatalogForDisk,
         async listModels(provider) {
             // ⚠️ 无已登录账号时返回 `[]` → DSH 的 buildModelCatalog 把整个 provider
             // 分组隐藏。**必须返回空数组而不能抛错**（抛错会被归入 catalog 的

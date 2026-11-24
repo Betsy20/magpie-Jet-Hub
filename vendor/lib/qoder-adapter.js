@@ -21,8 +21,61 @@
  * OpenAI 协议层的通用逻辑（消息序列化、SSE 消费、错误归类）复用
  * `src/openai-compat.ts`；加密端点的响应信封由 `src/qoder-envelope.ts` 剥离。
  */
+var __addDisposableResource = (this && this.__addDisposableResource) || function (env, value, async) {
+    if (value !== null && value !== void 0) {
+        if (typeof value !== "object" && typeof value !== "function") throw new TypeError("Object expected.");
+        var dispose, inner;
+        if (async) {
+            if (!Symbol.asyncDispose) throw new TypeError("Symbol.asyncDispose is not defined.");
+            dispose = value[Symbol.asyncDispose];
+        }
+        if (dispose === void 0) {
+            if (!Symbol.dispose) throw new TypeError("Symbol.dispose is not defined.");
+            dispose = value[Symbol.dispose];
+            if (async) inner = dispose;
+        }
+        if (typeof dispose !== "function") throw new TypeError("Object not disposable.");
+        if (inner) dispose = function() { try { inner.call(this); } catch (e) { return Promise.reject(e); } };
+        env.stack.push({ value: value, dispose: dispose, async: async });
+    }
+    else if (async) {
+        env.stack.push({ async: true });
+    }
+    return value;
+};
+var __disposeResources = (this && this.__disposeResources) || (function (SuppressedError) {
+    return function (env) {
+        function fail(e) {
+            env.error = env.hasError ? new SuppressedError(e, env.error, "An error was suppressed during disposal.") : e;
+            env.hasError = true;
+        }
+        var r, s = 0;
+        function next() {
+            while (r = env.stack.pop()) {
+                try {
+                    if (!r.async && s === 1) return s = 0, env.stack.push(r), Promise.resolve().then(next);
+                    if (r.dispose) {
+                        var result = r.dispose.call(r.value);
+                        if (r.async) return s |= 2, Promise.resolve(result).then(next, function(e) { fail(e); return next(); });
+                    }
+                    else s |= 1;
+                }
+                catch (e) {
+                    fail(e);
+                }
+            }
+            if (s === 1) return env.hasError ? Promise.reject(env.error) : Promise.resolve();
+            if (env.hasError) throw env.error;
+        }
+        return next();
+    };
+})(typeof SuppressedError === "function" ? SuppressedError : function (error, suppressed, message) {
+    var e = new Error(message);
+    return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
+});
 import { randomUUID } from 'node:crypto';
 import { LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
+import { isInsideAggregateDispatch } from './aggregate-dispatch-context.js';
 import { createModelCatalog, isCatalogFreshFor } from './model-catalog.js';
 import { RemoteCatalogGate } from './remote-catalog-gate.js';
 import { broadcastCatalogChanged } from './catalog-broadcast.js';
@@ -37,7 +90,15 @@ import { classifyNativeAbort, NativeSearchCodes, WebNativeError } from './native
 import { errorMessage } from './openai-compat.js';
 import { maskProxyPassword } from './proxy-mask.js';
 import { unwrapQoderEnvelopeStream } from './qoder-envelope.js';
+// ⚠️ 形态对齐（`Cosy-MachineOS`，可选 `Cosy-MachineHostname`）：**只补缺失**、可一键关，
+//    功能上非必需 —— 依据与证据强度见该模块头。
+//    ⚠️ `Login-Version` / `Cosy-ClientIp` / `Cosy-MachineId` 是 **WASM 头表自带的**，
+//    不在补的清单里（补了永远命中不了「缺失」分支 = 死代码），见 `alignmentEntries()`。
+import { applyQoderAlignmentHeaders, withQoderAlignmentHeaders } from './qoder-align.js';
+import { acquireQoderRequest, isQoderSlotBusy, qoderTrafficGuardEnabled } from './qoder-traffic-guard.js';
+import { retryAfterMsFromResponse } from './retry-after.js';
 import { QODER } from './qoder-product.js';
+import { nextPromotionEdgeMs, promotionBadgeFor, qoderPromotionCandidate, } from './model-promotions.js';
 import { projectRequestImage } from './image-budget.js';
 import { registerAdapterIdempotent, } from './llm-register-compat.js';
 import { collectImages, consumeOpenAiSse, errorDetail, httpErrorCode, isTransportError, ModelQueuedError, serializeMessages, } from './openai-compat.js';
@@ -45,6 +106,15 @@ import { planSessionTitleThinking } from './session-title.js';
 import { BILLING_BUSINESS_CODE, BILLING_BUSINESS_CODES, QUEUE_BUSINESS_CODE, QUEUE_MAX_ATTEMPTS, QUEUE_MAX_DELAY_MS, isBillingBusinessCode, isQueueBusinessCode, looksLikeBillingError, nextUtc8DayStartMs, parseQueueError, queueDelayMs, } from './model-queue.js';
 const parseQoderQueueError = parseQueueError;
 const qoderQueueDelayMs = queueDelayMs;
+/**
+ * 排队等待的**最小**单次等待。
+ *
+ * ⚠️⚠️ `Retry-After: 0` 与「已经过去的 HTTP 日期」都会解析成 **0ms**，而上游在
+ * 高峰期会持续回 `10605` ⇒ 照做就是**忙重试风暴**：实测 `sleep(0)` 连打
+ * **181 次 / 0.4 秒**（`QUEUE_MAX_ATTEMPTS` 是 180），既没给服务端任何喘息，
+ * 也把本机 CPU 烧在空转上。抬到 1 秒仍尊重「服务端说很快」这条语义。
+ */
+const QUEUE_MIN_DELAY_MS = 1_000;
 /**
  * ⚠️ **向后兼容的再导出**：排队解析的实现已移到 `src/model-queue.ts`
  * （因为 SSE 消费器也要用，而它不能被本模块反向 import —— 会成环）。
@@ -162,13 +232,11 @@ function failureCallOf(error) {
  * ⚠️ 顺序不变：**额度腿优先**（见 `classifyQoderFailure`），
  * 故「504 + billing 文案」仍归 `quota`。
  */
-export function looksLikeUpstreamProviderError(text) {
-    if (/provider_error|provider\s+error|upstream\s+(?:provider\s+)?error|error\s+in\s+upstream\s+response/i.test(text))
-        return true;
-    // 网关 5xx：HTML 错误页（`504 Gateway Time-out` / `502 Bad Gateway`）与
-    // 上游超时（`First Token Timeout or Upstream Timeout`）。
-    return /gateway\s+time-?out|bad\s+gateway|service\s+(?:temporarily\s+)?unavailable|(?:first\s+token|upstream)\s+timeout/i.test(text);
-}
+// ⚠️ 实现已提到 `src/upstream-error.ts`（2026-11-21，GitHub issue #130）：
+//    loomy / raccoon 面对的是**同一形态**的网关 5xx，判据必须是**一份实现**。
+//    这里保留同名 re-export，既有调用方与测试零改动。
+import { looksLikeUpstreamProviderError } from './upstream-error.js';
+export { looksLikeUpstreamProviderError };
 /**
  * 单次 `stream()` 里，**传输级失败**最多允许的额外尝试次数（不含首发）。
  *
@@ -380,6 +448,47 @@ function resolveQueueTimeoutMs() {
         return 30 * 60_000;
     const parsed = Number.parseInt(raw, 10);
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30 * 60_000;
+}
+export function resolveQueueWaitMode() {
+    const raw = (process.env.DSH_QODER_QUEUE_WAIT_MODE ?? '').trim().toLowerCase();
+    if (raw === 'visible' || raw === 'fast' || raw === 'wait')
+        return raw;
+    return 'wait';
+}
+/**
+ * 本次排队**实际生效**的策略：聚合派发内一律 `fast`，否则按环境变量。
+ *
+ * ## 为什么聚合调用要无视 `DSH_QODER_QUEUE_WAIT_MODE`（真实故障，2026-11-14）
+ *
+ * 聚合（`aggregate/*`）只在候选**报错**时切换下一个候选：
+ * - `wait` 档静默等待（上限 30 分钟）⇒ 聚合永远等不到错误，请求被锁死在 qoder 上；
+ * - `visible` 档先吐空 `text-delta` 心跳 ⇒ 被聚合的 `isVisibleContent` 判成
+ *   「已产出内容」⇒ **禁止切换**（防两段回答拼接），同样锁死。
+ *
+ * 只有 `fast`（立刻抛 `QUEUE`）能让聚合换到下一个能用的候选。直连 qoder 时没有
+ * 「下一个候选」可换，仍按环境变量等待 / 向下游报排队，行为不变。
+ *
+ * ⚠️ 判据来自 `aggregate-dispatch-context.ts` 的异步上下文，不读请求字段
+ *（宿主不保证透传私有字段，理由见该模块头）。
+ */
+export function resolveEffectiveQueueWaitMode() {
+    if (isInsideAggregateDispatch())
+        return { mode: 'fast', viaAggregate: true };
+    return { mode: resolveQueueWaitMode(), viaAggregate: false };
+}
+/**
+ * `visible` 档的心跳间隔（毫秒）。
+ *
+ * 5 秒取自同类项目的经验值：短于大多数中间层（nginx / Cloudflare / 各类反代）
+ * 的空闲超时（常见 15~60 秒），又不至于把日志和连接刷爆。
+ * 可用 `DSH_QODER_QUEUE_HEARTBEAT_MS` 覆盖（单测需要把它压到毫秒级）。
+ */
+function resolveQueueHeartbeatMs() {
+    const raw = process.env.DSH_QODER_QUEUE_HEARTBEAT_MS;
+    if (raw === undefined || raw.length === 0)
+        return 5_000;
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 5_000;
 }
 /**
  * 读 `AbortSignal.aborted`（**刻意做成函数**）。
@@ -594,6 +703,13 @@ export class QoderAdapter extends LlmAdapter {
     product;
     fetchImpl;
     /**
+     * **构造期**的全局 `fetch` 引用：判「是否注入了单测替身」的比较基准。
+     *
+     * ⚠️ 必须单独存一份，**不能**拿调用点的全局 `fetch` 当基准 —— 见
+     * {@link hasInjectedFetchImpl} 的失效形态。
+     */
+    baselineFetch;
+    /**
      * 按账号取出口 fetcher（`undefined` = 恒直连）。
      *
      * ⚠️ 与 `fetchImpl` **并存不是替代**：`fetchImpl` 是单测替身（优先级最高），
@@ -601,23 +717,37 @@ export class QoderAdapter extends LlmAdapter {
      */
     fetchFor;
     /**
-     * 出口 fetcher 是否被**单测替身**顶掉了（= 注入的 `fetchImpl` 不等于全局 `fetch`）。
+     * 出口 fetcher 是否被**单测替身**顶掉了（= 注入的 `fetchImpl` 不等于**构造期**的全局 `fetch`）。
      *
-     * ⚠️ 为什么用「`!==` 全局 `fetch`」而**不是**在构造期记一个
+     * ⚠️ 为什么用「引用不等于基准」而**不是**在构造期记一个
      * `options.fetchImpl !== undefined` 布尔：`ratelimit-misreport-behavior.spec.ts`
      * 这类既有用例是**构造后直接 `adapter.fetchImpl = 替身`** 的（拿不到构造参数），
      * 构造期布尔对它恒为 false ⇒ 实现落到 `fetchFor` / 全局 `fetch` ⇒ 真发网络，
      * 全量跑起来表现为 `expected 'TRANSPORT' to be 'QUOTA_EXCEEDED'`（本轮实测）。
-     * 而「引用不等于全局 `fetch`」这一判据**同时覆盖**「构造期注入」与「事后赋值」。
+     * 而「引用不等于基准」这一判据**同时覆盖**「构造期注入」与「事后赋值」。
+     *
+     * ⚠️⚠️ **基准必须是构造期快照，不能是调用点的全局 `fetch`**（真实缺陷，
+     * 2026-11-16 由宿主侧接入出站对齐层时暴露）：
+     *
+     * | 场景 | 拿全局 `fetch` 当基准（旧） | 拿构造期快照当基准（新） |
+     * |---|---|---|
+     * | 构造期注入替身 | 判为已注入 ✅ | 判为已注入 ✅ |
+     * | 构造后 `adapter.fetchImpl = 替身` | 判为已注入 ✅ | 判为已注入 ✅ |
+     * | **构造后全局 `fetch` 被包装**（宿主对齐层 / OTel 埋点 / mock server / 代理库） | **判为已注入 ❌** | 判为未注入 ✅ |
+     *
+     * 旧判据在最后一行会**静默跳过 `fetchFor`（per-账号出口代理）**，并回落到
+     * **构造期捕获的原始全局 `fetch`** ⇒ 换号只换了凭据、出口没换。症状与
+     * `2026-10-21` 那次真实报障同族：墙外环境下恒 connect 超时、且**无任何报错**，
+     * 该渠道从聚合轮换里静默消失。
      *
      * ⚠️ 也不能只把两个分支调序了事 —— `fetchImpl` 在构造期已被 `?? fetch` 填满，
      * 靠判空无法区分「注入」与「默认」。
      *
-     * ⚠️ 残余弱点（如实登记）：调用方注入一份**恰好等于全局 `fetch` 的引用**时会被
-     * 判成「未注入」—— 但那时两种语义**没有可观察差异**，不构成缺陷。
+     * ⚠️ 残余弱点（如实登记）：调用方注入一份**恰好等于构造期全局 `fetch` 的引用**时
+     * 会被判成「未注入」—— 但那时两种语义**没有可观察差异**，不构成缺陷。
      */
     get hasInjectedFetchImpl() {
-        return this.fetchImpl !== fetch;
+        return this.fetchImpl !== this.baselineFetch;
     }
     /**
      * ⚠️ **2026-10-08 Task 7b：三个方法收敛到共享骨架** `createModelCatalog`。
@@ -657,6 +787,11 @@ export class QoderAdapter extends LlmAdapter {
         super();
         this.options = options;
         this.product = options.product ?? QODER;
+        // ⚠️ 顺序与语义都是刻意的：先取**构造期**的全局 `fetch` 作基准，再让
+        //    `fetchImpl` 落到 `options.fetchImpl ?? fetch`。两者在这一刻相等是
+        //    「未注入」的正常形态；之后全局 `fetch` 被别人替换**不影响**基准，
+        //    这正是修掉「宿主事后包装 fetch ⇒ 静默跳过出口代理」的关键。
+        this.baselineFetch = fetch;
         this.fetchImpl = options.fetchImpl ?? fetch;
         this.fetchFor = options.fetchFor;
         this.catalogGate = new RemoteCatalogGate(options.onCatalogLoaded === undefined ? {} : { onLoaded: options.onCatalogLoaded });
@@ -838,7 +973,9 @@ export class QoderAdapter extends LlmAdapter {
             try {
                 response = await searchFetcher(req.url, {
                     method: 'POST',
-                    headers: { ...req.headers, 'X-Session-ID': randomUUID() },
+                    // ⚠️ 形态对齐：补 `Cosy-MachineOS`（默认；`Cosy-MachineHostname` 需显式开）。
+                    //    只补缺失 —— WASM 若已生成同名头就原样保留（签名相关头不在补的清单里）。
+                    headers: withQoderAlignmentHeaders({ ...req.headers, 'X-Session-ID': randomUUID() }),
                     body: req.body,
                     signal: composed,
                 });
@@ -1016,6 +1153,52 @@ export class QoderAdapter extends LlmAdapter {
         return this.catalog.listAllModels();
     }
     /**
+     * ★ 本家目录里的**未决**活动候选（方案 A：选择器悬停的数据来源）。
+     *
+     * ⚠️ 与 buddy 家**刻意不同**的一处：本家交的是 `catalogSource()`（远端 ∪ 兜底表
+     * 归一后的同一形状），所以**离线路径也有候选** —— 兜底表本来就带 promotion,
+     * 与 `qoderDisplayName` 的倍率后缀同判据（不是新增一份静态猜测）。buddy 家
+     * 反过来：它的兜底表**没有** promos，离线只能空。
+     *
+     * ⚠️ 逐条走 `qoderPromotionCandidate`（与 toCatalogEntry 同一个构造函数）,
+     * 不另写一份解析：同一 schema 两套判据是本仓的复发缺陷形态。日志出口也复用
+     * `this.promotionWarn`（按消息去重，免得渲染路径刷屏）。
+     *
+     * ⚠️ 交出去的是**未决候选**：徽标在装配时刻挑定并缓存正是 issue #101 要修的
+     * 形态；悬停侧每次渲染重读时钟。
+     */
+    promotionCandidates() {
+        const rows = [];
+        for (const model of this.catalogSource()) {
+            const promotion = qoderPromotionCandidate(model.promotion, model.id, 'Asia/Shanghai', this.promotionWarn);
+            if (promotion !== undefined)
+                rows.push({ modelId: model.id, promotion });
+        }
+        return rows;
+    }
+    /**
+     * 徽标解析的日志出口（与 `options.warn` 同一个通道），**按消息去重**。
+     *
+     * ⚠️ 为什么必须去重：本回调挂在 toCatalogEntry 上，而它对**目录里每一条**、
+     * 每次 listModels 都跑。上游若真的发出读不懂的窗口，不去重就是
+     * 「每次打开选择器 × 每个坏条目」一行 —— 参考实现把日志留在解析路径正是
+     * 为了躲开这一格（docs/PROMO_BADGE.md 与 src/promo.ts 的 parseDaily）。
+     * 这里没有独立的解析点（Qoder 的活动就在目录行里），所以改为**每条消息只播一次**。
+     *
+     * ⚠️ 上限：去重表按消息文本存，条目数量级 = 目录大小，仍要封顶，
+     * 免得长期运行的进程攒出一张没人读的字典。封顶后**不再播**也不清空 ——
+     * 宁可少一条日志，也不要一个会自己长大的内存。
+     */
+    promotionWarned = new Set();
+    promotionWarn = (message) => {
+        if (this.promotionWarned.has(message))
+            return;
+        if (this.promotionWarned.size >= 64)
+            return;
+        this.promotionWarned.add(message);
+        this.options.warn?.(message);
+    };
+    /**
      * 把本家目录条目（**远端优先**，回退兜底表）转成共享骨架的中间结构。
      *
      * ⚠️ 远端条目经 `src/qoder-catalog.ts` 归一成与兜底表**同形**的结构后才到这里
@@ -1024,6 +1207,17 @@ export class QoderAdapter extends LlmAdapter {
      */
     toCatalogEntry(model) {
         const reasoning = this.reasoningForEntry(model);
+        // ★ 徽标（issue #101）：Qoder 目录每行自带一个 promotion，文案也是上游给的。
+        // ⚠️ 时钟必须在**装配时刻**读（nowImpl，与目录新鲜度同一个注入时钟）：上游给的
+        // 是墙钟窗口，而目录是进程启动时取的一份快照 —— 在解析时挑定会让白天启动的进程
+        // 永远不画（active 恒 false），那正是 issue #101 的成因。
+        // ⚠️ 窗口外**什么都不画**（standingEligible: false）：宿主徽标契约只有 text + tone、
+        // 没有悬停位，把「错峰 4 折」画在没打折的时刻就是在说一件没发生的事。参考实现的
+        // 卡片可以画成降饱和胶囊（有悬停可写「几点生效」），这里不能 —— 刻意分叉，非漏接。
+        // 兜底表与远端**同源**（qoder-catalog.ts 归一成同一形状），故离线路径也画得出，
+        // 与 qoderDisplayName 的倍率后缀同判据，不是新增一份静态猜测。
+        const promotion = qoderPromotionCandidate(model.promotion, model.id, 'Asia/Shanghai', this.promotionWarn);
+        const badge = promotionBadgeFor(promotion === undefined ? undefined : [promotion], this.nowImpl());
         return {
             id: model.id,
             name: qoderDisplayName(model),
@@ -1047,6 +1241,7 @@ export class QoderAdapter extends LlmAdapter {
              * 于是端到端仍只到「展示名里带 `· 免费`」为止。
              */
             ...model.isFree === true ? { isFree: true } : {},
+            ...badge === undefined ? {} : { badge },
         };
     }
     /**
@@ -1181,6 +1376,30 @@ export class QoderAdapter extends LlmAdapter {
         return this.catalogModel(modelId)?.isFree === true;
     }
     /**
+     * 下一个会**改变徽标**的时刻（epoch 毫秒）；没有排定边界 ⇒ undefined。
+     *
+     * 供接线层的活动边界播报器排程（src/promotion-edge-broadcast.ts）。
+     *
+     * ⚠️ 同步、**不打网络**：只读已落地的目录（远端 ?? 兜底表 —— 本家兜底表
+     * **带** promotion 字段，与倍率后缀同源，故离线路径也有真实边界）。
+     * ⚠️ 时钟用注入的 nowImpl：单测里要让边界随假时钟走。
+     */
+    nextPromotionEdgeAt(nowMs = this.nowImpl()) {
+        const all = this.catalogSource();
+        let best;
+        for (const entry of all) {
+            const candidate = qoderPromotionCandidate(entry.promotion, entry.id, 'Asia/Shanghai');
+            if (candidate === undefined)
+                continue;
+            const edge = nextPromotionEdgeMs([candidate], nowMs);
+            if (edge === undefined)
+                continue;
+            if (best === undefined || edge < best)
+                best = edge;
+        }
+        return best;
+    }
+    /**
      * 懒加载远端模型目录（**每 20 分钟**一次；失败/空结果走闸门冷却）。
      *
      * 三条口径与其余 12 家逐字同构：
@@ -1200,6 +1419,17 @@ export class QoderAdapter extends LlmAdapter {
                 return false;
             this.remoteModels = [...models];
             this.catalogAt = this.nowImpl();
+            /**
+       * ★ **落盘（SWR 写盘那一半）** —— 2026-11-20，与 `buddy-adapter` 同款。
+       *
+       * ⚠️ 本家**只有一个目录来源** ⇒ 「拿到非空目录」即 `complete`
+       *（与 `RemoteCatalogGate` 对裸布尔的归一化口径一致：`complete = got`）。
+       * 故不需要额外的完整性判据。
+       *
+       * ⚠️ 只写**非空**目录：空目录若覆盖磁盘上更好的旧缓存，下次启动会更差。
+       * 那一层由 `writeCatalogCache` 自己挡（`entries.length === 0` 直接返回 false）。
+       */
+            this.catalog.rememberForDisk?.(this.syncCatalogEntries());
             return true;
         });
     }
@@ -1316,10 +1546,10 @@ export class QoderAdapter extends LlmAdapter {
             }
         }
         // 1. 获取凭据（过期则先静默续期）
-        let credential = await this.options.resolveCredential(options.model);
+        let credential = await this.options.resolveCredential(options.model, options.sessionId);
         if (credential === undefined || isQoderExpired(credential)) {
             await this.options.refresh();
-            credential = await this.options.resolveCredential(options.model);
+            credential = await this.options.resolveCredential(options.model, options.sessionId);
         }
         if (credential === undefined || credential.access_token.length === 0) {
             throw new LlmError('qoder: no usable credential; log in first', 'MISSING_CREDENTIAL');
@@ -1482,6 +1712,12 @@ export class QoderAdapter extends LlmAdapter {
         // 4000/8000 ≈ 共 15.5 秒）—— 而服务端明确要求等 30 秒，于是**永远等不到**；
         // 中国版那条「等 2 秒就能成功」的瞬时排队也因走错路径而反复失败。
         const queueDeadline = Date.now() + resolveQueueTimeoutMs();
+        const configuredAttempts = process.env.DSH_QODER_QUEUE_MAX_ATTEMPTS?.trim();
+        const parsedAttempts = configuredAttempts ? Number(configuredAttempts) : QUEUE_MAX_ATTEMPTS;
+        const maxQueueAttempts = Number.isSafeInteger(parsedAttempts) && parsedAttempts >= 0
+            ? parsedAttempts
+            : QUEUE_MAX_ATTEMPTS;
+        const guardTraffic = this.options.trafficGuardEnabled?.() ?? qoderTrafficGuardEnabled();
         let queueAttempts = 0;
         let authRefreshed = false;
         let duplicateRetried = false;
@@ -1518,9 +1754,13 @@ export class QoderAdapter extends LlmAdapter {
          * ⚠️ 优先级：`fetchImpl`（单测替身，**且必须是显式注入**）> `fetchFor`（生产代理）
          * > 全局 `fetch`。单测只要传了 `fetchImpl` 就完全绕过代理，不必关心池子。
          *
-         * ⚠️ 判「是否注入」必须靠 {@link hasInjectedFetchImpl}，**不能**写成
-         * `this.fetchImpl !== fetch`：调用方注入一份**包着全局 fetch 的包装器**时
-         * 两者引用不同，该判据会误判成已注入 ⇒ 生产出口被单测替身顶掉。
+         * ⚠️ 判「是否注入」必须靠 {@link hasInjectedFetchImpl}，**不能**在这里另写一份
+         * 引用比较：`fetchImpl` 与「**构造期**的全局 `fetch`」（`baselineFetch`）不同
+         * 才算注入。若拿**调用点**的全局 `fetch` 当基准，宿主在构造之后包装
+         * `globalThis.fetch`（出站层 / OTel 埋点 / mock server / 代理库）就会被
+         * 误判成已注入 ⇒ **per-账号出口代理（`fetchFor`）被静默跳过**，请求回落到
+         * 构造期捕获的那个**原始**全局 `fetch`（不是「被单测替身顶掉」——那条路径
+         * 上根本没有替身，见正向审计 PR #91 P3-2 的更正）。
          * ⚠️ 也不能只把两个分支调序了事 —— `fetchImpl` 在构造期已被 `?? fetch`
          * 填满，调序后 `fetchFor` 反而**永远**轮不到（生产代理全失效）。
          *
@@ -1560,7 +1800,13 @@ export class QoderAdapter extends LlmAdapter {
         //
         // ⇒ 用 `this.product.id`（取值恰好是 `'qoder'` / `'qodercn'`），
         //   国际版的输出**逐字节不变**，中国版从此说自己的名字。
-        const label = this.product.id;
+        //
+        // ⚠️ 声明**下移**到「名额拿到之后、`sendEncrypted` 之前」（issue #117）：
+        //   `tests/unit/qoder-proxy.spec.ts` 有一条加固断言 ——「从 `const label` 起
+        //   600 **字符**（去注释后）的窗口里必须出现 `fetcherForCurrentAccount()`，
+        //   且不得出现裸 `await fetch(`」。本 PR 在两者之间插入了换号逻辑，
+        //   把那个调用挤出了窗口 ⇒ 断言变红。把 label 挪到**紧邻** `sendEncrypted`
+        //   的位置既保住原断言的语义（它要守的是「推理块走 fetcher」），又让窗口重归紧凑。
         /**
          * 本轮已用掉的**传输级**额外尝试次数（每次换一个账号，见
          * {@link QODER_TRANSPORT_MAX_RETRIES}）。
@@ -1576,232 +1822,339 @@ export class QoderAdapter extends LlmAdapter {
          * 传输失败是「这条出口不通」，两者的上限语义与代价完全不同。
          */
         let transportRetries = 0;
+        /**
+         * ⚠️⚠️ **必须是流级，不是「本次响应级」**（PR #79 对抗审计 P0，2026-11-15）。
+         *
+         * 修前这个变量声明在内层 `for (;;)`（消费一条响应 SSE 的那个循环）**之前、
+         * 但仍在**外层 `for (;;)` 的每次迭代内** ⇒ `queued = true; break` 回到外层
+         * 重发时它会**重新变成 false**，于是「已经向消费者 yield 过内容」这条事实
+         * 丢失：下一次内部再看到的排队/换号错误全部当成「还没输出」处理 ⇒
+         * **整条流被重放**（实测 fetch=3：先收到「已输出片段」，再收到重放后的
+         * 完整回答）。用户看到的是同一段回答出现两遍。
+         *
+         * 提到外层循环外 = 「本次 `stream()` 调用是否已经产出过可见内容」，
+         * 这才是换号/重发判据真正需要问的问题。
+         */
+        let emitted = false;
         for (;;) {
-            /**
-             * ⚠️⚠️ **传输级失败必须能换号**（issue IKR5ZD，2026-10-28 现场取证）。
-             *
-             * 修前：这条 `sendEncrypted` 不在任何 `try` 里，`fetch` 抛出的
-             * `fetch failed` 直接冒出整个重试循环 ⇒ 后面的 `switchAccountOnQuota`
-             * **一次都执行不到**。而宿主把 `TRANSPORT` 当作可重试码（`DEFAULT_RETRYABLE_CODES`，
-             * 5 次、退避 500ms→10s），于是 6 发全部回到**同一个账号、同一条出口、
-             * 同一个 IP** —— 实测该域名有 2 个 A 记录、`dns.lookup` 只回第一个，
-             * 连打 8 次建连**全部**落在 `47.57.188.188`。对「某条路由被阻断」而言，
-             * 这等于**零重试**。
-             *
-             * 修法：每次重试都**换一个账号**（换号 = 换出口；每账号可配独立代理，见
-             * `618a090`「国际版 SNI 阻断下唯一出路」）；**换不到号立即抛**（同号重连对
-             * 阻断的路由无效，而瞬时抖动宿主已用退避重试 5 次兜了）；预算耗尽后同样
-             * **抛出带 cause 链的原错误**。
-             *
-             * ⚠️ 覆盖范围仅**建连腿**（`sendEncrypted` 这一发）。**SSE 中途**的
-             * `sse transport error` 由 `openai-compat.ts` 抛出、经
-             * `classifyQoderFailure` 归 `other` ⇒ **不换号**：那时正文可能已吐了一半，
-             * 换号重发会重复内容（与 zcode/accio 对「已产出内容后不换号」的取舍同向）。
-             * 这是**刻意的边界**，不是漏做。
-             *
-             * ⚠️ 三类边界与 minimax 的 `minimaxFetchWithRetry` 同款：
-             * ① **只处理传输错误**（HTTP 4xx/5xx 是服务端的明确答复，重试只会掩盖真因，
-             *    那条路径在下面各自的分支里已处理，绝不能走到这里）；
-             * ② **abort 绝不重试**（用户点了停止还继续发是不可接受的行为）；
-             * ③ **耗尽后抛原错误**，保住 `cause`（上层要能程序化取真因）。
-             */
+            const env_1 = { stack: [], error: void 0, hasError: false };
             try {
-                response = await this.sendEncrypted(await buildRequest(credential), options, fetcherForCurrentAccount());
-            }
-            catch (error) {
-                if (!(error instanceof LlmError) || error.code !== 'TRANSPORT')
-                    throw error;
+                const request = await buildRequest(credential);
                 /**
-                 * ⚠️ 这里**不重复**判 `signal.aborted`：`sendEncrypted` 在转换前已经做过
-                 * 一次早退，abort 时它抛的是**原始错误**（非 `LlmError`）⇒ 上一行的
-                 * 类型/码判据必然先把它 rethrow 出去，本行之后不可能看到已 abort 的
-                 * `TRANSPORT`。写两处会让「删掉这一处」变成不可观测的等价变异
-                 *（2026-10-31 实测：加这行时删掉它全绿）。abort 的**唯一判据**留在
-                 * `sendEncrypted`，并由「abort ⇒ 只发一发」的行为用例守住。
+                 * ★★★ **名额被占 ⇒ 换下一个账号**（GitHub issue #117 的主修）。
+                 *
+                 * 修前这里是裸 `await acquireQoderRequest(...)`：名额被占时抛 `QUEUE`，
+                 * 而**抛点在换号通路之外**（`switchAccountOnQuota` 只挂在额度/401-403/
+                 * 其它非 ok 三条分支上）⇒ 一个账号占着名额 = **整条渠道的新会话全部失败**，
+                 * 多账号池在这一步完全没起作用。
+                 *
+                 * 现在把它接上：命中结构化标记就换号并 `continue` 重发。
+                 * ⚠️ 三条边界全部在 {@link acquireSlotOrRotate} 里。
                  */
-                if (transportRetries >= QODER_TRANSPORT_MAX_RETRIES)
-                    throw error;
-                /**
-                 * ⚠️ **不知道「当前是哪个账号」时直接抛**：换号要靠 `tried` 排除自己，
-                 * 而 `switchAccountOnQuota` 只有在 `activeAccountId` 非空时才 `tried.add`
-                 * —— 否则池可能把**同一个号**再给回来，白等一个 10s connect 超时。
-                 * 可达路径：探测适配器 `currentAccountId: () => entry?.id ?? ''`
-                 *（`src/index.ts` 的 `createProbeAdapter`）。生产推理路径恒有 id。
-                 */
-                if (activeAccountId === undefined || activeAccountId.length === 0)
-                    throw error;
-                transportRetries += 1;
-                /**
-                 * ⚠️ **换号失败不得顶掉原始错误**（P2-8，2026-10-31 审计）：`getAvailableAccount`
-                 * 是池的读盘/内存路径，它抛错时若原样冒出，用户看到的是裸 `Error`
-                 *（无 `code`、无 `cause`）—— 与本修法「保住 cause 让人能排查」的主旨相反。
-                 * ⇒ 隔离它，失败就按「没有别的号可换」处理。
-                 */
-                let switched;
-                try {
-                    switched = await this.switchAccountOnQuota(options, triedAccounts, activeAccountId, 'transport');
-                }
-                catch (switchError) {
+                const acquired = await this.acquireSlotOrRotate({
+                    guardTraffic,
+                    credential,
+                    options,
+                    tried: triedAccounts,
+                    activeAccountId,
+                    emitted,
+                });
+                if (acquired.kind === 'rotate') {
+                    credential = acquired.credential;
+                    activeAccountId = acquired.accountId;
                     /**
-                     * ⚠️ **只吞「池读不出来」这类裸错误**：`LlmError` 是刻意的判断
-                     *（例如换到的新账号缺 `uid` ⇒ `MISSING_CREDENTIAL`），把它压成
-                     * 「没号可换」会让用户永远看不到「这个号没法用」—— 那是数据问题，
-                     * 必须如实报出来（本仓库「缺失必须显式」纪律）。
+                     * ⚠️ **必须重置**（正向审计 P2-1）：既有的三条换号分支
+                     * （额度 / 401-403 / 其它非 ok）都写了这一句，本路径漏了。
+                     *
+                     * 确定性复现：同一请求先撞 401 为 **A** 续期过（`authRefreshed = true`），
+                     * 随后因名额忙换到 **B**；B 的 401 因 `authRefreshed` 仍为 true **不再续期**
+                     * ⇒ 直接抛 `AUTH` ⇒ 用户看到「凭据无效」，而真因是**换了号没重置这个标志**。
                      */
-                    if (switchError instanceof LlmError)
-                        throw switchError;
-                    switched = undefined;
+                    authRefreshed = false;
+                    continue;
                 }
-                // 换不到号（池空 / 全是已试过的）⇒ **立即抛**，别在原地空转 10 秒：
-                // 同号重连对「路由被阻断」无效，而宿主已经会用退避再试 5 次。
-                if (switched === undefined)
-                    throw error;
+                const slot = __addDisposableResource(env_1, acquired.slot, false);
+                if (queueAttempts > 0 && Date.now() >= queueDeadline) {
+                    throw new LlmError('qoder: 排队等待超时', 'QUEUE');
+                }
                 /**
-                 * ⚠️ **这一行无法用行为用例守住，如实登记**（2026-10-31 对抗审计 m20）：
-                 * 把 `credential = switched.credential` 删掉后，第二发仍会**用旧凭据**
-                 * 发出（而 `activeAccountId` 已更新、出口也换了），但**所有 127 条用例仍绿**。
-                 * 原因是两份凭据的差异只体现在 WASM 生成的 `COSY` 签名内部（uid / machine
-                 * 加密后不可读），外部唯一能看到的 `Authorization` 每次请求都带新
-                 * `requestId` ⇒ 无法区分。实测过的两条替代判据也都失败：
-                 * ① 新凭据 `machine_id: ''` ⇒ 请求照常成功；② 缺 `uid` ⇒ 抛点发生在
-                 * `switchAccountOnQuota` **内部**的 `ensureUid`，与「是否采纳」无关。
-                 * ⇒ 保留本行，靠代码评审；**不要**为它编一条恒真用例。
+                 * ⚠️⚠️ **传输级失败必须能换号**（issue IKR5ZD，2026-10-28 现场取证）。
+                 *
+                 * 修前：这条 `sendEncrypted` 不在任何 `try` 里，`fetch` 抛出的
+                 * `fetch failed` 直接冒出整个重试循环 ⇒ 后面的 `switchAccountOnQuota`
+                 * **一次都执行不到**。而宿主把 `TRANSPORT` 当作可重试码（`DEFAULT_RETRYABLE_CODES`，
+                 * 5 次、退避 500ms→10s），于是 6 发全部回到**同一个账号、同一条出口、
+                 * 同一个 IP** —— 实测该域名有 2 个 A 记录、`dns.lookup` 只回第一个，
+                 * 连打 8 次建连**全部**落在 `47.57.188.188`。对「某条路由被阻断」而言，
+                 * 这等于**零重试**。
+                 *
+                 * 修法：每次重试都**换一个账号**（换号 = 换出口；每账号可配独立代理，见
+                 * `618a090`「国际版 SNI 阻断下唯一出路」）；**换不到号立即抛**（同号重连对
+                 * 阻断的路由无效，而瞬时抖动宿主已用退避重试 5 次兜了）；预算耗尽后同样
+                 * **抛出带 cause 链的原错误**。
+                 *
+                 * ⚠️ 覆盖范围仅**建连腿**（`sendEncrypted` 这一发）。**SSE 中途**的
+                 * `sse transport error` 由 `openai-compat.ts` 抛出、经
+                 * `classifyQoderFailure` 归 `other` ⇒ **不换号**：那时正文可能已吐了一半，
+                 * 换号重发会重复内容（与 zcode/accio 对「已产出内容后不换号」的取舍同向）。
+                 * 这是**刻意的边界**，不是漏做。
+                 *
+                 * ⚠️ 三类边界与 minimax 的 `minimaxFetchWithRetry` 同款：
+                 * ① **只处理传输错误**（HTTP 4xx/5xx 是服务端的明确答复，重试只会掩盖真因，
+                 *    那条路径在下面各自的分支里已处理，绝不能走到这里）；
+                 * ② **abort 绝不重试**（用户点了停止还继续发是不可接受的行为）；
+                 * ③ **耗尽后抛原错误**，保住 `cause`（上层要能程序化取真因）。
                  */
-                credential = switched.credential;
-                activeAccountId = switched.accountId;
-                authRefreshed = false; // 新账号可再续期一次
-                continue;
-            }
-            if (!response.ok && (response.status === 401 || response.status === 403)) {
-                // ⚠️ 必须**先读体再判断**，且 body 只能读一次 —— 排队信息就藏在
-                // `message` 那个 JSON 字符串里（见 `parseQoderQueueError`）。
-                const errorText = await response.text().catch(() => '');
-                const queueInfo = parseQoderQueueError(errorText);
-                if (queueInfo !== undefined) {
-                    await this.waitForQueue(queueInfo, ++queueAttempts, queueDeadline, options);
-                    continue;
-                }
-                // ⚠️ **额度受限也要切账号**（用户要求，2026-09-27）。
-                //
-                // ⚠️ 本分支**只认额度**（不并入 `classifyQoderFailure` 的 `auth`）：401/403
-                // 的第一处置是**续期当前账号**（下面的 `authRefreshed` 分支），换号是续期
-                // 失败后才该做的事 —— 把 `auth` 提到这里会让「凭据过期」直接换号、永远
-                // 走不到续期路径（那是既有行为，不能改）。
-                //
-                // 这条与 SSE 层那条**必须都有**：Qoder 的额度错误实测走 SSE 通道
-                // （HTTP 200），但若哪天服务端改成用 HTTP 状态码下发，只处理一条就会漏。
-                // 两处调用**同一个** `switchAccountOnQuota`，不会漂移。
-                if (isBillingBusinessCode(response.status) || looksLikeBillingError(errorText)) {
-                    const switched = await this.switchAccountOnQuota(options, triedAccounts, activeAccountId, 'quota');
-                    if (switched !== undefined) {
-                        credential = switched.credential;
-                        activeAccountId = switched.accountId;
-                        authRefreshed = false; // 新账号可再续期一次
-                        continue;
-                    }
-                    throw new LlmError(`${label}: ${errorDetail(errorText)}`, 'QUOTA_EXCEEDED', { status: response.status });
-                }
-                // 非排队：认证失败才续期（且每次请求最多一次，避免刷爆 userinfo）。
-                if (!authRefreshed) {
-                    authRefreshed = true;
-                    await this.options.refresh();
-                    const refreshed = await this.options.resolveCredential(options.model);
-                    if (refreshed === undefined || refreshed.access_token.length === 0) {
-                        throw new LlmError(`${label}: credential expired and refresh failed`, 'AUTH', { status: response.status });
-                    }
-                    credential = await this.ensureUid(refreshed);
-                    continue;
-                }
-                throw new LlmError(`${label}: ${errorDetail(errorText)}`, httpErrorCode(response.status), { status: response.status });
-            }
-            // 重复请求（客户端 `duplicate_request`）：凭据没问题，重发一次即可。
-            if (!response.ok && response.status === 409 && !duplicateRetried) {
-                duplicateRetried = true;
-                continue;
-            }
-            if (!response.ok) {
-                const errorText = await response.text().catch(() => '');
-                // ⚠️ 2026-10-21：本分支也要走**统一类别判定**（{@link classifyQoderFailure}）。
-                //
-                // 修前这里直接抛，于是 **429**（`RATE_LIMIT`）与 **5xx + provider_error**
-                // 都不会换号 —— 后者正是用户真实报障（池里 2 个 `qodercn` 账号，
-                // 第二个从未被尝试）。
-                //
-                // ⚠️ 401/403 **不归这里**（上面已处理，先续期再换号）；409 已单独处理。
-                // 到此的是 429 / 5xx / 其余 4xx，正好是「类别判定」该管的范围。
-                const statusCls = classifyQoderFailure(httpErrorCode(response.status), errorText);
-                if (shouldRotateQoderAccount(statusCls)) {
-                    const switched = await this.switchAccountOnQuota(options, triedAccounts, activeAccountId, statusCls);
-                    if (switched !== undefined) {
-                        credential = switched.credential;
-                        activeAccountId = switched.accountId;
-                        authRefreshed = false; // 新账号可再续期一次
-                        continue;
-                    }
-                }
-                // 换不到号（或类别是 `other`）⇒ 按状态码如实归类抛出。
-                // ⚠️ `statusCls === 'quota'` 时用 `QUOTA_EXCEEDED`：那个码在 DSH 的
-                // `DEFAULT_RETRYABLE_CODES` 之外 ⇒ 不会被「白重试 5 次」；而 `httpErrorCode`
-                // 对 402 已给 `QUOTA_EXCEEDED`，这里只是兜住「429 + 额度文案」的边界。
-                throw new LlmError(`${label}: ${errorDetail(errorText)}`, statusCls === 'quota' ? 'QUOTA_EXCEEDED' : httpErrorCode(response.status), { status: response.status });
-            }
-            // ⚠️ 消费 SSE 时**捕获流内排队错误**，走与 HTTP 层**完全相同**的等待逻辑。
-            // `consumeOpenAiSse` 是生成器：无法「try 一次再重试」，故这里手动迭代，
-            // 捕获到排队就等待后重发整条请求（排队期间未产出任何 chunk，可安全重放）。
-            const inner = consumeOpenAiSse(unwrapQoderEnvelopeStream(response, label), { signal: options.signal }, {
-                label,
-                firstTokenTimeoutMs: resolveFirstTokenTimeoutMs(),
-                chunkTimeoutMs: resolveChunkTimeoutMs(),
-                ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-            });
-            const iterator = inner[Symbol.asyncIterator]();
-            let queued = false;
-            for (;;) {
-                let step;
+                // ⚠️ 声明在 `try` **之前**（`catch` 与后面若干分支都要用它），
+                //    但仍在 `using slot` 之后 —— 见上方「声明下移」那段注释。
+                const label = this.product.id;
                 try {
-                    step = await iterator.next();
+                    response = await this.sendEncrypted(request, options, fetcherForCurrentAccount());
                 }
                 catch (error) {
-                    if (error instanceof ModelQueuedError) {
-                        await this.waitForQueue(queueInfoOf(error), ++queueAttempts, queueDeadline, options);
-                        queued = true;
-                        break;
+                    if (!(error instanceof LlmError) || error.code !== 'TRANSPORT')
+                        throw error;
+                    /**
+                     * ⚠️ 这里**不重复**判 `signal.aborted`：`sendEncrypted` 在转换前已经做过
+                     * 一次早退，abort 时它抛的是**原始错误**（非 `LlmError`）⇒ 上一行的
+                     * 类型/码判据必然先把它 rethrow 出去，本行之后不可能看到已 abort 的
+                     * `TRANSPORT`。写两处会让「删掉这一处」变成不可观测的等价变异
+                     *（2026-10-31 实测：加这行时删掉它全绿）。abort 的**唯一判据**留在
+                     * `sendEncrypted`，并由「abort ⇒ 只发一发」的行为用例守住。
+                     */
+                    if (transportRetries >= QODER_TRANSPORT_MAX_RETRIES)
+                        throw error;
+                    /**
+                     * ⚠️ **不知道「当前是哪个账号」时直接抛**：换号要靠 `tried` 排除自己，
+                     * 而 `switchAccountOnQuota` 只有在 `activeAccountId` 非空时才 `tried.add`
+                     * —— 否则池可能把**同一个号**再给回来，白等一个 10s connect 超时。
+                     * 可达路径：探测适配器 `currentAccountId: () => entry?.id ?? ''`
+                     *（`src/index.ts` 的 `createProbeAdapter`）。生产推理路径恒有 id。
+                     */
+                    if (activeAccountId === undefined || activeAccountId.length === 0)
+                        throw error;
+                    transportRetries += 1;
+                    /**
+                     * ⚠️ **换号失败不得顶掉原始错误**（P2-8，2026-10-31 审计）：`getAvailableAccount`
+                     * 是池的读盘/内存路径，它抛错时若原样冒出，用户看到的是裸 `Error`
+                     *（无 `code`、无 `cause`）—— 与本修法「保住 cause 让人能排查」的主旨相反。
+                     * ⇒ 隔离它，失败就按「没有别的号可换」处理。
+                     */
+                    let switched;
+                    try {
+                        switched = await this.switchAccountOnQuota(options, triedAccounts, activeAccountId, 'transport');
                     }
-                    // ⚠️ **额度受限（110）要标记 + 切账号**（用户要求，2026-09-27）。
+                    catch (switchError) {
+                        /**
+                         * ⚠️ **只吞「池读不出来」这类裸错误**：`LlmError` 是刻意的判断
+                         *（例如换到的新账号缺 `uid` ⇒ `MISSING_CREDENTIAL`），把它压成
+                         * 「没号可换」会让用户永远看不到「这个号没法用」—— 那是数据问题，
+                         * 必须如实报出来（本仓库「缺失必须显式」纪律）。
+                         */
+                        if (switchError instanceof LlmError)
+                            throw switchError;
+                        switched = undefined;
+                    }
+                    // 换不到号（池空 / 全是已试过的）⇒ **立即抛**，别在原地空转 10 秒：
+                    // 同号重连对「路由被阻断」无效，而宿主已经会用退避再试 5 次。
+                    if (switched === undefined)
+                        throw error;
+                    /**
+                     * ⚠️ **这一行无法用行为用例守住，如实登记**（2026-10-31 对抗审计 m20）：
+                     * 把 `credential = switched.credential` 删掉后，第二发仍会**用旧凭据**
+                     * 发出（而 `activeAccountId` 已更新、出口也换了），但**所有 127 条用例仍绿**。
+                     * 原因是两份凭据的差异只体现在 WASM 生成的 `COSY` 签名内部（uid / machine
+                     * 加密后不可读），外部唯一能看到的 `Authorization` 每次请求都带新
+                     * `requestId` ⇒ 无法区分。实测过的两条替代判据也都失败：
+                     * ① 新凭据 `machine_id: ''` ⇒ 请求照常成功；② 缺 `uid` ⇒ 抛点发生在
+                     * `switchAccountOnQuota` **内部**的 `ensureUid`，与「是否采纳」无关。
+                     * ⇒ 保留本行，靠代码评审；**不要**为它编一条恒真用例。
+                     */
+                    credential = switched.credential;
+                    activeAccountId = switched.accountId;
+                    authRefreshed = false; // 新账号可再续期一次
+                    continue;
+                }
+                const errorText = response.ok ? '' : await response.text().catch(() => '');
+                if (!response.ok) {
+                    // 排队业务码可能出现在不同 HTTP 状态中，先识别再处理认证、额度和限流。
+                    const queueInfo = parseQoderQueueError(errorText);
+                    if (queueInfo !== undefined) {
+                        // ⚠️⚠️ **排队等待期间必须先让出并发名额**（2026-11-15 审计 P1）。
+                        //
+                        // `using slot` 与 `waitForQueueFrames`（最长 `DSH_QODER_QUEUE_TIMEOUT_MS`，
+                        // 默认 30 分钟）在**同一个 `for (;;)` 体内** ⇒ 整个等待期该账号的
+                        // `active` 都是 true ⇒ 同账号的下一个请求在 `acquireQoderRequest`
+                        // 处**直接被拒**（`QUEUE`），而 `QUEUE` **不在**宿主的
+                        // `DEFAULT_RETRYABLE_CODES` 里 ⇒ 不重试；且这里在 `sendEncrypted`
+                        // 之前抛出，**绕过**下面的换号通路 ⇒ 多账号池也兜不住。
+                        //
+                        // 让出后 `active` 归 false，第二条请求可以正常去上游排队（或由换号
+                        // 通路接管）；`using` 在作用域结束时还会再 dispose 一次。
+                        // 每个名额只释放一次，避免旧请求清掉新请求的占用。
+                        slot?.[Symbol.dispose]();
+                        // ⚠️ 必须 `for await … yield`：`waitForQueueFrames` 是异步生成器，
+                        // `visible` 档的心跳帧要靠这里转交给上层（见该方法的注释）。
+                        for await (const frame of this.waitForQueueFrames(queueInfo, ++queueAttempts, queueDeadline, options, activeAccountId, maxQueueAttempts, retryAfterMsFromResponse(response.headers)))
+                            yield frame;
+                        continue;
+                    }
+                }
+                if (!response.ok && (response.status === 401 || response.status === 403)) {
+                    // ⚠️ **额度受限也要切账号**（用户要求，2026-09-27）。
                     //
-                    // ⚠️ 必须**在这里**捕获（SSE 层）而不只在 HTTP 层：Qoder 的额度错误
-                    // 实测以 **HTTP 200 + SSE 内嵌帧** 下发（与排队同通道），
-                    // 只在 HTTP 层处理会漏掉真实链路。
+                    // ⚠️ 本分支**只认额度**（不并入 `classifyQoderFailure` 的 `auth`）：401/403
+                    // 的第一处置是**续期当前账号**（下面的 `authRefreshed` 分支），换号是续期
+                    // 失败后才该做的事 —— 把 `auth` 提到这里会让「凭据过期」直接换号、永远
+                    // 走不到续期路径（那是既有行为，不能改）。
                     //
-                    // ⚠️ 2026-10-21 扩展：判据从「只认额度」改为**统一类别判定**
-                    // （{@link classifyQoderFailure}）。真实报障：上游回
-                    // `Error in upstream response (provider_error/model_error) code=SERVER`
-                    // 时，池里的第二个账号**从未被尝试** —— 那是「登录 N 个账号 ≠ N 倍
-                    // 可用性」的经典形态（`accio-adapter.ts:1598` 点名过同一个缺陷）。
-                    //
-                    // 传 `{ code, text }` 供文案腿使用（`provider_error` 是结构字段值，
-                    // 已随 `errorDetail` 拼进 message，故文案腿能命中）。
-                    const failureCall = failureCallOf(error);
-                    const streamCls = classifyQoderFailure(failureCall.code, failureCall.text);
-                    if (shouldRotateQoderAccount(streamCls)) {
-                        const switched = await this.switchAccountOnQuota(options, triedAccounts, activeAccountId, streamCls);
+                    // 这条与 SSE 层那条**必须都有**：Qoder 的额度错误实测走 SSE 通道
+                    // （HTTP 200），但若哪天服务端改成用 HTTP 状态码下发，只处理一条就会漏。
+                    // 两处调用**同一个** `switchAccountOnQuota`，不会漂移。
+                    if (isBillingBusinessCode(response.status) || looksLikeBillingError(errorText)) {
+                        const switched = await this.switchAccountOnQuota(options, triedAccounts, activeAccountId, 'quota');
                         if (switched !== undefined) {
                             credential = switched.credential;
                             activeAccountId = switched.accountId;
-                            queued = true; // 复用「回到循环顶部重发」的语义
-                            break;
+                            authRefreshed = false; // 新账号可再续期一次
+                            continue;
                         }
-                        throw error; // 无可用账号 → 如实抛出（已含原始语义）
+                        throw new LlmError(`${label}: ${errorDetail(errorText)}`, 'QUOTA_EXCEEDED', { status: response.status });
                     }
-                    throw error;
+                    // 非排队：认证失败才续期（且每次请求最多一次，避免刷爆 userinfo）。
+                    if (!authRefreshed) {
+                        authRefreshed = true;
+                        await this.options.refresh();
+                        const refreshed = await this.options.resolveCredential(options.model, options.sessionId);
+                        if (refreshed === undefined || refreshed.access_token.length === 0) {
+                            throw new LlmError(`${label}: credential expired and refresh failed`, 'AUTH', { status: response.status });
+                        }
+                        credential = await this.ensureUid(refreshed);
+                        continue;
+                    }
+                    throw new LlmError(`${label}: ${errorDetail(errorText)}`, httpErrorCode(response.status), { status: response.status });
                 }
-                if (step.done === true)
-                    break;
-                yield step.value;
+                // 重复请求（客户端 `duplicate_request`）：凭据没问题，重发一次即可。
+                if (!response.ok && response.status === 409 && !duplicateRetried) {
+                    duplicateRetried = true;
+                    continue;
+                }
+                if (!response.ok) {
+                    // ⚠️ 2026-10-21：本分支也要走**统一类别判定**（{@link classifyQoderFailure}）。
+                    //
+                    // 修前这里直接抛，于是 **429**（`RATE_LIMIT`）与 **5xx + provider_error**
+                    // 都不会换号 —— 后者正是用户真实报障（池里 2 个 `qodercn` 账号，
+                    // 第二个从未被尝试）。
+                    //
+                    // ⚠️ 401/403 **不归这里**（上面已处理，先续期再换号）；409 已单独处理。
+                    // 到此的是 429 / 5xx / 其余 4xx，正好是「类别判定」该管的范围。
+                    const statusCls = classifyQoderFailure(httpErrorCode(response.status), errorText);
+                    if (shouldRotateQoderAccount(statusCls)) {
+                        const switched = await this.switchAccountOnQuota(options, triedAccounts, activeAccountId, statusCls);
+                        if (switched !== undefined) {
+                            credential = switched.credential;
+                            activeAccountId = switched.accountId;
+                            authRefreshed = false; // 新账号可再续期一次
+                            continue;
+                        }
+                    }
+                    // 换不到号（或类别是 `other`）⇒ 按状态码如实归类抛出。
+                    // ⚠️ `statusCls === 'quota'` 时用 `QUOTA_EXCEEDED`：那个码在 DSH 的
+                    // `DEFAULT_RETRYABLE_CODES` 之外 ⇒ 不会被「白重试 5 次」；而 `httpErrorCode`
+                    // 对 402 已给 `QUOTA_EXCEEDED`，这里只是兜住「429 + 额度文案」的边界。
+                    throw new LlmError(`${label}: ${errorDetail(errorText)}`, statusCls === 'quota' ? 'QUOTA_EXCEEDED' : httpErrorCode(response.status), { status: response.status });
+                }
+                // ⚠️ 消费 SSE 时**捕获流内排队错误**，走与 HTTP 层**完全相同**的等待逻辑。
+                // `consumeOpenAiSse` 是生成器：无法「try 一次再重试」，故这里手动迭代，
+                // 捕获到排队就等待后重发整条请求（排队期间未产出任何 chunk，可安全重放）。
+                const decoded = unwrapQoderEnvelopeStream(response, label);
+                const inner = consumeOpenAiSse(decoded, { signal: options.signal }, {
+                    label,
+                    firstTokenTimeoutMs: resolveFirstTokenTimeoutMs(),
+                    chunkTimeoutMs: resolveChunkTimeoutMs(),
+                    ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+                });
+                const iterator = inner[Symbol.asyncIterator]();
+                let queued = false;
+                try {
+                    for (;;) {
+                        let step;
+                        try {
+                            step = await iterator.next();
+                        }
+                        catch (error) {
+                            await decoded.body?.cancel().catch(() => { });
+                            if (emitted && error instanceof ModelQueuedError)
+                                throw error;
+                            if (error instanceof ModelQueuedError) {
+                                // ⚠️⚠️ 同上：SSE 内嵌排队也要先让出名额 —— HTTP 层与 SSE 层是
+                                // **两个入口、同一条不变式**，只修一处会让另一半静默失效。
+                                slot?.[Symbol.dispose]();
+                                for await (const frame of this.waitForQueueFrames(queueInfoOf(error), ++queueAttempts, queueDeadline, options, activeAccountId, maxQueueAttempts, retryAfterMsFromResponse(response.headers)))
+                                    yield frame;
+                                queued = true;
+                                break;
+                            }
+                            // ⚠️ **额度受限（110）要标记 + 切账号**（用户要求，2026-09-27）。
+                            //
+                            // ⚠️ 必须**在这里**捕获（SSE 层）而不只在 HTTP 层：Qoder 的额度错误
+                            // 实测以 **HTTP 200 + SSE 内嵌帧** 下发（与排队同通道），
+                            // 只在 HTTP 层处理会漏掉真实链路。
+                            //
+                            // ⚠️ 2026-10-21 扩展：判据从「只认额度」改为**统一类别判定**
+                            // （{@link classifyQoderFailure}）。真实报障：上游回
+                            // `Error in upstream response (provider_error/model_error) code=SERVER`
+                            // 时，池里的第二个账号**从未被尝试** —— 那是「登录 N 个账号 ≠ N 倍
+                            // 可用性」的经典形态（`accio-adapter.ts:1598` 点名过同一个缺陷）。
+                            //
+                            // 传 `{ code, text }` 供文案腿使用（`provider_error` 是结构字段值，
+                            // 已随 `errorDetail` 拼进 message，故文案腿能命中）。
+                            const failureCall = failureCallOf(error);
+                            const streamCls = classifyQoderFailure(failureCall.code, failureCall.text);
+                            if (shouldRotateQoderAccount(streamCls)) {
+                                // ⚠️⚠️ **已经向消费者 yield 过内容就不能换号**（对抗审计 P0）：
+                                // 换号 = 回到外层重发整条请求 ⇒ 已输出的部分会被**再输出一遍**。
+                                // 这与上面那条 `if (emitted && error instanceof ModelQueuedError)`
+                                // 是**同一条不变式的两个入口** —— 排队与可换号错误都会重发，
+                                // 只守一处会让另一处静默重放（PR 自身的用例只覆盖了同一次迭代）。
+                                if (emitted)
+                                    throw error;
+                                const switched = await this.switchAccountOnQuota(options, triedAccounts, activeAccountId, streamCls);
+                                if (switched !== undefined) {
+                                    credential = switched.credential;
+                                    activeAccountId = switched.accountId;
+                                    queued = true; // 复用「回到循环顶部重发」的语义
+                                    break;
+                                }
+                                throw error; // 无可用账号 → 如实抛出（已含原始语义）
+                            }
+                            throw error;
+                        }
+                        if (step.done === true)
+                            break;
+                        emitted = true;
+                        yield step.value;
+                    }
+                }
+                finally {
+                    try {
+                        await iterator.return?.();
+                    }
+                    finally {
+                        await decoded.body?.cancel().catch(() => { });
+                    }
+                }
+                if (queued)
+                    continue;
+                return;
             }
-            if (queued)
-                continue;
-            return;
+            catch (e_1) {
+                env_1.error = e_1;
+                env_1.hasError = true;
+            }
+            finally {
+                __disposeResources(env_1);
+            }
         }
     }
     /**
@@ -1837,6 +2190,91 @@ export class QoderAdapter extends LlmAdapter {
      *   忘记传时静默退化成「一律记额度冷却」—— 那正是 2026-10-10「全池被封」的形态。
      * @returns 新凭据；无可用账号时 `undefined`（调用方如实抛出原错误）。
      */
+    /**
+     * 申请本地并发名额；**名额被占时自动换下一个账号**（GitHub issue #117）。
+     *
+     * ## 为什么单独抽一个方法而不是就地 `try/catch`
+     *
+     * 调用点用的是 `using slot = …`（`Disposable` 的**作用域**释放）。若把
+     * `await acquireQoderRequest(...)` 直接包进 `try`，「换号后 continue」与
+     * 「slot 在迭代结束时释放」这两件事会混在同一个 try 里 —— 换号路径上
+     * `using` 根本没执行，而正常路径上它又必须活到迭代末尾。抽成「返回
+     * `{kind:'ok', slot}` 或 `{kind:'rotate', …}`」就干净了：调用方拿到结果再决定
+     * `continue` 还是 `using`，两件事各自在自己的作用域里。
+     *
+     * ## 三条边界（issue 逐条点名的，全部在这里）
+     *
+     * 1. **拿不到当前账号 id ⇒ 不换号**：没有身份就无法把它加进 `tried`，
+     *    池可能把同一个号再给回来（死循环风险）。
+     * 2. **已 `emitted` ⇒ 不换号**：换号会重发整条请求，已输出的片段会被再吐一遍
+     *    （与 PR #79 对抗审计 P0 那条不变式**同源**）。
+     * 3. **换不到号 ⇒ 抛原错误**：所有号都忙时，「本地排队」才是正确结论 ——
+     *    不能静默挂起、也不能变成无限重试。
+     *
+     * ⚠️ 计数语义：本路径**不消费** `transportRetries` / `queueAttempts` ——
+     * 名额是本地资源竞争，不是上游让我等、也不是传输故障。上限由 `tried` 集合
+     * 与池的大小天然兜住（每个号最多试一次）。
+     */
+    async acquireSlotOrRotate(input) {
+        try {
+            const slot = input.guardTraffic
+                ? await acquireQoderRequest(this.product.id, input.credential.uid, input.options.signal)
+                : undefined;
+            return { kind: 'ok', slot };
+        }
+        catch (error) {
+            // 边界③的一半：不是名额冲突 ⇒ 原样抛（其它错误仍走既有通路）。
+            if (!isQoderSlotBusy(error))
+                throw error;
+            // 边界②：已经向消费者吐过内容 ⇒ 换号会重放，宁可失败。
+            if (input.emitted)
+                throw error;
+            // 边界①：没有账号身份 ⇒ 无法 `tried`，不换。
+            /**
+             * ⚠️ 判据是 **`trim()` 后非空**（对抗审计 P3）：`'   '` 的 `length` 是 3，
+             * 只看 `length === 0` 会放行一个**不是身份**的值 ⇒ 它进了 `tried` 也排不掉
+             * 任何真实账号。与 qoder 其它处「空白 id 不覆盖真 id」的判据同形。
+             */
+            if (input.activeAccountId === undefined || input.activeAccountId.trim().length === 0)
+                throw error;
+            /**
+             * ⚠️ **换号过程自己抛错时，必须抛回原来那个「名额忙」错误**（正向审计 P2-2）。
+             *
+             * `switchAccountOnQuota` 内部只隔离了「写冷却标记失败」，**取号本身**
+             * （`getAvailableAccount`，要读盘）抛错时错误会冒出来 ⇒ 用户看到
+             * 裸 `Error: pool read failed`（**没有 code**），而真因是「这个号正忙」。
+             *
+             * 与 `transport` 分支的 P2-8 纪律同向：**诊断信息可以丢，用户可见的
+             * 错误码不能丢** —— 码决定宿主/聚合层怎么处理（本仓记过多次「码丢了 ⇒
+             * 客户端把它整条换成不准的文案」）。
+             */
+            let next;
+            try {
+                next = await this.switchAccountOnQuota(input.options, input.tried, input.activeAccountId, 'slot-busy');
+            }
+            catch (switchError) {
+                /**
+                 * ⚠️⚠️ **只把「无码的意外」折成原错误，有码的必须透传**（对抗审计 P2-4）。
+                 *
+                 * 我第一版是裸 `catch { throw error }` —— 太宽：换到的新账号**凭据缺 `uid`**
+                 * 时 `switchAccountOnQuota` 会抛带 `MISSING_CREDENTIAL` 的 `LlmError`，
+                 * 被我折成「并发已满 / `QUEUE`」⇒ 用户看到**完全错误的指引**
+                 *（以为等一等就好，实际要去重新登录）。
+                 *
+                 * 这与同文件 transport 分支的 P2-8 纪律**逐字同形**：
+                 * 「**诊断信息可以丢，用户可见的错误码不能丢**」。
+                 * 折成原错误的只有「池读盘失败」这类裸 `Error`（它们没有码可用）。
+                 */
+                if (switchError instanceof LlmError)
+                    throw switchError;
+                throw error;
+            }
+            // 边界③的另一半：换不到号 ⇒ 抛原错误（「本地排队」是正确结论）。
+            if (next === undefined)
+                throw error;
+            return { kind: 'rotate', credential: next.credential, accountId: next.accountId };
+        }
+    }
     async switchAccountOnQuota(options, tried, activeAccountId, cls) {
         const pool = this.options.accountPool;
         if (pool === undefined)
@@ -1902,8 +2340,60 @@ export class QoderAdapter extends LlmAdapter {
      * 排队等待（HTTP 层与 SSE 层**共用**）。
      *
      * 两处形态必须走同一套判据，否则会再次出现「只修了一条路径」的缺陷。
+     *
+     * ⚠️ 自 2026-11-10 起该方法**是异步生成器**：`visible` 档要在等待期间产出
+     * 心跳帧，故调用方必须 `for await (…) yield frame` 而不是 `await` ——
+     * 直接 `await` 一个生成器只会拿到生成器对象、永远不执行（语法上不报错，
+     * 是最容易漏的改法）。
      */
-    async waitForQueue(queueInfo, attempts, deadline, options) {
+    async *waitForQueueFrames(queueInfo, attempts, deadline, options, accountId, maxAttempts, retryAfterHeaderMs) {
+        /**
+         * ⚠️ 模式只解析**一次**：同一次等待里读两遍 `process.env` 是 TOCTOU —— 两次
+         * 调用之间环境变量被改过，就会出现「按 `fast` 判定、按 `visible` 分支执行」
+         * 的错配（本 PR 初版就是两处各读一次）。
+         */
+        const { mode, viaAggregate } = resolveEffectiveQueueWaitMode();
+        const waitMs = qoderQueueDelayMs(queueInfo)
+            ?? (retryAfterHeaderMs === undefined ? undefined : Math.min(retryAfterHeaderMs, QUEUE_MAX_DELAY_MS));
+        // ⚠️ 拿不到服务端延迟时**不忙等**：用保守的短退避，避免瞬间烧掉机会
+        // （客户端 W7c() 此时会退回 ltA() 指数退避）。
+        const totalMs = waitMs !== undefined && waitMs > 0 ? waitMs : QUEUE_MIN_DELAY_MS;
+        const { queueType, queueCount, serviceAvailable, retryAfterSeconds } = queueInfo ?? {};
+        const modelKey = queueInfo?.modelKey ?? options.model;
+        /**
+         * 排队必须有**外部可观测痕迹**，否则「上游排队」与「进程挂死」完全同形。
+         *
+         * ⚠️ 真实代价（2026-11-10）：排队期间网关不产出任何帧、也不写任何日志，
+         * 调用方只会看到自己的超时，排查时无从下手（本仓库为此排查了一整晚）。
+         *
+         * ⚠️ 只在**首次**排队（以及终态的 `fast` 档）记，不逐次刷：`wait` 档最多
+         * 重试 180 次，每次都记会把日志刷满，反而看不见别的错误。
+         *
+         * ⚠️⚠️ `fast` 是**终态**：它在下面直接 `throw`，若把日志写在 throw 之后，
+         * 这一档将**一条都不写** —— 而它恰恰是最需要线索的一档（用户只看到一条
+         * `QUEUE` 错误，没有任何「哪个模型在排队」的信息）。故抽成闭包，两处都调。
+         */
+        const warnQueue = (waitMsForLog) => {
+            if (attempts !== 1 && mode !== 'fast')
+                return;
+            this.options.warn?.(`[qoder] ${this.product.id} 上游排队（10605）：`
+                + `${mode === 'fast' ? '未等待' : `等待 ${waitMsForLog}ms`}`
+                + `（模式 ${mode}${viaAggregate ? '（聚合调用，交由聚合切换下一个候选）' : ''}，第 ${attempts} 次`
+                + `，modelKey=${JSON.stringify(modelKey)}`
+                + `${queueType === undefined ? '' : `，queueType=${JSON.stringify(queueType)}`}`
+                + `${queueCount === undefined ? '' : `，queueCount=${queueCount}`}`
+                + `${serviceAvailable === undefined ? '' : `，serviceAvailable=${serviceAvailable}`}`
+                + `${accountId === undefined ? '' : `，account=${accountId}`}`
+                + `${retryAfterSeconds === undefined ? '' : `，retryAfterSeconds=${retryAfterSeconds}`}）`);
+        };
+        // `fast`：不问「等多久」，立刻把排队作为结论抛回去（见 resolveQueueWaitMode）。
+        if (mode === 'fast') {
+            // 终态也必须留痕（见 warnQueue 的注释）。
+            warnQueue(0);
+            throw new LlmError(viaAggregate
+                ? 'qoder: 上游模型排队中（聚合调用不等待，交由聚合切换下一个候选）'
+                : 'qoder: 上游模型排队中（DSH_QODER_QUEUE_WAIT_MODE=fast，未等待）', 'QUEUE');
+        }
         // ⚠️ **先判时间、再判次数**：时间上限是硬约束（用户可调），次数上限只是
         // 防御性兜底。反过来写会让「180 次空转」在绝大多数情况下先生效，
         // 使 `DSH_QODER_QUEUE_TIMEOUT_MS` **形同虚设**（写用例时实测到了）。
@@ -1911,19 +2401,81 @@ export class QoderAdapter extends LlmAdapter {
         // ⚠️ 用 `>=` 而不是 `>`：上限为 **0** 是合法配置（「不等，立即判超时」），
         // 而同一毫秒内 `Date.now() > now + 0` 为 **false**，会让它**先等一次**才
         // 超时 —— 那与「0 = 不等待」的语义不符（单测专门守这一点）。
-        if (Date.now() >= deadline) {
+        if (Date.now() + totalMs >= deadline) {
             throw new LlmError('qoder: 排队等待超时', 'QUEUE');
         }
-        if (attempts > QUEUE_MAX_ATTEMPTS) {
-            throw new LlmError(`qoder: 排队重试超过上限（${QUEUE_MAX_ATTEMPTS} 次）`, 'QUEUE');
+        if (attempts > maxAttempts) {
+            throw new LlmError(`qoder: 排队重试超过上限（${maxAttempts} 次）`, 'QUEUE');
         }
         if (options.signal?.aborted === true) {
             throw new LlmError('qoder: 排队等待期间请求已取消', 'QUEUE');
         }
-        const waitMs = qoderQueueDelayMs(queueInfo);
-        // ⚠️ 拿不到服务端延迟时**不忙等**：用保守的短退避，避免瞬间烧掉机会
-        // （客户端 W7c() 此时会退回 ltA() 指数退避）。
-        await this.sleep(waitMs ?? 1_000, options.signal);
+        warnQueue(totalMs);
+        if (mode === 'visible') {
+            /**
+             * 先发一帧**排队提示**（`queue-notice`），再进入心跳循环。
+             *
+             * 与「只发空心跳」的区别正是本档的意义：空心跳只能证明「连接还活着」，
+             * 提示帧把**排队这件事本身**告诉下游 —— 面板 / 自研客户端可以据此显示
+             * 「排队中（第 N 轮，预计 M 秒）」，而标准 OpenAI SDK 会忽略这个未知字段，
+             * 不会因为多了它而报错。
+             */
+            yield {
+                /**
+                 * ⚠️⚠️ **必须是合法的 `StreamChunk` 成员**：宿主的两条组装器
+                 * （`dsh-llm` 的 `BlockAssembler.push` 与 `AssistantStreamAccumulator.push`）
+                 * 的 `default` 分支是 `assertNever`，任何联合外类型都会**硬抛**
+                 * （2026-11-13 实测：`unreachable variant in BlockAssembler.push`）。
+                 * 故这里用「空 `text-delta` + 私有字段 `qoderQueue`」：类型合法，
+                 * 宿主忽略未知字段，网关的 `consumeChunk` 再把 `qoderQueue` 摘成
+                 * `qoder_queue`（见 `src/openai-gateway/stream.ts`）。
+                 */
+                type: 'text-delta',
+                index: 0,
+                text: '',
+                qoderQueue: {
+                    queued: true,
+                    provider: this.product.id,
+                    attempt: attempts,
+                    waitMs: totalMs,
+                    modelKey,
+                    ...queueType === undefined ? {} : { queueType },
+                    ...queueCount === undefined ? {} : { queueCount },
+                    ...serviceAvailable === undefined ? {} : { serviceAvailable },
+                    ...retryAfterSeconds === undefined ? {} : { retryAfterSeconds },
+                    ...accountId === undefined ? {} : { account: accountId },
+                },
+            };
+            // 分片等待 + 心跳：客户端能持续收到帧，不会把「排队中」当成卡死。
+            // ⚠️ 剩下的最后一片可能短于心跳间隔，故按 `Math.min` 收敛，保证总时长
+            // 仍然**精确等于** `totalMs`（否则 visible 档会悄悄比 wait 档多等一截）。
+            const heartbeatMs = resolveQueueHeartbeatMs();
+            let remaining = totalMs;
+            while (remaining > 0) {
+                /**
+                 * ⚠️ 必须是**正数**：`resolveQueueHeartbeatMs()` 已把 `<= 0` 归一到默认值，
+                 * 但这条守卫仍要留 —— 否则一旦有人改松那个归一化（例如 `>= 0`），
+                 * `slice = 0` 会让 `remaining` 永不减少 ⇒ `visible` 档**死循环**
+                 * （2026-11-13 对抗审计实测：60s 挂死、无任何用例设过 0 心跳）。
+                 */
+                const slice = Math.min(remaining, heartbeatMs);
+                if (!(slice > 0))
+                    break;
+                await this.sleep(slice, options.signal);
+                remaining -= slice;
+                // ⚠️ 这次检查**不是**循环条件的重复：它检测的是「**等待期间**被中止」。
+                if (isAborted(options.signal)) {
+                    throw new LlmError('qoder: 排队等待期间请求已取消', 'QUEUE');
+                }
+                // 空串 `text-delta`：消费端是 `content += ''`，不改动正文与用量，
+                // 只是让 SSE 通道上真的有字节流过（这就是本档的全部意义）。
+                // ⚠️ `index: 0` 不能省：`AssistantStreamAccumulator` 对缺 `index` 的
+                // `text-delta` 直接抛 `text-delta index must be a non-negative safe integer`。
+                yield { type: 'text-delta', index: 0, text: '' };
+            }
+            return;
+        }
+        await this.sleep(totalMs, options.signal);
         // ⚠️ 这次检查**不是**上一次的重复：它检测的是「**等待期间**被中止」。
         // `AbortSignal.aborted` 是随时间的可变状态，但 TS 会静态窄化成字面量
         // `false` 而报「无重叠」—— 故经**不透明函数**读取，避免静态收窄掩盖
@@ -1957,6 +2509,11 @@ export class QoderAdapter extends LlmAdapter {
     async sendEncrypted(request, options, fetcher) {
         const headers = new Headers(request.headers);
         headers.set('Accept', 'text/event-stream');
+        // 形态对齐：补 `Cosy-MachineOS`（默认；`Cosy-MachineHostname` 需显式开）。
+        // ⚠️ 放在**签名之后**（`request.headers` 已是 WASM 的输出）—— 补的头不在签名
+        //    载荷里（签名覆盖 payload + key + date + body + path），且只补缺失，
+        //    所以不会碰 `Authorization` 里的 `Bearer COSY.<载荷>.<签名>`。
+        applyQoderAlignmentHeaders(headers);
         try {
             return await fetcher(request.url, {
                 method: 'POST',
@@ -1998,18 +2555,33 @@ export function promotionActiveNow(promotion, now) {
     const { windowStart, windowEnd } = promotion;
     if (windowStart === undefined || windowEnd === undefined)
         return promotion.active;
-    const toMinutes = (hhmm) => {
+    // ⚠️ `24:00` 只在**终点**位置合法（= 当日末尾 1440）：徽标腿
+    // `src/model-promotions.ts` 的 `clockMinute` 有专门分支接受它，buddy 价格腿
+    // 也已放宽 —— 三处必须同判据（PR #104 正向审计 P2-2）。
+    const toMinutes = (hhmm, allowEndOfDay = false) => {
         const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
         if (m === null)
             return undefined;
         const h = Number(m[1]);
         const min = Number(m[2]);
-        return h < 24 && min < 60 ? h * 60 + min : undefined;
+        if (min >= 60)
+            return undefined;
+        if (h > 24)
+            return undefined;
+        if (h === 24)
+            return allowEndOfDay && min === 0 ? 24 * 60 : undefined;
+        return h * 60 + min;
     };
     const start = toMinutes(windowStart);
-    const end = toMinutes(windowEnd);
+    const end = toMinutes(windowEnd, true);
+    // ⚠️⚠️ **「字段缺席」与「字段读不懂」必须分开**（PR #104 对抗审计 P1-3）：
+    // 缺席 ⇒ 回退目录快照 `active`（既有契约，上游没给窗口就信它）；
+    // 声明了却读不懂（`'24:00'` 当起点、`'09:60'`、`'soon'`、任意换形）⇒ **fail-closed**，
+    // 不能回退快照 —— 否则上游把窗口换个写法，价格腿就退回一个**冻结在目录下发时刻**
+    // 的布尔，而徽标腿已把该窗口判死 ⇒ 两腿反向（腾讯「徽标灭/价格亮」、Qoder
+    // 「徽标亮/价格灭」，同语义两个渠道相反展示）。
     if (start === undefined || end === undefined)
-        return promotion.active;
+        return false;
     // 取 UTC+8 的「墙上时间」（目录时区与用户一致，故无需真实时区换算）
     const utc8 = new Date(now.getTime() + 8 * 3_600_000);
     const minutes = utc8.getUTCHours() * 60 + utc8.getUTCMinutes();

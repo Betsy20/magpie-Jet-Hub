@@ -29,6 +29,7 @@ import { parseRateLimitError } from './llm-adapter.js';
 import { LOBSTERAI_CHAT_PATH, LOBSTERAI_MODELS_PATH, LOBSTERAI_REQUEST_TIMEOUT_MS, isLobsteraiExpired, lobsteraiChatHeaders, lobsteraiKeyfromBody, readNumberField, readStringField, } from './lobsterai.js';
 import { LOBSTERAI } from './lobsterai-product.js';
 import { projectRequestImage } from './image-budget.js';
+import { lobsteraiLimitedFreeCandidate, nextPromotionEdgeMs, promotionBadgeFor, promotionRunningAt, } from './model-promotions.js';
 import { classifyLobsteraiError, classifyLobsteraiStreamError, recordsLobsteraiRateLimit, shouldRotateLobsteraiAccount, } from './lobsterai-errors.js';
 import { normalizeHarnessMessages } from './message-shape.js';
 import { createBlankReasoningSuppressor, createDsmlMarkerNormalizer, createReasoningLoopDetector, fixDsmlMarkers, hasUsableToolName, classifyToolArguments, toolArgsInvalidBlocks, toolArgsInvalidIsSoleOutput, isProseTruncatedByStopString, isReasoningLoopGuardEnabled, isTruncatedArguments, normalizeToolArguments, readWithIdleTimeout, reasoningLoopFailure, resolveEmptyResponseReason, resolveToolPairing, splitThinkTaggedContent, stripBareThinkCloseTagIfEnabled, stripCourseLeakFromHistoryContent, stripCourseLeakIfEnabled, toolArgsInvalidFailure } from './sse.js';
@@ -38,6 +39,7 @@ import { planSessionTitleThinking } from './session-title.js';
 // ⚠️ `detail` 那条腿**只留一份实现**（`openai-compat.ts`）：本仓库 6 份同义的
 // `errorDetail` 各写一条判据必然漂移（IKLBSH A1）。
 import { detailFieldText, TOOL_RESULT_IMAGE_TEXT } from './openai-compat.js';
+import { readCacheTokenCount } from './cache-token-count.js';
 /** 本适配器注册的 provider 路由名（历史常量，等价于 `LOBSTERAI.id`）。 */
 export const PROVIDER = 'lobsterai';
 /**
@@ -161,6 +163,73 @@ export function readLobsteraiModelArray(body) {
     return [];
 }
 /**
+ * 读「时刻」字段（`limitedFreeStartAt` / `limitedFreeEndAt`）。
+ *
+ * 上游给的是**字符串**：官方客户端对同一份数据直接 `Date.parse(value22)`
+ * （asar @32483752），所以 ISO 形态是唯一有证据的形态。本层折成 epoch 毫秒，
+ * 下游（`model-promotions.ts`）只收数字 —— 两处各 `Date.parse` 一次就是
+ * 「一文件两套同义判据」的复发形态。
+ *
+ * ⚠️ 数字形态**刻意不接受**：`1794931200` 是秒还是毫秒在上游没有依据，
+ * 按毫秒读会把 1970 年当成活动窗口，比「没给」更糟（fail-closed）。
+ */
+function readInstantField(record, key) {
+    const value = record[key];
+    if (typeof value !== 'string' || value.length === 0)
+        return undefined;
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : undefined;
+}
+/**
+ * 布尔字段的**三态**解析：`true` / `false` / `undefined`（未声明或读不懂）。
+ *
+ * 为什么不用 `typeof value === 'boolean'` 一票否决（PR #113 对抗审计 P2-1）：
+ * 远端哪天把布尔发成字符串 `"false"` 或数字 `0`，那种写法会一律落到「未声明」
+ * ⇒ `accessible` 变 `undefined` ⇒ {@link restrictionLabelFor} 返回 undefined
+ * ⇒ **受限模型在选择器里看起来完全可用**，用户点下去才失败、而失败原因在别处。
+ * 这是 fail-open 方向，而本字段的用途（标出「需订阅」）要求 fail-closed。
+ *
+ * 反向红线仍然是硬的：**读不懂的一律 `undefined`，绝不 `!!value`** ——
+ * `!!'false'` 是 `true`，那会把「不可用」读成「可用」，比 fail-open 更糟。
+ * 所以这里只认**确定**的六种写法，其余（`{}` / `[]` / `"no"` / `2` / `-1`）留空，
+ * 由 e2e 的 `drifted` 探针把「上游改了布尔形态」喊出来。
+ */
+function readBooleanTriState(value) {
+    if (typeof value === 'boolean')
+        return value;
+    if (typeof value === 'number') {
+        if (value === 1)
+            return true;
+        if (value === 0)
+            return false;
+        return undefined;
+    }
+    if (typeof value === 'string') {
+        const text = value.trim().toLowerCase();
+        if (text === 'true' || text === '1')
+            return true;
+        if (text === 'false' || text === '0')
+            return false;
+    }
+    return undefined;
+}
+/**
+ * 该字段是「上游给了值，但我们读不懂」吗（`null` / 缺失 / **空串** = 没给）。
+ *
+ * ⚠️ 与 {@link readInstantField} **必须同判据**（空串这一格最容易分叉：那边把 `''`
+ * 当「没给」返回 undefined，这边若把它当「读不懂」就会把一个空字符串升级成
+ * fail-closed，整条活动再也画不出来）。两个函数对「什么叫能解析」的答案一旦分叉，
+ * 就会出现「值被当没给、却又被标成读不懂」的缝（腾讯 `validUntil: 'soon'`
+ * 曾这么挂到 2030）。
+ */
+function isUnreadableInstant(value) {
+    if (value === undefined || value === null || value === '')
+        return false;
+    if (typeof value !== 'string')
+        return true;
+    return !Number.isFinite(Date.parse(value));
+}
+/**
  * 解析 `GET /api/models/available` 的响应。
  *
  * 取 `modelId`/`modelName` 与模型参数（见 {@link LobsteraiRemoteModel}）。
@@ -208,6 +277,47 @@ export function parseLobsteraiModels(body) {
         const costMultiplier = readNumberField(record, 'costMultiplier');
         if (costMultiplier !== undefined && costMultiplier > 0)
             model.costMultiplier = costMultiplier;
+        // 限免四件套（2026-11-17 客户端 asar 取证；同日实测 21/21 条目**全未生效**）。
+        // ⚠️ 布尔走 {@link readBooleanTriState}（三态）：`typeof === 'boolean'` 一票否决
+        // 会把上游某天改发 `"false"` / `0` 的脏值当成「未声明」⇒ 徽标静默消失、
+        // 与「今天没活动」同形；e2e 的 `drifted` 探针负责把形态漂移喊出来。
+        const limitedFree = readBooleanTriState(record.limitedFree);
+        if (limitedFree !== undefined)
+            model.limitedFree = limitedFree;
+        const limitedFreeActive = readBooleanTriState(record.limitedFreeActive);
+        if (limitedFreeActive !== undefined)
+            model.limitedFreeActive = limitedFreeActive;
+        const limitedFreeStartMs = readInstantField(record, 'limitedFreeStartAt');
+        if (limitedFreeStartMs !== undefined)
+            model.limitedFreeStartMs = limitedFreeStartMs;
+        const limitedFreeEndMs = readInstantField(record, 'limitedFreeEndAt');
+        if (limitedFreeEndMs !== undefined)
+            model.limitedFreeEndMs = limitedFreeEndMs;
+        // ⚠️ 「下发了但读不懂」必须单独记：只解析到起点而把终点读丢，会得到一条
+        // **无上界**的窗口 ⇒ 活动结束后徽标永不消失（`promotionWithinAbsoluteWindow`
+        // 对缺失的一端不做约束）。判断与 `readInstantField` 共用同一份判据，
+        // 不在这里另写一个「什么叫能解析」。
+        if (isUnreadableInstant(record.limitedFreeStartAt) || isUnreadableInstant(record.limitedFreeEndAt)) {
+            model.limitedFreeWindowUnreadable = true;
+        }
+        // 订阅闸门三件套（2026-11-17 实测下发，此前**全被读丢**）。
+        // ⚠️ 布尔走 {@link readBooleanTriState}（三态）。为什么不写成
+        // `typeof === 'boolean'`（PR #113 对抗审计 P2-1）：那样上游改发字符串
+        // `"false"` 时会落到「未声明」⇒ `restrictionLabelFor` 返回 undefined ⇒
+        // **受限模型在选择器里看起来完全可用**，用户点下去才失败、失败原因还在别处。
+        // 而 `!!record.accessible` 更糟（`!!'false' === true`，把不可用读成可用）——
+        // 两条错路都堵住了才用这个函数：只认 `true/false/1/0/"true"/"false"`。
+        const accessible = readBooleanTriState(record.accessible);
+        if (accessible !== undefined)
+            model.accessible = accessible;
+        const subscriptionPriority = readBooleanTriState(record.subscriptionPriority);
+        if (subscriptionPriority !== undefined)
+            model.subscriptionPriority = subscriptionPriority;
+        // ⚠️ 先 `trim()` 再判非空（PR #113 正向审计 P3-3）：纯空白的 hint 不是「有原因」，
+        // 否则展示名会多出一个空标签、`description` 会多一条空行。
+        const restrictionHint = readStringField(record, 'restrictionHint').trim();
+        if (restrictionHint.length > 0)
+            model.restrictionHint = restrictionHint;
         models.push(model);
     }
     return models;
@@ -654,6 +764,14 @@ export class LobsteraiAdapter extends LlmAdapter {
     remoteMeta = new Map();
     /** 产品级兜底模型索引（`product.fallbackModels` 的 id → 条目）。 */
     fallbackIndex;
+    /**
+     * 限免活动候选表（id → 未决候选）。
+     *
+     * ⚠️ 存的是**未决候选**而不是「此刻的徽标」：徽标必须在 `toCatalogEntry`
+     * **现算**（issue #101 的装配时刻判据），否则宿主缓存一次目录读取之后，
+     * 活动结束的徽标会挂到进程退出为止。见 docs/agent-notes/promo-badge-issue-101.md。
+     */
+    promotionIndex = new Map();
     constructor(options) {
         super();
         this.options = options;
@@ -720,8 +838,53 @@ export class LobsteraiAdapter extends LlmAdapter {
             const models = await fetchRemote();
             if (models.length === 0)
                 return false;
+            // ★ 限免候选表与远端目录**同源同换**（**只收有活动的条目**，不制造空候选）。
+            // ⚠️ 先算完候选、再一次性落三个字段：中途抛错会让「目录换了、候选还是上
+            // 一份」——那时 `toCatalogEntry` 会用旧候选给新条目挂徽标（谁都不会报错）。
+            const promotions = new Map();
+            // ⚠️ 单边窗口（只给起点、或只给终点）必须留一条日志：它的症状与「上游没办活动」
+            // 完全同形（都是没有徽标），不留痕就永远诊断不出来。每次成功拉取最多一条，
+            // 不按模型刷屏（与下面「起止读不懂」那条同一个闸门）。
+            let warnedOneSided = false;
+            const warnOneSided = (message) => {
+                if (warnedOneSided)
+                    return;
+                warnedOneSided = true;
+                console.warn('[lobsterai] ' + message);
+            };
+            for (const model of models) {
+                const promotion = lobsteraiLimitedFreeCandidate({
+                    limitedFree: model.limitedFree,
+                    limitedFreeActive: model.limitedFreeActive,
+                    validFrom: model.limitedFreeStartMs,
+                    validUntil: model.limitedFreeEndMs,
+                    windowUnreadable: model.limitedFreeWindowUnreadable,
+                }, model.id, warnOneSided);
+                if (promotion !== undefined)
+                    promotions.set(model.id, promotion);
+            }
             this.remoteModels = models;
             this.remoteMeta = new Map(models.map((model) => [model.id, model]));
+            /**
+       * ★ **落盘（SWR 写盘那一半）** —— 2026-11-20，与 `buddy-adapter` 同款。
+       *
+       * ⚠️ 本家**只有一个目录来源** ⇒ 「拿到非空目录」即 `complete`
+       *（与 `RemoteCatalogGate` 对裸布尔的归一化口径一致：`complete = got`）。
+       * 故不需要额外的完整性判据。
+       *
+       * ⚠️ 只写**非空**目录：空目录若覆盖磁盘上更好的旧缓存，下次启动会更差。
+       * 那一层由 `writeCatalogCache` 自己挡（`entries.length === 0` 直接返回 false）。
+       */
+            this.catalog.rememberForDisk?.(this.syncCatalogEntries());
+            this.promotionIndex = promotions;
+            // ⚠️ 读不懂的起止**必须留一条日志**：这条腿的症状与「上游没办活动」完全同形
+            // （都是没有徽标），不留痕就永远诊断不出来（与「目录未声明 maxTokens 时告警一次」
+            // 同一条理由）。每次成功拉取最多打一条，不按模型刷屏。
+            const unreadable = models.filter((model) => model.limitedFreeWindowUnreadable === true);
+            if (unreadable.length > 0) {
+                console.warn('[lobsterai] 限免起止无法解析的模型 ' + String(unreadable.length) + ' 个'
+                    + '（按不动处理，不画徽标、倍率不归零）: ' + unreadable.map((model) => model.id).join(','));
+            }
             // ⚠️ **只在成功赋值后**记时刻：失败/空结果不写，否则一次抖动会把上界
             //    刷新掉、下轮还要等满 20 分钟才发现上游没恢复。
             this.catalogAt = this.options.now?.() ?? Date.now();
@@ -844,11 +1007,27 @@ export class LobsteraiAdapter extends LlmAdapter {
         const contextWindow = this.contextWindowFor(model.id);
         const maxTokens = this.remoteMeta.get(model.id)?.maxTokens;
         const reasoning = this.reasoningFor(model.id);
+        const description = descriptionWithHint(model);
+        // ★ 徽标在**装配时刻**现算（issue #101）：候选表里存的是未决活动，
+        // 「此刻画不画」是 now 的纯函数。`undefined` ⇒ 整个 `badge` 键缺席
+        // （写 `badge: undefined` 会让「没有活动」与「有活动但此刻不在窗口」同形）。
+        //
+        // ⚠️⚠️ **倍率与徽标必须共用同一个判据、同一次时钟读数**（本 PR 的自审缺陷）：
+        // 原实现「徽标看 `promotionRunningAt`、倍率看 `limitedFreeActive` 快照」，
+        // 于是「声明了窗口、快照说没开、此刻在窗口内」会装配出一行自相矛盾的东西 ——
+        // chip 说「限时免费」，名字却写着 `x0.05`。这正是本仓反复复发的
+        // 「一文件两套同义判据」形态：同一个事实（此刻免不免费）有两个出口。
+        // 单次读时钟还挡掉边界那一毫秒的另一个分叉：两次 `Date.now()` 可能落在窗口
+        // 两侧，徽标按前一个「此刻」、名字按后一个。
+        const nowMs = this.options.now?.() ?? Date.now();
+        const promotion = this.promotionIndex.get(model.id);
+        const freeNow = promotion !== undefined && promotionRunningAt(promotion, nowMs);
+        const badge = promotion === undefined ? undefined : promotionBadgeFor([promotion], nowMs);
         return {
             id: model.id,
-            // 倍率写进 name（**不是** description）：composer 的模型切换菜单只渲染
+            // 倍率与限制标签写进 name（**不是** description）：composer 的模型切换菜单只渲染
             // `name`，description 仅用于 /model 弹窗。见 displayNameFor 的说明。
-            name: displayNameFor(model),
+            name: displayNameFor(model, freeNow),
             // ⚠️ `resolveModel` 用**元数据里的 name**（不带倍率）⇒ 显式提供 `bareName`。
             bareName: this.remoteMeta.get(model.id)?.name
                 ?? this.fallbackIndex.get(model.id)?.name
@@ -856,11 +1035,28 @@ export class LobsteraiAdapter extends LlmAdapter {
             // ⚠️ 远端 `supportsImage` 权威；未声明时**保守报 `['text']`**（不是省略）
             // —— 见 `inputModalitiesFor`：宁可少报能力，也不要报一个服务端不认的模态。
             inputModalities: this.inputModalitiesFor(model.id),
-            ...model.description !== undefined ? { description: model.description } : {},
+            ...description !== undefined ? { description } : {},
             ...contextWindow !== undefined ? { contextWindow } : {},
             ...maxTokens !== undefined ? { maxTokens } : {},
             ...reasoning !== undefined ? { reasoning } : {},
+            ...badge !== undefined ? { badge } : {},
         };
+    }
+    /**
+     * 候选表里下一个会改变徽标的时刻（epoch 毫秒），没有则 undefined。
+     *
+     * 供全局活动边界播报器排程（`src/index.ts` 的 `edgeSources`）。限免的起止是
+     * **绝对时刻**（上游给 ISO 字符串），客户端的做法正是「算最近边界 + `setTimeout`
+     * 重拉一次」（asar @32483752）。没有这条，活动一结束徽标最多再挂一个后台刷新
+     * 周期（20 分钟）—— 那是 issue #101 点名的「活动过期而用户仍按优惠期选择」。
+     *
+     * ⚠️ 时钟与 `toCatalogEntry` **同源**（同一个 `options.now`），否则单测里会出现
+     * 两个「现在」。⚠️ **零网络**：只读内存里的候选表。
+     */
+    nextPromotionEdgeAt(nowMs = this.options.now?.() ?? Date.now()) {
+        if (this.promotionIndex.size === 0)
+            return undefined;
+        return nextPromotionEdgeMs([...this.promotionIndex.values()], nowMs);
     }
     async loadCatalogEntries() {
         await this.ensureRemoteModels();
@@ -954,10 +1150,10 @@ export class LobsteraiAdapter extends LlmAdapter {
             }
         }
         // 1. 获取凭据（过期则先静默续期）
-        let credential = await this.options.resolveCredential(options.model);
+        let credential = await this.options.resolveCredential(options.model, options.sessionId);
         if (credential === undefined || isLobsteraiExpired(credential)) {
             await this.options.refresh();
-            credential = await this.options.resolveCredential(options.model);
+            credential = await this.options.resolveCredential(options.model, options.sessionId);
         }
         if (credential === undefined || credential.access_token.length === 0) {
             throw new LlmError('lobsterai: no usable credential; log in first', 'MISSING_CREDENTIAL');
@@ -1043,7 +1239,7 @@ export class LobsteraiAdapter extends LlmAdapter {
         let response = await this.send(credential, body, options);
         if (!response.ok && (response.status === 401 || response.status === 403)) {
             await this.options.refresh();
-            const refreshed = await this.options.resolveCredential(options.model);
+            const refreshed = await this.options.resolveCredential(options.model, options.sessionId);
             if (refreshed === undefined || refreshed.access_token.length === 0) {
                 throw new LlmError('lobsterai: credential expired and refresh failed', 'AUTH', { status: response.status });
             }
@@ -1455,18 +1651,17 @@ export class LobsteraiAdapter extends LlmAdapter {
                     if (data.usage) {
                         const promptTokens = data.usage.prompt_tokens ?? 0;
                         // 缓存命中字段有多处来源，取首个有值的（与 buddy 侧同口径）。
-                        const cachedTokens = data.usage.prompt_tokens_details?.cached_tokens
-                            ?? data.usage.prompt_cache_hit_tokens
-                            ?? 0;
+                        const cachedTokens = readCacheTokenCount(data.usage.prompt_tokens_details?.cached_tokens)
+                            ?? readCacheTokenCount(data.usage.prompt_cache_hit_tokens);
                         const reasoningTokens = data.usage.completion_tokens_details?.reasoning_tokens;
                         yield {
                             type: 'usage',
                             usage: {
                                 // inputTokens 只计**未命中缓存**的部分，命中部分单列
                                 // cacheReadTokens，否则缓存命中率显示会偏大。
-                                inputTokens: cachedTokens > 0 ? promptTokens - cachedTokens : promptTokens,
+                                inputTokens: promptTokens - (cachedTokens ?? 0),
                                 outputTokens: data.usage.completion_tokens ?? 0,
-                                ...cachedTokens > 0 ? { cacheReadTokens: cachedTokens } : {},
+                                ...cachedTokens !== undefined ? { cacheReadTokens: cachedTokens } : {},
                                 ...reasoningTokens !== undefined && reasoningTokens > 0 ? { reasoningTokens } : {},
                             },
                         };
@@ -1701,10 +1896,94 @@ export class LobsteraiAdapter extends LlmAdapter {
  * 形态差异：本 provider 的 `costMultiplier` 是**裸数字**（`0.05`），
  * 展示时补 `x` 前缀（buddy 系远端给的字符串本身已带 `x`）。
  */
-function displayNameFor(model) {
-    if (model.costMultiplier === undefined)
-        return model.name;
-    return `${model.name} · x${model.costMultiplier}`;
+function displayNameFor(model, freeNow) {
+    // 空名字（上游整串都是控制符/空白）不许出现在展示串里 ⇒ 回落 id，否则会拼出
+    // `' · 需订阅 · x0.71'` 这种前导分隔符。
+    const base = sanitizeDisplayName(model.name);
+    const parts = [base.length > 0 ? base : model.id];
+    const restriction = restrictionLabelFor(model);
+    if (restriction !== undefined)
+        parts.push(restriction);
+    // 限免生效时倍率**按 0 展示**，判据逐字来自官方客户端：
+    // `const costMultiplier = model.limitedFreeActive ? 0 : readPositiveNumber(...)`
+    // （asar @107483653），客户端画的是 `x0.00`。不改的话模型明明免费、界面还写
+    // `x0.05` —— 用户按原价估算成本，正是 issue #101 的同一形态。
+    //
+    // ⚠️⚠️ `freeNow` 由**调用方**按 `promotionRunningAt` 算好传进来，**不在这里**
+    // 再读一次 `limitedFreeActive`：那样徽标（窗口判据）与倍率（快照判据）会分叉，
+    // 窗口内、快照却仍为 false 时装配出「限时免费 + x0.05」的矛盾行；反过来
+    // 「快照 true、窗口已过」会继续写 `x0`（夸大上游优惠 = issue #101 红线方向）。
+    // 方向刻意定为**窗口优先于快照**：快照会过期，窗口是此刻的纯函数。
+    if (freeNow)
+        parts.push('x0');
+    else if (model.costMultiplier !== undefined)
+        parts.push(`x${model.costMultiplier}`);
+    return parts.join(' · ');
+}
+/**
+ * 展示用名字的**消毒**：剥控制字符与双向控制符、折叠空白、限长 80。
+ *
+ * 为什么必须做（PR #113 对抗审计 P2-3）：`name` 是上游字符串，而我们把它与
+ * 「· x倍率」「· 需订阅」这些**自己拼的**标签放在同一行 ⇒ 上游名字里只要出现
+ * `· 需订阅`，用户就无法分辨那是模型名还是我们的标签（伪造面）；10 KB 的名字
+ * 会撑爆选择器；换行与 RTL override（`U+202E`）能把整行读反。
+ *
+ * ⚠️ 只动**展示**：`id` 与 `bareName` 仍走原值（DSH 的选择与持久化只用 `id`，
+ * `selectionOf` 返回 `model.id`）⇒ 消毒不会污染会话或路由。
+ */
+function sanitizeDisplayName(raw) {
+    const collapsed = raw
+        // ① 控制字符（含换行 / 制表）**换成空格**而不是删掉：上游若给
+        //    `'Weird\nName'`，删掉会拼成 `'WeirdName'`（凭空造出一个词）。
+        //    换空格后由 ② 折叠，语义只会变宽松、不会粘连。
+        .replace(/[\u0000-\u001f\u007f-\u009f]/gu, ' ')
+        // ② 零宽 / 双向控制符直接删（它们本来就不占视觉位置，换成空格反而多一个空格）。
+        .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/gu, '')
+        .replace(/\s+/gu, ' ')
+        .trim();
+    return collapsed.length <= 80 ? collapsed : `${collapsed.slice(0, 79)}\u2026`;
+}
+/**
+ * 远端条目的「不可用」短标签（`undefined` = 当前账号可用）。
+ *
+ * 判据来源只有 `accessible === false` 这一格 —— **不解析 `restrictionHint` 的中文
+ * 文案**（那是营销文案，改一个字判据就失效）。原因文案的挑选才用
+ * `subscriptionPriority`：这样「订阅专享」与「其它不可用」不会混成一句话，
+ * 也不会对已订阅账号误报「需订阅」（那种账号拿到的是 `accessible:true`）。
+ *
+ * ⚠️ `subscriptionPriority === true ⇒ '需订阅'` 是**共现观察，不是独立取证**
+ * （PR #113 对抗审计 P1-1）：实测样本只有 21 条，其中 2 条受限模型恰好同时
+ * `subscriptionPriority:true`，而官方 asar 里没有这条映射。若上游该字段的真实
+ * 语义是「优先展示」而不是「订阅专享」，这句标签就整体错。当前保留，理由：
+ * ①只在 `accessible === false` 时才用到它（不会误标可用模型）；②`'不可用'`
+ * 兜底仍在。取证方式是把**已订阅**账号的同一份目录拿来对比这两个字段。
+ */
+export function restrictionLabelFor(model) {
+    if (model.accessible !== false)
+        return undefined;
+    return model.subscriptionPriority === true ? '需订阅' : '不可用';
+}
+/**
+ * `/model` 弹窗里的描述：远端原文 + （若有）不可用原因。
+ *
+ * ⚠️ 只**追加**，不改写远端原文 —— 那一句是上游营销文案（例如
+ * `qwen4-max` 的「限时四折，截至时间 2026-11-30 23:59:59」，前面还带一串
+ * `U+3164` 填充字符），改了就失去取证价值。
+ *
+ * ⚠️ 两侧都先 `trim()` 再判空（PR #113 正向审计 P3-2/P3-3）：上游 `description`
+ * 以换行结尾是常态，直接拼接会在弹窗里多出一条空行；`restrictionHint` 是纯空白
+ * 时也不该算「有原因」。
+ */
+function descriptionWithHint(model) {
+    const text = model.description?.trim();
+    const hint = model.restrictionHint?.trim();
+    const hasText = text !== undefined && text.length > 0;
+    const hasHint = hint !== undefined && hint.length > 0;
+    if (!hasHint)
+        return hasText ? text : model.description;
+    if (!hasText)
+        return hint;
+    return `${text}\n${hint}`;
 }
 /**
  * 在 `ctx.llm` 上注册 LobsterAI provider 路由与适配器。

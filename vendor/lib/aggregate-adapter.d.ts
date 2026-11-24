@@ -989,7 +989,24 @@ export declare class AggregateAdapter extends LlmAdapter {
      * ⚠️ 只用于 `listModels` / `listAllModels`（选择器与设置页「显示列表」）。
      * **不得**用于 `resolveModel` / `describeCatalog` —— 见 {@link nameOf} 的注释。
      */
-    private pickerNameOf;
+    /**
+     * 虚拟模型在选择器里的**倍率徽标**（issue #100，维护者拍板的那一条）。
+     *
+     * ## 为什么倍率从 `name` 挪到 `badge`
+     *
+     * 原实现把倍率拼进展示名（`GLM-5.3 · 最低 x0.045`），维护者在 issue #100 里
+     * 逐字写「**这是本提案里最该做的一条**」：模型名应当只承担**身份**，倍率是
+     * 另一维信息 —— 拼在一起既让名字不可选（用户搜不到纯模型名），又让同一模型
+     * 在不同渠道组合下改名。
+     *
+     * ⚠️ 但**不能**直接把倍率丢掉（维护者同句：「去掉之后要另开一条通路显示倍率，
+     * 否则是信息丢失」）⇒ 走宿主 `LlmModelInfo.badge`（`dsh-llm` 0.2.2 起的通道，
+     * 本仓 `agnescode-product.ts` 也记过「选择器只有 description / badge 两条通道」）。
+     *
+     * ⚠️ 措辞**必须带「最低」**：见下面 `best` 的判据注释 —— 它是**下界**，
+     * 不是「本次就用这个价」。这条语义原本锁在用例里，现在锁在 badge 上。
+     */
+    private pickerBadgeOf;
     /**
      * 解析一个虚拟模型 —— **目录已有就用它；目录为空时立刻回保守元数据、绝不等待**。
      *

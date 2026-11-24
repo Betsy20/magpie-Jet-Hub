@@ -39,6 +39,153 @@ import Schema from '@deepseek-ai/schemastery';
 import { hasLegacyNamespaceRegistration, readService, settingsOf } from './settings-compat.js';
 /** Jet Hub schema namespace（老契约的 settings 命名空间名）。 */
 export const JET_HUB_NS = 'jet-hub';
+/**
+ * ★★★ **子代理起点策略**（2026-11-23）。
+ *
+ * | 值 | 语义 |
+ * |---|---|
+ * | `'follow'` | 与主代理用同一账号（**默认**，= 加本功能之前的行为）|
+ * | `'sequence'` | 在主代理起点**所在档位内**往后错开 |
+ * | `'reverse'` | 在同一档位内往前错开 |
+ * | `'hash'` | 按子代理 sessionId 稳定哈希到同档位内某账号（排除主代理）|
+ * | `'fixed'` | 恒定用 `fixedPosition` 那个账号（**绝对第一**，无视档位）|
+ *
+ * ⚠️⚠️ **前四种都只在「同一档位内」错开**：用户明确要求子代理也必须
+ * 遵守「临期 → 短期 → 永久」这条核心策略（2026-11-23 纠正过我第一版
+ * 把「倒序」理解成跨档位反转的错误）。
+ */
+export const SUBAGENT_START_MODES = ['follow', 'sequence', 'reverse', 'hash', 'fixed'];
+/** 判据 {@link SubagentStartMode}（唯一真源，UI 与端点共用）。 */
+export function isSubagentStartMode(value) {
+    return typeof value === 'string'
+        && SUBAGENT_START_MODES.includes(value);
+}
+/** {@link RotationStartTier} 的全部合法取值（校验用，避免手写枚举漂移）。 */
+export const ROTATION_START_TIERS = Object.freeze([
+    'imminent',
+    'expiring',
+    'permanent',
+]);
+/** 判定任意值是否是合法档位（`sanitize` 与 RPC 校验共用同一份）。 */
+export function isRotationStartTier(value) {
+    return typeof value === 'string' && ROTATION_START_TIERS.includes(value);
+}
+/**
+ * 每个 provider 最多保留多少个**会话**的轮换起点（超出时淘汰 `at` 最小的）。
+ *
+ * 取 64：正常用户同时活跃的会话是个位数；64 足以覆盖「忘了关的旧会话」，
+ * 而单条 ≈ 100 字节 ⇒ 单 provider 至多 ≈ 6 KB。
+ */
+export const PREFERRED_ROTATION_MAX_SESSIONS = 64;
+/**
+ * 归一化「轮换起点」表（{@link JetHubState.preferredRotation}）。
+ *
+ * 判据：非对象/数组 ⇒ 空表；provider 或 sessionId 为空串 ⇒ 丢弃；
+ * 值必须是非空字符串；**清完后为空的层一并丢弃**（不留空对象）。
+ *
+ * ⚠️ **读写两侧都要调用**（与本仓 `sanitizeStrictManualOrder` 同款）：
+ * 老契约后端不经过 schema，只靠这个函数。
+ */
+export function sanitizePreferredRotation(raw) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+        return {};
+    const result = {};
+    for (const [provider, sessions] of Object.entries(raw)) {
+        if (provider.length === 0)
+            continue;
+        if (typeof sessions !== 'object' || sessions === null || Array.isArray(sessions))
+            continue;
+        const clean = {};
+        for (const [sessionId, entry] of Object.entries(sessions)) {
+            if (sessionId.length === 0)
+                continue;
+            /**
+             * ## ⚠️⚠️ 2026-11-20：**旧格式一律丢弃**（用户决定「最彻底」）
+             *
+             * 用户原话：「做成最彻底的方法就行，清除已选的起点，回归默认，
+             * 等用户重新选就可以生效新的」
+             *
+             * | 形态 | 处理 |
+             * |---|---|
+             * | 裸字符串 `"accountId"`（最老）| **丢弃** |
+             * | `{ accountId, at }`（早期）| **丢弃** |
+             * | `{ position, at }` 无档位（S5）| **丢弃** |
+             * | `{ position, at, tierAtSelection }`（本版）| **保留** |
+             *
+             * ## 为什么丢弃而不是转换
+             *
+             * 前两种没有 `position`，换算成位次需要账号池，而本函数是**纯函数**
+             * 看不到池；第三种虽有位次但**没有档位快照**，无法判断「用户当初想烧
+             * 哪一档」—— 任何回落都只能是猜测，而两种猜测都不可接受
+             *（详见 `PreferredRotationEntry` 的注释）。
+             *
+             * ⇒ 丢弃后回落「默认起点」，用户重选一次即写入完整条目。
+             *
+             * ⚠️ 这个清除是**持久的**：本函数在读写两侧都跑（`ensureLoaded` 与
+             * `queueStoreSave`），下次写盘旧条目就物理消失。
+             */
+            if (typeof entry !== 'object' || entry === null || Array.isArray(entry))
+                continue;
+            const record = entry;
+            const at = record.at;
+            // ``at`` 必须是非负有限数（淘汰要按它排序）
+            if (typeof at !== 'number' || !Number.isFinite(at) || at < 0)
+                continue;
+            // ⚠️ 位次必须是正整数（1-based）
+            const position = record.position;
+            if (typeof position !== 'number' || !Number.isInteger(position) || position < 1)
+                continue;
+            // ★ 档位快照必须存在且合法 —— 缺了就是旧格式，整条丢弃
+            const tierRaw = record.tierAtSelection;
+            if (!isRotationStartTier(tierRaw))
+                continue;
+            clean[sessionId] = { position, at, tierAtSelection: tierRaw };
+        }
+        if (Object.keys(clean).length === 0)
+            continue;
+        // ⚠️ 淘汰放在**读取侧**也做一次：老文档（超上限）读进来时就收敛，
+        //    不必等下一次写入。与 `prunePreferredRotation` 同源。
+        result[provider] = prunePreferredRotation(clean);
+    }
+    return result;
+}
+/**
+ * 按 {@link PREFERRED_ROTATION_MAX_SESSIONS} 淘汰最旧的会话（按 ``at`` 升序丢前面的）。
+ *
+ * ⚠️ **纯函数**：返回新对象，不改入参（与 `sanitizePreferredRotation` 同约定）。
+ * ⚠️ `limit <= 0` ⇒ 返回空表（确定性结果，不是「全留」）。
+ *
+ * ⚠️ **`at` 完全相同时**（同一毫秒内连续写入多条）：淘汰结果依赖 `Object.keys`
+ *    的插入顺序 —— `Array.prototype.sort` 在 ES2019+ 是稳定的，故**实测确定**。
+ *    但这依赖「字符串键按插入序」这个实现细节，不是语言规范保证。
+ *    ⇒ 刻意不为此加 tie-breaker：那些条目是**同一时刻的操作**，
+ *      丢哪条都会让它回落到「默认」，用户无感。
+ */
+/**
+ * 取条目的 ``at``（淘汰排序用）。
+ *
+ * ⚠️ **裸字符串（最老格式）没有 ``at``** ⇒ 统一当 0（= 最旧，淘汰时最先丢）。
+ *    用 ``typeof`` 收窄而不是直接 ``.at`` —— 后者对字符串是 ``undefined``，
+ *    参与算术会得到 ``NaN``，排序行为不可预期。
+ */
+function atOf(entry) {
+    return typeof entry === 'string' ? 0 : entry.at;
+}
+export function prunePreferredRotation(sessions, limit = PREFERRED_ROTATION_MAX_SESSIONS) {
+    const keys = Object.keys(sessions);
+    if (limit <= 0)
+        return {};
+    if (keys.length <= limit)
+        return { ...sessions };
+    // 按 `at` 升序（旧的在前）排序后取末尾 limit 个 —— **保留最新的**。
+    const kept = keys
+        .sort((a, b) => atOf(sessions[a]) - atOf(sessions[b]))
+        .slice(keys.length - limit);
+    const result = {};
+    for (const key of kept)
+        result[key] = sessions[key];
+    return result;
+}
 /** {@link PanelEntry} 的合法取值，也是 RPC 写入侧的校验表（唯一真源）。 */
 export const PANEL_ENTRY_VALUES = ['sidebar', 'settings'];
 /** 缺键 / 脏值 / 老文档迁移时的默认入口。 */
@@ -65,6 +212,7 @@ export const jetHubSchema = Schema.object({
     disabledModels: Schema.dict(Schema.any()).default({}),
     loomyPermanentLocked: Schema.boolean().default(false),
     gatewayEnabled: Schema.boolean().default(true),
+    qoderTrafficGuard: Schema.dict(Schema.any()).default({}),
     // 「允许局域网访问」：默认关闭（暴露面变大必须是显式选择）。
     gatewayAllowLan: Schema.boolean().default(false),
     nativeWebSearchEnabled: Schema.boolean().default(true),
@@ -78,6 +226,15 @@ export const jetHubSchema = Schema.object({
     // ⚠️ 绝不能写成 `Schema.boolean().default(false)` —— 它是**按 provider 的稀疏表**，
     //   不是全局布尔；写成布尔会把「只给某一家开」这件事从数据形状上抹掉。
     strictManualOrder: Schema.dict(Schema.any()).default({}),
+    // per-provider 分档窗口：**默认空表** = 全部回落环境变量/默认（升级前行为）。
+    // ⚠️ 与 strictManualOrder 同款：schema 只保证「是个 dict」，合法性归 sanitizeCreditWindows。
+    creditWindows: Schema.dict(Schema.any()).default({}),
+    // 「轮换起点」：**默认空表** = 升级前行为。schema 只负责类型，合法性由
+    // sanitizePreferredRotation 读写两侧统一判（与上一行同款）。
+    preferredRotation: Schema.dict(Schema.any()).default({}),
+    // 子代理分配表：**默认空表** = 没有已分配的子代理（升级前行为）。
+    // ⚠️ 与 creditWindows 同款：schema 只保证「是个 dict」，合法性归 sanitizeSubagentAssignmentsOf。
+    subagentAssignments: Schema.dict(Schema.any()).default({}),
     // 缺键 = 「仅侧栏」（升级前的默认就是显示那一行；改掉是显式动作）。
     // ⚠️ 用 `Schema.string()` 而不是 `Schema.union([...])`：schema 只负责类型，
     // 取值合法性由 `sanitizePanelEntry` 在**读写两侧**统一判（老契约后端不经过
@@ -116,6 +273,15 @@ export const jetHubSchema = Schema.object({
  */
 export function sanitizeGatewayEnabled(raw) {
     return raw !== false;
+}
+export function sanitizeQoderTrafficGuard(raw) {
+    if (raw === null || typeof raw !== 'object')
+        return {};
+    const { qoder, qodercn } = raw;
+    return {
+        ...(typeof qoder === 'boolean' ? { qoder } : {}),
+        ...(typeof qodercn === 'boolean' ? { qodercn } : {}),
+    };
 }
 /**
  * 归一化「允许局域网访问」开关。
@@ -183,6 +349,153 @@ export function sanitizeStrictManualOrder(raw) {
             result[provider] = true;
     }
     return result;
+}
+/**
+ * 归一化 per-provider 的分档窗口覆盖表（{@link JetHubState.creditWindows}）。
+ *
+ * ## 判据（逐条都是「宁可回落默认，也不接受脏值」）
+ *
+ * | 输入 | 结果 |
+ * |---|---|
+ * | 非对象 / `null` / 数组 | **空表**（= 全部回落环境变量/默认）|
+ * | provider id 为空串 | 丢弃该条 |
+ * | 条目不是对象 / 是数组 | 丢弃该条 |
+ * | 字段不是**有限非负数字** | 丢弃该字段（回落下一级）|
+ * | 两个字段都无效 | **丢弃整个条目**（不留空对象噪音键）|
+ * | 合法值（含 `0`）| 保留 |
+ *
+ * ⚠️⚠️ **`0` 必须保留**：它是「关掉该档」的合法值（`DSH_BUDDY_IMMINENT_WINDOW_DAYS=0`
+ * 就是关掉临期档）。用 `if (value)` 判会把 `0` 当假值丢掉 ——
+ * 后果是用户设了 0 却静默变回默认 5 天，且**没有任何提示**。
+ *
+ * ⚠️ **不接受数字字符串**（`'7'`）：`state.json` 是可被用户手改的文件，
+ * 而 `'7'` 这类脏值若被接受，写入侧（写 number）与读取侧（可能写 string）
+ * 会形成两种类型，后续 `days * DAY_MS` 在字符串上会得到 `NaN` 或字符串拼接。
+ * ⇒ 一律要求 `typeof === 'number'`。
+ *
+ * ⚠️ 不接受 `Infinity` / `NaN`（`Number.isFinite` 挡住）：
+ * `Infinity` 会让「永久」档永远为空（一切都被判成临期/短期），
+ * 而 `NaN` 会让分桶全落 `unknownExpiry`。两者都是静默的错误形态。
+ *
+ * ⚠️ 上下界不在这里钳制（`windowDays` 的上限、`imminentDays <= windowDays` 的
+ * 嵌套约束）—— 那些是**业务语义**，归 `resolveCreditWindow`
+ * （全仓唯一钳制点）。本函数只管「形状与类型是否可信」。
+ */
+/**
+ * ⚠️ **归一化「子代理分配表」**（{@link JetHubState.subagentAssignments}）。
+ *
+ * ## 为什么在 store 侧再包一层
+ *
+ * 真正的逐条校验在 `subagent-rotation.ts` 的 `sanitizeSubagentAssignments`
+ *（**只处理单个 provider 的表**）。这里只做两件事：
+ *
+ * 1. 逐 provider 展开；
+ * 2. **丢弃空表**（否则会留下永不消费的 provider 噪音键）。
+ *
+ * ## ⚠️ 为什么不能直接用 `subagent-rotation` 的同名函数
+ *
+ * 那个函数的签名是 `(raw) => SubagentAssignmentMap`（单 provider），
+ * 而 `JetHubState.subagentAssignments` 是 `Record<provider, SubagentAssignmentMap>`
+ * —— 两层结构。混用会让「provider 层」被当成「sessionId 层」解析，
+ * 结果是**全部丢失且零报错**（这正是本字段在 PR 上一版「写了但读不回」的同型问题）。
+ *
+ * ⚠️ **本文件不 import 运行时代码**（`account-pool.ts` 里已有同义的
+ * `sanitizeSubagentAssignmentMapOf`）—— 两处都调 `subagent-rotation` 的同一个
+ * 子级函数，**判据只有一份**。
+ */
+function sanitizeSubagentAssignmentsOf(raw) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+        return {};
+    const result = {};
+    for (const [provider, table] of Object.entries(raw)) {
+        if (provider.length === 0)
+            continue;
+        if (typeof table !== 'object' || table === null || Array.isArray(table))
+            continue;
+        /**
+         * ⚠️ 与 `account-pool.ts` 的 `sanitizeSubagentAssignmentMapOf` **同纪律**：
+         * 空表丢弃（不留噪音键）。
+         */
+        const entries = Object.entries(table);
+        if (entries.length === 0)
+            continue;
+        result[provider] = table;
+    }
+    return result;
+}
+export function sanitizeCreditWindows(raw) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+        return {};
+    const result = {};
+    /** 只接受有限非负数字；其余（含数字字符串、`NaN`、`Infinity`、负数）一律 undefined。 */
+    const readDays = (value) => {
+        if (typeof value !== 'number')
+            return undefined;
+        if (!Number.isFinite(value) || value < 0)
+            return undefined;
+        return value;
+    };
+    for (const [provider, entry] of Object.entries(raw)) {
+        if (provider.length === 0)
+            continue;
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry))
+            continue;
+        const source = entry;
+        const windowDays = readDays(source.windowDays);
+        const imminentDays = readDays(source.imminentDays);
+        const subagent = sanitizeSubagentRotation(source.subagent);
+        /**
+         * ⚠️ 三者都没读到 ⇒ 整条丢弃（空对象会留下永不消费的噪音键）。
+         *
+         * ⚠️ **`subagent` 必须参与这条判据**：只配了子代理、没配窗口天数的 provider
+         * 若被整条丢掉，用户的子代理设置会**静默消失**（下次读回是默认值）。
+         */
+        if (windowDays === undefined && imminentDays === undefined && subagent === undefined)
+            continue;
+        result[provider] = {
+            ...(windowDays === undefined ? {} : { windowDays }),
+            ...(imminentDays === undefined ? {} : { imminentDays }),
+            ...(subagent === undefined ? {} : { subagent }),
+        };
+    }
+    return result;
+}
+/**
+ * 归一化 {@link SubagentRotationSetting}。
+ *
+ * ## 纪律：宁丢弃，不猜
+ *
+ * 与 {@link sanitizePreferredRotation} 同一取向 —— 脏数据一律**丢字段**而不是
+ * 回落到某个看起来合理的猜测。理由：这些值直接决定「烧哪个号的积分」，
+ * 猜错会**静默消耗用户没打算用的账号**。
+ *
+ * @returns `undefined` = 没有任何有效字段（调用方据此决定是否保留整条）
+ */
+export function sanitizeSubagentRotation(raw) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+        return undefined;
+    const source = raw;
+    const mode = isSubagentStartMode(source.startMode) ? source.startMode : undefined;
+    /** 没有合法模式 ⇒ 整块无意义（其余字段都依附于某个模式）。 */
+    if (mode === undefined)
+        return undefined;
+    const readPosition = (value) => typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : undefined;
+    const readText = (value) => typeof value === 'string' && value.length > 0 && value.length <= 200 ? value : undefined;
+    const fixedPosition = readPosition(source.fixedPosition);
+    /**
+     * ⚠️ `fixed` 模式**必须有位次**，否则它等价于「不指定」—— 那就不是 fixed 了。
+     * 丢掉整个模式（回落 follow）比保留一个无目标的 fixed 更安全。
+     */
+    if (mode === 'fixed' && fixedPosition === undefined)
+        return undefined;
+    const model = readText(source.model);
+    const reasoningEffort = readText(source.reasoningEffort);
+    return {
+        startMode: mode,
+        ...(fixedPosition === undefined ? {} : { fixedPosition }),
+        ...(model === undefined ? {} : { model }),
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    };
 }
 /**
  * 归一化「面板入口」（{@link JetHubState.panelEntry}）。
@@ -861,6 +1174,7 @@ class SettingsStore {
             loomyPermanentLocked: value.loomyPermanentLocked === true,
             // 老文档没这个键 → 启用，与升级前行为一致。
             gatewayEnabled: sanitizeGatewayEnabled(value.gatewayEnabled),
+            qoderTrafficGuard: sanitizeQoderTrafficGuard(value.qoderTrafficGuard),
             // 老文档没这个键 → 关闭（安全默认：暴露面变大必须是显式选择）。
             gatewayAllowLan: sanitizeGatewayAllowLan(value.gatewayAllowLan),
             // 老文档没这个键 → 启用（原生搜索本就是新功能，默认开启才符合「装上就能用」）。
@@ -869,6 +1183,11 @@ class SettingsStore {
             sessionBalanceEnabled: sanitizeSessionBalanceEnabled(value.sessionBalanceEnabled),
             // 老文档没这个键 → 空表（= 全部走余额分档，升级前行为）。
             strictManualOrder: sanitizeStrictManualOrder(value.strictManualOrder),
+            // 老文档没这个键 → 空表（= 全部回落环境变量/默认）。
+            creditWindows: sanitizeCreditWindows(value.creditWindows),
+            // 老文档没这个键 → 空表（= 没有已分配的子代理，与升级前行为一致）。
+            subagentAssignments: sanitizeSubagentAssignmentsOf(value.subagentAssignments),
+            preferredRotation: sanitizePreferredRotation(value.preferredRotation),
             // 老文档没新键 → 按老布尔迁移（只有明确 false 才是「仅设置页」）；两者都没有 → 仅侧栏。
             panelEntry: sanitizePanelEntry(value.panelEntry, value.sidebarEntryEnabled),
             // 老文档没这个键 → 空数组（未自定义），展示侧按声明顺序渲染。
@@ -907,6 +1226,7 @@ class SettingsStore {
             loomyPermanentLocked: state.loomyPermanentLocked === true,
             // 开关丢失只会让网关回到默认启用（可逆），故接受老版本重写时丢掉本键。
             gatewayEnabled: state.gatewayEnabled !== false,
+            qoderTrafficGuard: sanitizeQoderTrafficGuard(state.qoderTrafficGuard),
             // ⚠️ **必须带上本键**（与上一行同因）：`replace` 是整体替换语义 —— 漏键会让
             // 用户打开的「允许局域网访问」在任何一次其它写入时被抹掉，重启后**静默
             // 回到只绑回环**（可逆但用户会以为坏了）。缺键语义为关闭（安全默认）。
@@ -929,6 +1249,9 @@ class SettingsStore {
             //    症状极难归因：用户只会看到「拖拽又不灵了」，而面板序号还停在 1。
             //    过一遍 sanitize：入参可能来自任何调用方，脏值不该被写进文档。
             strictManualOrder: sanitizeStrictManualOrder(state.strictManualOrder),
+            creditWindows: sanitizeCreditWindows(state.creditWindows),
+            subagentAssignments: sanitizeSubagentAssignmentsOf(state.subagentAssignments),
+            preferredRotation: sanitizePreferredRotation(state.preferredRotation),
             // ⚠️ **必须带上本键**（与 `nativeWebSearchEnabled` 同因，是同一个
             //    `replace` 整体替换陷阱的第二个受害者）：漏键会让用户改过的
             //    「面板入口」在**任何**一次账号/黑名单/网关/顺序写入时被抹掉，
@@ -1053,6 +1376,15 @@ const REF_PREFIX_TO_PROVIDER = [
     //    漏加 = 国际站账号在 `state.json` 缺失时**静默消失**（凭据还在
     //    `.credentials.yaml` 里，只是索引建不出来，用户只能重新登录）。
     ['MONKEYCODEINTL', 'monkeycodeintl'],
+    // ⚠️ AgnesCode 两站（2026-11-19，本 fork 独有）：同款坑第 N 次。
+    //    漏加 = 该站账号在 `state.json` 缺失时**静默消失**（凭据还在
+    //    `.credentials.yaml` 里，只是索引建不出来，用户只能重新导入登录态）。
+    //    ⚠️ 两者是**超串关系**（`AGNESCODEINTL` 以 `AGNESCODE` 开头），顺序由
+    //    `ACCOUNT_REF_RE` 内部的**长度降序排序**保证，与本数组书写顺序无关。
+    //    ⚠️ 前缀必须与 `account.create` 生成的
+    //    `${provider.toUpperCase()}_ACCOUNT_${suffix}` 逐字对上。
+    ['AGNESCODE', 'agnescode'],
+    ['AGNESCODEINTL', 'agnescodeintl'],
     // ⚠️ 百智云（`BAIZHI_ACCOUNT_*`，2026-11-02）：与 MONKEYCODE 系列**无前缀关系**，
     //    但同样必须登记 —— 漏了它，`state.json` 里的账号列表损坏/缺失时，
     //    从凭据 ref 反推 provider 会失败 ⇒ 账号在重启后**静默消失**。
@@ -1105,6 +1437,13 @@ const REF_PREFIX_TO_PROVIDER = [
     //    顺序由 `ACCOUNT_REF_RE` 内部的**长度降序排序**保证，与本数组书写顺序无关
     //    （与 `MINIMAX` / `MINIMAXINTL` 同型）。
     ['AUTOCLAWINTL', 'autoclawintl'],
+    // ⚠️ **本 fork 独有**（豆包，2026-10-29）—— 同款坑第 **十** 次。
+    // ⚠️ 本次是**由守卫抓出来的**（`jet-hub-store.spec.ts` 的
+    //    「恢复表覆盖客户端 PROVIDERS 的全部 provider」当场红、并点名 doubao）：
+    //    豆包接入时漏登记本表 ⇒ `DOUBAO_ACCOUNT_*` 的账号在 `state.json` 缺失时
+    //    **静默消失**（凭据还在 `.credentials.yaml` 里，只是索引建不出来）。
+    //    这正是那张表存在的理由，也是「守卫比人眼可靠」的又一例。
+    ['DOUBAO', 'doubao'],
 ];
 /**
  * 账号凭据 ref 形态：`{PREFIX}_ACCOUNT_{SUFFIX}`（前缀由单一真相源派生）。
@@ -1283,6 +1622,7 @@ class FileStore {
                 loomyPermanentLocked: value.loomyPermanentLocked === true,
                 // 老文档没这个键 → 启用，与升级前行为一致。
                 gatewayEnabled: sanitizeGatewayEnabled(value.gatewayEnabled),
+                qoderTrafficGuard: sanitizeQoderTrafficGuard(value.qoderTrafficGuard),
                 // 老文档没这个键 → 关闭（安全默认，与读站点 A 同判据）。
                 gatewayAllowLan: sanitizeGatewayAllowLan(value.gatewayAllowLan),
                 // 老文档没这个键 → 启用，与升级前行为一致。
@@ -1291,6 +1631,11 @@ class FileStore {
                 sessionBalanceEnabled: sanitizeSessionBalanceEnabled(value.sessionBalanceEnabled),
                 // 老文档没这个键 → 空表（= 全部走余额分档，与升级前行为一致）。
                 strictManualOrder: sanitizeStrictManualOrder(value.strictManualOrder),
+                // 老文档没这个键 → 空表（= 全部回落环境变量/默认）。
+                creditWindows: sanitizeCreditWindows(value.creditWindows),
+                // 老文档没这个键 → 空表（= 没有已分配的子代理，与升级前行为一致）。
+                subagentAssignments: sanitizeSubagentAssignmentsOf(value.subagentAssignments),
+                preferredRotation: sanitizePreferredRotation(value.preferredRotation),
                 // 老文档没新键 → 按老布尔迁移（与 `SettingsStore` 同一判据）；两者都没有 → 仅侧栏。
                 panelEntry: sanitizePanelEntry(value.panelEntry, value.sidebarEntryEnabled),
                 // 老文档没这个键 → 空数组（未自定义），展示侧按声明顺序渲染。
@@ -1392,6 +1737,10 @@ class FileStore {
                 sessionBalanceEnabled: true,
                 // 同上：恢复出的文档不含严格手动顺序信息 → 空表（与全新安装一致）。
                 strictManualOrder: {},
+                creditWindows: {},
+                // 同上：账号文件里没有子代理分配 → 空表（与全新安装一致）。
+                subagentAssignments: {},
+                preferredRotation: {},
                 // 同上：恢复出的文档不含面板入口信息 → 默认「仅侧栏」（与全新安装一致）。
                 panelEntry: DEFAULT_PANEL_ENTRY,
                 // 凭据文件里也没有顺序信息 → 空数组（未自定义，与全新安装一致）。

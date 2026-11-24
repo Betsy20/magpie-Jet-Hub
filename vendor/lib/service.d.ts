@@ -1,5 +1,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis';
 import { type CredentialRef } from '@deepseek-ai/dsh-credentials';
+import { type ManualCallbackSubmitResult } from './login.js';
 import type { LoginFlowOptions } from './types.js';
 import { AccountPool } from './account-pool.js';
 import { type RemoteCatalogOutcome, type RemoteModel } from './models.js';
@@ -124,6 +125,8 @@ export declare class CodeArtsAuth extends Service {
         loginUrl: string;
         result: Promise<LoginResult>;
         close: () => Promise<void>;
+        /** 手动提交回调链接（另一台设备完成登录后粘回来）。RPC 层直接转调。 */
+        submitManualCallback: (raw: unknown) => ManualCallbackSubmitResult;
     }>;
     /**
      * 持久化一次登录结果：写凭据、按需登记账号池。

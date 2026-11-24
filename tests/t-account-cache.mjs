@@ -251,8 +251,8 @@ const listMod = new Function(`${listSrc}\nreturn { listAccountsOf, accountById, 
   // 为什么必须有：`currentAll()` 的判据是 `allModels === undefined || fullModels ===
   // undefined || stale`，而**干净机器上没有磁盘缓存** ⇒ 前两项恒为真，每次调用都新起
   // 一条 `refreshInBackground()`。magpie 宿主 `providers()` 是
-  // `Promise.all([...auths()].map(row))` —— 29 家并行各调一次 `provider.models()`，
-  // `config` 钩子另外 29 次串行 ⇒ 冷启动最多 58 条链同时跑，并发互清
+  // `Promise.all([...auths()].map(row))` —— 32 家并行各调一次 `provider.models()`，
+  // `config` 钩子另外 32 次串行 ⇒ 冷启动最多 64 条链同时跑，并发互清
   // `modelMeta`（能力声明随机丢）、上千次 `rpc('model.list')`、58 次同步写盘，
   // 20 秒超时到点拿到空列表 —— **而没有任何错误**。
   //
@@ -307,7 +307,7 @@ const listMod = new Function(`${listSrc}\nreturn { listAccountsOf, accountById, 
     // ⚠ 为什么 C-9a/b/c 抓不到：它们用的假容器**都会 resolve**，而 `finally` 只在
     //    promise settle 时执行。真实故障形态是 `container.start()` / `refreshModels()`
     //    永不 settle（`src/container.mjs:726` 的 `route.fetch(req)` 没有 AbortSignal、
-    //    没有超时）⇒ `refreshing` 永久 `true` ⇒ 29 家 `models()` 全部只返回磁盘旧
+    //    没有超时）⇒ `refreshing` 永久 `true` ⇒ 32 家 `models()` 全部只返回磁盘旧
     //    目录、`writeCache()` 永不执行。这条用「永不 settle 的 start」把它钉住。
     const c = make()
     c.container.start = () => new Promise(() => {}) // 永不 settle
